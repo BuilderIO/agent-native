@@ -1,4 +1,5 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   parsePropertyOptions,
@@ -36,6 +37,12 @@ import type {
   DocumentProperty,
   DocumentPropertyValue,
 } from "../shared/api.js";
+import { sanitizeNormalizationFormula } from "../shared/properties.js";
+import {
+  readBuilderCmsContentEntries,
+  readBuilderCmsModelFields,
+  type BuilderCmsReadState,
+} from "./_builder-cms-read-client.js";
 import {
   BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
   buildBuilderCmsFixtureEntry,
@@ -47,13 +54,7 @@ import {
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
-import {
-  readBuilderCmsContentEntries,
-  readBuilderCmsModelFields,
-  type BuilderCmsReadState,
-} from "./_builder-cms-read-client.js";
 import { listPropertiesForDatabase, nanoid } from "./_property-utils.js";
-import { sanitizeNormalizationFormula } from "../shared/properties.js";
 
 type ContentDatabaseRow = typeof schema.contentDatabases.$inferSelect;
 type ContentDatabaseSourceRowDb =
@@ -674,14 +675,24 @@ export async function resolveDatabaseForSourceMutation(args: {
     const [database] = await db
       .select()
       .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.id, args.databaseId));
+      .where(
+        and(
+          eq(schema.contentDatabases.id, args.databaseId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
     return database ?? null;
   }
   if (args.documentId) {
     const [database] = await db
       .select()
       .from(schema.contentDatabases)
-      .where(eq(schema.contentDatabases.documentId, args.documentId));
+      .where(
+        and(
+          eq(schema.contentDatabases.documentId, args.documentId),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
     return database ?? null;
   }
   return null;
@@ -690,6 +701,9 @@ export async function resolveDatabaseForSourceMutation(args: {
 export async function getContentDatabaseSourceSnapshot(
   database: ContentDatabaseRow | ContentDatabase,
 ): Promise<ContentDatabaseSource | null> {
+  if ("deletedAt" in database && database.deletedAt) {
+    throw new Error(`Database "${database.id}" not found`);
+  }
   const db = getDb();
   const [source] = await db
     .select()
@@ -749,6 +763,9 @@ export async function getContentDatabaseSourceSnapshotForWrite(
 export async function getAllContentDatabaseSourceSnapshots(
   database: ContentDatabaseRow | ContentDatabase,
 ): Promise<ContentDatabaseSource[]> {
+  if ("deletedAt" in database && database.deletedAt) {
+    throw new Error(`Database "${database.id}" not found`);
+  }
   const db = getDb();
   const sources = await db
     .select()

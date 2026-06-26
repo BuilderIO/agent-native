@@ -1,0 +1,816 @@
+---
+title: "Visuelle Pläne"
+description: "Agent-Native Plans verwandelt den Plan Ihres Programmieragenten in ein strukturiertes, überprüfbares Dokument – Diagramme, Wireframes, kommentierten Code, Kommentare und Freigabelinks. Einmal von CLI installieren; Rezensenten, mit denen Sie sie teilen, bearbeiten sie als Gast und melden sich nur zum Speichern oder Teilen an."
+---
+
+# Visuelle Pläne
+
+> **Die meisten Leute installieren Plan als Skill und nicht als Gerüst-App.** Ein CLI-Befehl
+> fügt `/visual-plan` und `/visual-recap` skills sowie den gehosteten Plan hinzu
+> -Connector zu Ihrem Codierungsagenten – siehe [Plan plugin & marketplace](/docs/plan-plugin)
+> für die Plugin- und Marktplatzrouten. Forken der Planvorlage (behandelt unter
+> [For developers](#for-developers)) ist der sekundäre Pfad für Selbsthosting oder
+> baut auf Plan selbst auf.
+
+Agent-Native Plans ist ein visueller Planmodus für Codierungsagenten. Es wird zu einem gewöhnlichen
+Codex-, Claude-Code, Markdown oder eingefügter Implementierungsplan in eine strukturierte Datei
+Überprüfungsoberfläche mit Rich Text, Diagrammen, Wireframes und kommentierten Code-Komplettlösungen
+und Dateibäume, Anmerkungen, Kommentare und gemeinsam nutzbare Links.
+
+Es kommt auf zwei Befehle an. `/visual-plan` erstellt einen Plan **vor** dem Agenten
+schreibt Code. `/visual-recap` stellt eine Änderung dar, die **bereits** stattgefunden hat – eine PR,
+commit, branch oder git diff – in eine visuelle Codeüberprüfung aus großer Höhe. Beide öffnen sich
+die gleiche Überprüfungsoberfläche, sodass Sie Anmerkungen machen, Kommentare abgeben und Feedback an die
+Agent auf die gleiche Weise.
+
+```an-diagram title="Zwei Befehle, eine Überprüfungsoberfläche" summary="Beide Befehle veröffentlichen über den gehosteten Plan MCP-Connector in derselben Anmerkungs- und Kommentaroberfläche."
+{
+  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">vor dem Code: Architektur, UI, Refactor</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">nach dem Code: PR, Commit, Branch, Diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Plan MCP-Connector<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Review-Oberflaeche<br><small class=\"diagram-muted\">Diagramme · Wireframes · annotierter Code · Kommentare</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">Coding Agent<br><small class=\"diagram-muted\">Feedback zurueckgegeben</small></div></div>",
+  "css": ".diagram-plan{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-plan .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-plan .diagram-arrow{font-size:22px;line-height:1}.diagram-plan .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}"
+}
+```
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Plan fuer Checkout-Redesign</h1><div style='flex:1'></div><button>Teilen</button><button class='primary'>Genehmigen</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Aktuelles Wireframe</div><div class='wf-box'>Vorgeschlagenes Wireframe</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementierungsplan</strong><div class='wf-box'>Entscheidung: bestehende Checkout-Shell beibehalten</div><div class='wf-box'>Annotierte Code-Einfuehrung</div><div class='wf-box'>Offene Fragen</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Kommentare</strong><div class='wf-box'>Pin am primaeren CTA</div><div class='wf-box'>Frage an den Agenten</div><div class='wf-box'>Geklaerte Copy-Notiz</div><button class='primary'>Feedback zurueckgeben</button></aside></div>"
+}
+```
+
+Es gibt zwei Möglichkeiten, in Pläne einzusteigen:
+
+- **Von Ihrem Codierungsagenten (CLI)** – ein Befehl installiert den Skill und registriert
+  den gehosteten Plans-Connector und authentifiziert ihn.
+- **Im Browser** – jeder, mit dem Sie etwas teilen, kann den Editor öffnen und erstellen oder
+  als **Gast bearbeiten, ohne Anmeldung**. Sie melden sich nur an, wenn sie speichern möchten
+  oder teilen.
+
+## Installieren Sie den Skill {#install}
+
+Verwenden Sie Agent-Native CLI. Dies ist das empfohlene Setup, da es das
+Plant-Skill-Anweisungen, registriert den gehosteten Plans-MCP-Connector, **und** führt ihn aus
+Der clientspezifische Authentifizierungs-/Setup-Ablauf erfolgt in einem Schritt, Ihr erster Tool-Aufruf also nicht
+gegen eine OAuth-Wand stoßen:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+Der Befehl installiert beide Befehle: `/visual-plan` und `/visual-recap`.
+
+Wenn Sie einen Chat-basierten Host verwenden, der MCP-Connector URLs direkt akzeptiert
+(anstelle eines CLI-konfigurierten Clients) verbinden Sie den gehosteten Plans-Connector unter
+`https://plan.agent-native.com/_agent-native/mcp` – siehe [MCP Clients](/docs/mcp-clients) für kundenspezifische Einrichtung.
+
+Die Authentifizierung ist eine einmalige Browser-Anmeldung beim Setup – das ist so beabsichtigt und
+ermöglicht es dem Agenten, die von ihm generierten Pläne beizubehalten und zu teilen. Was ist die Authentifizierung?
+Schritt hängt von Ihrem Kunden ab:
+
+- **OAuth-fähige Hosts** (Claude-Code) erhalten einen nur für URL gültigen MCP-Eintrag sowie eine Aufforderung zu
+  Führen Sie `/mcp` aus und wählen Sie **Authentifizieren**.
+- **Codex / Cowork** führt einen kurzen Browser-Gerätecode-Ablauf aus: Der CLI druckt einen Code,
+  öffnet die Verifizierungsseite und schreibt den Connector, sobald Sie ihn genehmigen.
+- In einer **nicht interaktiven Shell oder CI** wird der Authentifizierungsschritt übersprungen und der genaue
+  Der Befehl zur späteren Ausführung wird für Sie gedruckt.
+
+Standardmäßig zielt der CLI auf jeden unterstützten lokalen Client ab, den er konfigurieren kann. Bestehen
+`--client codex`, `--client claude-code` oder ein anderer spezifischer Client, wenn Sie
+Sie möchten die Einrichtung auf einen Host beschränken:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+Übergeben Sie `--no-connect`, um den Connector ohne Authentifizierung zu registrieren, und führen Sie ihn dann aus
+`npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+wann immer Sie bereit sind, oder wählen Sie einen schmaleren `--client`:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --no-connect
+```
+
+Um bei **jeder Pull-Anfrage** automatisch eine Zusammenfassung zu generieren, übergeben Sie `--with-github-action`.
+Dadurch wird eine GitHub-Aktion geschrieben, die den `visual-recap`-Skill auf jedem PR ausführt und
+postet einen interaktiven Zusammenfassungsplan mit einem Inline-Screenshot als Sticky-Kommentar –
+siehe [PR Visual Recap](/docs/pr-visual-recap).
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --with-github-action
+```
+
+Nachdem der Workflow geschrieben wurde, führen Sie `npx @agent-native/core@latest recap setup` zur Konfiguration aus
+GitHub Actions Geheimnisse/Variablen, sofern möglich, und `npx @agent-native/core@latest recap doctor`
+um zu überprüfen, ob das Repo bereit ist.
+
+Wenn Sie die portable Anweisungsdatei nur über das offene Skills CLI wünschen, verwenden Sie:
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill visual-plan
+```
+
+Dadurch werden nur die Skill-Anweisungen installiert. Das gehostete MCP
+-Anschluss, verwenden Sie also den Pfad Agent-Native CLI, wenn Sie die Ein-Befehl-Einrichtung wünschen.
+
+> **Bevorzugen Sie ein One-Install-Plugin?** Claude-Code und Codex können hinzugefügt werden
+> `BuilderIO/agent-native` direkt als Plugin-Marktplatz, der die
+> Planen Sie skills _und_ den Connector in einer Installation und aktualisieren Sie ihn automatisch als skills
+> verbessern – siehe [Plan plugin & marketplace](/docs/plan-plugin).
+
+### Öffnen Sie Pläne in VS Code {#vscode-extension}
+
+Wenn Sie in VS Code leben, installieren Sie
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+um dieselbe Planüberprüfungsoberfläche in einem Seitenbereich zu öffnen, anstatt Sie zu einem weiterzuleiten
+separater Browser-Tab. Pläne-Tools geben weiterhin den normalen Weblink und den MCP
+Metadaten umfassen auch eine VS-Code-Übergabe URL:
+
+```text
+vscode://builder.agent-native/open?url=<encoded-plan-url>
+```
+
+Die Erweiterung verarbeitet URI und öffnet den dekodierten Plan URL in einer VS-Code-Webansicht.
+und enthält einen Befehl zum Ausführen des vorhandenen Agent Native MCP-Verbindungsablaufs für VS
+Code / GitHub Copilot. Dies ist besonders nützlich bei Claude-Code oder einem anderen
+Coding-Agent-Workflow, bei dem der Plan neben den zu bearbeitenden Dateien bleiben sollte.
+
+## Verwenden Sie es von Ihrem Codierungsagenten
+
+Fragen Sie nach der Installation Ihren Agenten nach dem Befehl, der zur Arbeit passt:
+
+- `/visual-plan` erstellt einen strukturierten Plan **vor** der Implementierung – für
+  Architektur-, Backend-, Refactoring-, UI- oder gemischte Produktarbeit – Einzug
+  Diagramme, Wireframes, Modelle, anklickbare Prototypen und kommentierter Code
+  Komplettlösungen und Dateibäume je nach Bedarf.
+- `/visual-recap` erstellt eine **Überprüfung** einer Änderung aus großer Höhe
+  passiert – ein PR, Commit, Branch oder Git-Diff – als Schema, API, Datei und
+  Vorher/Nachher-Blöcke anstelle einer Wand aus Rohdiff.
+
+Der Agent sollte zuerst die Codebasis prüfen und dann den visuellen Plan erstellen, wenn ein
+falsche Richtung wäre kostspielig. Der zurückgegebene Plan-Link öffnet die Rezension UI in
+den Browser oder VS-Code, damit Sie Anmerkungen machen, Korrekturen vornehmen, Optionen auswählen und nachfragen können
+Updates, bevor Codeänderungen beginnen.
+
+Wenn bereits ein Codex-, Claude-Code, Markdown oder ein eingefügter Plan vorhanden ist, verwenden Sie
+`/visual-plan`; Der Agent behält diesen Quellplan bei und erstellt die umfassendere Überprüfung
+Auftauchen, anstatt von vorne zu beginnen.
+
+Wenn es im ersten Durchgang noch verantwortbare Entscheidungen gibt, kann der Agent eine platzieren
+Formular **Offene Fragen** am Ende desselben Plans. Beantworten und senden
+Es wird dem Agenten eine Revisionsrunde gegen den bestehenden Plan eingeleitet.
+
+## Was Sie damit machen können
+
+- **Überprüfung vor der Implementierung.** React zu Diagrammen, Wireframes, Optionsregisterkarten,
+  Offene Fragenformulare, Risikohinweise, kommentierte Code-Komplettlösungen und Code
+  Vorschau, bevor der Agent Dateien bearbeitet.
+- **Kommentieren Sie direkt zum Plan.** Pinnen Sie Feedback an Text, Bilder, Wireframes oder
+  Canvas-Standorte; Wählen Sie aus, ob der Kommentar für den Agenten oder einen Menschen bestimmt ist
+  Rezensent; Teamkollegen mit Inline-Chips @erwähnen; und lösen Sie Kommentare als
+  Plan entwickelt sich weiter.
+- **Geben Sie dem Agenten deutlich Feedback.** Textkommentare werden am nächsten angehängt
+  Prosablock, visuelle Kommentare enthalten genaue Zielmetadaten und Browser
+  Die Übergabe enthält fokussierte Screenshots für eine kleine Reihe visueller/Leinwandkommentare
+  Standorte anstelle eines schwer lesbaren riesigen Bildes.
+- **Exportieren Sie das Ergebnis.** Behalten Sie eine HTML-, Markdown- oder JSON-Quittung des Plans
+  wenn Sie eine Versionsverwaltungsfreundliche Übergabe benötigen.
+
+## Bearbeiten im Browser als Gast {#guest}
+
+Personen, mit denen Sie einen Plan teilen, müssen nichts installieren. Sie öffnen die Pläne
+Editor und **erstellen und bearbeiten ohne Anmeldung** – sie arbeiten als Gast. Anmelden
+ist nur erforderlich, wenn jemand seine eigene Arbeit **speichern oder teilen** möchte.
+
+Wenn sich ein Gast anmeldet, werden die von ihm als Gast erstellten Pläne **beansprucht**
+ihr Konto, sodass nichts, was sie erstellt haben, verloren geht.
+
+Planen Sie Prosabearbeitungen inline: Klicken Sie in einen beliebigen Textabschnitt, geben Sie ihn ein und formatieren Sie ihn mit dem Rich
+Editor-Symbolleiste oder Slash-Menü, und Pläne speichert den zugrunde liegenden Markdown automatisch. Rezension
+Anmerkungsmodus werden Textabschnitte vorübergehend schreibgeschützt, sodass Klicks angeheftet werden können
+Feedback; Verlassen Sie den Überprüfungsmodus, um die Prosa weiter zu bearbeiten.
+
+## Teilen und Kommentieren {#sharing}
+
+Teilen und Kommentieren sind die Arbeitsabläufe, für die ein Konto erforderlich ist:
+
+- **Das Anzeigen** eines öffentlichen oder geteilten Plans funktioniert für jeden, der über den Link verfügt – ohne Konto
+  erforderlich.
+- **Für das Kommentieren** eines gemeinsamen Plans ist ein agentennatives Konto erforderlich.
+- **Teilen** eines Plans (Veröffentlichen über einen Link, privates Teilen, Prüferzugriff,
+  geräteübergreifende oder Teambewertung) erfordert eine Anmeldung. Die Google-Anmeldung wird angezeigt, wenn
+  Die standardmäßigen Google OAuth-Umgebungsvariablen sind konfiguriert.
+
+Der gehostete Plan-Connector befindet sich unter `https://plan.agent-native.com/_agent-native/mcp`.
+Fügen Sie niemals gemeinsame Geheimnisse in Skill-Dateien ein.
+
+## Datenschutzmodus für lokale Dateien {#local-files}
+
+Für datenschutzorientierte Arbeiten fragen Sie nach dem Modus für lokale Dateien:
+
+```text
+Use /visual-plan in local-files mode. Do not write this plan to the Plan DB.
+```
+
+oder legen Sie die Konvention für Ihre Agentenumgebung fest:
+
+```bash
+export AGENT_NATIVE_PLANS_MODE=local-files
+```
+
+In diesem Modus schreibt der Agent einen lokalen MDX-Ordner und darf den gehosteten nicht aufrufen
+MCP-Tools planen. Verwenden Sie einen Repo-Ordner wie `plans/<slug>/`, wenn Sie den Plan benötigen
+mit dem Code eingecheckt. Verwenden Sie einen temporären oder ignorierten Ordner, z. B.
+`/tmp/agent-native-plans/<slug>/` oder `.agent-native/plans/<slug>/`, wenn
+plan sollte aus dem Trottel herausbleiben. Der Ordner enthält:
+
+- `plan.mdx`
+- optional `canvas.mdx`
+- optional `prototype.mdx`
+- optional `.plan-state.json`
+
+Nachdem der Agent den Ordner geschrieben hat, startet er eine kleine Localhost-Bridge und öffnet den
+gehosteter Plan UI für diese nur lokale Quelle:
+
+```bash
+npx @agent-native/core@latest plan local check --dir plans/<slug>
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+Die Brücke URL sieht aus wie
+`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+Die Seite ist der normale Plan-Viewer, aber der Browser ruft `plan.mdx` ab,
+`canvas.mdx`, `prototype.mdx`, `.plan-state.json` und lokale Bildressourcen von
+die Localhost-Brücke. Planinhalte werden nicht in die gehostete Datenbank geschrieben und sind
+nicht über den gehosteten Plan actions gesendet. Lassen Sie den Bridge-Prozess laufen, während Sie
+Rezension; Der URL befindet sich lokal auf Ihrem Computer und ist kein gemeinsam nutzbarer Team-Link. Die
+serve-Befehl schreibt standardmäßig das offene URL in `.plan-url`, damit Codierungsagenten dies tun können
+Erfassen Sie es, ohne lang laufende Standardausgabe zu scrapen. Behandeln Sie diese Datei als nur lokal
+weil URL das Bridge-Token enthält und es nicht festschreibt.
+
+Unter macOS bevorzugt `--open` Chrome/Chromium, da Safari das Hosting blockieren kann
+HTTPS Planseite vom Abrufen einer HTTP Localhost Bridge. Für Headless
+Fehlerbehebung, führen Sie Folgendes aus:
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+`verify` startet die Bridge, überprüft den Preflight des privaten Netzwerks und JSON
+Nutzlast, druckt Diagnosen und beendet.
+
+Wenn Sie die Plan-App lokal mit demselben `PLAN_LOCAL_DIR` ausführen, können Sie dies auch
+Öffnen Sie die bearbeitbare App-Route:
+
+```text
+http://localhost:<port>/local-plans/<slug>
+```
+
+Bei Repository-gestützten Ordnern kann die direkte lokale Route das Repository-Relative übertragen
+Ordnerpfad, damit Browser-Änderungen weiterhin in diesen Ordner schreiben:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+Die Plan-App verwendet `apps.plan.roots[0].path` in `agent-native.json` als
+Standard-Repo-Speicherort für beworbene lokale Pläne, zurückgreifend auf `plans/`:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+Direkte lokale Planrouten umfassen eine Menüaktion zum Speichern eines temporären lokalen Ordners
+in diesen Repo-Speicherort. Nach der Heraufstufung wird die Seite mit `?path=...` und
+ZxQ0QXZ-Änderungen werden weiterhin automatisch im Repo-Ordner gespeichert.
+
+Der Modus „Lokale Dateien“ verhindert, dass Plan- oder Zusammenfassungsinhalte an den Agent-Native gesendet werden.
+Plandatenbank. Außerdem werden die gehostete Freigabe, Browserkommentare und der Planverlauf deaktiviert.
+und veröffentlichen/exportieren Sie Belege, bis Sie sich ausdrücklich für die Veröffentlichung entscheiden. Um ein
+Lokaler Plan in die gehostete Datenbank, rufen Sie `publish-visual-plan` mit dem lokalen auf
+MDX Ordnerpfad; Dadurch wird der Plan hochgeladen, ihm eine gehostete ID zugewiesen und die Freigabe ermöglicht
+und kommentieren und gibt den gehosteten URL zurück. Der Modus „Lokale Dateien“ funktioniert nicht
+Machen Sie LLM Ihres Codierungsagenten automatisch lokal. Wählen Sie ein lokales oder zugelassenes
+Modell, wenn diese Datenschutzgrenze ebenfalls wichtig ist.
+
+## Lokale Desktop-Dateisynchronisierung {#desktop-local-sync}
+
+Agent Native Desktop bietet gehosteten Plänen außerdem eine native lokale Ordnerbrücke. Dies
+unterscheidet sich vom Datenschutzmodus für lokale Dateien: Die gehostete Plan-Datenbank bleibt die
+Quelle der Wahrheit für Teilen, Kommentare, Verlauf und Live-Überprüfung auf dem Desktop
+kann die Quelldateien des aktuellen Plans in einen von Ihnen ausgewählten Ordner spiegeln.
+
+Öffnen Sie einen Plan in Agent Native Desktop und verwenden Sie im Planmenü **Lokale Dateien** actions
+dann:
+
+- **Lokalen Ordner verknüpfen** – Wählen Sie den Ordner für die MDX-Quelle dieses Plans.
+- **Mit lokalem Ordner synchronisieren** – `plan.mdx` schreiben, optional `canvas.mdx`,
+  optionales `prototype.mdx`, optionales `.plan-state.json` und Bildelemente.
+- **Lokale Änderungen importieren** – lesen Sie den Ordner und wenden Sie ihn an
+  `import-visual-plan-source` mit dem aktuellen Aktualisierungszeitstempel des Plans.
+- **Änderungen automatisch synchronisieren** – exportieren Sie danach weiterhin die neueste Quelle des gehosteten Plans
+  In der App vorgenommene Änderungen.
+
+Für diesen Pfad ist kein Klonen der Plan-App oder das Ausführen eines CLI erforderlich. Es ist für
+Datei-zuerst-Überprüfung/Bearbeitung eines gehosteten Plans, nicht zum Heraushalten von Planinhalten
+der gehosteten Datenbank.
+
+## Gehostete Plandaten löschen {#delete-data}
+
+Angemeldete Besitzer können ihre gehosteten Pläne und Zusammenfassungen aus der Liste der Pläne löschen oder
+das Plan-Aktionsmenü.
+
+- **Vorläufiges Löschen** verschiebt den Plan auf die Registerkarte **Gelöscht** und erstellt einen normalen Plan
+  Ansichten/direkte Links funktionieren nicht mehr und der öffentliche Zugriff wird durch Erstellen der Zeile entfernt
+  privat. Die SQL-Zeilen bleiben erhalten, sodass der Eigentümer den Plan später wiederherstellen kann.
+- **Wiederherstellen** ist auf der Registerkarte **Gelöscht** für vorläufig gelöschte Pläne verfügbar.
+- **Permanent löschen** entfernt die gehostete Planzeile und planbezogene Kommentare
+  Abschnitte, Aktivitätsereignisse, Versions-Snapshots, Freigabegewährungen, Missbrauchsberichte und
+  SQL Asset-Datensätze. Der UI erfordert die Eingabe von `DELETE <plan-id>` vor dem Finale
+  Schaltfläche aktiviert.
+
+Durch dauerhaftes Löschen werden die Datenbankeinträge der Plan-App und das durch SQL gesicherte Asset entfernt
+Bytes/Referenzen. Wenn eine Bereitstellung einen externen Upload-Anbieter verwendet, Anbieter
+Die Objektaufbewahrung folgt dem Lebenszyklus dieses Anbieters aufgrund des freigegebenen Uploads
+-Abstraktion macht das Löschen von Objekten derzeit nicht möglich. Datenschutzmodus für lokale Dateien
+behält die Quelle stattdessen in Ihrem lokalen MDX-Ordner; Das Löschen gehosteter Daten funktioniert nicht
+lokale Dateien berühren.
+
+## Nützliche Eingabeaufforderungen
+
+- „Verwenden Sie `/visual-plan`, bevor Sie den Authentifizierungsfluss ändern.“
+- „Erstellen Sie ein `/visual-plan` für den neuen Onboarding-Bildschirm mit Mobil- und Desktop-Status.“
+- „Verwenden Sie `/visual-plan` für den unten aufgeführten Markdown-Plan, um die Überprüfung zu erleichtern.“
+- „Führen Sie `/visual-recap` auf diesem PR aus, damit ich zuerst die Form der Änderung überprüfen kann.“
+- „Verwenden Sie `/visual-recap` für den Unterschied zwischen `main` und diesem Zweig.“
+- „Verwenden Sie `/visual-recap` im lokalen Dateimodus, damit kein Zusammenfassungsinhalt in die Plan-Datenbank geschrieben wird.“
+
+## Wiederherstellung nach Authentifizierungsfehlern {#auth-errors}
+
+Wenn ein Plan-Tool jemals `needs auth`, `Unauthorized` oder „Sitzung“ zurückgibt
+terminated`, versuchen Sie es nicht weiter. Authentifizieren Sie den Connector mit
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex` für Codex, oder führen Sie`/mcp` → **Authentifizieren** auf einem OAuth-fähigen Host erneut aus. Starten Sie ein
+neuer Codex-Thread oder starten/laden Sie den entsprechenden Client neu, bevor Sie das Tool erwarten
+Registrierung zum Aktualisieren.
+
+## Für Entwickler
+
+Der Rest dieses Dokuments richtet sich an alle, die die Plans-Vorlage forken oder selbst hosten.
+Die meisten Benutzer sollten den Skill mit CLI installieren, anstatt ein Gerüst für die App zu erstellen.
+
+### Schnellstart
+
+```bash
+npx @agent-native/core@latest create my-plans --standalone --template plan
+cd my-plans
+pnpm install
+pnpm dev
+```
+
+Der von der gehosteten App unterstützte Skill verwendet:
+
+- App: `https://plan.agent-native.com`
+- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+
+Die lokale Vorlage ist nützlich, wenn Sie Pläne selbst entwickeln, die lokale Persistenz testen oder eine vollständig selbst gehostete Überprüfungsoberfläche ausführen.
+
+### Datenmodell
+
+Schema befindet sich in `templates/plan/server/db/schema.ts`. Kerntabellen:
+
+| Tabelle            | Was es enthält                                                                                                                                                                                                              |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | Jeder Plan oder jede Zusammenfassung – `title`, `brief`, `kind` (Plan/Zusammenfassung), `status`, `source`, `html`/`markdown`/`content`, `hosted_plan_id/url`, Nutzungsstatistiken, `source_url`, `deleted_at`/`deleted_by` |
+| `plan_sections`    | Geordnete Abschnitte innerhalb eines Plans – `type`, `title`, `body`, `html`, `sort_order`, `created_by`                                                                                                                    |
+| `plan_comments`    | Thread-Kommentare – `kind`, `status`, `anchor`, `message`, `resolution_target`, `mentions_json`, `resolved_by`                                                                                                              |
+| `plan_events`      | Überwachungsprotokoll von Agenten-/Personenereignissen in einem Plan                                                                                                                                                        |
+| `plan_versions`    | Point-in-Time-Snapshots für den Versionsverlauf                                                                                                                                                                             |
+| `plan_shares`      | Aktiengewährung pro Auftraggeber (Betrachter/Redakteur/Administrator)                                                                                                                                                       |
+| `plan_guest_mints` | Ratenbegrenzungsdatensätze für die Ausstellung von Gastsitzungen                                                                                                                                                            |
+| `plan_assets`      | Inline-Bild-Assets werden als Base64 gespeichert (Fallback, wenn kein Upload-Anbieter vorhanden ist)                                                                                                                        |
+
+```an-schema title="Plan Datenmodell" summary="Eine Planzeile enthält geordnete Abschnitte sowie Kommentare, Ereignisse, Versionen, Freigaben und Inline-Assets."
+{
+  "entities": [
+    { "id": "plans", "name": "plans", "note": "each plan or recap", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "title", "type": "text" },
+      { "name": "brief", "type": "text", "nullable": true },
+      { "name": "kind", "type": "enum", "note": "planen | rekapitulieren" },
+      { "name": "status", "type": "text" },
+      { "name": "source", "type": "text", "nullable": true },
+      { "name": "hosted_plan_id", "type": "text", "nullable": true, "note": "hosted_plan_url paired" },
+      { "name": "source_url", "type": "text", "nullable": true },
+      { "name": "deleted_at", "type": "timestamp", "nullable": true, "note": "soft delete; deleted_by paired" }
+    ] },
+    { "id": "plan_sections", "name": "plan_sections", "note": "ordered sections within a plan", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "type", "type": "text" },
+      { "name": "title", "type": "text", "nullable": true },
+      { "name": "body", "type": "text", "nullable": true },
+      { "name": "html", "type": "text", "nullable": true },
+      { "name": "sort_order", "type": "integer" },
+      { "name": "created_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_comments", "name": "plan_comments", "note": "threaded comments", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "kind", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "anchor", "type": "json", "nullable": true },
+      { "name": "message", "type": "text" },
+      { "name": "resolution_target", "type": "text", "nullable": true, "note": "agent | human | null" },
+      { "name": "mentions_json", "type": "json", "nullable": true },
+      { "name": "resolved_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_events", "name": "plan_events", "note": "audit log of agent/human events", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_versions", "name": "plan_versions", "note": "point-in-time snapshots", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_shares", "name": "plan_shares", "note": "per-principal grants", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "role", "type": "enum", "note": "Zuschauer | Herausgeber | Administrator" }
+    ] },
+    { "id": "plan_guest_mints", "name": "plan_guest_mints", "note": "rate-limit records for guest session issuance", "fields": [
+      { "name": "id", "type": "text", "pk": true }
+    ] },
+    { "id": "plan_assets", "name": "plan_assets", "note": "inline image assets as base64", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] }
+  ],
+  "relations": [
+    { "from": "plans", "to": "plan_sections", "kind": "1-n", "label": "has sections" },
+    { "from": "plans", "to": "plan_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "plans", "to": "plan_events", "kind": "1-n", "label": "has events" },
+    { "from": "plans", "to": "plan_versions", "kind": "1-n", "label": "has versions" },
+    { "from": "plans", "to": "plan_shares", "kind": "1-n", "label": "has shares" },
+    { "from": "plans", "to": "plan_assets", "kind": "1-n", "label": "has assets" }
+  ]
+}
+```
+
+### Schlüssel actions
+
+Actions in `templates/plan/actions/`:
+
+- **Erstellung** – `create-visual-plan`, `create-visual-recap`, `create-ui-plan`, `create-prototype-plan`, `create-plan-design`, `create-visual-questions`
+- **Lesen und Bearbeiten** – `get-visual-plan`, `update-visual-plan`, `list-visual-plans`, `import-visual-plan-source`, `patch-visual-plan-source`, `read-visual-plan-source`, `export-visual-plan`
+- **Lebenszyklus** – `delete-visual-plan` für vorläufiges Löschen, Wiederherstellen und dauerhaftes Löschen nur durch den Eigentümer
+- **Veröffentlichen und Teilen** – `publish-visual-plan`
+- **Versionen** – `list-plan-versions`, `get-plan-version`, `restore-plan-version`
+- **Kommentare und Feedback** – `get-plan-feedback`, `reply-to-plan-comment`, `resolve-plan-comment`, `consume-plan-feedback`, `delete-plan-comment`
+- **Prototyp** – `convert-visual-plan-to-prototype`, `create-prototype-plan`
+- **Kontext und Navigation** – `view-screen`, `navigate`
+
+### Benutzerdefinierte MDX-Blöcke {#custom-mdx-blocks}
+
+Die Quelldateien der Pläne sind MDX, aber die App rendert keine beliebigen importierten JSX
+Komponenten. Ein benutzerdefiniertes MDX-Tag muss als Planblock registriert werden, damit der Server dies tun kann
+parsen und serialisieren Sie es, der Browser kann es rendern und bearbeiten und der Agent kann
+sehen Sie es im Blockvokabular, das von `get-plan-blocks` zurückgegeben wird.
+
+Ein registrierter Block hat drei Oberflächen:
+
+- Ein React-freies Schema und eine MDX-Konfiguration, sicher für Server- und Agentencode.
+- Ein normalisierter Laufzeittyp/Schema-Eintrag in `shared/plan-content.ts`.
+- Eine Browser-Block-Spezifikation mit `Read` und optionalen `Edit` React-Komponenten.
+
+Halten Sie den Block `type` und MDX `tag` stabil. Der `type` wird normalisiert gespeichert
+plan JSON; `tag` ist der Komponentenname in `plan.mdx`. Die Registry behandelt
+die Basis-MDX-Attribute `id`, `title`, `summary` und `editable`, also nicht
+wiederholen Sie sie in `toAttrs`.
+
+1. Fügen Sie eine gemeinsame Konfiguration für die Datenform und den MDX-Roundtrip hinzu.
+
+```ts
+// templates/plan/shared/risk-card.config.ts
+import { z } from "zod";
+import {
+  markdown,
+  type BlockMdxConfig,
+} from "@agent-native/core/blocks/server";
+
+export type RiskCardSeverity = "low" | "medium" | "high";
+
+export interface RiskCardData {
+  severity?: RiskCardSeverity;
+  body: string;
+}
+
+const severities = new Set(["low", "medium", "high"]);
+
+export const riskCardSchema = z.object({
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  body: markdown(z.string().trim().min(1).max(10_000)),
+}) as z.ZodType<RiskCardData>;
+
+export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
+  tag: "RiskCard",
+  childrenField: "body",
+  toAttrs: (data) => ({
+    severity: data.severity,
+  }),
+  fromAttrs: (attrs, children) => {
+    const severity = attrs.string("severity");
+
+    return {
+      severity: severities.has(severity ?? "")
+        ? (severity as RiskCardSeverity)
+        : undefined,
+      body: children,
+    };
+  },
+};
+```
+
+2. Erweitern Sie das normalisierte Plan-Inhaltsmodell in
+   `templates/plan/shared/plan-content.ts`.
+
+Fügen Sie das neue `type` zu `PlanBlockType` hinzu und fügen Sie eine passende Blockschnittstelle hinzu
+`PlanBlock`-Vereinigung und fügen Sie die gleiche Datenform zu `planBlockSchema` hinzu. Das bleibt
+Datenbankspeicherungen, Quellimporte und `update-block`-Patches zur Validierung des Benutzerdefinierts
+blockieren, anstatt es als unbekannten Typ abzulehnen.
+
+3. Registrieren Sie die React-freie Serverspezifikation in
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description:
+    "Eine Markdown-Risiknotiz mit niedriger, mittlerer oder hoher Schwere.",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. Registrieren Sie die Browserspezifikation in
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description:
+    "Eine Markdown-Risiknotiz mit niedriger, mittlerer oder hoher Schwere.",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+Damit kann Plan MDX Folgendes nutzen:
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+Die Serverregistrierung macht diese Quelle und den Client importierbar/exportierbar
+-Registrierung sorgt für das Rendern in `PlanBlockView`. Ob der Block von
+Agenten, halten Sie `label`, `description`, `placement` und `empty` präzise; jene
+Felder fließen in das Live-Block-Vokabular ein.
+
+Wenn Sie einen vorhandenen Block überschreiben, registrieren Sie die Überschreibung nach dem Gemeinsamen
+Bibliotheksregistrierung. Die letzte Registrierung gewinnt sowohl für `type` als auch für MDX `tag`.
+
+Führen Sie nach dem Hinzufügen eines Blocks gezielte Plantests aus:
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
+
+### Routenkarte
+
+- `app/routes/plans.$id.tsx` – Planeditor/Überprüfungsoberfläche
+- `app/routes/plans._index.tsx` – Planliste
+- `app/routes/share.$token.tsx` – öffentliche/gemeinsame Planansicht
+- `app/routes/local-plans.$slug.tsx` – Vorschau des lokalen Dateimodus
+
+### Lokaler Modus (erweitert, offline) {#local-mode}
+
+Für eine vollständige Offline-Nutzung ohne Konto können Sie die Plans-App lokal ausführen und auf lokale MDX-Ordner verweisen. Verwenden Sie für den strengeren No-DB-Pfad [local-files privacy mode](#local-files), der aus MDX-Ordnern liest, anstatt lokale SQL-Zeilen zu erstellen. Der lokale Modus ist ein separater, erweiterter Pfad – nicht der standardmäßig gehostete Flow.
+
+## Ereignisse und Benachrichtigungen {#events}
+
+Die Plan-Vorlage gibt vier Ereignisse auf dem Framework-Ereignisbus aus. Jede Automatisierung
+kann sie abonnieren – kein benutzerdefinierter Integrationscode erforderlich.
+
+### Ereignisreferenz {#event-reference}
+
+#### `plan.created`
+
+Wird ausgelöst, wenn ein neuer visueller Plan oder eine neue Zusammenfassung erstellt wird.
+
+| Feld        | Typ                   | Beschreibung                                               |
+| ----------- | --------------------- | ---------------------------------------------------------- |
+| `planId`    | Zeichenfolge          | Eindeutige Plan-ID                                         |
+| `title`     | Zeichenfolge          | Plantitel                                                  |
+| `kind`      | `"plan"` \| `"recap"` | Ob es sich um einen Plan oder eine Zusammenfassung handelt |
+| `status`    | Zeichenfolge          | Anfangsstatus (z. B. `"review"`)                           |
+| `path`      | Zeichenfolge          | App-relativer Pfad (z. B. `/plans/plan-…`)                 |
+| `createdBy` | Zeichenfolge          | Immer `"agent"` für die Planerstellung                     |
+
+#### `plan.commented`
+
+Wird ausgelöst, wenn einem Plan ein oder mehrere Kommentare hinzugefügt werden.
+
+| Feld               | Typ                              | Beschreibung                                                              |
+| ------------------ | -------------------------------- | ------------------------------------------------------------------------- |
+| `planId`           | Zeichenfolge                     | Plan-ID                                                                   |
+| `title`            | Zeichenfolge                     | Plantitel                                                                 |
+| `kind`             | `"plan"` \| `"recap"`            | Planen oder rekapitulieren                                                |
+| `commentIds`       | Zeichenfolge[]                   | IDs der neuen Kommentare                                                  |
+| `commentCount`     | Nummer                           | Anzahl neuer Kommentare in diesem Batch                                   |
+| `resolutionTarget` | `"agent"` \| `"human"` \| `null` | Dominantes Ziel – `"agent"`, wenn ein Kommentar auf einen Agenten abzielt |
+| `excerpt`          | Zeichenfolge                     | Die ersten 200 Zeichen des ersten Kommentars                              |
+| `author`           | Zeichenfolge \| null             | E-Mail des Kommentators, falls bekannt                                    |
+| `path`             | Zeichenfolge                     | App-relativer Pfad                                                        |
+
+#### `plan.published`
+
+Wird ausgelöst, wenn ein lokaler Plan auf einem gehosteten, gemeinsam nutzbaren URL veröffentlicht (oder erneut veröffentlicht) wird.
+
+| Feld                  | Typ                   | Beschreibung                                      |
+| --------------------- | --------------------- | ------------------------------------------------- |
+| `planId`              | Zeichenfolge          | Lokale Plan-ID                                    |
+| `title`               | Zeichenfolge          | Plantitel                                         |
+| `kind`                | `"plan"` \| `"recap"` | Planen oder rekapitulieren                        |
+| `hostedPlanId`        | Zeichenfolge          | ID des gehosteten Plans                           |
+| `url`                 | Zeichenfolge          | Vollständige öffentliche URL des gehosteten Plans |
+| `requestedVisibility` | Zeichenfolge          | `"public"`, `"private"` usw.                      |
+
+#### `plan.status.changed`
+
+Wird ausgelöst, wenn sich der Status eines Plans ändert (z. B. `review` → `approved`).
+
+| Feld        | Typ                   | Beschreibung                                   |
+| ----------- | --------------------- | ---------------------------------------------- |
+| `planId`    | Zeichenfolge          | Plan-ID                                        |
+| `title`     | Zeichenfolge          | Plantitel                                      |
+| `kind`      | `"plan"` \| `"recap"` | Planen oder rekapitulieren                     |
+| `oldStatus` | Zeichenfolge \| null  | Vorheriger Status                              |
+| `newStatus` | Zeichenfolge          | Neuer Status                                   |
+| `changedBy` | Zeichenfolge \| null  | E-Mail-Adresse der Person, die es geändert hat |
+| `path`      | Zeichenfolge          | App-relativer Pfad                             |
+
+### Automatisierungsrezepte {#automation-recipes}
+
+Diese Automatisierungen werden durch Aufforderung an den Planagenten erstellt – es sind keine Codeänderungen erforderlich.
+Der Agent ruft `manage-automations` mit `action=define` auf und schreibt ein
+`jobs/<name>.md`-Ressource, und das Ereignisabonnement beginnt sofort.
+
+#### Benachrichtigen Sie per Webhook, wenn jemand einen Plan kommentiert
+
+Fragen Sie den Planagenten:
+
+> „Wenn jemand einen menschlichen Kommentar zu einem Plan hinzufügt, wird eine Nachricht an meinen Webhook gesendet.“
+
+Der Agent erstellt eine Automatisierung wie diese:
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+Send a POST request to ${keys.NOTIFY_WEBHOOK} with a JSON body containing:
+  - "title": the plan title from the event payload
+  - "excerpt": the comment excerpt from the event payload
+  - "url": the base app URL concatenated with the path field from the event payload
+  - "author": the author field from the event payload (may be null)
+```
+
+Bevor die Automatisierung ausgelöst werden kann, müssen Sie den Webhook URL als Ad-hoc-Schlüssel hinzufügen:
+
+1. Gehen Sie zu **Einstellungen → Schlüssel** und fügen Sie einen Schlüssel namens `NOTIFY_WEBHOOK` zu Ihrem hinzu
+   Webhook URL (z. B. ein eingehender Slack-Webhook, ein generischer HTTP-Endpunkt oder ein beliebiger
+   Benachrichtigungsdienst URL).
+2. Legen Sie optional eine URL-Zulassungsliste für den Schlüssel fest, um die möglichen Ursprünge einzuschränken
+   POST bis.
+
+Das `web-request`-Tool löst `${keys.NOTIFY_WEBHOOK}` zuvor serverseitig auf
+Senden – das rohe URL erscheint nie im Kontext des Agenten.
+
+**Um Slack gezielt anzusprechen:** Legen Sie `NOTIFY_WEBHOOK` auf Ihren Slack-Eingang fest
+Webhook URL
+(`https://hooks.slack.com/services/…`). Der Automatisierungskörper oben bereits
+erzeugt eine Nutzlast, die der eingehende Webhook von Slack über `text` oder `blocks` akzeptiert
+Felder – Bitten Sie den Agenten, den Text als Slack-Nachricht zu formatieren, wenn Sie umfangreichere Informationen wünschen.
+Formatierung.
+
+#### Wecken Sie den Codierungsagenten, wenn Feedback auf ihn abzielt
+
+Für Feedback an den Codierungsagenten (`resolutionTarget === "agent"`) fragen Sie:
+
+> „Wenn ein Plankommentar auf den Agenten abzielt, führen Sie meinen Codierungsagenten mit dem Plan aus
+> Auszug als Kontext.“
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is agent"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+Use the manage-notifications action or web-request tool to alert the coding agent
+that new agent-targeted feedback has arrived on plan ${planId}: "${excerpt}".
+Include the plan path so the agent can navigate directly to it.
+```
+
+Da die Automatisierung eine vollständige Agentenschleife ausführt (`mode: agentic`), kann sie aufrufen
+`web-request`, Benachrichtigungen senden oder jede Aktion aufrufen, auf die der Agent Zugriff hat.
+Der genaue Übermittlungsmechanismus hängt davon ab, über welche Benachrichtigungskanäle Sie verfügen
+konfiguriert – der Agent wählt das beste verfügbare aus.
+
+## Was kommt als nächstes?
+
+- [**PR Visual Recap**](/docs/pr-visual-recap) – `/visual-recap` automatisch bei jeder Pull-Anfrage ausführen
+- [**Automations**](/docs/automations) – ereignisgesteuerte und geplante Automatisierungen
+- [**Plan plugin & marketplace**](/docs/plan-plugin) – Installieren Sie den Plan skills als Claude-Code oder Codex-Plugin
+- [**Skills**](/docs/skills-guide) – wie Agent-Native skills installiert
+- [**MCP Clients**](/docs/mcp-clients) – Konfigurieren gehosteter MCP-Konnektoren
+- [**Templates**](/docs/cloneable-saas) – das Modell zum Klonen und Besitzen

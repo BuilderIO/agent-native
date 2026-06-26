@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router";
+import { useT } from "@agent-native/core/client";
 import {
   IconVideo,
   IconFolder,
@@ -7,6 +7,8 @@ import {
   IconTrash,
   IconPlayerRecord,
 } from "@tabler/icons-react";
+import { useNavigate } from "react-router";
+
 import { Button } from "@/components/ui/button";
 
 type EmptyKind =
@@ -26,35 +28,7 @@ const ICONS: Record<EmptyKind, React.ComponentType<{ className?: string }>> = {
   search: IconVideo,
 };
 
-const COPY: Record<EmptyKind, { title: string; body: string; cta?: string }> = {
-  library: {
-    title: "Your library is empty",
-    body: "Capture your first screen recording and it'll land here, ready to share.",
-    cta: "Record your first Clip",
-  },
-  folder: {
-    title: "This folder is empty",
-    body: "Drag recordings in, or hit record to start something new in this folder.",
-    cta: "Record here",
-  },
-  space: {
-    title: "No recordings in this space yet",
-    body: "Share a recording with the space or record something new — your team will see it here.",
-    cta: "Record for this space",
-  },
-  archive: {
-    title: "Nothing archived",
-    body: "Archived recordings are hidden from the library but kept safe. You can always restore them later.",
-  },
-  trash: {
-    title: "Trash is empty",
-    body: "Deleted recordings appear here for 30 days before being permanently removed.",
-  },
-  search: {
-    title: "No matches",
-    body: "Try a different search term or check your filters.",
-  },
-};
+const CTA_KINDS = new Set<EmptyKind>(["library", "folder", "space"]);
 
 interface EmptyStateProps {
   kind: EmptyKind;
@@ -70,8 +44,9 @@ export function EmptyState({
   onCtaClick,
 }: EmptyStateProps) {
   const navigate = useNavigate();
+  const t = useT();
   const Icon = ICONS[kind];
-  const copy = COPY[kind];
+  const hasCta = CTA_KINDS.has(kind);
 
   const handleCta = () => {
     if (onCtaClick) {
@@ -91,17 +66,19 @@ export function EmptyState({
         <Icon className="h-10 w-10 text-primary" />
       </div>
       <h2 className="text-base font-semibold text-foreground mb-1">
-        {copy.title}
+        {t(`empty.${kind}.title`)}
       </h2>
-      <p className="text-sm text-muted-foreground max-w-sm mb-5">{copy.body}</p>
-      {copy.cta && (
+      <p className="text-sm text-muted-foreground max-w-sm mb-5">
+        {t(`empty.${kind}.body`)}
+      </p>
+      {hasCta && (
         <Button
           onClick={handleCta}
           className="bg-primary text-primary-foreground hover:bg-primary/90 gap-1.5"
           size="sm"
         >
           <IconPlayerRecord className="h-4 w-4" />
-          {copy.cta}
+          {t(`empty.${kind}.cta`)}
         </Button>
       )}
     </div>

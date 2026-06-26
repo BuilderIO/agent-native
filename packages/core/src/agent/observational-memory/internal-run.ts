@@ -12,12 +12,12 @@
  * model is ever called.
  */
 
-import type { AgentEngine } from "../engine/types.js";
 import {
   resolveEngine,
   getStoredModelForEngine,
   normalizeModelForEngine,
 } from "../engine/index.js";
+import type { AgentEngine } from "../engine/types.js";
 
 const DEFAULT_INTERNAL_RUN_TIMEOUT_MS = 60_000;
 

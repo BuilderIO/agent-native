@@ -1,3 +1,4 @@
+import type { BusyInterval } from "../../shared/index.js";
 /**
  * Office 365 / Outlook calendar provider via Microsoft Graph.
  *
@@ -5,7 +6,6 @@
  * Uses Microsoft Graph API for calendars and events.
  */
 import type { CalendarProvider } from "./types.js";
-import type { BusyInterval } from "../../shared/index.js";
 
 export interface Office365ProviderConfig {
   clientId: string;

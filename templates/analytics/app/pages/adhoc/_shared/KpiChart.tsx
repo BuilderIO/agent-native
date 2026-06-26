@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+import { IconCode } from "@tabler/icons-react";
 import { useMemo } from "react";
 import {
   AreaChart,
@@ -13,16 +15,17 @@ import {
   YAxis,
   ReferenceLine,
 } from "recharts";
+
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Button } from "@/components/ui/button";
-import { IconCode } from "@tabler/icons-react";
-import { formatDate } from "./format";
 import {
   Tooltip as ShadcnTooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+import { formatDate } from "./format";
 
 interface KpiChartProps {
   title: string;
@@ -53,6 +56,7 @@ export function KpiChart({
   referenceLine,
   onEditSql,
 }: KpiChartProps) {
+  const t = useT();
   const data = useMemo(() => {
     return rows.map((r) => ({
       period: String(r.period ?? ""),
@@ -96,7 +100,7 @@ export function KpiChart({
                     <IconCode className="h-3.5 w-3.5" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Edit SQL Query</TooltipContent>
+                <TooltipContent>{t("common.editSqlQuery")}</TooltipContent>
               </ShadcnTooltip>
             )}
           </div>
@@ -109,7 +113,7 @@ export function KpiChart({
           <p className="text-sm text-red-400 py-4 text-center">{error}</p>
         ) : data.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No data
+            {t("common.noData")}
           </p>
         ) : (
           <div className="h-[220px] w-full">

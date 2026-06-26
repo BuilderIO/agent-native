@@ -16,8 +16,8 @@
 // network — not one app — is broken.
 
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REGISTRY = resolve(HERE, "../packages/shared-app-config/templates.ts");

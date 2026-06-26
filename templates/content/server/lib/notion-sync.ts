@@ -1,11 +1,15 @@
 // @ts-nocheck — Drizzle ORM types from core vs local resolve to different instances
 // in pnpm's node_modules. Logic is correct; types just don't unify across instances.
 import crypto from "node:crypto";
+
+import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import { and, eq, inArray } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
-import { getDb, schema } from "../db/index.js";
+
+import type { DocumentSyncStatus } from "../../shared/api.js";
 import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
-import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
+import { getDb, schema } from "../db/index.js";
+import { getCurrentOwnerEmail } from "./documents.js";
 import {
   createNotionPageWithMarkdown,
   fetchNotionPage,
@@ -15,8 +19,6 @@ import {
   pushDocumentToNotionPage,
   readNotionPageAsDocument,
 } from "./notion.js";
-import { getCurrentOwnerEmail } from "./documents.js";
-import type { DocumentSyncStatus } from "../../shared/api.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type LinkRow = InferSelectModel<typeof schema.documentSyncLinks>;

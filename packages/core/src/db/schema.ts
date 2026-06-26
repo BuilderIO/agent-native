@@ -18,18 +18,23 @@
 
 import { sql } from "drizzle-orm";
 import {
-  sqliteTable,
-  text as sqliteText,
-  integer as sqliteInteger,
-  real as sqliteReal,
-} from "drizzle-orm/sqlite-core";
-import {
   pgTable,
+  index as pgIndex,
   text as pgText,
   integer as pgInteger,
   boolean as pgBoolean,
   doublePrecision as pgDoublePrecision,
+  uniqueIndex as pgUniqueIndex,
 } from "drizzle-orm/pg-core";
+import {
+  sqliteTable,
+  index as sqliteIndex,
+  text as sqliteText,
+  integer as sqliteInteger,
+  real as sqliteReal,
+  uniqueIndex as sqliteUniqueIndex,
+} from "drizzle-orm/sqlite-core";
+
 import { getDialect } from "./client.js";
 
 // No caching — getDialect() handles its own caching once env is available.
@@ -44,6 +49,14 @@ function pg(): boolean {
  */
 export const table: typeof sqliteTable = ((...args: any[]) =>
   pg() ? (pgTable as any)(...args) : (sqliteTable as any)(...args)) as any;
+
+export const index: typeof sqliteIndex = ((...args: any[]) =>
+  pg() ? (pgIndex as any)(...args) : (sqliteIndex as any)(...args)) as any;
+
+export const uniqueIndex: typeof sqliteUniqueIndex = ((...args: any[]) =>
+  pg()
+    ? (pgUniqueIndex as any)(...args)
+    : (sqliteUniqueIndex as any)(...args)) as any;
 
 /**
  * Text column. Works identically in both dialects.
@@ -89,7 +102,7 @@ export function now() {
   return pg() ? sql`now()` : sql`(datetime('now'))`;
 }
 
-export { sql } from "drizzle-orm";
+export { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 // Ownership / sharing primitives — templates opt a resource into the framework
 // sharing system by spreading ownableColumns() into the table and pairing it

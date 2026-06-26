@@ -1,45 +1,46 @@
 import { defineEventHandler, setResponseStatus, getMethod, getQuery } from "h3";
+import { getRequestHeader } from "h3";
 import { createRemoteJWKSet, jwtVerify } from "jose";
+
+import { getOrgContext } from "../org/context.js";
+import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { getSession } from "../server/auth.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import {
   getH3App,
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
-import type {
-  PlatformAdapter,
-  IntegrationsPluginOptions,
-  IntegrationStatus,
-} from "./types.js";
-import { handleWebhook, processIntegrationTask } from "./webhook-handler.js";
-import {
-  claimPendingTask,
-  markTaskCompleted,
-  markTaskFailed,
-} from "./pending-tasks-store.js";
-import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
 import { readBody } from "../server/h3-helpers.js";
-import { getRequestHeader } from "h3";
-import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
-import { slackAdapter } from "./adapters/slack.js";
-import { telegramAdapter } from "./adapters/telegram.js";
-import { whatsappAdapter } from "./adapters/whatsapp.js";
-import { googleDocsAdapter } from "./adapters/google-docs.js";
-import { emailAdapter } from "./adapters/email.js";
-import {
-  startGoogleDocsPoller,
-  handlePushNotification,
-} from "./google-docs-poller.js";
-import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
 import {
   processA2AContinuationById,
   processDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
 import { failA2AContinuation } from "./a2a-continuations-store.js";
-import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
-import { getTaskQueueStats } from "./task-queue-stats.js";
-import { getSession } from "../server/auth.js";
-import { getOrgContext } from "../org/context.js";
-import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { emailAdapter } from "./adapters/email.js";
+import { googleDocsAdapter } from "./adapters/google-docs.js";
+import { slackAdapter } from "./adapters/slack.js";
+import { telegramAdapter } from "./adapters/telegram.js";
+import { whatsappAdapter } from "./adapters/whatsapp.js";
+import { getIntegrationConfig, saveIntegrationConfig } from "./config-store.js";
+import {
+  startGoogleDocsPoller,
+  handlePushNotification,
+} from "./google-docs-poller.js";
+import { extractBearerToken, verifyInternalToken } from "./internal-token.js";
+import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
+import {
+  claimPendingTask,
+  markTaskCompleted,
+  markTaskFailed,
+} from "./pending-tasks-store.js";
+import {
+  claimNextRemoteCommand,
+  enqueueRemoteCommand as enqueueRemoteCommandRow,
+  isRemoteCommandKind,
+  listRemoteCommandsForOwner,
+  updateRemoteCommandResult,
+} from "./remote-commands-store.js";
 import {
   authenticateRemoteDeviceToken,
   createRemoteDevice,
@@ -51,17 +52,6 @@ import {
   updateRemoteDeviceDetails,
 } from "./remote-devices-store.js";
 import {
-  claimNextRemoteCommand,
-  enqueueRemoteCommand as enqueueRemoteCommandRow,
-  isRemoteCommandKind,
-  listRemoteCommandsForOwner,
-  updateRemoteCommandResult,
-} from "./remote-commands-store.js";
-import {
-  insertRemoteRunEvents,
-  listRemoteRunEvents,
-} from "./remote-run-events-store.js";
-import {
   listRemotePushNotificationsForOwner,
   listRemotePushRegistrationsForOwner,
   queueRemotePushNotifications,
@@ -70,11 +60,22 @@ import {
   upsertRemotePushRegistration,
 } from "./remote-push-store.js";
 import { startRemoteCommandsRetryJob } from "./remote-retry-job.js";
+import {
+  insertRemoteRunEvents,
+  listRemoteRunEvents,
+} from "./remote-run-events-store.js";
 import type {
   RemoteCommand,
   RemoteCommandKind,
   RemoteDevice,
 } from "./remote-types.js";
+import { getTaskQueueStats } from "./task-queue-stats.js";
+import type {
+  PlatformAdapter,
+  IntegrationsPluginOptions,
+  IntegrationStatus,
+} from "./types.js";
+import { handleWebhook, processIntegrationTask } from "./webhook-handler.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 

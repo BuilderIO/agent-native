@@ -1,11 +1,4 @@
 import {
-  defineEventHandler,
-  getQuery,
-  sendRedirect,
-  setResponseStatus,
-  type H3Event,
-} from "h3";
-import {
   decodeOAuthState,
   encodeOAuthState,
   getAppUrl,
@@ -16,6 +9,14 @@ import {
   resolveOAuthRedirectUri,
   safeReturnPath,
 } from "@agent-native/core/server";
+import {
+  defineEventHandler,
+  getQuery,
+  sendRedirect,
+  setResponseStatus,
+  type H3Event,
+} from "h3";
+
 import {
   disconnectGoogleDocs,
   exchangeGoogleDocsCode,

@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { H3Event } from "h3";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import {
   appendBuilderConnectToken,
   buildBuilderCliAuthUrl,

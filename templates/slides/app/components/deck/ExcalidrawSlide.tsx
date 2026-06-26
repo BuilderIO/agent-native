@@ -1,3 +1,4 @@
+import DOMPurify from "dompurify";
 import {
   useEffect,
   useRef,
@@ -6,7 +7,7 @@ import {
   lazy,
   Suspense,
 } from "react";
-import DOMPurify from "dompurify";
+
 import { Skeleton } from "@/components/ui/skeleton";
 
 const Excalidraw = lazy(async () => {

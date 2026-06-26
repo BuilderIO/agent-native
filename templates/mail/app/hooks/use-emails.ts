@@ -1,21 +1,23 @@
-import { useMemo, useRef } from "react";
-import {
-  useQuery,
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { callAction } from "@agent-native/core/client";
+import { appApiPath, callAction, useT } from "@agent-native/core/client";
+import { archiveFailureToastMessage } from "@shared/archive-errors";
+import { markdownPreviewSnippet } from "@shared/markdown";
 import type {
   ComposeAttachment,
   EmailMessage,
   Label,
   UserSettings,
 } from "@shared/types";
-import { markdownPreviewSnippet } from "@shared/markdown";
+import {
+  useQuery,
+  useInfiniteQuery,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useMemo, useRef } from "react";
+import { toast } from "sonner";
+
+import { useAccountFilter } from "@/hooks/use-account-filter";
 import { TAB_ID } from "@/lib/tab-id";
-import { appApiPath } from "@agent-native/core/client";
-import { bodyToHtml } from "@/lib/utils";
 import {
   useThreadCache,
   ensureThread,
@@ -23,7 +25,7 @@ import {
   getCachedThread,
   setCachedThread,
 } from "@/lib/thread-cache";
-import { useAccountFilter } from "@/hooks/use-account-filter";
+import { bodyToHtml } from "@/lib/utils";
 
 const EMAIL_PAGE_SIZE = 25;
 
@@ -86,6 +88,17 @@ let externalRefreshAt = 0;
 
 export function markExternalEmailRefresh() {
   externalRefreshAt = Date.now();
+}
+
+export function consumeExternalEmailRefresh(): number | undefined {
+  const refreshAt = externalRefreshAt;
+  if (!refreshAt) return undefined;
+  if (Date.now() - refreshAt >= 5000) {
+    externalRefreshAt = 0;
+    return undefined;
+  }
+  externalRefreshAt = 0;
+  return refreshAt;
 }
 
 function parseRecipients(value?: string): EmailMessage["to"] {
@@ -331,7 +344,7 @@ function isSuppressedInView(threadId: string, view: string): boolean {
   return true;
 }
 
-function filterSuppressed(
+export function filterSuppressedThreads(
   emails: EmailMessage[],
   view: string,
 ): EmailMessage[] {
@@ -487,16 +500,25 @@ export function useEmails(
 ) {
   const q = useInfiniteQuery({
     queryKey: ["emails", view, search, label],
-    queryFn: ({ pageParam }: { pageParam: string | undefined }) => {
+    queryFn: ({
+      pageParam,
+      signal,
+    }: {
+      pageParam: string | undefined;
+      signal: AbortSignal;
+    }) => {
       const params = new URLSearchParams({ view });
       params.set("limit", String(EMAIL_PAGE_SIZE));
       if (search) params.set("q", search);
       if (label) params.set("label", label);
       if (pageParam) params.set("pageToken", pageParam);
-      if (externalRefreshAt && Date.now() - externalRefreshAt < 5000) {
-        params.set("forceRefresh", String(externalRefreshAt));
+      const forceRefreshAt = !pageParam
+        ? consumeExternalEmailRefresh()
+        : undefined;
+      if (forceRefreshAt) {
+        params.set("forceRefresh", String(forceRefreshAt));
       }
-      return apiFetch<EmailsPage>(`/api/emails?${params}`);
+      return apiFetch<EmailsPage>(`/api/emails?${params}`, { signal });
     },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage: EmailsPage) => lastPage.nextPageToken,
@@ -530,9 +552,9 @@ export function useEmails(
   const data = useMemo(() => {
     if (!q.data) return undefined;
     const all = q.data.pages.flatMap((p: EmailsPage) => p.emails);
-    const visible = applyOverrides(search ? all : filterSuppressed(all, view));
+    const visible = applyOverrides(filterSuppressedThreads(all, view));
     return applyRecentSentEmails(visible, view, search, label);
-  }, [q.data, search, view, label]);
+  }, [q.data, view, search, label]);
 
   return {
     data,
@@ -674,6 +696,7 @@ export function useMarkThreadRead() {
         .map((e) => ({ id: e.id, accountEmail: e.accountEmail }));
       pendingByThread.current.set(threadId, unreadEntries);
       const unreadIds = unreadEntries.map((e) => e.id);
+      const previousThread = getCachedThread(threadId);
       // Set overrides so refetches don't revert read state
       for (const id of unreadIds) {
         setOptimisticOverride(id, { isRead: true });
@@ -686,13 +709,22 @@ export function useMarkThreadRead() {
           ),
         ),
       );
-      return { previous, overrideIds: [...unreadIds] };
+      if (previousThread) {
+        setCachedThread(
+          threadId,
+          previousThread.map((message) => ({ ...message, isRead: true })),
+        );
+      }
+      return { previous, overrideIds: [...unreadIds], previousThread };
     },
-    onError: (_err, _vars, context) => {
+    onError: (_err, threadId, context) => {
       for (const id of context?.overrideIds ?? []) {
         clearOptimisticOverride(id);
       }
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.previousThread) {
+        setCachedThread(threadId, context.previousThread);
+      }
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });
@@ -757,6 +789,7 @@ export function useToggleStar() {
 
 export function useArchiveEmail() {
   const qc = useQueryClient();
+  const t = useT();
   return useMutation({
     mutationFn: ({
       id,
@@ -777,6 +810,7 @@ export function useArchiveEmail() {
       }).then(assertActionSuccess),
     onMutate: async ({
       id,
+      threadId: hintedThreadId,
     }: {
       id: string;
       accountEmail?: string;
@@ -790,7 +824,7 @@ export function useArchiveEmail() {
       const target = previous
         .flatMap(([, data]) => flattenInfiniteEmails(data))
         .find((e) => e.id === id);
-      const threadId = target?.threadId || id;
+      const threadId = hintedThreadId || target?.threadId || id;
       suppressThread(threadId, "archive");
       invalidateCachedThread(threadId);
       qc.setQueriesData<InfiniteEmails>({ queryKey: ["emails"] }, (old) =>
@@ -800,9 +834,12 @@ export function useArchiveEmail() {
       );
       return { previous, threadId };
     },
-    onError: (_err, _vars, context) => {
+    onError: (err, _vars, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
+      toast.error(
+        archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
+      );
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });

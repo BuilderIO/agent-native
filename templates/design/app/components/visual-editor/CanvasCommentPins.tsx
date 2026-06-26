@@ -1,19 +1,20 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { sendToAgentChat, useT } from "@agent-native/core/client";
 import {
   IconMessage,
   IconMessageCheck,
   IconSend,
   IconX,
 } from "@tabler/icons-react";
-import { sendToAgentChat } from "@agent-native/core/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export interface CanvasPin {
   id: string;
@@ -71,6 +72,7 @@ export function CanvasCommentPins({
   contextId,
   contextLabel,
 }: CanvasCommentPinsProps) {
+  const t = useT();
   const [pins, setPins] = useState<CanvasPin[]>([]);
   const [activePinId, setActivePinId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
@@ -106,7 +108,7 @@ export function CanvasCommentPins({
       const rect = canvas.getBoundingClientRect();
       const xPct = ((clientX - rect.left) / rect.width) * 100;
       const yPct = ((clientY - rect.top) / rect.height) * 100;
-      if (xPct < 0 || xPct > 100 || yPct < 0 || yPct > 100) return;
+      if (xPct < 0 || xPct > 100 || yPct < 0 || yPct > 100) return; // i18n-ignore geometry bounds check, not UI copy
 
       // Build a best-effort selector for parent-DOM canvases. For iframe
       // canvases the transparent overlay captures the click, so target details
@@ -251,10 +253,10 @@ export function CanvasCommentPins({
         >
           <IconMessage className="w-3.5 h-3.5 text-[#609FF8]" />
           <span className="text-[11px] text-foreground">
-            Click anywhere to drop a comment pin
+            {t("visualEditor.clickToDropCommentPin")}
           </span>
           <span className="text-[10px] text-muted-foreground ml-1">
-            Esc to exit
+            {t("visualEditor.escToExit")}
           </span>
         </div>
       )}
@@ -297,7 +299,10 @@ export function CanvasCommentPins({
                 </button>
               </TooltipTrigger>
               <TooltipContent className="pointer-events-none">
-                {pin.draft || (pin.submitted ? "Comment sent" : "Comment")}
+                {pin.draft ||
+                  (pin.submitted
+                    ? t("visualEditor.commentSent")
+                    : t("visualEditor.comment"))}
               </TooltipContent>
             </Tooltip>
 
@@ -310,7 +315,7 @@ export function CanvasCommentPins({
                 className="absolute z-[260] left-3 top-1 w-72 rounded-lg border border-border bg-popover shadow-xl p-2"
               >
                 <p className="mb-2 text-xs font-semibold text-foreground">
-                  Edit design
+                  {t("visualEditor.editDesign")}
                 </p>
                 <Textarea
                   autoFocus
@@ -326,7 +331,7 @@ export function CanvasCommentPins({
                       removePin(pin.id);
                     }
                   }}
-                  placeholder="Tell the agent what to change…"
+                  placeholder={t("visualEditor.tellAgentWhatToChange")}
                   className="resize-none text-xs min-h-[60px]"
                 />
                 {pin.targetText && (
@@ -355,7 +360,7 @@ export function CanvasCommentPins({
                       disabled={!(pin.draft || "").trim()}
                     >
                       <IconSend className="w-3 h-3" />
-                      Send
+                      {t("visualEditor.send")}
                     </Button>
                   </div>
                 </div>

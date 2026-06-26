@@ -1,0 +1,106 @@
+---
+title: "インループ プロセッサ"
+description: "ループ内部のオブザーバー/ガードレール フックは、モデルのストリーミング出力を監視し、実行中にツール呼び出しを中止することができます。これは、リアルタイム ガードレールと Proof-of-Done ゲートの継ぎ目です。"
+---
+
+# インループ プロセッサ
+
+`Processor` は、エージェント実行のためのループ内部 **オブザーバー/ガードレール** です。モデルのストリーミング出力を監視し、ツールは実行の進行に応じてリクエストを呼び出し、独自のスクラッチ状態を維持し、「完了」が要求される前に実行を**中止**できます。これは、リアルタイム ガードレール (許可されていない出力を途中でブロックする) と、Proof-of-Done/カバレッジ ゲート (モデルが実行しようとしていることを検査して停止する) の構造的な前提条件です。
+
+```an-diagram title="ラン中に 3 つのフックが発射される場所" summary="processOutputStream はすべてのチャンクを監視し、processOutputStep は応答ごとにツール呼び出しをゲートし、processOutputResult は最後に判定を記録します。どのフックも TripWire で中止できます。"
+{
+  "html": "<div class=\"diagram-proc\"><div class=\"diagram-node\" data-rough>stream chunks<br><small class=\"diagram-muted\">processOutputStream</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>per model response<br><small class=\"diagram-muted\">processOutputStep — ツール呼び出しを制御</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>run end<br><small class=\"diagram-muted\">processOutputResult — 判定</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-pill warn\">abort() &rarr; TripWire &rarr; tripwire event</div></div>",
+  "css": ".diagram-proc{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-proc .diagram-arrow{font-size:22px;line-height:1}.diagram-proc .diagram-pill{flex-basis:100%}"
+}
+```
+
+> [!WARNING]
+> プロセッサは **構成** であり、ツール、アクション、オーサリング DSL ではありません。プロセッサーは、自身のストリームスコープの状態、および `abort()` のみを観察し、変更します。これらは、アプリの動作を定義したり、actions を置き換えたり、モデルに表示されることはありません。アプリの操作は [actions](/docs/actions) に属します。
+
+## フック {#hooks}
+
+プロセッサは、3 つのオプションのライフサイクル フックのサブセットを実装します (形状は Mastra の出力プロセッサから借用されています)。
+
+| フック                | 火災…                                                                    | これを使用して…                                                    |
+| --------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `processOutputStream` | モデルの生成中にストリーミングされたチャンクごと (テキスト / 思考デルタ) | フルターンが着地する前に出力に反応する                             |
+| `processOutputStep`   | ツールの実行時に、モデルの応答ごとに 1 回                                | モデルが実行しようとしているツール呼び出しを検査します。門を閉める |
+| `processOutputResult` | 実行終了時に 1 回、最終アシスタント テキスト付き                         | 完成した回答に対する評決/完了証明を記録する                        |
+
+各プロセッサは、単一の実行内のすべてのフック呼び出しにわたって永続化し、他のプロセッサの状態から**分離**される、独自の変更可能な実行スコープの `state` オブジェクトを取得します。
+
+```ts
+import type { Processor } from "@agent-native/core";
+
+const noSecretsInOutput: Processor = {
+  name: "no-secrets",
+  processOutputStream({ part, abort }) {
+    if (part.type === "text" && /sk-live_/.test(part.text)) {
+      abort("Model attempted to emit a live secret token.", {
+        kind: "secret-leak",
+      });
+    }
+  },
+};
+
+const coverageGate: Processor = {
+  name: "proof-of-done",
+  processOutputStep({ toolCalls, state }) {
+    // Track what the model has actually done this run...
+    for (const call of toolCalls) {
+      (state.ran ??= new Set<string>()).add(call.name);
+    }
+  },
+  processOutputResult({ text, state }) {
+    // ...and record a verdict over the final answer.
+    const ran = state.ran as Set<string> | undefined;
+    state.verdict = ran?.has("run-tests") ? "verified" : "unverified";
+  },
+};
+```
+
+## `TripWire` で中止します {#tripwire}
+
+フックは `abort(reason, meta?)` を呼び出して実行を停止し、**`TripWire`** をスローします。ループはそれをキャッチし、単一の **`tripwire` イベント**を発行し、きれいに停止し、最終アシスタント メッセージとして理由を表示します。
+
+```ts
+import { TripWire } from "@agent-native/core";
+```
+
+`tripwire` イベントの内容:
+
+| フィールド  | タイプ   | メモ                                                |
+| ----------- | -------- | --------------------------------------------------- |
+| `reason`    | `string` | 人間が判読できる理由が `abort` に渡されました。     |
+| `processor` | `string` | `name` を宣言したときに中止されたプロセッサの名前。 |
+
+`TripWire` は、オプションの構造化 `meta` と、`instanceof` チェックするプログラム コンシューマーの元の `processor` 名も保持します。停止は正常に行われるため、`processOutputResult` は (停止された) 最終テキストに対して引き続き起動されるため、実行が中止された場合でも、proof-of-done プロセッサはその判定を記録できます。
+
+## 配線プロセッサ {#wiring}
+
+プロセッサは、`runAgentLoop` 上の `processors` アレイを介してコードで構成されます。
+
+```ts
+await runAgentLoop({
+  engine,
+  model,
+  systemPrompt,
+  tools,
+  messages,
+  actions,
+  send,
+  signal,
+  processors: [noSecretsInOutput, coverageGate],
+});
+```
+
+**未使用時はオーバーヘッドゼロ。** ループは、少なくとも 1 つのプロセッサが提供されている場合にのみプロセッサ チェーンを構築します。 `processors` が省略されるか空の場合、シーム コードは実行されず、ループはバイトごとに変更されません。フックは登録順に実行され、同期または非同期の場合があります。
+
+> [!NOTE]
+> ループレベルのシームは今日の成果物であり、サブエージェント、A2A、MCP、およびテストによって直接呼び出すことができます。 HTTP チャット ハンドラーを介して `processors` をスレッドする (したがって、リクエストごとのリゾルバーが `runAgentLoop` を直接呼び出さずにそれらを構成できる) のは、まだ配線されていない便利な配管です。現時点では、`runAgentLoop` 呼び出しサイトでプロセッサーを構成します。
+
+## 関連
+
+- [**Durable Resume**](/docs/durable-resume) — 完了した副作用を再実行せずにループが中断に耐える方法。
+- [**Custom Agents & Teams**](/docs/agent-teams) — サブエージェントは同じループを実行し、独自のプロセッサを搭載できます。
+- [**Observability**](/docs/observability) — 実行トレースとともにプロセッサーの判定を記録します。

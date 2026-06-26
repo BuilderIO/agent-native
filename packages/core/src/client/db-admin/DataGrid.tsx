@@ -1,11 +1,3 @@
-import { useCallback, useMemo, useRef } from "react";
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-  type ColumnSizingState,
-} from "@tanstack/react-table";
 import {
   IconKey,
   IconArrowUp,
@@ -14,21 +6,30 @@ import {
   IconTrash,
   IconArrowBackUp,
 } from "@tabler/icons-react";
-import { cn } from "../utils.js";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import { EditableCell } from "./EditableCell.js";
-import { inferEditorKind, type EditorKind } from "./cell-format.js";
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+  type ColumnDef,
+  type ColumnSizingState,
+} from "@tanstack/react-table";
+import { useCallback, useMemo, useRef } from "react";
+
 import type {
   DbAdminColumn,
   DbAdminForeignKey,
   DbAdminSort,
   DbAdminTableSchema,
 } from "../../db-admin/types.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { cn } from "../utils.js";
+import { inferEditorKind, type EditorKind } from "./cell-format.js";
+import { EditableCell } from "./EditableCell.js";
 
 /** A grid row pairs the displayed values with its stable pk string. */
 export interface GridRow {

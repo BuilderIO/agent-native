@@ -1,5 +1,7 @@
 import { spring, interpolate } from "remotion";
+
 import type { AnimationTrack, EasingKey } from "@/types";
+
 import { getEasingFunction } from "./easingFunctions";
 
 type SpringConfig = {

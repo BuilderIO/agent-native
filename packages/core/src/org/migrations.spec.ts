@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { ORG_MIGRATIONS } from "./migrations.js";
 
 describe("ORG_MIGRATIONS", () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,

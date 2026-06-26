@@ -1,0 +1,173 @@
+---
+title: "작성 대리인 지침 및 기술"
+description: "에이전트 기본 앱 또는 템플릿에 대한 훌륭한 에이전트 지침을 작성하는 방법: AGENTS.md, skills 및 도구 설명"
+---
+
+# 작성 에이전트 지침 및 기술
+
+에이전트 기본 앱에서 에이전트의 행동은 사용자가 제공한 지침만큼만 좋습니다. 해당 지침은 `AGENTS.md`(지도), skills(심층 분석), 작업/도구 설명(에이전트가 올바른 도구를 선택하는 방법) 등 세 가지 표면에 전달됩니다. 산문이 아닌 빠른 검색을 위해 각각 작성하세요.
+
+```an-diagram title="작성된 표면 3개 + 런타임 표면 1개" summary="AGENTS.md 및 도구 설명은 매 턴마다 로드됩니다. 수요에 따른 기술 부하; application_state는 UI를 통해 실시간으로 작성됩니다."
+{
+  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">모든 턴</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">지도: 목적, 핵심 규칙, 상태 키, action + skills 색인</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">모든 턴</span><strong>도구 설명</strong><small class=\"diagram-muted\">도구 선택 유도 — 각각 정확한 한 문장</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">요청 시</span><strong>기술</strong><small class=\"diagram-muted\">상세 가이드, 설명이 맞을 때 로드</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">UI가 작성: 탐색, 선택, 포커스</small></div></div>",
+  "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+}
+```
+
+## AGENTS.md를 작고 훑어볼 수 있도록 유지 {#small-agents-md}
+
+`AGENTS.md`가 방향으로 로드됩니다. 모든 것이 skills에 깊숙이 들어가 에이전트가 올바르게 작동할 수 있도록 하는 가장 작은 것이어야 합니다. 다음 섹션을 목표로 하세요:
+
+- **목적 라인** — 앱이 무엇인지와 기본 워크플로에 대한 한 문장입니다.
+- **핵심 규칙** — 항상 유지해야 하는 몇 가지 불변 사항(SQL의 데이터, 작업은 actions를 거치고, AI는 에이전트 채팅을 거치고, 스키마 변경 사항은 추가됨). 짧고 필수적인 글머리 기호.
+- **애플리케이션 상태 키** — 에이전트가 사용자가 보고 있는 내용과 모양을 알기 위해 읽는 `navigation`/선택/초점 키입니다.
+- **작업 테이블** — 목적에 맞는 작업 이름을 간략하게 정리한 테이블입니다.
+- **기술 인덱스** — 존재하는 skills 목록과 각각을 읽는 시기.
+
+섹션이 화면을 넘어서 커지면 스킬에 속합니다. `AGENTS.md`는 "어려운 일을 정확히 어떻게 하는가"가 아니라 "이 앱이 무엇이고 무엇을 할 수 있는가"에 대해 답합니다.
+
+```markdown
+# 프로젝트 앱
+
+One workspace for projects, tasks, and notes. Agent and UI share the same SQL
+data and the same actions.
+
+## 핵심 규칙
+
+- Data lives in Drizzle 기반 SQL. Use actions for all writes.
+- All AI work goes through the agent chat; never call an LLM inline.
+- Schema changes are additive only.
+
+## 애플리케이션 상태
+
+- `navigation.view`: `home` | `project`
+- `navigation.projectId`: selected project on a project page
+
+## 작업
+
+| Action           | Purpose                     |
+| ---------------- | --------------------------- |
+| `list-projects`  | List accessible projects    |
+| `create-project` | Create a project            |
+| `update-project` | Rename or archive a project |
+
+## 기술
+
+- `project-imports` — read before importing legacy CSV exports.
+- `sharing` — read before exposing a project to other users.
+```
+
+## 단일 소스 AGENTS.md {#single-source}
+
+하나의 정식 지침 파일인 `AGENTS.md`를 보관하세요. 클라이언트가 `CLAUDE.md`를 기대하는 경우 두 번째 복사본이 아닌 `AGENTS.md`에 대한 심볼릭 링크로 만듭니다. 손으로 관리하는 두 개의 파일이 표류하고 에이전트는 결국 모순되는 규칙에 직면하게 됩니다. 필요한 곳에 연결되는 단일 정보 소스
+
+## SKILL.md 머리말은 언제 AND가 무엇인지 말해야 합니다 {#skill-frontmatter}
+
+`description`는 에이전트가 스킬 읽기 여부를 결정할 때 보는 유일한 것입니다. 기술이 다루는 내용과 발동 시기라는 두 가지 질문에 답해야 합니다. 주제만을 설명하는 설명은 실행되지 않습니다.
+
+```markdown
+---
+name: project-imports
+description: >-
+  How to import projects from the legacy CSV export. Use when the user uploads
+  a project CSV or asks to migrate projects from the old system.
+---
+```
+
+- 기능을 설명하고 명시적인 **"사용 시기..."** 절을 추가하세요.
+- 약간 강압적으로 행동하세요. 과도하게 트리거하면 절대 로드되지 않는 스킬을 능가합니다.
+- 최대 40단어 미만으로 유지하세요. 모든 대화의 맥락에 로드됩니다.
+
+## 점진적 공개 {#progressive-disclosure}
+
+`SKILL.md`를 간결하고 꼭 알아야 할 레이어(규칙, 수행 방법, 해야 할 일/하지 말아야 할 일 및 포인터)로 작성하세요. 긴 예제, 철저한 필드 참조, API 특이 사항 및 특수 사례 테이블을 에이전트가 필요할 때만 읽는 `references/` 파일에 푸시합니다.
+
+```text
+.agents/skills/project-imports/
+├── SKILL.md            # 규칙 + 행복한 경로 + do/don't
+└── references/
+    └── csv-format.md   # 전체 열 사양, 인코딩, 엣지 케이스
+```
+
+이것은 항상 로드되는 표면을 작게 유지하고 컨텍스트를 부풀리지 않고 깊이 확장을 가능하게 합니다. 전체 스킬 형식은 [기술 Guide](/docs/skills-guide)를 참조하세요.
+
+## 행동 중심 테이블 작성 {#action-tables}
+
+에이전트는 산문보다 빠르게 테이블을 스캔합니다. 각 작업을 설명하는 단락보다 목적에 맞는 이름 표를 선호합니다. 상태 키, 필드 유형 및 열거 가능한 집합에도 동일하게 적용됩니다. 테이블은 훑어보고 비교할 수 있으며 작업을 추가할 때 동기화를 쉽게 유지할 수 있습니다.
+
+## 명확한 도구 설명 작성 {#tool-descriptions}
+
+작업 설명은 도구 설명입니다. 즉, 도구 선택을 유도합니다. 각각의 문장을 정확하고 단일 목적의 문장으로 만드세요.
+
+- 구현 방법이 아니라 무엇을 하고 무엇을 반환하는지 말하세요.
+- 에이전트가 올바르게 채울 수 있도록 `.describe()`의 각 매개변수를 설명하세요.
+- 행동 당 하나의 책임. 설명에 "및…"이 필요한 경우 분할하세요.
+- 상담원이 자유롭게 통화해도 안전하다는 것을 알 수 있도록 읽기 전용 actions(`readOnly: true` 또는 `http: { method: "GET" }`)를 표시하세요.
+
+```ts
+defineAction({
+  description: "Create a project. Returns the new project id and title.",
+  schema: z.object({
+    title: z.string().min(1).describe("Project title shown in the sidebar"),
+  }),
+  // ...
+});
+```
+
+## 기술 대 actions {#skills-vs-actions}
+
+기술 및 actions는 상호보완적입니다. 스킬은 에이전트가 읽는 지침입니다. 와
+액션은 에이전트가 실행할 수 있는 코드입니다.
+
+| 필요                                                              | 사용               |
+| ----------------------------------------------------------------- | ------------------ |
+| 상담사는 워크플로, 정책, 체크리스트 또는 기준표를 따라야 합니다.  | **스킬**           |
+| 에이전트에는 예시, 참조 자료 또는 도메인별 규칙이 필요합니다.     | **스킬**           |
+| 에이전트는 앱 데이터를 읽거나 써야 합니다                         | **액션**           |
+| 에이전트는 외부 API를 호출하거나 승인을 수행해야 합니다.          | **액션**           |
+| 에이전트가 올바른 작업을 호출했지만 잘못된 방식으로 호출했습니다. | **스킬** 향상      |
+| 에이전트가 작업을 안정적으로 호출할 수 없습니다.                  | **액션** 개선      |
+| 상담원이 잘못된 도구를 선택했습니다                               | **작업 설명** 개선 |
+
+대부분의 실제 기능은 두 가지를 모두 사용합니다. 기술은 작업에 접근하는 방법을 설명하고
+작업은 입력된 작업을 제공합니다. 예를 들어 `invoice-review` 스킬
+검토 정책 및 에스컬레이션 규칙을 설명할 수 있고, `list-invoices`,
+`flag-invoice` 및 `approve-invoice` actions는 실제 읽기 및 쓰기를 수행합니다.
+
+## 가공 방지 베이킹 및 완료 전 검증 {#anti-fabrication}
+
+앱 지침은 정직과 검증을 기본 행동으로 만들어야 합니다.
+
+- **조작하지 마세요.** 데이터를 찾을 수 없거나 작업이 실패하면 그렇다고 말하고 복구하세요. 결과를 만들어내거나 성공했다고 주장하지 마세요. 보고하기 전에 작업이나 쿼리를 통해 실제 가치를 읽어보세요.
+- **완료를 선언하기 전에 확인하세요.** 변경 후에는 쓰기가 작동했다고 가정하는 대신 다시 읽기(행을 다시 쿼리하고 `view-screen`를 통해 화면을 다시 읽음)로 확인하세요.
+- **복구하세요. 포기하지 마세요.** 복구 가능한 오류(실패한 쿼리, 일시적인 가져오기)가 발생하면 작업을 포기하는 대신 입력을 다시 시도하거나 수정하세요. 이를 조작 방지 규칙과 별도로 유지하십시오. "만들지 마세요"와 "첫 번째 오류에서 중지"를 혼동하지 마십시오.
+
+이를 `AGENTS.md`의 핵심 규칙으로 설정하여 모든 턴에 적용하세요.
+
+## 에이전트가 보는 네 가지 표면 {#four-surfaces}
+
+당신이 작성한 모든 지침은 네 가지 표면 중 하나에 속합니다. 어떤 표면을 사용할지 알면 중복과 잘못된 세부 정보를 방지할 수 있습니다.
+
+| 표면                         | 작성자             | 로드된 경우                                        | 거기에 속한 것                                         |
+| ---------------------------- | ------------------ | -------------------------------------------------- | ------------------------------------------------------ |
+| `AGENTS.md` 지침             | 당신(개발자)       | 매 턴마다 방향으로                                 | 목적, 핵심 규칙, 상태 키, 작업 인덱스, skills 인덱스   |
+| 기술 (`SKILL.md`)            | 귀하(개발자)       | 상담원이 해당 기술이 관련성이 있다고 판단하는 경우 | 특정 패턴에 대한 단계별 방법, 나열하거나 나열하지 않음 |
+| 작업 설명(도구)              | 귀하(개발자)       | 매 턴마다 도구 목록으로                            | 작업이 수행하는 작업, 반환하는 작업, 매개변수 의미     |
+| `application_state` 컨텍스트 | UI 코드(런타임 시) | 매 턴마다 라이브 앱 상태로                         | 현재 탐색, 선택, 초점 개체, URL                        |
+
+**빠른 진단:**
+
+- "기록이 열려 있어도 어떤 기록을 처리해야 하는지 에이전트가 계속 묻습니다." → 수정: 현재 항목 ID를 UI에서 `application_state`(`navigation` 키)에 씁니다. 그것은 기술 격차가 아니라 `application_state` 격차입니다.
+- "에이전트가 잘못된 액션을 호출하거나 매개변수를 오용합니다" → 수정: 매개변수에 대한 액션의 `description` 및 `.describe()`를 개선합니다. 그건 기술이 아니라 도구 설명 수정입니다.
+
+## 무엇이 어디로 가는가 {#what-goes-where}
+
+- **AGENTS.md** — 목적, 핵심 규칙, 상태 키, 작업 인덱스, skills 인덱스 등 모든 단계에서 전체 앱에 적용됩니다.
+- **기술** — 요청 시 로드되는 특정 패턴에 대한 재사용 가능한 방법입니다. 앱에서 작업하는 모든 사람에게 적용됩니다.
+- **메모리(`memory/MEMORY.md`)** — 작성된 지침이 아닌 사용자별 기본 설정 및 수정 사항입니다.
+
+## 다음 단계 {#whats-next}
+
+- [기술 Guide](/docs/skills-guide) — 스킬 파일 형식, 프레임워크 skills 및 앱 지원 skills.
+- [Creating Templates](/docs/creating-templates) — `AGENTS.md` 및 skills가 배송 가능한 템플릿에 어떻게 적용되는지.
+- [The four-area checklist](/docs/key-concepts#four-area-checklist) — 모든 기능이 충족해야 하는 4개 영역 모델

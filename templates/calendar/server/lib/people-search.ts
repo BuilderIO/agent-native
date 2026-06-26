@@ -1,9 +1,9 @@
-import * as googleCalendar from "./google-calendar.js";
 import {
   peopleListConnections,
   peopleListOtherContacts,
   peopleSearchDirectoryPeople,
 } from "./google-api.js";
+import * as googleCalendar from "./google-calendar.js";
 
 export type PeopleSearchScope = "all" | "directory";
 export type PeopleResultSource = "contact" | "otherContact" | "directory";

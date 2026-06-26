@@ -1,5 +1,5 @@
-import type { BlockSpec, BlockAttrReader, MdxAttrValue } from "./types.js";
 import type { BlockRegistry } from "./registry.js";
+import type { BlockSpec, BlockAttrReader, MdxAttrValue } from "./types.js";
 
 /**
  * Registry-driven MDX serialize/parse, plus the shared encoder primitives that

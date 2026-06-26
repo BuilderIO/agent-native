@@ -1,3 +1,4 @@
+import { getThread } from "../chat-threads/store.js";
 /**
  * Ownership checks for the agent run HTTP routes (`/runs/:id/events`,
  * `/runs/:id/abort`, `/runs/active`).
@@ -11,7 +12,6 @@
  */
 import { getRun } from "./run-manager.js";
 import { getRunById } from "./run-store.js";
-import { getThread } from "../chat-threads/store.js";
 
 /**
  * Resolve a run's owning thread id. Checks in-memory run state first (populated

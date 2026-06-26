@@ -1,7 +1,7 @@
-import { useCallback } from "react";
+import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import { useCallback } from "react";
 
 export type VideoFolder = {
   id: string;
@@ -25,7 +25,8 @@ const LIST_KEY = ["action", "list-folders", undefined] as const;
 export function useFolders() {
   const queryClient = useQueryClient();
 
-  const { data: rows = [] } = useActionQuery<FolderRow[]>("list-folders");
+  const { data: rowsData } = useActionQuery<FolderRow[]>("list-folders");
+  const rows: FolderRow[] = rowsData ?? [];
 
   const folders: VideoFolder[] = rows.map((r) => ({
     id: r.id,

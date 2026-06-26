@@ -1,4 +1,5 @@
 import * as jose from "jose";
+
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import type {
   AgentCard,

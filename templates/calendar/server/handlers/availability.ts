@@ -1,17 +1,18 @@
 import {
+  readBody,
+  getRequestTimezone,
+  getSession,
+} from "@agent-native/core/server";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { eq } from "drizzle-orm";
+import {
   defineEventHandler,
   getQuery,
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { eq } from "drizzle-orm";
+
 import type { AvailabilityConfig } from "../../shared/api.js";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
-import {
-  readBody,
-  getRequestTimezone,
-  getSession,
-} from "@agent-native/core/server";
 import { getDb, schema } from "../db/index.js";
 
 function createDefaultAvailability(timezone: string): AvailabilityConfig {

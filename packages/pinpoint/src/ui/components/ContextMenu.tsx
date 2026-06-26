@@ -2,6 +2,7 @@
 // MIT License
 
 import { onMount, onCleanup, type Component } from "solid-js";
+
 import { icons } from "../icons/index.js";
 
 interface ContextMenuProps {

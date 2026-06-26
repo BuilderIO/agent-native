@@ -13,9 +13,11 @@ normal app chat.
 
 Use native chat UI when the user should inspect output where the agent is
 already speaking: query results, response insights, setup summaries,
-approval/denial controls, or links into app views. Use [MCP Apps](/docs/mcp-apps)
-when an external host such as Claude, ChatGPT, Copilot, or Cursor should render
-an inline route from your app.
+approval/denial controls, or links into app views. Use
+[Generative UI](/docs/generative-ui) when the agent needs to create arbitrary
+one-off controls, pickers, calculators, or visualizers in the in-app chat. Use
+[MCP Apps](/docs/mcp-apps) when an external host such as Claude, ChatGPT,
+Copilot, or Cursor should render an inline route from your app.
 
 ```an-diagram title="The native render path" summary="An action returns JSON; the runtime matches an explicit widget discriminant or chatUI.renderer; AssistantChat mounts a real React component. No iframe, no HTML execution."
 {
@@ -155,12 +157,14 @@ requiring each template to ship its own chat renderer:
 Keep chart data compact. For large datasets, aggregate in the action and link
 to the full app view with `display.primaryAction` or action `link` metadata.
 
-## Native widgets vs MCP Apps {#native-vs-mcp-apps}
+## Native widgets vs Generative UI vs MCP Apps {#native-vs-mcp-apps}
 
-Native chat widgets and MCP Apps are complementary:
+Native chat widgets, Generative UI, and MCP Apps are complementary:
 
 - **Native widgets** are for the app's own chat runtime. The action result is
   JSON, and the framework renders the built-in React widget.
+- **Generative UI** is for arbitrary sandboxed Alpine/Tailwind UI that the
+  agent creates or reloads inline in the app's own chat.
 - **MCP Apps** are for external hosts. The action declares `mcpApp` and usually
   `link`, and the host renders a real app route inline when supported.
 - **Deep links** remain the universal fallback. Use action `link` or

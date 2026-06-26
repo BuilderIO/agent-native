@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { IconMailFast, IconUserPlus } from "@tabler/icons-react";
-import { useActionMutation } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,6 +43,7 @@ function isValidEmail(s: string): boolean {
 }
 
 export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [emailsRaw, setEmailsRaw] = useState("");
   const [role, setRole] = useState<InviteRole>("member");
@@ -55,13 +57,15 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
     e.preventDefault();
     const emails = parseEmails(emailsRaw);
     if (!emails.length) {
-      toast.error("Enter at least one email address.");
+      toast.error(t("inviteDialog.enterEmail"));
       return;
     }
 
     const invalid = emails.filter((e) => !isValidEmail(e));
     if (invalid.length) {
-      toast.error(`Invalid email(s): ${invalid.join(", ")}`);
+      toast.error(
+        t("inviteDialog.invalidEmails", { emails: invalid.join(", ") }),
+      );
       return;
     }
 
@@ -74,14 +78,20 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
       } catch (err) {
         fail += 1;
         toast.error(
-          `${email}: ${err instanceof Error ? err.message : "Failed"}`,
+          t("inviteDialog.emailFailed", {
+            email,
+            message:
+              err instanceof Error ? err.message : t("inviteDialog.failed"),
+          }),
         );
       }
     }
 
     if (ok > 0) {
       toast.success(
-        `Sent ${ok} invite${ok === 1 ? "" : "s"}${fail ? `, ${fail} failed` : ""}.`,
+        fail
+          ? t("inviteDialog.sentWithFailures", { sent: ok, failed: fail })
+          : t("inviteDialog.sent", { count: ok }),
       );
       qc.invalidateQueries({
         queryKey: ["action", "list-organization-state"],
@@ -100,21 +110,18 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
           disabled={disabled}
           className="bg-primary hover:bg-primary/90 text-primary-foreground"
         >
-          <IconUserPlus className="size-4 mr-1.5" />
-          Invite members
+          <IconUserPlus className="size-4 me-1.5" />
+          {t("inviteDialog.title")}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Invite members</DialogTitle>
-          <DialogDescription>
-            Paste one or more emails separated by commas or new lines. Invites
-            expire in 7 days.
-          </DialogDescription>
+          <DialogTitle>{t("inviteDialog.title")}</DialogTitle>
+          <DialogDescription>{t("inviteDialog.description")}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="emails">Emails</Label>
+            <Label htmlFor="emails">{t("inviteDialog.emails")}</Label>
             <Textarea
               id="emails"
               value={emailsRaw}
@@ -127,7 +134,7 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="role">Role</Label>
+            <Label htmlFor="role">{t("organizationSettings.role")}</Label>
             <Select
               value={role}
               onValueChange={(v) => setRole(v as InviteRole)}
@@ -137,9 +144,11 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="member">
-                  Member — record, edit, share
+                  {t("inviteDialog.memberRole")}
                 </SelectItem>
-                <SelectItem value="admin">Admin — full control</SelectItem>
+                <SelectItem value="admin">
+                  {t("inviteDialog.adminRole")}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -150,15 +159,17 @@ export function InviteDialog({ organizationId, disabled }: InviteDialogProps) {
               onClick={() => setOpen(false)}
               disabled={invite.isPending}
             >
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
               disabled={invite.isPending}
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
-              <IconMailFast className="size-4 mr-1.5" />
-              {invite.isPending ? "Sending…" : "Send invites"}
+              <IconMailFast className="size-4 me-1.5" />
+              {invite.isPending
+                ? t("inviteDialog.sending")
+                : t("inviteDialog.sendInvites")}
             </Button>
           </DialogFooter>
         </form>

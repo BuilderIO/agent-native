@@ -1,31 +1,44 @@
-import { Link, useLocation } from "react-router";
-import {
-  IconVideo,
-  IconComponents,
-  IconPalette,
-  IconUsers,
-} from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  useT,
 } from "@agent-native/core/client";
+import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import {
+  IconVideo,
+  IconComponents,
+  IconPalette,
+  IconSettings,
+  IconUsers,
+} from "@tabler/icons-react";
+import { Link, useLocation } from "react-router";
+
+import { cn } from "@/lib/utils";
 
 const navItems = [
-  { icon: IconVideo, label: "Animations", href: "/" },
-  { icon: IconComponents, label: "Components", href: "/components" },
-  { icon: IconPalette, label: "Design Systems", href: "/design-systems" },
-  { icon: IconUsers, label: "Team", href: "/team" },
+  { icon: IconVideo, labelKey: "navigation.animations", href: "/" },
+  {
+    icon: IconComponents,
+    labelKey: "navigation.components",
+    href: "/components",
+  },
+  {
+    icon: IconPalette,
+    labelKey: "navigation.designSystems",
+    href: "/design-systems",
+  },
+  { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
+  { icon: IconUsers, labelKey: "navigation.team", href: "/team" },
 ];
 
 export function NavSidebar() {
   const location = useLocation();
+  const t = useT();
 
   return (
-    <aside className="flex h-full w-56 shrink-0 flex-col border-r border-border bg-sidebar text-sidebar-foreground">
+    <aside className="flex h-full w-56 shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground">
       <div className="flex h-12 shrink-0 items-center gap-2 px-4 border-b border-border">
         <img
           src={appPath("/agent-native-icon-light.svg")}
@@ -39,7 +52,9 @@ export function NavSidebar() {
           aria-hidden="true"
           className="hidden h-4 w-auto shrink-0 dark:block"
         />
-        <span className="text-sm font-semibold tracking-tight">Videos</span>
+        <span className="text-sm font-semibold tracking-tight">
+          {t("navigation.brand")}
+        </span>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
@@ -49,6 +64,7 @@ export function NavSidebar() {
             item.href === "/"
               ? !location.pathname.startsWith("/components") &&
                 !location.pathname.startsWith("/design-systems") &&
+                !location.pathname.startsWith("/settings") &&
                 !location.pathname.startsWith("/team") &&
                 !location.pathname.startsWith("/extensions")
               : location.pathname.startsWith(item.href);
@@ -64,7 +80,7 @@ export function NavSidebar() {
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           );
         })}

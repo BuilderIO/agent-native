@@ -3,14 +3,15 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  MultiTabAssistantChat,
-  type MultiTabAssistantChatHeaderProps,
-} from "./MultiTabAssistantChat.js";
+
 import {
   sendToAgentChat,
   _resetAgentChatSubmitBufferForTests,
 } from "./agent-chat.js";
+import {
+  MultiTabAssistantChat,
+  type MultiTabAssistantChatHeaderProps,
+} from "./MultiTabAssistantChat.js";
 
 const chatHandleMocks = vi.hoisted(() => ({
   sendMessage: vi.fn(),
@@ -122,7 +123,10 @@ vi.mock("./AssistantChat.js", async () => {
       _props: unknown,
       ref,
     ) {
-      const props = _props as { composerSlot?: React.ReactNode };
+      const props = _props as {
+        composerSlot?: React.ReactNode;
+        emptyStateAddon?: React.ReactNode;
+      };
       React.useImperativeHandle(ref, () => ({
         sendMessage: chatHandleMocks.sendMessage,
         prefillMessage: chatHandleMocks.prefillMessage,
@@ -135,7 +139,12 @@ vi.mock("./AssistantChat.js", async () => {
         focusComposer: chatHandleMocks.focusComposer,
         exportThreadSnapshot: chatHandleMocks.exportThreadSnapshot,
       }));
-      return <div data-testid="assistant-chat">{props.composerSlot}</div>;
+      return (
+        <div data-testid="assistant-chat">
+          {props.emptyStateAddon}
+          {props.composerSlot}
+        </div>
+      );
     }),
   };
 });
@@ -475,6 +484,44 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     expect(badges).toHaveLength(1);
     expect(badges[0]?.textContent).toContain("Using this form");
     expect(composerChildren).toEqual([hostSlot, badges[0]]);
+  });
+
+  it("keeps previous scoped chats out of the empty chat state", async () => {
+    const now = Date.now();
+    threadMocks.threads = [
+      {
+        ...threadMocks.threads[0],
+        scope: { type: "form", id: "form-1" },
+        messageCount: 0,
+        updatedAt: now,
+      },
+      {
+        id: "thread-2",
+        title: "Older form chat",
+        preview: "",
+        messageCount: 1,
+        createdAt: now - 1000,
+        updatedAt: now - 1000,
+        scope: { type: "form", id: "form-1" },
+      },
+    ];
+
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="bridge-test"
+          scope={{ type: "form", id: "form-1" }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("Using this form");
+    expect(container.textContent).toContain("Older form chat");
+    expect(container.textContent).not.toContain("Previous chats for this form");
   });
 
   it("syncs selected and new chat states to the URL when enabled", async () => {

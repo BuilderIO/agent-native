@@ -1,6 +1,6 @@
-import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 
 export interface AgentNativeJsonSchema {
   type?: string | string[];
@@ -74,6 +74,9 @@ export interface AgentChatReference {
   source: string;
   refType?: string;
   refId?: string;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface MentionProviderItem {
@@ -84,6 +87,25 @@ export interface MentionProviderItem {
   refType: string;
   refId?: string;
   refPath?: string;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+  clearsSlots?: string[];
+  relatedReferences?: MentionProviderReference[];
+}
+
+export interface MentionProviderReference {
+  label: string;
+  icon?: string;
+  source?: string;
+  refType: string;
+  refId?: string | null;
+  refPath?: string | null;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+  clearsSlots?: string[];
+  relatedReferences?: MentionProviderReference[];
 }
 
 export interface MentionProvider {

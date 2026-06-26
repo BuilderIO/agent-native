@@ -1,5 +1,3 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   IconCheck,
   IconChevronRight,
@@ -7,8 +5,11 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { agentNativePath } from "./api-path.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
 import { sendToAgentChat } from "./agent-chat.js";
+import { agentNativePath } from "./api-path.js";
 import { setClientAppState } from "./application-state.js";
 import { cn } from "./utils.js";
 
@@ -475,7 +476,7 @@ export function GuidedQuestionFlow({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pe-1">
           {questions.map((question, index) => (
             <QuestionCard
               key={question.id}
@@ -516,7 +517,7 @@ export function GuidedQuestionFlow({
               className="inline-flex cursor-pointer items-center gap-2 rounded-md bg-primary px-3.5 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-45"
             >
               {submitLabel}
-              <IconChevronRight className="h-4 w-4" />
+              <IconChevronRight className="h-4 w-4 rtl:-scale-x-100" />
             </button>
           </div>
         </div>
@@ -551,7 +552,7 @@ function QuestionCard({
           <h3 className="text-sm font-medium leading-5 text-foreground">
             {question.question}
             {question.required && (
-              <span className="ml-1 text-destructive">*</span>
+              <span className="ms-1 text-destructive">*</span>
             )}
           </h3>
           {question.description && (
@@ -700,7 +701,7 @@ function OptionButton({
       onClick={onClick}
       aria-pressed={selected}
       className={cn(
-        "group flex min-h-[56px] cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+        "group flex min-h-[56px] cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-start transition-colors",
         selected
           ? "border-primary bg-primary/10 text-foreground ring-2 ring-primary/25"
           : "border-border bg-muted/30 text-muted-foreground hover:border-muted-foreground/50 hover:bg-muted/45 hover:text-foreground",
@@ -831,10 +832,8 @@ function SliderQuestion({
         onChange={(event) => onChange(Number(event.target.value))}
         className="h-2 flex-1 cursor-pointer accent-primary"
       />
-      <span className="w-8 text-right text-xs text-muted-foreground">
-        {max}
-      </span>
-      <span className="min-w-10 text-right text-sm font-medium tabular-nums text-foreground">
+      <span className="w-8 text-end text-xs text-muted-foreground">{max}</span>
+      <span className="min-w-10 text-end text-sm font-medium tabular-nums text-foreground">
         {current}
       </span>
     </div>

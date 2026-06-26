@@ -1,15 +1,16 @@
 [build]
-  ignore = "node ./scripts/netlify-ignore-build.mjs assets"
-  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter assets build"
-  publish = "templates/assets/dist"
-  functions = "templates/assets/.netlify/functions-internal"
+ignore = "node ./scripts/netlify-ignore-build.mjs assets"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter assets build"
+publish = "templates/assets/dist"
+functions = "templates/assets/.netlify/functions-internal"
 
 [build.environment]
-  NITRO_PRESET = "netlify"
-  NPM_CONFIG_PRODUCTION = "false"
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"
 
 # Image generation calls run a full Gemini round-trip plus Sharp post-processing.
 # Each `generate-image` call is ~6-12s; A2A delegation may chain several. Match
 # slides' generous timeout so multi-image runs don't get killed mid-flight.
 [functions."*"]
-  timeout = 300
+timeout = 300

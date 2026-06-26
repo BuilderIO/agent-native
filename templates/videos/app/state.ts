@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+
 import type { AnimationTrack } from "./types";
 
 export type TimelineState = {

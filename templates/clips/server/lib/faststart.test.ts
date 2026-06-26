@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { applyFaststart, hasPlayableMp4Metadata } from "./faststart";
 
 function atom(type: string, payload: Uint8Array = new Uint8Array()) {

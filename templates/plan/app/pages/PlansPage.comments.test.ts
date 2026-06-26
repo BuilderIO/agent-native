@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
+import type { PlanBundle } from "@shared/types";
 import { describe, expect, it } from "vitest";
+
+import { planBundleQueryKey } from "@/hooks/use-plans";
+
 import {
   addPlanCommentToBundle,
   buildNativeAnchorFromElement,
@@ -23,8 +27,6 @@ import {
   shouldKeepCommentPopoverOpenForTarget,
   resolvePlanOrgAccessPrompt,
 } from "./PlansPage";
-import { planBundleQueryKey } from "@/hooks/use-plans";
-import type { PlanBundle } from "@shared/types";
 
 type PlanComment = PlanBundle["comments"][number];
 
@@ -930,10 +932,10 @@ describe("plan comment thread UI model", () => {
       hasSelectedId: true,
       localPlanMode: false,
       hasBundle: false,
-      planQueryPending: false,
+      planQueryInitialPending: false,
       planQueryError: false,
       planQueryPaused: false,
-      accessStatusPending: false,
+      accessStatusInitialPending: false,
       accessStatusPaused: false,
       accessDenied: false,
     };
@@ -949,7 +951,7 @@ describe("plan comment thread UI model", () => {
     expect(
       shouldShowPlanLoadError({
         ...base,
-        planQueryPending: true,
+        planQueryInitialPending: true,
         planQueryPaused: true,
       }),
     ).toBe(false);
@@ -958,12 +960,28 @@ describe("plan comment thread UI model", () => {
       true,
     );
     expect(shouldShowPlanLoadError({ ...base, accessDenied: true })).toBe(true);
+    // Background refetches should not replace a settled error/access card with
+    // the first-load skeleton.
+    expect(
+      shouldShowPlanLoadError({
+        ...base,
+        planQueryInitialPending: true,
+        planQueryError: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowPlanLoadError({
+        ...base,
+        planQueryInitialPending: true,
+        accessDenied: true,
+      }),
+    ).toBe(true);
     // An access denial that hasn't settled yet should not flash the card.
     expect(
       shouldShowPlanLoadError({
         ...base,
         accessDenied: true,
-        accessStatusPending: true,
+        accessStatusInitialPending: true,
       }),
     ).toBe(false);
     // Healthy / local / already-loaded states never show the card.
@@ -1007,9 +1025,8 @@ describe("plan comment thread UI model", () => {
     expect(prompt).toMatchObject({
       kind: "invitation",
       invitationId: "invite_1",
-      buttonLabel: "Accept invite",
-      message:
-        "You already have an invite to Builder.io. Accept it to open this plan.",
+      organizationName: "Builder.io",
+      invitedBy: "Milos",
     });
   });
 
@@ -1036,9 +1053,8 @@ describe("plan comment thread UI model", () => {
     expect(prompt).toMatchObject({
       kind: "domain",
       organizationId: "org_builder",
-      buttonLabel: "Join Builder.io",
-      message:
-        "Your @builder.io email can join Builder.io. Join it to open this plan.",
+      organizationName: "Builder.io",
+      domain: "builder.io",
     });
   });
 

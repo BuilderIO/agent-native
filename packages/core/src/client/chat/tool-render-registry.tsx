@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+
 import type { ActionChatUIConfig } from "../../action-ui.js";
 
 export interface ToolRendererContext {

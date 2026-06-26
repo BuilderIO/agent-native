@@ -14,6 +14,7 @@
  */
 
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
+
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -70,6 +71,15 @@ export function resolveRegisteredAccessContext(
   return reg?.resolveAccessContext ? reg.resolveAccessContext(ctx) : ctx;
 }
 
+function normalizeEmailForAccess(email: string | undefined): string | null {
+  const normalized = email?.trim().toLowerCase();
+  return normalized || null;
+}
+
+function emailColumnMatches(column: any, email: string): SQL {
+  return sql`lower(${column}) = ${email}`;
+}
+
 /**
  * Build a Drizzle `WHERE` clause that admits rows the current user can see.
  * Pass the ownable resource table and its shares table; optional min role
@@ -102,15 +112,16 @@ export function accessFilter(
   const reg = findRegistrationByTable(resourceTable);
   const ctx = resolveRegisteredAccessContext(reg, rawCtx);
   const { userEmail, orgId } = ctx;
+  const normalizedUserEmail = normalizeEmailForAccess(userEmail);
   const publicAllowed = reg?.allowPublic !== false;
   const includePublic = (options.includePublic ?? false) && publicAllowed;
   const clauses: SQL[] = [];
 
-  if (userEmail) {
+  if (normalizedUserEmail) {
     clauses.push(
       and(
-        eq(resourceTable.ownerEmail, userEmail),
-        ownerScopeFilter(resourceTable, ctx),
+        emailColumnMatches(resourceTable.ownerEmail, normalizedUserEmail),
+        ownerScopeFilter(reg, resourceTable, ctx),
       )!,
     );
   }
@@ -127,13 +138,13 @@ export function accessFilter(
       );
     }
   }
-  if (userEmail) {
+  if (normalizedUserEmail) {
     const shareScope = restrictedShareScopeSql(reg, resourceTable, ctx);
     clauses.push(
       sql`exists (select 1 from ${sharesTable}
                   where ${sharesTable.resourceId} = ${resourceTable.id}
                     and ${sharesTable.principalType} = 'user'
-                    and ${sharesTable.principalId} = ${userEmail}
+                    and lower(${sharesTable.principalId}) = ${normalizedUserEmail}
                     and ${shareScope}
                     and ${minRoleSql(minRole)})`,
     );
@@ -153,7 +164,12 @@ export function accessFilter(
   return or(...clauses) ?? sql`1=0`;
 }
 
-function ownerScopeFilter(resourceTable: any, ctx: AccessContext): SQL {
+function ownerScopeFilter(
+  reg: ShareableResourceRegistration | undefined,
+  resourceTable: any,
+  ctx: AccessContext,
+): SQL {
+  if (reg?.ownerAccessIgnoresOrg === true) return sql`1=1`;
   if (ctx.orgId) {
     // Rows created before org-scoping, or in solo mode, have no org_id. Keep
     // them manageable by their owner after the owner joins or switches into an
@@ -166,7 +182,12 @@ function ownerScopeFilter(resourceTable: any, ctx: AccessContext): SQL {
   return sql`${resourceTable.orgId} IS NULL`;
 }
 
-function ownerMatchesActiveScope(resource: any, ctx: AccessContext): boolean {
+function ownerMatchesActiveScope(
+  reg: ShareableResourceRegistration | undefined,
+  resource: any,
+  ctx: AccessContext,
+): boolean {
+  if (reg?.ownerAccessIgnoresOrg === true) return true;
   const resourceOrgId = resource?.orgId ?? null;
   if (!resourceOrgId) return true;
   return ctx.orgId === resourceOrgId;
@@ -232,11 +253,12 @@ export async function resolveAccess(
   if (!resource) return null;
 
   const { userEmail, orgId } = ctx;
+  const normalizedUserEmail = normalizeEmailForAccess(userEmail);
 
   if (
-    userEmail &&
-    resource.ownerEmail === userEmail &&
-    ownerMatchesActiveScope(resource, ctx)
+    normalizedUserEmail &&
+    normalizeEmailForAccess(resource.ownerEmail) === normalizedUserEmail &&
+    ownerMatchesActiveScope(reg, resource, ctx)
   ) {
     return { role: "owner", resource };
   }
@@ -264,16 +286,17 @@ async function highestShareRole(
   resource: any,
 ): Promise<ShareRole | null> {
   const { userEmail, orgId } = ctx;
-  if (!userEmail && !orgId) return null;
+  const normalizedUserEmail = normalizeEmailForAccess(userEmail);
+  if (!normalizedUserEmail && !orgId) return null;
   if (!explicitSharesAllowedForResource(reg, resource, ctx)) return null;
   const db = reg.getDb() as any;
 
   const principalClauses: ReturnType<typeof and>[] = [];
-  if (userEmail) {
+  if (normalizedUserEmail) {
     principalClauses.push(
       and(
         eq(reg.sharesTable.principalType, "user"),
-        eq(reg.sharesTable.principalId, userEmail),
+        emailColumnMatches(reg.sharesTable.principalId, normalizedUserEmail),
       ),
     );
   }

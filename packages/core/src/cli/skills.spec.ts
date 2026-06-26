@@ -1,7 +1,8 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {

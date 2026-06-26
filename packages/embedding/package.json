@@ -1,22 +1,23 @@
 {
   "name": "@agent-native/embedding",
   "version": "0.2.0",
-  "type": "module",
   "description": "Embed Agent-Native apps, pickers, and agents inside other apps.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/BuilderIO/agent-native",
     "directory": "packages/embedding"
   },
-  "bugs": {
-    "url": "https://github.com/BuilderIO/agent-native/issues"
-  },
-  "homepage": "https://github.com/BuilderIO/agent-native#readme",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -39,17 +40,24 @@
       "import": "./dist/protocol.js"
     }
   },
-  "files": [
-    "dist",
-    "README.md"
-  ],
-  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsgo",
+    "dev": "tsgo --watch",
     "test": "vitest --run src",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsgo --noEmit",
     "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@agent-native/core": "workspace:*",
+    "@types/react": "^19.2.15",
+    "@typescript/native-preview": "catalog:",
+    "react": "^19.2.6",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
   },
   "peerDependencies": {
     "@agent-native/core": ">=0.22.0",
@@ -59,12 +67,5 @@
     "react": {
       "optional": true
     }
-  },
-  "devDependencies": {
-    "@agent-native/core": "workspace:*",
-    "@types/react": "^19.2.15",
-    "react": "^19.2.6",
-    "typescript": "^6.0.3",
-    "vitest": "^4.1.5"
   }
 }

@@ -23,7 +23,7 @@ function propertyFrom(
 describe("plan detail route meta", () => {
   it("uses the plan name as the document title", () => {
     const entries = planMeta({
-      data: {
+      loaderData: {
         planMeta: {
           title: "Hosted-First Visual Plan Sync",
           brief: "Keep the hosted and local plan surfaces aligned.",
@@ -40,7 +40,7 @@ describe("plan detail route meta", () => {
 
   it("uses the recap name as the document title", () => {
     const entries = recapMeta({
-      data: {
+      loaderData: {
         planMeta: {
           title: "Provider API Body Cursors Recap",
           brief: "Summarize the provider API cursor changes.",

@@ -1,9 +1,11 @@
 import { IconGripVertical, IconX } from "@tabler/icons-react";
+
 import { Button } from "@/components/ui/button";
+
+import type { ExplorerEvent } from "../types";
 import { EventCombobox } from "./EventCombobox";
 import { FilterBuilder } from "./FilterBuilder";
 import { GroupByPicker } from "./GroupByPicker";
-import type { ExplorerEvent } from "../types";
 
 interface EventRowProps {
   event: ExplorerEvent;

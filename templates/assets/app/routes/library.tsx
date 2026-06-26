@@ -1,41 +1,63 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
 import {
-  createEmbeddedAppBridge,
-  type EmbeddedAppBridge,
-} from "@agent-native/core/embedding/bridge";
-import {
-  agentNativePath,
   appPath,
   getBrowserTabId,
   getEmbedAuthToken,
   isEmbedMcpChatBridgeActive,
   isEmbedAuthActive,
+  insertAgentComposerReference,
+  readClientAppState,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
   useActionMutation,
   useActionQuery,
+  useAgentChatGenerating,
+  useT,
+  writeClientAppState,
 } from "@agent-native/core/client";
+import {
+  createEmbeddedAppBridge,
+  type EmbeddedAppBridge,
+} from "@agent-native/core/embedding";
 import {
   IconArrowUpRight,
   IconCheck,
+  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconClipboard,
+  IconLibraryPhoto,
   IconPhotoPlus,
+  IconSearch,
   IconX,
 } from "@tabler/icons-react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+  Link,
+  useSearchParams,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router";
+import { toast } from "sonner";
+
+import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
+import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+  DialogClose,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -46,15 +68,34 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { DEFAULT_LIBRARY_PRESETS } from "../../shared/library-presets";
-import type { ImageQualityTier, StyleStrength } from "../../shared/api";
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  sortLibrariesByUsage,
+  type ImageLibrarySummary,
+} from "@/lib/libraries";
+import { buildPickerChatHandoffPrompt } from "@/lib/picker-chat-handoff";
+import { cn } from "@/lib/utils";
+
+import type {
+  AssetVariantState,
+  ImageQualityTier,
+  StyleStrength,
+} from "../../shared/api";
+import {
+  DEFAULT_LIBRARY_PRESETS,
+  LibraryPreset,
+} from "../../shared/library-presets";
+import {
+  BrandKitDetailRoute,
+  LiveCandidatesStage,
+  type VariantSlot,
+} from "./brand-kits.$id";
 
 type AssetTab = "all" | "generated" | "references";
 
@@ -74,13 +115,14 @@ const GENERATION_COUNTS = [1, 2, 3, 4, 6] as const;
 const STARTER_PRESET = DEFAULT_LIBRARY_PRESETS[0];
 const STARTER_LIBRARY_ID = `starter:${STARTER_PRESET.id}`;
 const PICKER_INLINE_SELECT_CLASS =
-  "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 [&>svg]:ml-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
+  "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 [&>svg]:ms-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
 type PickerMediaType = "image" | "video";
 
 type Asset = {
   id: string;
   libraryId: string;
   role?: string | null;
+  status?: string | null;
   title?: string | null;
   description?: string | null;
   altText?: string | null;
@@ -95,6 +137,7 @@ type Asset = {
   downloadUrl?: string;
   embedUrl?: string;
   embedPath?: string;
+  libraryTitle?: string | null;
   lineage?: {
     label?: string | null;
     kind?: string | null;
@@ -122,6 +165,7 @@ type GenerationPreset = {
   mediaType?: string | null;
   aspectRatio?: string | null;
   imageSize?: string | null;
+  model?: string | null;
 };
 
 type HostConfig = {
@@ -513,7 +557,7 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
-const MCP_IMAGE_CONTENT_MAX_BYTES = 4 * 1024 * 1024;
+const MCP_IMAGE_CONTENT_MAX_BYTES = 2.5 * 1024 * 1024;
 
 function base64ByteLength(data: string) {
   const padding = data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0;
@@ -680,6 +724,7 @@ function AssetThumbnail({ asset }: { asset: Asset }) {
 }
 
 function AssetOverlayImage({ asset }: { asset: Asset }) {
+  const t = useT();
   const sources = assetOverlaySources(asset);
   const sourcesKey = sources.join("\n");
   const [sourceIndex, setSourceIndex] = useState(0);
@@ -692,7 +737,7 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
   if (!source) {
     return (
       <div className="flex aspect-square w-full items-center justify-center rounded-lg bg-muted text-sm text-muted-foreground">
-        Preview unavailable
+        {t("brandKitDetail.previewUnavailable")}
       </div>
     );
   }
@@ -712,7 +757,1179 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
   );
 }
 
-export default function AssetPicker() {
+function EmptyLibraryStarter({ onCreateBlank }: { onCreateBlank: () => void }) {
+  const t = useT();
+  const navigate = useNavigate();
+  const { data: presetData } = useActionQuery("list-library-presets", {});
+  const createFromPreset = useActionMutation("create-library-from-preset");
+  const [creatingPresetId, setCreatingPresetId] = useState<string | null>(null);
+  const presets = ((presetData as any)?.presets ?? []) as LibraryPreset[];
+
+  function createPresetLibrary(presetId: string) {
+    setCreatingPresetId(presetId);
+    createFromPreset.mutate(
+      { presetId } as any,
+      {
+        onSuccess: (library: any) => {
+          setCreatingPresetId(null);
+          navigate(`/library/${library.id}`);
+        },
+        onError: (error: Error) => {
+          setCreatingPresetId(null);
+          toast.error(error.message || t("brandKits.presetCreateFailed"));
+        },
+      } as any,
+    );
+  }
+
+  return (
+    <div className="mx-auto flex min-h-full max-w-5xl flex-col justify-center px-6 py-10">
+      <div className="mx-auto max-w-2xl text-center">
+        <IconLibraryPhoto className="mx-auto h-10 w-10 text-muted-foreground" />
+        <h2 className="mt-4 text-xl font-semibold tracking-tight">
+          {t("library.buildYourFirstKit")}
+        </h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          {t("library.buildYourFirstKitDescription")}
+        </p>
+      </div>
+      <div className="mt-6">
+        <LibraryPresetGrid
+          presets={presets}
+          creatingId={creatingPresetId}
+          onCreate={createPresetLibrary}
+        />
+      </div>
+      <div className="mt-5 flex justify-center">
+        <Button variant="outline" onClick={onCreateBlank}>
+          {t("library.createBlankKit")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function LibraryShellHeader({
+  selectedLibraryId = null,
+  libraries,
+  isLoading,
+  onCreateKit,
+}: {
+  selectedLibraryId?: string | null;
+  libraries: ImageLibrarySummary[];
+  isLoading?: boolean;
+  onCreateKit: () => void;
+}) {
+  const t = useT();
+  const selectedLibrary = selectedLibraryId
+    ? libraries.find((library) => library.id === selectedLibraryId)
+    : null;
+  const title =
+    selectedLibrary?.title ??
+    (selectedLibraryId ? t("library.library") : t("library.allAssets"));
+  const visibility = (selectedLibrary as any)?.visibility;
+
+  return (
+    <header className="border-b border-border bg-background px-4 py-3 md:px-6">
+      <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <LibraryKitSelector
+            selectedLibraryId={selectedLibraryId}
+            libraries={libraries}
+            isLoading={isLoading}
+            triggerLabel={title}
+            triggerStyle="title"
+            onCreateKit={onCreateKit}
+          />
+          {visibility ? (
+            <Badge variant="outline" className="h-6 rounded-full px-2 text-xs">
+              {visibility}
+            </Badge>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 self-start sm:self-auto sm:flex-nowrap">
+          {selectedLibraryId ? (
+            <div
+              id="assets-library-detail-primary-actions"
+              className="contents"
+              aria-label={t("library.primaryKitActions")}
+            />
+          ) : null}
+          <Button
+            size="sm"
+            className="h-8 shrink-0 gap-1.5"
+            onClick={onCreateKit}
+          >
+            <IconPhotoPlus className="h-4 w-4" />
+            {t("library.newKit")}
+          </Button>
+          {selectedLibraryId ? (
+            <div
+              id="assets-library-detail-more-actions"
+              className="contents"
+              aria-label={t("library.kitActions")}
+            />
+          ) : null}
+        </div>
+      </div>
+    </header>
+  );
+}
+
+function LibraryKitSelector({
+  selectedLibraryId = null,
+  libraries,
+  isLoading,
+  triggerLabel,
+  triggerStyle = "button",
+  onCreateKit,
+}: {
+  selectedLibraryId?: string | null;
+  libraries: ImageLibrarySummary[];
+  isLoading?: boolean;
+  triggerLabel?: string;
+  triggerStyle?: "button" | "title";
+  onCreateKit: () => void;
+}) {
+  const t = useT();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const selectedLibrary = selectedLibraryId
+    ? libraries.find((library) => library.id === selectedLibraryId)
+    : null;
+  const filteredLibraries = useMemo(() => {
+    const items = sortLibrariesByUsage(libraries.filter(Boolean));
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((library) =>
+      [library.title, library.description]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [libraries, query]);
+
+  function selectLibrary(libraryId: string | null) {
+    setOpen(false);
+    navigate(libraryId ? `/library/${libraryId}` : "/library");
+  }
+  const titleTrigger = triggerStyle === "title";
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        {titleTrigger ? (
+          <button
+            type="button"
+            className="-ml-1.5 inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xl font-semibold leading-tight tracking-tight transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <span className="block min-w-0 max-w-[min(48rem,calc(100vw-7rem))] truncate sm:max-w-none">
+              {triggerLabel ?? selectedLibrary?.title ?? t("library.allAssets")}
+            </span>
+            <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+          </button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 max-w-[18rem] gap-1.5 px-2.5"
+          >
+            <IconLibraryPhoto className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate">
+              {triggerLabel ?? selectedLibrary?.title ?? t("library.allAssets")}
+            </span>
+            <IconChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          </Button>
+        )}
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        className="w-[min(25rem,calc(100vw-2rem))] p-2"
+      >
+        <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-background px-2.5">
+          <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={t("library.searchKits")}
+            className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+        <div className="mt-2 max-h-72 overflow-y-auto">
+          <button
+            type="button"
+            onClick={() => selectLibrary(null)}
+            className={cn(
+              "flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-accent",
+              !selectedLibraryId && "bg-accent",
+            )}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+              <IconLibraryPhoto className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">
+                {t("library.allAssets")}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {t("library.allAssetsDescription")}
+              </span>
+            </span>
+            {!selectedLibraryId ? <IconCheck className="h-4 w-4" /> : null}
+          </button>
+
+          {isLoading ? (
+            <div className="mt-2 grid gap-1.5">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={index} className="h-12 rounded-md" />
+              ))}
+            </div>
+          ) : filteredLibraries.length ? (
+            <div className="mt-1 grid gap-1">
+              {filteredLibraries.map((library) => {
+                const selected = selectedLibraryId === library.id;
+                return (
+                  <button
+                    key={library.id}
+                    type="button"
+                    onClick={() => selectLibrary(library.id)}
+                    className={cn(
+                      "flex w-full min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left transition hover:bg-accent",
+                      selected && "bg-accent",
+                    )}
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">
+                        {library.title}
+                      </span>
+                      <span className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+                        <Badge variant="secondary" className="px-1.5 py-0">
+                          {t("library.referenceCount", {
+                            count: library.referenceCount ?? 0,
+                          })}
+                        </Badge>
+                        <Badge variant="outline" className="px-1.5 py-0">
+                          {t("library.assetCount", {
+                            count: library.generatedCount ?? 0,
+                          })}
+                        </Badge>
+                      </span>
+                    </span>
+                    {selected ? <IconCheck className="h-4 w-4" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="px-2 py-6 text-center text-sm text-muted-foreground">
+              {t("library.noKitsMatch")}
+            </div>
+          )}
+        </div>
+        <div className="mt-2 border-t border-border pt-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-full justify-start gap-2"
+            onClick={() => {
+              setOpen(false);
+              onCreateKit();
+            }}
+          >
+            <IconPhotoPlus className="h-4 w-4" />
+            {t("library.newKit")}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function AllAssetsBrowser() {
+  const t = useT();
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const [assetTab, setAssetTab] = useState<AssetTab>("all");
+  const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
+  const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
+    typeof assetPayload
+  > | null>(null);
+  const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
+
+  const { data: assetData, isLoading } = useActionQuery("list-assets", {
+    query: query.trim() || undefined,
+  } as any) as {
+    data?: { assets?: Asset[] };
+    isLoading: boolean;
+  };
+
+  const allAssets = assetData?.assets ?? [];
+  const assets = useMemo(
+    () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
+    [allAssets, assetTab],
+  );
+  const visibleAssetCount = assets.length;
+  const assetCountLabel = isLoading
+    ? t("library.loading")
+    : query.trim() || assetTab !== "all"
+      ? t("library.shownCount", { count: visibleAssetCount })
+      : t("library.assetCount", { count: allAssets.length });
+  const standaloneSelectionText = useMemo(
+    () =>
+      standaloneSelection
+        ? selectedAssetClipboardText(standaloneSelection)
+        : "",
+    [standaloneSelection],
+  );
+  const standaloneSelectionUrl =
+    standaloneSelection?.url ??
+    standaloneSelection?.downloadUrl ??
+    standaloneSelection?.previewUrl;
+
+  const copyStandaloneSelection = useCallback(
+    async (payload: ReturnType<typeof assetPayload>) => {
+      const text = selectedAssetClipboardText(payload);
+      try {
+        await navigator.clipboard.writeText(text);
+        setStandaloneCopyOk(true);
+        toast.success(t("library.selectionCopied"));
+      } catch {
+        setStandaloneCopyOk(false);
+        toast.info(t("library.selectionReady"));
+      }
+    },
+    [],
+  );
+
+  function chooseAsset(asset: Asset) {
+    const payload = assetPayload(asset, "image");
+    setStandaloneSelection(payload);
+    setStandaloneCopyOk(false);
+    void copyStandaloneSelection(payload);
+  }
+
+  return (
+    <div className="flex min-w-0 flex-col">
+      <div className="border-b border-border px-4 py-3 md:px-6">
+        <div className="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-2">
+            <Tabs
+              value={assetTab}
+              onValueChange={(value) => setAssetTab(value as AssetTab)}
+            >
+              <TabsList className="h-9">
+                <TabsTrigger value="all">{t("library.tabsAll")}</TabsTrigger>
+                <TabsTrigger value="generated">
+                  {t("library.generated")}
+                </TabsTrigger>
+                <TabsTrigger value="references">
+                  {t("library.references")}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Badge
+              variant="secondary"
+              className="h-6 max-w-full rounded-full px-2 text-xs"
+            >
+              {assetCountLabel}
+            </Badge>
+          </div>
+          <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
+            <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <input
+              type="search"
+              value={query}
+              onInput={(event) => setQuery(event.currentTarget.value)}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t("library.searchAssets")}
+              className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+        </div>
+      </div>
+
+      {standaloneSelection && (
+        <section className="shrink-0 overflow-hidden border-b border-border bg-muted/30 px-4 py-3 md:px-6">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-medium">
+                {selectedAssetLabel(standaloneSelection)}
+              </div>
+              {standaloneSelectionUrl && (
+                <div className="truncate text-xs text-muted-foreground">
+                  {standaloneSelectionUrl}
+                </div>
+              )}
+            </div>
+            <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto sm:flex-nowrap sm:justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5"
+                onClick={() => copyStandaloneSelection(standaloneSelection)}
+              >
+                {standaloneCopyOk ? (
+                  <IconCheck className="h-3.5 w-3.5" />
+                ) : (
+                  <IconClipboard className="h-3.5 w-3.5" />
+                )}
+                {standaloneCopyOk ? t("library.copied") : t("library.copy")}
+              </Button>
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5"
+              >
+                <Link
+                  to={`/asset/${encodeURIComponent(
+                    standaloneSelection.assetId,
+                  )}`}
+                >
+                  <IconArrowUpRight className="h-3.5 w-3.5" />
+                  {t("library.open")}
+                </Link>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                title={t("library.close")}
+                aria-label={t("library.close")}
+                className="h-8 w-8 shrink-0"
+                onClick={() => {
+                  setStandaloneSelection(null);
+                  setStandaloneCopyOk(false);
+                }}
+              >
+                <IconX className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+          <details className="mt-2">
+            <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
+              {t("library.showPasteText")}
+            </summary>
+            <Textarea
+              readOnly
+              value={standaloneSelectionText}
+              className="mt-2 h-24 max-w-full resize-none border-border/70 bg-background font-mono text-[11px] leading-relaxed"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+          </details>
+        </section>
+      )}
+
+      <main className="p-4 md:p-6">
+        {isLoading ? (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            {Array.from({ length: 12 }).map((_, index) => (
+              <Skeleton key={index} className="aspect-[4/3] rounded-lg" />
+            ))}
+          </div>
+        ) : assets.length === 0 ? (
+          <div className="flex min-h-64 items-center justify-center text-center">
+            <div className="max-w-sm text-sm text-muted-foreground">
+              {query
+                ? t("library.noMatchingAssets")
+                : t("library.noReusableAssets")}
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            {assets.map((asset) => (
+              <div
+                key={asset.id}
+                className="group relative overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25 hover:bg-muted/10 focus-within:ring-2 focus-within:ring-ring"
+              >
+                <button
+                  type="button"
+                  aria-label={t("library.selectAsset", {
+                    title: assetDisplayTitle(asset),
+                  })}
+                  onClick={() => setPreviewAsset(asset)}
+                  title={assetDisplayTitle(asset)}
+                  className="block w-full text-left focus-visible:outline-none"
+                >
+                  <div className="aspect-[4/3] bg-muted/40">
+                    {asset.mediaType === "video" ||
+                    asset.mimeType?.startsWith("video/") ? (
+                      <video
+                        src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
+                        poster={asset.thumbnailUrl}
+                        muted
+                        playsInline
+                        className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                      />
+                    ) : (
+                      <AssetThumbnail asset={asset} />
+                    )}
+                  </div>
+                </button>
+                {(asset as any).libraryTitle ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/library/${asset.libraryId}`)}
+                    className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/90 px-2.5 py-1 text-[11px] font-medium shadow-sm backdrop-blur transition hover:bg-background"
+                  >
+                    {(asset as any).libraryTitle}
+                  </button>
+                ) : null}
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("library.copyToClipboard")}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          chooseAsset(asset);
+                        }}
+                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                      >
+                        <IconClipboard className="h-4 w-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {t("library.copyToClipboard")}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+
+      <AssetPreviewDialog
+        asset={previewAsset}
+        assets={assets}
+        onAssetChange={setPreviewAsset}
+      />
+    </div>
+  );
+}
+
+function AssetPreviewDialog({
+  asset,
+  assets,
+  onAssetChange,
+}: {
+  asset: Asset | null;
+  assets: Asset[];
+  onAssetChange: (asset: Asset | null) => void;
+}) {
+  const t = useT();
+  return (
+    <Dialog
+      open={Boolean(asset)}
+      onOpenChange={(open) => {
+        if (!open) onAssetChange(null);
+      }}
+    >
+      {asset &&
+        (() => {
+          const previewIndex = assets.findIndex(
+            (candidate) => candidate.id === asset.id,
+          );
+          const hasPrev = previewIndex > 0;
+          const hasNext = previewIndex >= 0 && previewIndex < assets.length - 1;
+          const showPreviousAsset = () => {
+            if (hasPrev) onAssetChange(assets[previewIndex - 1]);
+          };
+          const showNextAsset = () => {
+            if (hasNext) onAssetChange(assets[previewIndex + 1]);
+          };
+          return (
+            <DialogContent
+              hideClose
+              onKeyDown={(event) => {
+                if (event.key === "ArrowLeft") showPreviousAsset();
+                if (event.key === "ArrowRight") showNextAsset();
+              }}
+              className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
+            >
+              <DialogTitle className="sr-only">
+                {assetDisplayTitle(asset)}
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                {t("library.fullSizePreview", {
+                  title: assetDisplayTitle(asset),
+                })}
+              </DialogDescription>
+              <div className="relative">
+                <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
+                  <Button asChild variant="outline" size="sm">
+                    <Link to={`/asset/${encodeURIComponent(asset.id)}`}>
+                      {t("library.viewDetails")}
+                    </Link>
+                  </Button>
+                  <DialogClose
+                    aria-label={t("library.closePreview")}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                  >
+                    <IconX className="h-5 w-5" />
+                  </DialogClose>
+                </div>
+                {asset.mediaType === "video" ||
+                asset.mimeType?.startsWith("video/") ? (
+                  <video
+                    src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
+                    poster={asset.thumbnailUrl}
+                    controls
+                    autoPlay
+                    playsInline
+                    className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
+                  />
+                ) : (
+                  <AssetOverlayImage asset={asset} />
+                )}
+              </div>
+              {(hasPrev || hasNext) && (
+                <div className="mt-5 flex justify-center gap-2">
+                  <button
+                    type="button"
+                    aria-label={t("library.previousImage")}
+                    onClick={showPreviousAsset}
+                    disabled={!hasPrev}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <IconChevronLeft className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={t("library.nextImage")}
+                    onClick={showNextAsset}
+                    disabled={!hasNext}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <IconChevronRight className="h-5 w-5" />
+                  </button>
+                </div>
+              )}
+            </DialogContent>
+          );
+        })()}
+    </Dialog>
+  );
+}
+
+function variantSlotTime(slot: AssetVariantState["slots"][number]): number {
+  const raw = slot.updatedAt ?? slot.createdAt ?? "";
+  const time = Date.parse(raw);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function assetVariantStateKey(scopeId?: string | null) {
+  const scopedId = typeof scopeId === "string" ? scopeId.trim() : "";
+  return scopedId ? `asset-variants:${scopedId}` : "asset-variants";
+}
+
+function referenceRoleForLibraryCandidate(asset?: Asset | null) {
+  if (asset?.mediaType === "video" || asset?.mimeType?.startsWith("video/")) {
+    return "video_reference";
+  }
+  return "style_reference";
+}
+
+function setLibraryAssetSavedInCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  libraryId: string,
+  assetId: string,
+  savedAsset: unknown,
+) {
+  queryClient.setQueryData(
+    ["action", "get-library", { id: libraryId }],
+    (current: any) => {
+      if (!current || !Array.isArray(current.assets)) return current;
+      let changed = false;
+      const assets = current.assets.map((asset: any) => {
+        if (asset.id !== assetId) return asset;
+        changed = true;
+        return {
+          ...asset,
+          ...(savedAsset && typeof savedAsset === "object" ? savedAsset : {}),
+          status: "saved",
+        };
+      });
+      return changed ? { ...current, assets } : current;
+    },
+  );
+}
+
+function setLibraryAssetReferenceInCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  libraryId: string,
+  assetId: string,
+) {
+  queryClient.setQueryData(
+    ["action", "get-library", { id: libraryId }],
+    (current: any) => {
+      if (!current || !Array.isArray(current.assets)) return current;
+      let changed = false;
+      const assets = current.assets.map((asset: any) => {
+        if (asset.id !== assetId) return asset;
+        changed = true;
+        return {
+          ...asset,
+          status: "reference",
+          role: referenceRoleForLibraryCandidate(asset),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      return changed ? { ...current, assets } : current;
+    },
+  );
+}
+
+function updateLibraryVariantSlotsInCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  shouldRemove: (slot: any) => boolean,
+  variantScopeId?: string | null,
+) {
+  const stateKeys = new Set([
+    "asset-variants",
+    assetVariantStateKey(variantScopeId),
+  ]);
+  for (const stateKey of stateKeys) {
+    queryClient.setQueryData(["app-state", stateKey], (current: any) => {
+      if (!current || !Array.isArray(current.slots)) return current;
+      const slots = current.slots.filter((slot: any) => !shouldRemove(slot));
+      if (slots.length === current.slots.length) return current;
+      if (slots.length === 0) return null;
+      return { ...current, slots, updatedAt: new Date().toISOString() };
+    });
+  }
+}
+
+function removeLibraryVariantSlotFromCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  slot: VariantSlot,
+  variantScopeId?: string | null,
+) {
+  updateLibraryVariantSlotsInCache(
+    queryClient,
+    (candidate) =>
+      candidate.slotId === slot.slotId ||
+      (!!slot.assetId && candidate.assetId === slot.assetId),
+    variantScopeId,
+  );
+}
+
+function LibraryCandidateStage({
+  activeLibraryId = null,
+  foldersByLibraryId = {},
+  variantScopeId = null,
+  onUseAsset,
+  inline = false,
+}: {
+  activeLibraryId?: string | null;
+  foldersByLibraryId?: Record<string, any[]>;
+  variantScopeId?: string | null;
+  onUseAsset?: (asset: Asset) => void;
+  inline?: boolean;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [savingCandidateSlotId, setSavingCandidateSlotId] = useState<
+    string | null
+  >(null);
+  const [promotingReferenceKeys, setPromotingReferenceKeys] = useState<
+    Set<string>
+  >(() => new Set());
+  const { data: variants } = useQuery({
+    queryKey: ["app-state", assetVariantStateKey(variantScopeId)],
+    queryFn: ({ signal }) => {
+      return readClientAppState<AssetVariantState>(
+        assetVariantStateKey(variantScopeId),
+        { signal },
+      );
+    },
+    refetchInterval: 1000,
+  });
+  const isAllAssetsStage = !activeLibraryId;
+  const liveLibraryId = activeLibraryId ?? variants?.libraryId ?? null;
+  const liveVariantsForLibrary =
+    liveLibraryId && variants?.libraryId === liveLibraryId ? variants : null;
+  const { data: libraryData } = useActionQuery(
+    "get-library",
+    { id: activeLibraryId ?? "" } as any,
+    { enabled: Boolean(activeLibraryId) } as any,
+  ) as { data?: { library?: Library; assets?: Asset[]; folders?: any[] } };
+  const { data: allCandidateData } = useActionQuery(
+    "list-assets",
+    { includeCandidates: true, status: "candidate" } as any,
+    { enabled: isAllAssetsStage } as any,
+  ) as { data?: { assets?: Asset[] } };
+  const saveGenerated = useActionMutation("save-generated-image");
+  const updateAsset = useActionMutation("update-asset");
+  const libraryAssets = isAllAssetsStage
+    ? (allCandidateData?.assets ?? [])
+    : (libraryData?.assets ?? []);
+  const assetById = useMemo(
+    () => new Map(libraryAssets.map((asset) => [asset.id, asset])),
+    [libraryAssets],
+  );
+  const slots = useMemo(
+    () =>
+      (liveVariantsForLibrary?.slots ?? [])
+        .filter((slot) => ["pending", "ready", "failed"].includes(slot.status))
+        .slice()
+        .sort(
+          (left, right) =>
+            variantSlotTime(right) - variantSlotTime(left) ||
+            right.slotId.localeCompare(left.slotId),
+        ),
+    [liveVariantsForLibrary?.slots],
+  );
+  const liveAssetIds = useMemo(
+    () =>
+      new Set(
+        slots
+          .map((slot) => slot.assetId)
+          .filter((assetId): assetId is string => Boolean(assetId)),
+      ),
+    [slots],
+  );
+  const draftAssets = useMemo(
+    () =>
+      libraryAssets
+        .filter(
+          (asset) =>
+            asset.status === "candidate" &&
+            isGeneratedAsset(asset) &&
+            !liveAssetIds.has(asset.id),
+        )
+        .slice()
+        .sort((left, right) => String(right.id).localeCompare(String(left.id))),
+    [libraryAssets, liveAssetIds],
+  );
+  const totalCount = slots.length + draftAssets.length;
+
+  if (totalCount === 0) return null;
+  const stageLibraryId = liveLibraryId ?? draftAssets[0]?.libraryId ?? null;
+  if (!stageLibraryId) return null;
+
+  function invalidateStage(
+    libraryIdToInvalidate: string | null = stageLibraryId,
+  ) {
+    void queryClient.invalidateQueries({
+      queryKey: ["app-state"],
+      refetchType: "active",
+    });
+    if (libraryIdToInvalidate) {
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryIdToInvalidate }],
+        refetchType: "active",
+      });
+    }
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "get-library"],
+      refetchType: "active",
+    });
+    void queryClient.invalidateQueries({
+      queryKey: ["action", "list-assets"],
+      refetchType: "active",
+    });
+  }
+
+  function setReferencePromoting(key: string, promoting: boolean) {
+    setPromotingReferenceKeys((current) => {
+      const next = new Set(current);
+      if (promoting) next.add(key);
+      else next.delete(key);
+      return next.size === current.size ? current : next;
+    });
+  }
+
+  async function handleSaveLiveCandidate(
+    slot: VariantSlot,
+    folderId?: string | null,
+  ) {
+    if (savingCandidateSlotId || (!slot.assetId && !slot.slotId)) return;
+    if (!liveLibraryId) return;
+    setSavingCandidateSlotId(slot.slotId);
+    try {
+      const savedAsset = await saveGenerated.mutateAsync({
+        assetId: slot.assetId,
+        slotId: slot.slotId,
+        folderId,
+      } as any);
+      if (slot.assetId) {
+        setLibraryAssetSavedInCache(
+          queryClient,
+          liveLibraryId,
+          slot.assetId,
+          savedAsset,
+        );
+      }
+      removeLibraryVariantSlotFromCache(queryClient, slot, variantScopeId);
+      invalidateStage(liveLibraryId);
+      toast.success(t("library.savedToLibrary"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("library.couldNotSaveCandidate"),
+      );
+    } finally {
+      setSavingCandidateSlotId(null);
+    }
+  }
+
+  async function handleSaveDraftCandidate(
+    asset: Asset,
+    folderId?: string | null,
+  ) {
+    if (!asset?.id || savingCandidateSlotId) return;
+    const key = `draft:${asset.id}`;
+    setSavingCandidateSlotId(key);
+    const targetLibraryId = asset.libraryId ?? stageLibraryId;
+    try {
+      const savedAsset = await saveGenerated.mutateAsync({
+        assetId: asset.id,
+        folderId,
+      } as any);
+      setLibraryAssetSavedInCache(
+        queryClient,
+        targetLibraryId,
+        asset.id,
+        savedAsset,
+      );
+      invalidateStage(targetLibraryId);
+      toast.success(t("library.savedToLibrary"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t("library.couldNotSaveDraft"),
+      );
+    } finally {
+      setSavingCandidateSlotId(null);
+    }
+  }
+
+  async function handleMoveToReferences(asset: Asset, slot?: VariantSlot) {
+    const key = slot?.slotId
+      ? `slot:${slot.slotId}`
+      : asset?.id
+        ? `asset:${asset.id}`
+        : "";
+    if (!asset?.id || !key || promotingReferenceKeys.has(key)) return;
+    setReferencePromoting(key, true);
+    const targetLibraryId = asset.libraryId ?? stageLibraryId;
+    try {
+      await updateAsset.mutateAsync({
+        id: asset.id,
+        status: "reference",
+        role: referenceRoleForLibraryCandidate(asset),
+      } as any);
+      setLibraryAssetReferenceInCache(queryClient, targetLibraryId, asset.id);
+      updateLibraryVariantSlotsInCache(
+        queryClient,
+        (candidate) =>
+          candidate.assetId === asset.id ||
+          (!!slot?.slotId && candidate.slotId === slot.slotId),
+        variantScopeId,
+      );
+      invalidateStage(targetLibraryId);
+      toast.success(t("library.addedToReferences"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("library.couldNotAddToReferences"),
+      );
+    } finally {
+      setReferencePromoting(key, false);
+    }
+  }
+
+  function handleMoveLiveCandidateToReferences(slot: VariantSlot) {
+    if (!slot.assetId) return;
+    void handleMoveToReferences(
+      assetById.get(slot.assetId) ?? {
+        id: slot.assetId,
+        libraryId: liveLibraryId ?? stageLibraryId,
+        mediaType: "image",
+        status: "candidate",
+      },
+      slot,
+    );
+  }
+
+  function handleUseLiveCandidate(slot: VariantSlot) {
+    if (!slot.assetId || !onUseAsset) return;
+    onUseAsset(
+      assetById.get(slot.assetId) ?? {
+        id: slot.assetId,
+        libraryId: liveLibraryId ?? stageLibraryId,
+        mediaType: "image",
+        status: "candidate",
+        title: t("library.readyCandidate"),
+        previewUrl: slot.previewUrl,
+        thumbnailUrl: slot.thumbnailUrl,
+        downloadUrl: slot.previewUrl,
+        url: slot.previewUrl,
+      },
+    );
+  }
+
+  return (
+    <section
+      className={cn(
+        "min-w-0 overflow-hidden",
+        inline
+          ? "mb-3"
+          : "shrink-0 border-b border-border bg-background px-3 py-3 sm:px-4 md:px-6",
+      )}
+    >
+      <LiveCandidatesStage
+        slots={slots}
+        draftAssets={draftAssets}
+        libraryId={stageLibraryId}
+        folders={
+          libraryData?.folders ?? foldersByLibraryId[stageLibraryId] ?? []
+        }
+        foldersByLibraryId={foldersByLibraryId}
+        savingSlotId={savingCandidateSlotId}
+        promotingReferenceKeys={promotingReferenceKeys}
+        onSave={(slot, folderId) => {
+          void handleSaveLiveCandidate(slot, folderId);
+        }}
+        onSaveDraft={(asset, folderId) => {
+          void handleSaveDraftCandidate(asset, folderId);
+        }}
+        onMoveToReferences={handleMoveLiveCandidateToReferences}
+        onMoveDraftToReferences={(asset) => {
+          void handleMoveToReferences(asset);
+        }}
+        onUse={onUseAsset ? handleUseLiveCandidate : undefined}
+        onUseDraft={onUseAsset}
+      />
+    </section>
+  );
+}
+
+function useLibraryRouteSelectedId(explicitId: string | null) {
+  const params = useParams();
+  const location = useLocation();
+
+  return useMemo(() => {
+    if (explicitId) return explicitId;
+    if (typeof params.id === "string" && params.id.trim()) return params.id;
+
+    const segments = location.pathname
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => {
+        try {
+          return decodeURIComponent(segment);
+        } catch {
+          return segment;
+        }
+      });
+    const libraryIndex = segments.lastIndexOf("library");
+    const nextSegment =
+      libraryIndex >= 0 ? segments[libraryIndex + 1] : undefined;
+    return nextSegment?.trim() || null;
+  }, [explicitId, location.pathname, params.id]);
+}
+
+export function LibraryWorkspace({
+  selectedLibraryId = null,
+}: {
+  selectedLibraryId?: string | null;
+}) {
+  const navigate = useNavigate();
+  const routeSelectedLibraryId = useLibraryRouteSelectedId(selectedLibraryId);
+  const [createOpen, setCreateOpen] = useState(false);
+  const { data, isLoading } = useActionQuery("list-libraries", {
+    includeFolders: true,
+  } as any);
+  const libraries = ((data as any)?.libraries ?? []) as ImageLibrarySummary[];
+  const foldersByLibraryId = useMemo(() => {
+    const result: Record<string, any[]> = {};
+    for (const library of libraries) {
+      result[library.id] = Array.isArray(library.folders)
+        ? library.folders
+        : [];
+    }
+    return result;
+  }, [libraries]);
+  const hasLibraries = isLoading || libraries.length > 0;
+  const currentLibrary = useMemo(
+    () =>
+      routeSelectedLibraryId
+        ? libraries.find((library) => library.id === routeSelectedLibraryId)
+        : null,
+    [libraries, routeSelectedLibraryId],
+  );
+
+  useEffect(() => {
+    if (!routeSelectedLibraryId || !currentLibrary?.title) return;
+    insertAgentComposerReference({
+      label: currentLibrary.title,
+      icon: "folder",
+      source: "assets",
+      refType: "brand-kit",
+      refId: routeSelectedLibraryId,
+      refPath: `/library/${encodeURIComponent(routeSelectedLibraryId)}`,
+      slotKey: "brand-kit",
+      slotLabel: "Brand kit",
+      clearsSlots: ["preset"],
+      metadata: {
+        libraryId: routeSelectedLibraryId,
+      },
+    });
+  }, [currentLibrary?.title, routeSelectedLibraryId]);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
+      <section className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        {routeSelectedLibraryId || hasLibraries ? (
+          <div className="h-full min-h-0 min-w-0 overflow-y-auto">
+            <LibraryShellHeader
+              selectedLibraryId={routeSelectedLibraryId}
+              libraries={libraries}
+              isLoading={isLoading}
+              onCreateKit={() => setCreateOpen(true)}
+            />
+            <LibraryCandidateStage
+              activeLibraryId={routeSelectedLibraryId}
+              foldersByLibraryId={foldersByLibraryId}
+            />
+            <div className="min-w-0">
+              {routeSelectedLibraryId ? (
+                <BrandKitDetailRoute
+                  libraryId={routeSelectedLibraryId}
+                  headerMode="actions"
+                />
+              ) : (
+                <AllAssetsBrowser />
+              )}
+            </div>
+          </div>
+        ) : (
+          <EmptyLibraryStarter onCreateBlank={() => setCreateOpen(true)} />
+        )}
+      </section>
+      <CreateLibraryDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(library) => navigate(`/library/${library.id}`)}
+      />
+    </div>
+  );
+}
+
+export function AssetPickerSurface() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
   const mcpChatBridgeActive =
@@ -743,6 +1960,11 @@ export default function AssetPicker() {
   }, [searchParamsKey]);
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
   const embedded = useMemo(() => isEmbeddedWindow() || isEmbedAuthActive(), []);
+  const pickerVariantScopeId = useMemo(
+    () =>
+      typeof window === "undefined" ? null : `picker:${getBrowserTabId()}`,
+    [],
+  );
   const [hostConfig, setHostConfig] = useState<HostConfig>(() => urlHostConfig);
   const [mediaType, setMediaType] = useState<PickerMediaType>(
     () => hostConfig.mediaType ?? "image",
@@ -789,10 +2011,10 @@ export default function AssetPicker() {
   const starterLibrary: Library = useMemo(
     () => ({
       id: STARTER_LIBRARY_ID,
-      title: "Starter assets",
+      title: t("library.starterAssets"),
       description: STARTER_PRESET.description,
     }),
-    [],
+    [t],
   );
   const displayLibraries = libraries.length
     ? libraries
@@ -835,7 +2057,6 @@ export default function AssetPicker() {
   const {
     data: presetData,
     isLoading: presetsLoading,
-    isFetching: presetsFetching,
     isPending: presetsPending,
   } = useActionQuery(
     "list-generation-presets",
@@ -844,7 +2065,6 @@ export default function AssetPicker() {
   ) as {
     data?: { presets?: GenerationPreset[] };
     isLoading?: boolean;
-    isFetching?: boolean;
     isPending?: boolean;
   };
   const generationPresets =
@@ -854,54 +2074,16 @@ export default function AssetPicker() {
       ? null
       : (generationPresets.find((preset) => preset.id === presetId) ?? null);
   const effectiveAspectRatio = selectedPreset?.aspectRatio || aspectRatio;
+  const waitingForPresetData =
+    !presetData && (presetsLoading || presetsPending);
   const waitingForRequestedPreset =
     mediaType === "image" &&
     presetId !== "none" &&
     !usingStarterLibrary &&
     Boolean(selectedLibraryId) &&
-    (presetsLoading || presetsFetching || presetsPending || !selectedPreset);
+    !selectedPreset &&
+    Boolean(waitingForPresetData);
   const mediaLabel = mediaType === "video" ? "video" : "image";
-  const generateBatch = useActionMutation(
-    "generate-image-batch" as any,
-    {
-      onSuccess: (result: any) => {
-        const images = Array.isArray(result?.images) ? result.images : [];
-        const generatedCount = images.filter((image: any) => image?.ok).length;
-        const failedCount = images.length - generatedCount;
-        setVisibleCandidateRunIds(
-          images
-            .map((image: any) =>
-              image?.ok && typeof image.runId === "string" ? image.runId : null,
-            )
-            .filter((runId: string | null): runId is string => Boolean(runId)),
-        );
-        if (generatedCount > 0) {
-          toast.success(
-            `Generated ${generatedCount} image candidate${
-              generatedCount === 1 ? "" : "s"
-            }`,
-            {
-              description:
-                failedCount > 0
-                  ? `${failedCount} candidate${
-                      failedCount === 1 ? "" : "s"
-                    } failed.`
-                  : "Pick the one you want to send back.",
-            },
-          );
-          setQuery("");
-        } else {
-          toast.error(
-            images[0]?.error ||
-              "Image generation finished without usable candidates.",
-          );
-        }
-      },
-      onError: (error: Error) => {
-        toast.error(error.message || "Image generation failed");
-      },
-    } as any,
-  );
   const assetsParams = useMemo(
     () => ({
       libraryId: selectedLibraryId,
@@ -950,6 +2132,12 @@ export default function AssetPicker() {
       ? visibleStarterAssets
       : []
     : (assetData?.assets ?? []);
+  const currentLibrary = useMemo(
+    () =>
+      displayLibraries.find((library) => library.id === selectedLibraryId) ??
+      null,
+    [displayLibraries, selectedLibraryId],
+  );
   const assets = useMemo(
     () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
     [allAssets, assetTab],
@@ -981,15 +2169,15 @@ export default function AssetPicker() {
       try {
         await navigator.clipboard.writeText(text);
         setStandaloneCopyOk(true);
-        toast.success("Selection copied");
+        toast.success(t("library.selectionCopied"));
         return true;
       } catch {
         setStandaloneCopyOk(false);
-        toast.info("Selection ready");
+        toast.info(t("library.selectionReady"));
         return false;
       }
     },
-    [],
+    [t],
   );
 
   const postEmbeddedSelectionMessage = useCallback(
@@ -1017,9 +2205,13 @@ export default function AssetPicker() {
       }
       void notifyMcpHost(payload).then((ok) => {
         if (ok) {
-          toast.success(`Selected ${selectedAssetLabel(payload)}`);
+          toast.success(
+            t("assetPicker.selectedAsset", {
+              title: selectedAssetLabel(payload),
+            }),
+          );
         } else {
-          toast.error("Could not send the selected asset back to chat");
+          toast.error(t("library.selectedAssetSendFailed"));
         }
       });
       return;
@@ -1036,7 +2228,7 @@ export default function AssetPicker() {
         if (!result?.id) return;
         const library = {
           id: result.id,
-          title: result.title || "MCP image picks",
+          title: result.title || t("library.mcpImagePicks"),
           description: result.description ?? null,
         };
         setCreatedPickerLibrary(library);
@@ -1047,18 +2239,86 @@ export default function AssetPicker() {
         // Allow the auto-create effect to retry after a transient failure;
         // otherwise the picker stays stuck on "Preparing..." until reload.
         autoCreateLibraryRef.current = false;
-        toast.error(error.message || "Could not prepare an image library");
+        toast.error(error.message || t("library.couldNotPrepareImageLibrary"));
       },
     } as any,
   );
+  const generateBatch = useActionMutation(
+    "generate-image-batch" as any,
+    {
+      onSuccess: (result: any) => {
+        const images = Array.isArray(result?.images) ? result.images : [];
+        const generatedCount = images.filter((image: any) => image?.ok).length;
+        const failedCount = images.length - generatedCount;
+        setVisibleCandidateRunIds(
+          images
+            .map((image: any) =>
+              image?.ok && typeof image.runId === "string" ? image.runId : null,
+            )
+            .filter((runId: string | null): runId is string => Boolean(runId)),
+        );
+        if (generatedCount > 0) {
+          toast.success(
+            `Generated ${generatedCount} image candidate${
+              generatedCount === 1 ? "" : "s"
+            }`,
+            {
+              description:
+                failedCount > 0
+                  ? `${failedCount} candidate${
+                      failedCount === 1 ? "" : "s"
+                    } failed.`
+                  : "Pick the one you want to send back.",
+            },
+          );
+          setQuery("");
+        } else {
+          toast.error(
+            images[0]?.error ||
+              "Image generation finished without usable candidates.",
+          );
+        }
+      },
+      onError: (error: Error) => {
+        toast.error(error.message || "Image generation failed");
+      },
+    } as any,
+  );
+  const [chatGenerating, sendToAgent] = useAgentChatGenerating();
 
   const runGenerate = useCallback(() => {
     if (!selectedLibraryId || !prompt.trim()) return;
     if (waitingForRequestedPreset) return;
+    if (!embedded) {
+      sendToAgent({
+        message: buildPickerChatHandoffPrompt({
+          mediaType,
+          prompt,
+          count,
+          aspectRatio: effectiveAspectRatio,
+          libraryId: usingStarterLibrary ? null : selectedLibraryId,
+          libraryTitle: usingStarterLibrary
+            ? null
+            : (currentLibrary?.title ?? null),
+          presetId: selectedPreset?.id ?? null,
+          presetTitle: selectedPreset?.title ?? null,
+          tier: hostConfig.tier,
+          styleStrength: hostConfig.styleStrength ?? "balanced",
+          includeLogo: hostConfig.includeLogo ?? false,
+        }),
+        submit: true,
+        openSidebar: true,
+        newTab: true,
+      });
+      return;
+    }
     setVisibleCandidateRunIds([]);
+    const variantScopeId =
+      pickerVariantScopeId ?? `picker:${getBrowserTabId()}`;
     generateBatch.mutate({
       libraryId: selectedLibraryId,
       presetId: selectedPreset?.id,
+      variantScopeId,
       slots: Array.from({ length: count }, (_, index) => ({
         slotId: `picker-candidate-${index + 1}`,
         prompt: prompt.trim(),
@@ -1074,48 +2334,44 @@ export default function AssetPicker() {
     } as any);
   }, [
     count,
+    currentLibrary?.title,
+    embedded,
     effectiveAspectRatio,
     generateBatch,
     hostConfig.callerAppId,
     hostConfig.includeLogo,
     hostConfig.styleStrength,
     hostConfig.tier,
+    mediaType,
     prompt,
+    pickerVariantScopeId,
+    sendToAgent,
     setVisibleCandidateRunIds,
     selectedLibraryId,
     selectedPreset,
+    usingStarterLibrary,
     waitingForRequestedPreset,
   ]);
 
   useEffect(() => {
-    const hostCandidateFilterMatches =
-      hostConfig.candidateRunIds?.length &&
-      normalizeMediaType(hostConfig.mediaType) === mediaType &&
-      (hostConfig.libraryId ?? "") === (selectedLibraryId ?? "") &&
-      (hostConfig.prompt ?? "") === prompt &&
-      (hostConfig.aspectRatio ?? "16:9") === aspectRatio &&
-      (hostConfig.presetId ?? "none") === presetId &&
-      (hostConfig.count ?? 3) === count;
-    if (hostCandidateFilterMatches) return;
-    setVisibleCandidateRunIds([]);
+    if (!visibleCandidateRunIds.length) return;
+    if (normalizeMediaType(hostConfig.mediaType) !== mediaType) {
+      setVisibleCandidateRunIds([]);
+      return;
+    }
+    if (
+      hostConfig.libraryId &&
+      selectedLibraryId &&
+      hostConfig.libraryId !== selectedLibraryId
+    ) {
+      setVisibleCandidateRunIds([]);
+    }
   }, [
-    aspectRatio,
-    count,
-    hostConfig.aspectRatio,
-    hostConfig.candidateRunIds,
-    hostConfig.count,
-    hostConfig.callerAppId,
-    hostConfig.includeLogo,
     hostConfig.libraryId,
     hostConfig.mediaType,
-    hostConfig.presetId,
-    hostConfig.prompt,
-    hostConfig.styleStrength,
-    hostConfig.tier,
     mediaType,
-    presetId,
-    prompt,
     selectedLibraryId,
+    visibleCandidateRunIds.length,
   ]);
 
   useEffect(() => {
@@ -1145,25 +2401,17 @@ export default function AssetPicker() {
   }, []);
 
   useEffect(() => {
-    fetch(
-      agentNativePath(
-        `/_agent-native/application-state/navigation:${getBrowserTabId()}`,
-      ),
+    void writeClientAppState(
+      `navigation:${getBrowserTabId()}`,
       {
-        method: "PUT",
-        headers: {
-          "content-type": "application/json",
-          "x-request-source": "assets-picker-ui",
-        },
-        body: JSON.stringify({
-          view: "picker",
-          mediaType,
-          libraryId: selectedLibraryId || null,
-          query,
-          prompt,
-          aspectRatio,
-        }),
+        view: "picker",
+        mediaType,
+        libraryId: selectedLibraryId || null,
+        query,
+        prompt,
+        aspectRatio,
       },
+      { requestSource: "assets-picker-ui" },
     ).catch(() => {});
   }, [aspectRatio, mediaType, prompt, query, selectedLibraryId]);
 
@@ -1173,14 +2421,14 @@ export default function AssetPicker() {
     !usingStarterLibrary &&
     Boolean(prompt.trim()) &&
     !waitingForRequestedPreset &&
-    !generateBatch.isPending;
+    !(embedded ? generateBatch.isPending : chatGenerating);
   const setupNeeded = mediaType === "image" && config?.configured === false;
   const setupMessage =
     typeof config?.lastIssue?.message === "string"
       ? config.lastIssue.message
       : config?.builderEnabled === false
-        ? "Add a generation key in Settings."
-        : "Connect generation models.";
+        ? t("library.addGenerationKey")
+        : t("library.connectGenerationModels");
   const needsGenerationLibrary =
     mediaType === "image" &&
     libraryListReady &&
@@ -1196,24 +2444,30 @@ export default function AssetPicker() {
     (waitingForLibraries ||
       needsGenerationLibrary ||
       preparingGenerationLibrary);
-  const generationButtonLabel = generateBatch.isPending
-    ? "Generating..."
+  const generationButtonLabel = (
+    embedded ? generateBatch.isPending : chatGenerating
+  )
+    ? t("library.generating")
     : waitingForRequestedPreset
-      ? "Loading preset..."
+      ? t("library.loadingPreset")
       : setupNeeded
-        ? "Setup needed"
+        ? t("library.setupNeeded")
         : preparingAutoLibrary
-          ? "Preparing..."
-          : "Generate";
-  const generationStatus = generateBatch.isPending
-    ? "Generating candidates..."
-    : preparingAutoLibrary
-      ? waitingForLibraries
-        ? "Checking image libraries..."
-        : "Preparing an image library..."
-      : waitingForRequestedPreset
-        ? "Loading the requested preset..."
-        : null;
+          ? t("library.preparing")
+          : embedded
+            ? t("library.generate")
+            : t("library.openChat");
+  const generationStatus = preparingAutoLibrary
+    ? waitingForLibraries
+      ? t("library.checkingImageLibraries")
+      : t("library.preparingImageLibrary")
+    : embedded && generateBatch.isPending
+      ? t("library.generatingCandidates")
+      : !embedded && chatGenerating
+        ? t("library.generating")
+        : waitingForRequestedPreset
+          ? t("library.loadingRequestedPreset")
+          : null;
 
   useEffect(() => {
     if (!selectedPreset?.aspectRatio) return;
@@ -1223,10 +2477,10 @@ export default function AssetPicker() {
   const prepareGenerationLibrary = useCallback(() => {
     createPickerLibrary.mutate({
       presetId: STARTER_PRESET.id,
-      title: "MCP image picks",
-      description: "Generated and selected images from MCP chat hosts.",
+      title: t("library.mcpImagePicks"),
+      description: t("library.mcpImagePicksDescription"),
     } as any);
-  }, [createPickerLibrary]);
+  }, [createPickerLibrary, t]);
 
   useEffect(() => {
     if (!prompt.trim()) return;
@@ -1246,6 +2500,7 @@ export default function AssetPicker() {
   useEffect(() => {
     if (!hostConfig.autoGenerate) return;
     if (!prompt.trim() || mediaType !== "image") return;
+    if (!embedded) return;
     if (!canGenerate || setupNeeded || generateBatch.isPending) return;
     if (waitingForRequestedPreset) return;
     const key = [
@@ -1261,6 +2516,7 @@ export default function AssetPicker() {
   }, [
     canGenerate,
     count,
+    embedded,
     effectiveAspectRatio,
     generateBatch.isPending,
     hostConfig.autoGenerate,
@@ -1282,7 +2538,7 @@ export default function AssetPicker() {
     >
       <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-border px-3">
         <div className="min-w-0 truncate text-sm font-semibold">
-          {embedded ? "Assets" : "Library"}
+          {embedded ? t("navigation.brand") : t("library.library")}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {mediaType === "image" && (
@@ -1297,12 +2553,17 @@ export default function AssetPicker() {
               ) : (
                 <IconPhotoPlus className="h-3.5 w-3.5" />
               )}
-              {showCreatePane ? "Close" : "Create"}
+              {showCreatePane ? t("library.close") : t("library.createPane")}
             </Button>
           )}
           {embedded && (
             <>
-              <Button asChild variant="ghost" size="icon" title="Open Assets">
+              <Button
+                asChild
+                variant="ghost"
+                size="icon"
+                title={t("library.openAssets")}
+              >
                 <a href={absoluteAppUrl("/")} target="_blank" rel="noreferrer">
                   <IconArrowUpRight className="h-4 w-4" />
                 </a>
@@ -1310,7 +2571,7 @@ export default function AssetPicker() {
               <Button
                 variant="ghost"
                 size="icon"
-                title="Close"
+                title={t("library.close")}
                 onClick={() => bridgeRef.current?.close()}
               >
                 <IconX className="h-4 w-4" />
@@ -1324,9 +2585,8 @@ export default function AssetPicker() {
         <section className="shrink-0 border-b border-border px-3 py-3">
           {mediaType === "image" ? (
             <div className="mt-2 rounded-lg border border-border/80 bg-background focus-within:ring-1 focus-within:ring-ring">
-              <Textarea
-                autoGrow
-                rows={1}
+              <Input
+                type="text"
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={(event) => {
@@ -1340,14 +2600,14 @@ export default function AssetPicker() {
                   event.preventDefault();
                   if (canGenerate) runGenerate();
                 }}
-                placeholder="Generate an image asset"
-                className="min-h-11 max-h-40 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                placeholder={t("library.generateImagePlaceholder")}
+                className="h-11 border-0 bg-transparent px-3 py-2.5 leading-6 shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
               />
               <div className="flex items-center gap-1 px-2 pb-2">
                 <div className="flex min-w-0 flex-1 items-center justify-end gap-0.5 sm:gap-1">
                   <Select value={aspectRatio} onValueChange={setAspectRatio}>
                     <SelectTrigger
-                      aria-label="Aspect ratio"
+                      aria-label={t("brandKitDetail.aspectRatio")}
                       className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
                     >
                       <span>{aspectRatio}</span>
@@ -1367,7 +2627,7 @@ export default function AssetPicker() {
                     onValueChange={(value) => setCount(normalizeCount(value))}
                   >
                     <SelectTrigger
-                      aria-label="Candidate count"
+                      aria-label={t("assetPicker.candidateCount")}
                       className={`${PICKER_INLINE_SELECT_CLASS} shrink-0`}
                     >
                       <span>{count}x</span>
@@ -1388,14 +2648,16 @@ export default function AssetPicker() {
                       onValueChange={(value) => setPresetId(value)}
                     >
                       <SelectTrigger
-                        aria-label="Preset"
+                        aria-label={t("brandKitDetail.preset")}
                         className={`${PICKER_INLINE_SELECT_CLASS} max-w-[7.5rem] sm:max-w-[10rem]`}
                       >
-                        <SelectValue placeholder="Preset" />
+                        <SelectValue placeholder={t("brandKitDetail.preset")} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectGroup>
-                          <SelectItem value="none">No preset</SelectItem>
+                          <SelectItem value="none">
+                            {t("brandKitDetail.noPreset")}
+                          </SelectItem>
                           {generationPresets.map((preset) => (
                             <SelectItem key={preset.id} value={preset.id}>
                               {preset.title}
@@ -1407,18 +2669,21 @@ export default function AssetPicker() {
                   ) : null}
                 </div>
                 <Button
-                  className="h-7 shrink-0 px-3 text-xs"
+                  className="h-7 min-w-[5.75rem] shrink-0 px-3 text-xs"
                   disabled={!canGenerate}
                   onClick={runGenerate}
                 >
                   {generationButtonLabel}
                 </Button>
               </div>
-              {generationStatus && (
-                <div className="-mt-1 px-3 pb-2 text-[11px] leading-4 text-muted-foreground">
-                  {generationStatus}
-                </div>
-              )}
+              <div
+                className={cn(
+                  "-mt-1 min-h-6 px-3 pb-2 text-[11px] leading-4 text-muted-foreground",
+                  !generationStatus && "invisible",
+                )}
+              >
+                {generationStatus || t("library.ready")}
+              </div>
             </div>
           ) : null}
 
@@ -1436,7 +2701,7 @@ export default function AssetPicker() {
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Settings
+                  {t("library.settings")}
                 </a>
               </Button>
             </div>
@@ -1446,8 +2711,8 @@ export default function AssetPicker() {
             <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
               <span className="min-w-0 truncate">
                 {preparingGenerationLibrary
-                  ? "Preparing an image library for generated candidates..."
-                  : "Create an image library to generate new candidates."}
+                  ? t("library.preparingImageLibraryCandidates")
+                  : t("library.createImageLibraryToGenerate")}
               </span>
               <Button
                 variant="outline"
@@ -1456,7 +2721,9 @@ export default function AssetPicker() {
                 onClick={prepareGenerationLibrary}
                 disabled={preparingGenerationLibrary}
               >
-                {preparingGenerationLibrary ? "Preparing..." : "Create library"}
+                {preparingGenerationLibrary
+                  ? t("library.preparing")
+                  : t("library.createLibrary")}
               </Button>
             </div>
           )}
@@ -1464,9 +2731,9 @@ export default function AssetPicker() {
       )}
 
       {!embedded && standaloneSelection && (
-        <section className="shrink-0 border-b border-border bg-muted/30 px-3 py-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
+        <section className="shrink-0 overflow-hidden border-b border-border bg-muted/30 px-3 py-3">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-medium">
                 {selectedAssetLabel(standaloneSelection)}
               </div>
@@ -1476,11 +2743,11 @@ export default function AssetPicker() {
                 </div>
               )}
             </div>
-            <div className="flex shrink-0 gap-2">
+            <div className="flex w-full min-w-0 flex-wrap gap-2 sm:w-auto sm:flex-nowrap sm:justify-end">
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 gap-1.5"
+                className="h-8 shrink-0 gap-1.5"
                 onClick={() => copyStandaloneSelection(standaloneSelection)}
               >
                 {standaloneCopyOk ? (
@@ -1488,14 +2755,14 @@ export default function AssetPicker() {
                 ) : (
                   <IconClipboard className="h-3.5 w-3.5" />
                 )}
-                {standaloneCopyOk ? "Copied" : "Copy"}
+                {standaloneCopyOk ? t("library.copied") : t("library.copy")}
               </Button>
               {canOpenStandaloneAsset && (
                 <Button
                   asChild
                   variant="ghost"
                   size="sm"
-                  className="h-8 gap-1.5"
+                  className="h-8 shrink-0 gap-1.5"
                 >
                   <Link
                     to={`/asset/${encodeURIComponent(
@@ -1503,16 +2770,16 @@ export default function AssetPicker() {
                     )}`}
                   >
                     <IconArrowUpRight className="h-3.5 w-3.5" />
-                    Open
+                    {t("library.open")}
                   </Link>
                 </Button>
               )}
               <Button
                 variant="ghost"
                 size="icon"
-                title="Close"
-                aria-label="Close"
-                className="h-8 w-8"
+                title={t("library.close")}
+                aria-label={t("library.close")}
+                className="h-8 w-8 shrink-0"
                 onClick={() => {
                   setStandaloneSelection(null);
                   setStandaloneCopyOk(false);
@@ -1524,18 +2791,18 @@ export default function AssetPicker() {
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             {standaloneCopyOk
-              ? "Copied to your clipboard — paste it into your agent chat to use it"
-              : "Copy the text below and paste it into your agent chat"}
-            , or just tell your agent which one (e.g. “use this”).
+              ? t("library.copiedPasteInstruction")
+              : t("library.copyPasteInstruction")}
+            . {t("library.tellAgentUseThis")}
           </p>
           <details className="mt-2">
             <summary className="cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground">
-              Show paste text
+              {t("library.showPasteText")}
             </summary>
             <Textarea
               readOnly
               value={standaloneSelectionText}
-              className="mt-2 h-24 resize-none border-border/70 bg-background font-mono text-[11px] leading-relaxed"
+              className="mt-2 h-24 max-w-full resize-none border-border/70 bg-background font-mono text-[11px] leading-relaxed"
               onFocus={(event) => event.currentTarget.select()}
             />
           </details>
@@ -1551,7 +2818,7 @@ export default function AssetPicker() {
                 onValueChange={setSelectedLibraryId}
               >
                 <SelectTrigger className="h-9 w-full border-border/70 bg-background sm:w-48">
-                  <SelectValue placeholder="Library" />
+                  <SelectValue placeholder={t("library.library")} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
@@ -1569,9 +2836,15 @@ export default function AssetPicker() {
                   onValueChange={(value) => setAssetTab(value as AssetTab)}
                 >
                   <TabsList>
-                    <TabsTrigger value="all">All</TabsTrigger>
-                    <TabsTrigger value="generated">Generated</TabsTrigger>
-                    <TabsTrigger value="references">References</TabsTrigger>
+                    <TabsTrigger value="all">
+                      {t("library.tabsAll")}
+                    </TabsTrigger>
+                    <TabsTrigger value="generated">
+                      {t("library.generated")}
+                    </TabsTrigger>
+                    <TabsTrigger value="references">
+                      {t("library.references")}
+                    </TabsTrigger>
                   </TabsList>
                 </Tabs>
               )}
@@ -1582,17 +2855,26 @@ export default function AssetPicker() {
                 value={query}
                 onInput={(event) => setQuery(event.currentTarget.value)}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={`Search ${mediaLabel}s`}
+                placeholder={t("library.searchMedia", { mediaLabel })}
                 className="h-9 border-border/70 bg-background sm:max-w-xs"
               />
             )}
           </div>
         )}
 
+        {mediaType === "image" && selectedLibraryId && pickerVariantScopeId && (
+          <LibraryCandidateStage
+            activeLibraryId={selectedLibraryId}
+            variantScopeId={pickerVariantScopeId}
+            onUseAsset={chooseAsset}
+            inline
+          />
+        )}
+
         {!selectedLibraryId && (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             <Button asChild variant="outline">
-              <Link to="/brand-kits">Create a brand kit</Link>
+              <Link to="/library">{t("library.createBrandKit")}</Link>
             </Button>
           </div>
         )}
@@ -1609,8 +2891,8 @@ export default function AssetPicker() {
           <div className="flex h-full items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
               {query
-                ? `No matching ${mediaLabel} assets in this library.`
-                : `No ${mediaLabel} assets in this library yet.`}
+                ? t("library.noMatchingLibraryAssets", { mediaLabel })
+                : t("library.noAssetsInLibrary", { mediaLabel })}
             </div>
           </div>
         )}
@@ -1624,7 +2906,9 @@ export default function AssetPicker() {
               >
                 <button
                   type="button"
-                  aria-label={`Open ${assetDisplayTitle(asset)}`}
+                  aria-label={t("library.selectAsset", {
+                    title: assetDisplayTitle(asset),
+                  })}
                   onClick={() => {
                     if (embedded) {
                       chooseAsset(asset);
@@ -1633,7 +2917,7 @@ export default function AssetPicker() {
                     }
                   }}
                   title={assetDisplayTitle(asset)}
-                  className="block w-full text-left focus-visible:outline-none"
+                  className="block w-full text-start focus-visible:outline-none"
                 >
                   <div className="aspect-square bg-muted">
                     {asset.mediaType === "video" ||
@@ -1655,17 +2939,21 @@ export default function AssetPicker() {
                     <TooltipTrigger asChild>
                       <button
                         type="button"
-                        aria-label={`Copy ${assetDisplayTitle(asset)}`}
+                        aria-label={t("library.copyAsset", {
+                          title: assetDisplayTitle(asset),
+                        })}
                         onClick={(event) => {
                           event.stopPropagation();
                           chooseAsset(asset);
                         }}
-                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                        className="absolute end-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
                       >
                         <IconClipboard className="h-4 w-4" />
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent>Copy to clipboard</TooltipContent>
+                    <TooltipContent>
+                      {t("library.copyToClipboard")}
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
@@ -1707,7 +2995,9 @@ export default function AssetPicker() {
                   {assetDisplayTitle(previewAsset)}
                 </DialogTitle>
                 <DialogDescription className="sr-only">
-                  Full-size preview of {assetDisplayTitle(previewAsset)}
+                  {t("library.fullSizePreview", {
+                    title: assetDisplayTitle(previewAsset),
+                  })}
                 </DialogDescription>
                 <div className="relative">
                   <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
@@ -1715,11 +3005,11 @@ export default function AssetPicker() {
                       <Link
                         to={`/asset/${encodeURIComponent(previewAsset.id)}`}
                       >
-                        View details
+                        {t("library.viewDetails")}
                       </Link>
                     </Button>
                     <DialogClose
-                      aria-label="Close preview"
+                      aria-label={t("library.closePreview")}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
                     >
                       <IconX className="h-5 w-5" />
@@ -1747,7 +3037,7 @@ export default function AssetPicker() {
                   <div className="mt-5 flex justify-center gap-2">
                     <button
                       type="button"
-                      aria-label="Previous image"
+                      aria-label={t("library.previousImage")}
                       onClick={showPreviousAsset}
                       disabled={!hasPrev}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
@@ -1756,7 +3046,7 @@ export default function AssetPicker() {
                     </button>
                     <button
                       type="button"
-                      aria-label="Next image"
+                      aria-label={t("library.nextImage")}
                       onClick={showNextAsset}
                       disabled={!hasNext}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
@@ -1770,5 +3060,29 @@ export default function AssetPicker() {
           })()}
       </Dialog>
     </div>
+  );
+}
+
+export default function LibraryRoute() {
+  const [searchParams] = useSearchParams();
+  const searchParamsKey = searchParams.toString();
+  const embedded = useMemo(() => isEmbeddedWindow() || isEmbedAuthActive(), []);
+  const { pickerRequested, queryLibraryId } = useMemo(() => {
+    const params = new URLSearchParams(searchParamsKey);
+    const requested =
+      params.get("__an_picker") === "1" ||
+      params.get("__an_mcp_chat_bridge") === "1";
+    return {
+      pickerRequested: requested,
+      queryLibraryId: requested ? null : params.get("libraryId"),
+    };
+  }, [searchParamsKey]);
+  if (queryLibraryId) {
+    return <LibraryWorkspace selectedLibraryId={queryLibraryId} />;
+  }
+  return embedded || pickerRequested ? (
+    <AssetPickerSurface />
+  ) : (
+    <LibraryWorkspace />
   );
 }

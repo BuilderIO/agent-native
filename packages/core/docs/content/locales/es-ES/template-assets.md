@@ -1,0 +1,303 @@
+---
+title: "Activos"
+description: "Un administrador de activos digitales nativo del agente y un servicio de generación entre agentes para medios consistentes con la marca."
+---
+
+# Activos
+
+Assets es un espacio de trabajo nativo del agente para crear y gestionar medios coherentes con la marca. Organiza las cargas y los resultados generados en bibliotecas y carpetas, permite a los equipos recopilar ejemplos de héroes de blogs, diagramas, páginas de destino, fotografías de productos, vídeos y logotipos, y luego dirige la generación a través del chat del agente para que cada activo pueda revisarse y perfeccionarse.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Marca de lanzamiento</h1><span class='wf-pill accent'>Héroes de blog</span><span class='wf-pill'>Imágenes de producto</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Crear medios de marca</strong><div class='wf-box'>Tres opciones de hero para la página principal usando el logo aprobado y referencias de producto.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Exportación web</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Sección hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Conjunto de referencias</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo seguro</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+}
+```
+
+Cuando abre la aplicación, la biblioteca seleccionada, el mensaje, las referencias y los candidatos generados permanecen en un solo espacio de trabajo. El agente puede explorar, buscar, generar, refinar y exportar cada activo a través del mismo actions que utiliza el UI.
+
+```an-diagram title="Generar, revisar, reutilizar" summary="Las referencias y las indicaciones alimentan una sesión de generar y elegir; Los activos elegidos aterrizan en una biblioteca y fluyen hacia otras aplicaciones a través del selector o A2A."
+{
+  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">logos, imágenes de producto, estilo</small></div><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">chat o controles Generate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Sesión de generación</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">assets elegidos y coherentes con la marca</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / aplicación MCP</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">Presentaciones · Diseño · Contenido</small></div></div></div>",
+  "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
+}
+```
+
+## Cuándo elegirlo
+
+- **Tu equipo necesita una dirección visual reutilizable**, no indicaciones multimedia genéricas únicas: recopila logotipos, fotografías de productos y ejemplos de estilo aprobados para que las generaciones sigan enfocadas en la marca.
+- **Quiere que los medios generados se revisen y refinen**, con un registro de auditoría completo de indicaciones, modelos, referencias y linaje para cada ejecución.
+- **Otras aplicaciones necesitan un selector o generador de recursos**: Presentaciones, Diseño, Contenido, un editor de blog o un creador de sitios pueden insertar el selector o llamar a Recursos a través de A2A.
+- **Quiere que los medios de marca estén disponibles a través de su agente de codificación**: Codex, Claude Code, Claude o ChatGPT pueden generar y seleccionar recursos sin salir del chat.
+
+## Cómo empezar
+
+Demostración en vivo: [assets.agent-native.com](https://assets.agent-native.com).
+
+1. **Crea una biblioteca.** Añade la marca, la campaña, el producto o el flujo de contenido que desees
+   quiero administrar.
+2. **Subir referencias.** Agregar logotipos aprobados, fotografías de productos, ejemplos de estilo o
+   vídeos existentes para que el agente tenga material concreto con el que trabajar.
+3. **Generar desde un chat o una biblioteca.** Solicitar una imagen destacada, un diagrama o un producto
+   toma o variante de vídeo. Assets almacena el mensaje, referencias, modelo, estado,
+   y linaje para revisión.
+4. **Utilice el recurso en otro lugar.** Copie la exportación, incruste el selector en otro
+   aplicación o permita que otro agente llame a Assets a través de A2A.
+
+## Indicaciones útiles
+
+- "Genere tres opciones de blog hero utilizando las referencias de productos Acme."
+- "Crea una imagen social cuadrada con el estilo de campaña de lanzamiento".
+- "Encontrar todos los recursos aprobados para el rediseño de incorporación."
+- "Convierta este diagrama subido en una imagen explicativa del producto más limpia."
+- "Crea un guión gráfico de vídeo y guarda el mejor conjunto de fotogramas en esta biblioteca."
+
+## Qué puedes hacer con él
+
+- **Crea bibliotecas de recursos.** Agrupa imágenes de referencia, vídeos, logotipos canónicos, notas de estilo, paletas, carpetas y resultados generados por marca, campaña, producto o categoría.
+- **Generar a través del chat.** El compositor principal y los controles Generar de la biblioteca envían el mensaje al agente con `sendToAgentChat()`, para que los usuarios puedan inspeccionar variantes, dar comentarios e iterar.
+- **Generar imágenes y vídeos.** La generación de imágenes administrada por Builder está disponible cuando está habilitada, y Gemini potencia la generación de vídeos además del respaldo manual de imágenes.
+- **Cargue y describa referencias.** Agregue imágenes o videos de la biblioteca UI o solicite el botón adjunto del compositor, luego busque por título, descripción, texto alternativo, mensaje, modelo, tipo de medio, estado, función, carpeta o colección.
+- **Mantenga un registro de auditoría de generación.** Cada ejecución registra indicaciones, modelo, relación de aspecto, referencias, activo de origen, linaje, activos generados, estado, errores y marcas de tiempo para una revisión posterior del diseño.
+- **Preservar la precisión del logotipo.** El agente puede generar un área de marcador de posición y el servidor compone el logotipo canónico cargado en la imagen final en lugar de depender del modelo de imagen para volver a dibujarlo.
+- **Insertar como selector.** Otras aplicaciones pueden encuadrar `/picker` y escuchar el evento `chooseAsset` desde `@agent-native/embedding`, lo que convierte a Assets en un selector/generador de recursos para editores de blogs, creadores de sitios, presentaciones de diapositivas y aplicaciones personalizadas. El selector también emite el alias heredado `chooseImage` para hosts existentes de solo imágenes.
+- **Instalar como una habilidad respaldada por una aplicación.** El manifiesto `agent-native.app-skill.json` exporta una habilidad de Activos más metadatos del conector MCP para que los mercados puedan instalar la aplicación, sus instrucciones y su selector juntos.
+- **Servir a otros agentes.** Diapositivas, Diseño, Contenido, Correo y Envío pueden llamar a Recursos a través de A2A para enumerar bibliotecas, generar lotes, crear videos, refinar un recurso, recuperar exportaciones y generar vistas previas en línea donde se permite la incrustación.
+
+## Usándolo desde su agente de codificación
+
+Genere y seleccione medios de marca sin salir de Codex, Claude Code, Claude o ChatGPT.
+
+1. **Instalar una vez.** Esto agrega las instrucciones de habilidad y registra el conector MCP alojado en conjunto:
+
+   ```bash
+   npx @agent-native/core@latest skills agregar activos # alias: generación de imágenes
+   ```
+
+   El cliente predeterminado es `codex`; agregue `--client claude-code` o `--client all` para otros.
+   Si solo deseas las instrucciones de habilidades portátiles a través de Vercel/open
+   Skills CLI, utilice:
+
+   ```bash
+   npx skills@latest agregar BuilderIO/agent-native --skill activos
+   ```
+
+   Vercel/open Skills CLI instala únicamente el archivo de instrucciones; no es así
+   ejecute la configuración del conector MCP. Utilice la ruta Agent Native CLI anterior cuando lo desee
+   la configuración de un solo comando.
+
+2. **Solicite imágenes.** En el chat de su agente: "Genere tres opciones de blog hero a partir de las fotografías de productos Acme". El agente abre el selector con imágenes candidatas que puede regenerar, reajustar (indicar, aspecto, contar) y elegir.
+3. **Pick.** En los hosts en línea (ChatGPT, Claude.ai, chat principal de escritorio Claude), el selector se muestra directamente en el chat: haga clic en un candidato y la elección volverá automáticamente. En los hosts CLI/solo enlace (Codex, Código Claude, pestaña "Código" del escritorio Claude), aparece un enlace **"Abrir en Activos →"**; ábrelo, selecciona en el navegador y luego pega el resumen de transferencia copiado nuevamente en tu chat, o simplemente di "usar imagen A".
+
+   ```texto
+   Pegue esta selección nuevamente en su chat para que el agente pueda usarla.
+
+   Imagen de activos seleccionados para el siguiente paso: <label>
+   Medios URL: <url>
+   Utilice este activo seleccionado en el artefacto o diseño actual.
+
+   Contexto del activo seleccionado:
+   { "selectedAsset": { "assetId": "...", "url": "...", "mediaType": "imagen", ... } }
+   ```
+
+4. **Aplicar al código.** Los medios URL y `assetId` elegidos regresan al agente, que utiliza el URL directamente en el código que escribe (un src de `<img>`, una descarga) o llama a `export-asset`.
+
+## Para desarrolladores
+
+El resto de este documento es para cualquiera que bifurque la plantilla de Activos o la amplíe.
+
+### Andamios
+
+```bash
+npx @agent-native/core@latest create my-assets --standalone --template assets
+```
+
+### Modelo de datos
+
+Todos los datos residen en SQL a través de Drizzle ORM (los medios binarios residen en el almacenamiento de objetos o en el respaldo de carga de archivos local durante el desarrollo). Esquema: `templates/assets/server/db/schema.ts`. Las bibliotecas llevan el estándar `ownableColumns` y una tabla de recursos compartidos de marco coincidente, por lo que encajan en el modelo de uso compartido por usuario/por organización.
+
+Nota: los nombres de las tablas SQL mantienen el prefijo `image_*` heredado de cuando la aplicación se llamaba Imágenes. Cubren vídeos y otros medios también.
+
+| Tabla                            | Qué contiene                                                                                                                                                                                                                |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image_libraries`                | Una biblioteca: el contenedor de nivel superior agrupado por marca, campaña, producto o categoría. Contiene `custom_instructions`, `style_brief`, logotipo canónico, referencias de recursos de portada y estado de archivo |
+| `image_library_shares`           | El marco comparte tablas que asignan principales (usuarios u organizaciones) a roles (visor, editor, administrador) por biblioteca                                                                                          |
+| `image_collections`              | Agrupaciones de estilos/categorías dentro de una biblioteca: `style_brief`, `prompt_template`, relación de aspecto predeterminada y tamaño de imagen                                                                        |
+| `asset_folders`                  | Carpetas anidables dentro de una biblioteca (`parent_id` para jerarquía)                                                                                                                                                    |
+| `image_generation_presets`       | Recetas de generación guardadas: tipo de medio, plantilla de mensaje, relación de aspecto, modelo y política de texto/referencia                                                                                            |
+| `image_generation_sessions`      | Una sesión iterativa de generación y elección con un resumen breve, de estado, de activos activos y de comentarios                                                                                                          |
+| `image_generation_session_items` | Activos candidatos dentro de una sesión, cada uno con una función y una nota                                                                                                                                                |
+| `image_assets`                   | El registro de activo: tipo de medio, función, estado, título/descripción/texto alternativo, mensaje, modelo, dimensiones, tipo MIME, claves de objeto/miniatura y linaje                                                   |
+| `image_generation_runs`          | El registro de auditoría de generación: mensaje, mensaje compilado, modelo, referencias, estado, errores y el `source` (`chat` / `ui` / `a2a`) que lo activó                                                                |
+
+```an-schema title="Modelo de datos Assets" summary="Las bibliotecas son el contenedor con propietario; colecciones, carpetas y presets las organizan. Las sesiones impulsan generar-y-elegir; los assets y runs guardan la salida y el registro de auditoría. Los nombres de tabla conservan el prefijo heredado image_* pero cubren todos los medios."
+{
+  "entities": [
+    { "id": "library", "name": "image_libraries", "note": "Contenedor de propiedad de nivel superior", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "custom_instructions", "type": "text", "nullable": true },
+      { "name": "style_brief", "type": "text", "nullable": true },
+      { "name": "logo_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true },
+      { "name": "archived", "type": "boolean" }
+    ] },
+    { "id": "library_shares", "name": "image_library_shares", "note": "Tabla de acciones del marco", "fields": [
+      { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
+      { "name": "role", "type": "text", "note": "viewer / editor / admin" }
+    ] },
+    { "id": "collections", "name": "image_collections", "note": "Agrupaciones Style/category", "fields": [
+      { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
+      { "name": "style_brief", "type": "text", "nullable": true },
+      { "name": "prompt_template", "type": "text", "nullable": true }
+    ] },
+    { "id": "folders", "name": "asset_folders", "note": "Carpetas encajables", "fields": [
+      { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
+      { "name": "parent_id", "type": "id", "fk": "asset_folders.id", "nullable": true }
+    ] },
+    { "id": "presets", "name": "image_generation_presets", "note": "Recetas de generación guardada", "fields": [
+      { "name": "media_type", "type": "text" },
+      { "name": "prompt_template", "type": "text" },
+      { "name": "model", "type": "text" }
+    ] },
+    { "id": "sessions", "name": "image_generation_sessions", "note": "Generar y elegir iterativo", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "status", "type": "text" },
+      { "name": "active_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true }
+    ] },
+    { "id": "session_items", "name": "image_generation_session_items", "note": "Activos candidatos en una sesión", "fields": [
+      { "name": "session_id", "type": "id", "fk": "image_generation_sessions.id" },
+      { "name": "asset_id", "type": "id", "fk": "image_assets.id" },
+      { "name": "role", "type": "text" }
+    ] },
+    { "id": "assets", "name": "image_assets", "note": "El registro de activos", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "media_type", "type": "text", "note": "image / video" },
+      { "name": "status", "type": "text" },
+      { "name": "prompt", "type": "text", "nullable": true },
+      { "name": "object_key", "type": "text", "nullable": true }
+    ] },
+    { "id": "runs", "name": "image_generation_runs", "note": "Registro de auditoría de generación", "fields": [
+      { "name": "model", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "source", "type": "text", "note": "chat / ui / a2a" }
+    ] }
+  ],
+  "relations": [
+    { "from": "library", "to": "collections", "kind": "1-n" },
+    { "from": "library", "to": "folders", "kind": "1-n" },
+    { "from": "library", "to": "assets", "kind": "1-n" },
+    { "from": "sessions", "to": "session_items", "kind": "1-n" },
+    { "from": "library", "to": "library_shares", "kind": "1-n" }
+  ]
+}
+```
+
+### Personalizarlo
+
+Assets es una plantilla completa y clonable. Algunas ideas prácticas de extensión:
+
+- "Agregue un conector de catálogo de productos para que SKU pueda seleccionar fotografías de referencia de productos."
+- "Agregue una cola de aprobación estricta antes de que los recursos generados se marquen como utilizables para marketing."
+- "Agregue un panel de revisión de marca que filtre las generaciones fallidas o con calificaciones bajas por modelo".
+- "Crea una biblioteca de recursos predeterminada para todo el espacio de trabajo y dirige la generación de imágenes de Presentaciones a través de ella."
+- "Agregue un nuevo proveedor detrás de la interfaz de generación de imágenes después de verificar los últimos documentos del proveedor."
+
+El agente edita rutas, componentes y modelos respaldados por actions, skills y SQL según sea necesario. Consulte [Templates](/docs/cloneable-saas) para ver el flujo completo de clonación, personalización e implementación y [A2A Protocol](/docs/a2a-protocol) para generación entre aplicaciones.
+
+### Incrustar el selector
+
+Utilice la ruta del selector cuando un humano elija o genere un activo dentro
+otro producto. La imagen es el tipo de medio predeterminado; pasar `mediaType=video` cuando
+quieres buscar/selección de vídeos:
+
+```tsx
+import { EmbeddedApp } from "@agent-native/embedding";
+
+<EmbeddedApp
+  url="https://assets.agent-native.com/picker?mediaType=image"
+  onMessage={(name, payload) => {
+    if (name === "chooseAsset") {
+      insertAsset((payload as { url: string }).url);
+    }
+  }}
+/>;
+```
+
+Los hosts externos MCP deberían llamar a `open-asset-picker` en lugar de construir esto
+iframe a mano. La acción devuelve un enlace alternativo del navegador y metadatos de la aplicación MCP
+para hosts en línea. Cuando un usuario selecciona un activo, el selector emite `chooseAsset`,
+el alias `chooseImage` heredado para recursos de imagen y actualizaciones del modelo de aplicación MCP
+contexto donde el host lo admite. Cuando un host abre el enlace alternativo en un
+pestaña normal del navegador en lugar de mostrar la aplicación MCP en línea, seleccionando un activo
+copia un resumen de transferencia y muestra un bloque de contexto copiable; pega ese resumen
+volver al chat para que el agente externo pueda usar el medio seleccionado URL y
+metadatos de activos.
+
+Codex, código Claude y código de escritorio Claude deben tratarse como hosts de enlace externo
+para este flujo. Es posible que no representen aplicaciones MCP en línea ni rebajas remotas de CDN
+Es posible que las imágenes no se muestren de manera confiable en la transcripción del chat. Los agentes deben mantener el
+vínculo de activos como fuente de verdad; cuando se necesita una vista previa en línea visible en un
+Chat del editor de código, descarga el `previewUrl`/`downloadUrl` seleccionado a un local
+archivo de imagen e incrustar esa ruta local absoluta.
+
+Para generar y elegir flujos, llame a `open-asset-picker` con `prompt`,
+`autoGenerate: true` y `count: 3` (personalizables del 1 al 6). Se abre el selector
+con imágenes candidatas y permite al usuario ajustar el recuento, la relación de aspecto o
+preajuste de generación antes de elegir el activo final URL.
+
+Utilice A2A cuando otro agente necesite crear, buscar o exportar activos sin
+recolector humano UI.
+
+### Desarrollador: distribuir la habilidad de la aplicación
+
+La habilidad de la aplicación Assets tiene el ID de aplicación `assets` y está alojado MCP URL
+`https://assets.agent-native.com/_agent-native/mcp`.
+
+```bash
+# Instalación alojada más sencilla: instrucciones de habilidades exportadas más conector MCP.
+npx @agent-native/core@latest skills add assets
+
+# Vercel/open Habilidades Instalación de CLI: solo instrucciones exportadas, sin configuración de MCP.
+npx skills@latest add BuilderIO/agent-native --skill assets
+
+# Instalación alojada: conector MCP solo por URL, sin secretos compartidos en archivos de habilidades.
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+
+# Lanzamiento local editable.
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+
+# Paquete Marketplace, que incluye el mercado Claude Code y adaptadores de habilidades Vercel Labs.
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# Instale un paquete Assets local exportado con las habilidades abiertas CLI.
+npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
+
+# Instale desde el adaptador de marketplace de Claude Code generado.
+claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
+claude plugin install agent-native-assets@agent-native-apps
+```
+
+La habilidad exportada enseña a los agentes a utilizar el selector para el contacto humano
+selección, actions directo para generación desatendida de imágenes/videos y navegador
+enlaces cuando las aplicaciones MCP en línea no están disponibles.
+
+El adaptador de mercado Claude contiene un `.claude-plugin/marketplace.json`
+catálogo y complemento `agent-native-assets` con `skills/assets/SKILL.md` plus
+el `.mcp.json` alojado. En el código interactivo Claude, el mismo flujo está disponible
+como `/plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace`,
+`/plugin install agent-native-assets@agent-native-apps`, `/reload-plugins` y
+`/mcp` para autenticación MCP.
+
+Si instala desde un paquete de mercado sin formato con `npx skills@latest`, registre el
+Conector MCP alojado para que esas instrucciones puedan llamar a la aplicación Assets en vivo:
+
+```bash
+npx @agent-native/core@latest app-skill ensure --manifest ./dist/assets-skill/agent-native.app-skill.json --yes
+```
+
+## ¿Qué sigue?
+
+- [**Templates**](/docs/cloneable-saas): el modelo de clonar y poseer
+- [**Embedding SDK**](/docs/embedding-sdk): selector de iframe y patrones sidecar
+- [**A2A Protocol**](/docs/a2a-protocol): cómo otras aplicaciones llaman a los Activos
+- [**File Uploads**](/docs/file-uploads): almacenamiento y servicio de activos autenticados
+- [**Sharing & Privacy**](/docs/sharing): control de acceso a nivel de biblioteca

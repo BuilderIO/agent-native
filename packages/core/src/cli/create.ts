@@ -1,19 +1,20 @@
+import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
-import { execFileSync } from "child_process";
-import { setupAgentSymlinks } from "./setup-agents.js";
-import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
+
 import {
   DISPATCH_WORKSPACE_ROOT_REDIRECTS,
   getWorkspaceAppIdValidationError,
 } from "../shared/workspace-app-id.js";
+import { setupAgentSymlinks } from "./setup-agents.js";
 import {
   coreTemplates,
   getTemplate,
   allTemplateNames,
   type TemplateMeta,
 } from "./templates-meta.js";
+import { workspacifyApp, parseWorkspaceScope } from "./workspacify.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,10 +23,11 @@ const REPO = "BuilderIO/agent-native";
 const TEMPLATES_DIR = "templates";
 const POSTGRES_DEPENDENCY_VERSION = "^3.4.9";
 const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
-  "@react-router/dev": "7.16.0",
-  "@react-router/fs-routes": "7.16.0",
-  "react-router": "7.16.0",
+  "@react-router/dev": "8.0.1",
+  "@react-router/fs-routes": "8.0.1",
+  "react-router": "8.0.1",
 };
+const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = ['"@sentry/*"'];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
@@ -964,6 +966,7 @@ function postProcessStandalone(
   const appTitle = appTitleForScaffold(name);
   replacePlaceholders(targetDir, name, appTitle);
   rewriteTrackingAppId(targetDir, name, templateName);
+  rewriteAgentChatAppId(targetDir, name, templateName);
   fixPackageJsonName(targetDir, name, templateName);
   fixWebManifestName(targetDir, name, templateName);
   rewriteNetlifyToml(targetDir, name, "standalone");
@@ -1053,13 +1056,48 @@ function postProcessStandalone(
         '"@assistant-ui/tap"': '"^0.5.14"',
       };
     }
-    const updated = mergeWorkspaceYamlSections(existing, sections);
+    let updated = mergeWorkspaceYamlSections(existing, sections);
+    updated = mergeWorkspaceYamlListItems(
+      updated,
+      "minimumReleaseAgeExclude",
+      SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES,
+    );
     if (updated !== existing) {
       fs.writeFileSync(wsPath, updated);
     }
   } catch {}
 
+  fixStandaloneTsconfig(targetDir, templateName);
+
   setupAgentSymlinks(targetDir);
+}
+
+function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
+  const tsconfigPath = path.join(targetDir, "tsconfig.json");
+  if (!fs.existsSync(tsconfigPath)) return;
+  try {
+    const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, "utf-8")) as {
+      compilerOptions?: Record<string, unknown>;
+    };
+    tsconfig.compilerOptions ??= {};
+    const hasUiApp =
+      templateName !== "headless" && fs.existsSync(path.join(targetDir, "app"));
+    const paths = {
+      ...((tsconfig.compilerOptions.paths as Record<string, string[]>) ?? {}),
+    };
+    paths["*"] ??= ["./*"];
+    if (hasUiApp) {
+      paths["@/*"] ??= ["./app/*"];
+      paths["@shared/*"] ??= ["./shared/*"];
+    }
+    // baseUrl is deprecated/errors in TS 6 (TS5101/TS5102) and removed in TS 7
+    // (tsgo, which CI runs). paths already resolve relative to this tsconfig,
+    // and the "*": ["./*"] entry replaces baseUrl's bare-specifier resolution,
+    // so never emit baseUrl into scaffolds.
+    delete tsconfig.compilerOptions.baseUrl;
+    tsconfig.compilerOptions.paths = paths;
+    fs.writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
+  } catch {}
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1360,6 +1398,31 @@ function mergeWorkspaceYamlSections(
           (result ? "\n" : "") +
           `\n${section}:\n  ${key}: ${value}\n`;
       }
+    }
+  }
+  return result;
+}
+
+function mergeWorkspaceYamlListItems(
+  yaml: string,
+  section: string,
+  items: string[],
+): string {
+  let result = yaml;
+  for (const item of items) {
+    const rendered = `  - ${item}`;
+    if (result.includes(rendered)) continue;
+    const sectionHeader = new RegExp(`^${section}:\\s*$`, "m");
+    const match = sectionHeader.exec(result);
+    if (match) {
+      const insertAt = match.index + match[0].length;
+      result =
+        result.slice(0, insertAt) + `\n${rendered}` + result.slice(insertAt);
+    } else {
+      result =
+        result.trimEnd() +
+        (result ? "\n" : "") +
+        `\n${section}:\n${rendered}\n`;
     }
   }
   return result;
@@ -1690,7 +1753,7 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    const originalCommand = content.match(/^  command = "([^"]*)"$/m)?.[1];
+    const originalCommand = content.match(/^\s*command = "([^"]*)"$/m)?.[1];
     const usesUnpooledDatabase =
       originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
@@ -1710,7 +1773,7 @@ function rewriteNetlifyToml(
         : ".netlify/functions-internal";
 
     content = content
-      .replace(/^  command = ".*"$/m, `  command = "${command}"`)
+      .replace(/^(\s*)command = ".*"$/m, `$1command = "${command}"`)
       .replace(
         /publish = "templates\/[^"]+\/dist"/g,
         `publish = "${publishPath}"`,
@@ -1729,6 +1792,36 @@ function rewriteNetlifyToml(
     }
 
     fs.writeFileSync(netlifyPath, content);
+  } catch {}
+}
+
+function rewriteAgentChatAppId(
+  appDir: string,
+  appName: string,
+  templateName?: string,
+): void {
+  const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
+  if (!fs.existsSync(pluginPath)) return;
+
+  try {
+    const content = fs.readFileSync(pluginPath, "utf-8");
+    const sourceAppIds = ["chat", "starter"];
+    if (templateName && templateName !== appName) {
+      sourceAppIds.push(templateName);
+    }
+    const pattern = new RegExp(
+      `(appId:\\s*)(["'])(${sourceAppIds.map(escapeRegExp).join("|")})\\2`,
+    );
+    if (!pattern.test(content)) return;
+
+    const next = content.replace(
+      pattern,
+      (_match, prefix: string, quote: string) =>
+        `${prefix}${quote}${appName}${quote}`,
+    );
+    if (next !== content) {
+      fs.writeFileSync(pluginPath, next);
+    }
   } catch {}
 }
 

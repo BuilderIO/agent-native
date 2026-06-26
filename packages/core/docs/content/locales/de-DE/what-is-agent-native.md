@@ -1,0 +1,202 @@
+---
+title: "Was ist Agent-Native?"
+description: "Warum sich die meisten KI-Apps halb fertig anfühlen, was eine App wirklich agentennativ macht und wie Ihr Alltagserlebnis dadurch aussieht."
+---
+
+# Was ist Agent-Native?
+
+Agent-nativ ist eine Methode zum Erstellen von Software, bei der der KI-Agent und die ihn umgebende Produktoberfläche **gleichberechtigte Partner** sind. Diese Oberfläche kann ein Headless-Agent mit einer benutzerdefinierten Aktion, ein Rich-Chat oder ein vollständiger UI sein. Der wichtige Teil ist, dass Agenten und Menschen denselben actions, dieselbe Datenbank und denselben Status teilen.
+
+Wenn Sie sich nur an eine Sache von dieser Seite erinnern, denken Sie daran: Die meisten KI-Apps sind heute einen Schritt davon entfernt, nützlich zu sein, und diese Lücke ist derzeit der größte Fehler auf diesem Gebiet.
+
+## Wie es als Benutzer aussieht {#what-it-looks-like}
+
+Stellen Sie sich einen Hintergrundarbeiter, einen Posteingang, einen Kalender, einen Formularersteller oder ein Analyse-Dashboard vor. Manchmal gibt es noch keinen benutzerdefinierten Bildschirm: Sie führen eine Aktion oder eine kopflose App-Agent-Eingabeaufforderung aus. Manchmal ist der erste Bildschirm ein Chat: Sie fragen, was Sie möchten, der Agent führt Sie durch die Einrichtung, zeigt eine Tabelle oder ein Diagramm und öffnet die richtige App-Ansicht. Manchmal ist der Chat auf der rechten Seite einer vollständigen Anwendung angedockt. Über diese Formen hinweg können Sie Folgendes tun:
+
+- **Beginnen Sie mit dem eigentlichen Vorgang.** Eine dauerhafte Aktion kann von CLI, HTTP, MCP, A2A, der App-Agent-Schleife und später von UI ausgeführt werden.
+- **Klicken Sie auf alles, was Sie normalerweise anklicken würden, wenn ein UI vorhanden ist.** Alle Schaltflächen, Listen, Dashboards, Tastaturkürzel – sie alle rufen dieselben Vorgänge auf, die der Agent aufrufen kann.
+- **Oder fragen Sie einfach.** Geben Sie „Antwort auf die E-Mail von Sara, dass ich um 15 Uhr da sein werde“ in den Agenten ein. Es öffnet den richtigen Thread, entwirft die Antwort und zeigt sie Ihnen zur Genehmigung an – genau so, als ob Sie es von Hand gemacht hätten.
+- **Sehen Sie, was es sieht.** Öffnen Sie eine E-Mail und der Agent weiß, welche. Wählen Sie ein Diagramm aus, und der Agent weiß, welches Diagramm. Markieren Sie einen Absatz und drücken Sie Befehl+I. Der Agent bearbeitet dann nur diesen Absatz.
+- **Beobachten Sie, wie es funktioniert.** Während der Agent Dinge tut – Ansichten öffnet, Entwürfe bearbeitet, Berichte ausführt – wird der UI in Echtzeit aktualisiert. Sie können es jederzeit stoppen, umleiten oder mit der Maus übernehmen.
+- **Steuern Sie es wie ein Teamkollege.** Geben Sie Feedback, stellen Sie eine andere Aufgabe in die Warteschlange, bearbeiten Sie ihre Anweisungen, prüfen Sie, was sie gestern getan hat. Es merkt sich Ihre Arbeitsabläufe und verbessert sie mit der Zeit.
+
+Das ist die Erfahrung, für die Agent-Native entwickelt wurde. Hier erfahren Sie, warum die meisten Produkte dort nicht ankommen.
+
+## Warum die meisten „KI-Apps“ zu kurz kommen (Das Leiterprinzip) {#the-ladder}
+
+Es gibt einen Fortschritt, den die meisten Teams erklimmen, ähnlich einer Leiter, und die meisten stoppen eine Sprosse zu früh.
+
+### Stufe 1 – ein einzelner LLM-Aufruf (das Anti-Muster) {#rung-one}
+
+Ein Textfeld sendet eine Eingabeaufforderung, die KI gibt eine Zeichenfolge zurück und Sie zeigen sie an. Vielleicht mit einem Spinner. Es gibt keine Möglichkeit für den Benutzer, den Kurs zu korrigieren, keine Möglichkeit für die KI, Maßnahmen zu ergreifen, keine Möglichkeit zu sehen, was passiert ist oder warum.
+
+Das sieht man überall: „KI-Funktionen“, bei denen es sich im Grunde um eine „Zusammenfassen“-Schaltfläche handelt, die an ein SaaS-Produkt geschraubt ist. Sie sehen in Demos beeindruckend aus und zerbrechen, sobald die Realität durcheinander gerät. Das ist kein Produkt; Das ist ein Spielzeug.
+
+### Stufe 2 – ein Chat mit Tools {#rung-two}
+
+Jetzt kann die KI _Dinge erledigen_. Es verfügt über Tools – „E-Mail entwerfen“, „Kontakte suchen“, „Abfrage ausführen“ – und eine Chat-Oberfläche, auf der es direkt vor Ihnen funktioniert und Tool-Aufrufe und Ergebnisse anzeigt, während es ausgeführt wird. So sehen Claude, ChatGPT und Cursor unter der Haube aus.
+
+Das ist ein echter Fortschritt. Aber für sich genommen ist es immer noch ein Chatfenster. Es gibt kein richtiges UI. Keine Dashboards, keine Listen, keine Formulare, keine Tastaturkürzel, keine Zusammenarbeit im Team. Wenn die KI verwirrt ist, bleiben Sie beim erneuten Tippen hängen, anstatt einfach auf die rechte Schaltfläche zu klicken. Nicht-Entwickler haben Schwierigkeiten, in diesem Format echte Arbeit zu leisten.
+
+### Rung 3 – Agent + UI als gleichberechtigte Partner {#rung-three}
+
+Dies ist agentennativ. Sie fügen rund um den Agenten eine echte, voll funktionsfähige App hinzu – und entscheidend ist, dass jede Aktion, die der Agent ausführen kann, auch eine Schaltfläche im UI ist und jede Schaltfläche, auf die der Benutzer klickt, die gleiche Logik ausführt, die der Agent verwendet. Eine Implementierung, zwei Wege hinein.
+
+Drei Dinge ändern sich, wenn Sie Stufe 3 erreichen:
+
+- **Sie haben das Hinzufügen von Schaltflächen zu einem Chatbot eingestellt. Sie haben einer App einen Agenten hinzugefügt.** Das ist auf beiden Seiten ein viel hochwertigeres Produkt.
+- **Der Agent hat echten Kontext.** Er sieht, was Sie sehen, was Sie ausgewählt haben, was Sie gerade getan haben. Es schreibt in dieselbe Datenbank, aus der UI liest, sodass seine Arbeit sofort angezeigt wird.
+- **Externe Agenten können es auch verwenden.** Andere agentennative Apps können dieses actions über das [A2A protocol](/docs/a2a-protocol) aufrufen. Claude-Code, Codex, ChatGPT benutzerdefinierte MCP-Apps, Cursor und andere MCP-Hosts können es als [MCP server](/docs/mcp-protocol) steuern. Eine App, viele Einstiegspunkte.
+
+Das ist Rang 3. Das ist Agent-nativ.
+
+```an-diagram title="Das Leiterprinzip" summary="Die meisten Teams bleiben bei Stufe 1 oder 2 stehen. Agent-nativ ist Stufe 3 – eine echte App und ein echter Agent über eine gemeinsame Aktionsoberfläche."
+{
+  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Stufe 3 · agent-native</span><strong>Agent + UI als gleichberechtigte Partner</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Stufe 2</span><strong>Ein Chat mit Tools</strong><small class=\"diagram-muted\">Der Agent kann handeln, ist aber weiter nur ein Chatfenster. Keine Dashboards, Listen oder Shortcuts.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Stufe 1</span><strong>Ein einzelner LLM-Aufruf</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
+  "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
+}
+```
+
+Siehe [Key Concepts — Protocols](/docs/key-concepts#protocols), um zu erfahren, wie dies alles von derselben Aktionsdefinition abhängt.
+
+## Warum jeder Agent einen UI braucht {#why-every-agent-needs-a-ui}
+
+Selbst wenn der Agent die ganze schwere Arbeit übernimmt, müssen Menschen dennoch Folgendes tun:
+
+- **Sehen Sie, was es tut** – Fortschritt, Zwischenausgabe, was es berührt hat
+- **Steuern** – Feedback geben, unterbrechen, die nächste Aufgabe in die Warteschlange stellen
+- **Verwalten** – Bearbeiten Sie seine Anweisungen, skills, Speicher, geplante Jobs, verbundene Konten
+- **Inspizieren Sie die Arbeit** – überprüfen Sie Entwürfe, prüfen Sie den Verlauf und machen Sie Fehler rückgängig.
+- **Teilen Sie die Ausgabe** – Dashboards, Berichte, Formulare, Links zum Senden an Teamkollegen
+
+Zumindest ist „ein UI für den Agenten“ ein Observability- und Management-Dashboard. Im Maximum handelt es sich um eine vollständige SaaS-App, in die der Agent als Co-Pilot eingebettet ist. Beide Enden gelten als agentennativ, und die Oberfläche kann ohne Umschreiben aus einem heraus wachsen.
+
+Sie müssen nicht im Voraus eine Form auswählen. Der Agent kann kopflos arbeiten, hinter einem Rich-Chat sitzen oder in einer vollständigen Anwendung auf derselben Aktionsoberfläche leben – siehe [Agent Surfaces](/docs/agent-surfaces) für die konkreten Formen und APIs.
+
+## Warum jede App von einem Agenten profitiert {#why-every-app-benefits-from-an-agent}
+
+Die Kehrseite ist genauso wichtig. Bestehende SaaS-Produkte stoßen immer wieder an dieselben Probleme: 80 % dessen, was Sie benötigen, funktionieren hervorragend, und 20 % können Sie einfach nicht ändern. Das Hinzufügen einer Chat-Seitenleiste behebt das selten – der Chat kann normalerweise nicht die Dinge tun, die der UI kann.
+
+Agent-native macht das umgekehrt. Da jede Aktion in der App einmal definiert und sowohl als Schaltfläche als auch als Agententool verfügbar gemacht wird, kann der Agent alles tun, was die Schaltflächen können – und noch mehr –, ohne dass eine separate „KI-Welt“ verwaltet werden muss. Natürliche Sprache wird neben Klicks zu einem erstklassigen Input.
+
+Das Argument lautet nicht „Agenten ersetzen UI“. Es heißt: „**Agenten gehören in Anwendungen, mit einem UI an der Spitze, als gleichberechtigte Partner**.“ Selbst eine App, bei der der Agent das Produkt ist, benötigt immer noch einen UI, damit Menschen ihn überwachen, konfigurieren und steuern können – siehe [Agent Surfaces — Headless](/docs/agent-surfaces#headless).
+
+## Agent + UI-Parität {#agent-ui-parity}
+
+Dies ist das bestimmende Prinzip.
+
+> **Aus UI** – Schaltflächen anklicken, Formulare ausfüllen, durch Ansichten navigieren. Der UI schreibt in die Datenbank; Der Agent sieht die Ergebnisse.
+>
+> **Vom Agent** – natürliche Sprache, andere Agenten über A2A, Slack, Telegram. Der Agent schreibt in die Datenbank; Der UI wird automatisch aktualisiert.
+
+```an-diagram title="Ein System, zwei Wege hinein" summary="Der Agent und die Benutzeroberfläche schreiben in dieselben Aktionen und dieselbe Datenbank. Was der eine tut, der andere sieht es."
+{
+  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">Klicks, Formulare, Shortcuts</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">natürliche Sprache · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL-Datenbank</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">UI aktualisiert live</div></div>",
+  "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+Wenn der Agent einen E-Mail-Entwurf erstellt, wird dieser im UI angezeigt. Wenn Sie auf „Senden“ klicken, weiß der Agent, dass die Nachricht gesendet wurde. Es gibt keine getrennte „Agentenwelt“ und „UI-Welt“ – es ist ein einziges System. Siehe [Key Concepts](/docs/key-concepts) für die Architektur, die dies ermöglicht.
+
+## Anpassungen sind normalerweise Elektrowerkzeugen vorbehalten {#workspace-customization}
+
+Der Grund dafür, dass sich Tools wie Claude Code so leistungsstark anfühlen, ist nicht das Modell – es ist die **Anpassungsebene**: Anweisungen pro Projekt, skills, Speicher, Unteragenten, verbundene Dienste. Sie können den Agenten an Ihre Codebasis, Ihre Vorlieben und Ihr Team anpassen.
+
+Agent-native bietet jedem Benutzer die gleiche Anpassungsebene – ohne die App jemals zu verlassen. Jede App verfügt über einen persönlichen **Arbeitsbereich**, in dem Sie (oder jeder in Ihrem Team) Folgendes tun kann:
+
+- Bearbeiten Sie teamweite Regeln, die jeder Agent liest
+- Lassen Sie den Agenten die Einstellungen automatisch speichern, wenn Sie sie korrigieren
+- Schreiben Sie wiederverwendbare Anleitungen als `/slash`-Befehle
+- Behalten Sie benutzerdefinierte Subagenten für bestimmte Aufgaben bei (aufgerufen mit `@mentions`)
+- Planen Sie Jobs so, dass sie auf einem Cron ausgeführt werden (z. B. „jeden Montagmorgen, letzte Woche zusammenfassen“)
+- Verbinden Sie externe Dienste (Gmail, Stripe, Slack, interne APIs) über benutzerspezifische MCP-Server
+
+Der Clou: Es wird alles in der Datenbank gespeichert, nicht im Dateisystem. Es muss keine Entwicklungsumgebung eingerichtet werden, kein Container pro Benutzer. Jeder Benutzer erhält seinen eigenen vollständigen Arbeitsbereich – persönlichen Speicher, persönliche Verbindungen, persönliche skills – praktisch kostenlos, da es sich um alle Zeilen einer Tabelle handelt. Das macht die Flexibilität auf Claude-Codeebene in einem echten mandantenfähigen SaaS-Produkt realisierbar.
+
+Das vollständige Konzept finden Sie unter [Workspace](/docs/workspace).
+
+## Was es anders macht {#what-makes-it-different}
+
+| Ansatz                                     | Beschreibung                                                                                                                                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Traditionelle Apps mit integrierter KI** | Die KI ist ein nachträglicher Einfall. Beschränkt auf automatische Vervollständigung, Zusammenfassungen oder eine Chat-Seitenleiste, die in der App eigentlich nichts bewirken kann.        |
+| **Reine Chat-/Agentenschnittstellen**      | Leistungsstark, aber unzugänglich. Keine Dashboards, keine Workflows, keine Persistenz. Nicht-Entwickler können sie nicht effektiv nutzen.                                                  |
+| **Claude Code / Codex für SaaS**           | Ideal für Entwickler auf ihren eigenen Maschinen. Lässt sich nicht auf mandantenfähiges SaaS übertragen – eine Codebasis pro Benutzer auf einer Entwicklungsbox lässt sich nicht skalieren. |
+| **Agent-native Apps**                      | Der Agent ist ein erstklassiger Bürger. Es nutzt dieselbe Datenbank, denselben Status und kann alles, was UI kann – und umgekehrt.                                                          |
+
+## Entwicklung des gesamten Teams {#whole-team-development}
+
+Agent-native ist nicht nur für Entwickler. Da der Agent den eigenen Code der App bearbeiten kann, ist die Weiterentwicklung einer App keine reine Entwickleraktivität mehr:
+
+- **Designer** aktualisieren Designs direkt in der laufenden App über den Agent
+- **Produktmanager** fügen Funktionalität hinzu und aktualisieren Abläufe, indem sie sie beschreiben
+- **QA** testet die App und bittet den Agenten, den Fehler zu beheben
+- **Jeder im Team** trägt durch natürliche Sprache bei
+
+Die Vision: weniger Übergaben, eine Person erledigt die Arbeit eines kleinen Teams.
+
+## Forken und anpassen {#fork-and-customize}
+
+Agent-native Apps folgen einem Fork-and-Customize-Modell. Sie beginnen mit einer **Vorlage** – Kalender, Inhalt, Folien, Analysen, E-Mail, Clips, Design, Formulare, Versand – und machen sie zu Ihrer eigenen. Bei jedem handelt es sich um ein vollständiges, funktionierendes SaaS-Produkt, das Sie im Großhandel entwickeln können, und nicht um ein leeres Gerüst:
+
+1. Wählen Sie eine Vorlage auf [agent-native.com/templates](/templates)
+2. Sofort als gehostete App verwenden (z. B. mail.agent-native.com)
+3. Forken Sie es, wenn Sie es anpassen möchten – „Verbinden Sie unser Stripe-Konto“, „fügen Sie ein Kohortendiagramm hinzu“
+4. Der Agent ändert den Code entsprechend Ihren Anforderungen
+5. Stellen Sie Ihren Fork in Ihrer eigenen Domain bereit – oder bleiben Sie auf agent-native.com
+
+Da es sich um _Ihre_ App und nicht um eine gemeinsam genutzte Infrastruktur handelt, kann der Agent den Code sicher weiterentwickeln. Ihre App verbessert sich ständig, während Sie sie verwenden. Die ganze Geschichte finden Sie unter [Templates](/docs/cloneable-saas).
+
+Sie sind nicht bereit, eine ganze Vorlage zu teilen? Sie können Agent-nativ auch ausprobieren, indem Sie einen **Skill** zu einem Codierungsagenten hinzufügen, den Sie bereits verwenden – installieren Sie den Plans-Skill mit `npx @agent-native/core@latest skills add visual-plan`. Siehe [Skills Guide](/docs/skills-guide#app-backed-skills).
+
+## Zusammensetzbare Agenten {#composable-agents}
+
+Agent-native Apps können miteinander kommunizieren. In der E-Mail-App können Sie den Analyseagenten markieren, um Daten abzufragen und das Ergebnis in einen E-Mail-Entwurf aufzunehmen. Die Agenten ermitteln, welche anderen Agenten verfügbar sind, geben die Arbeit untereinander ab und zeigen die Ergebnisse in der UI an, in der Sie sich bereits befinden.
+
+Dies wird von [A2A](/docs/a2a-protocol) und [MCP](/docs/mcp-protocol) unter der Haube unterstützt – gleiche Definition, mehrere Oberflächen – aber als Benutzer müssen Sie nur wissen: „Ich kann jede meiner Apps um Hilfe bei allem bitten, was sie tun können.“
+
+## Wie sieht das im Code aus? {#what-does-it-look-like-in-code}
+
+Wenn Sie eine agentennative App erstellen oder erweitern, ist hier das zentrale Muster: Jeder Vorgang in der App ist eine **Aktion** – einmal definiert und sowohl für den Agenten als auch für UI verfügbar.
+
+```an-annotated-code title="Eine Aktion, einmal definiert"
+{
+  "filename": "actions/reply-to-email.ts",
+  "language": "ts",
+  "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});",
+  "annotations": [
+    { "lines": "5", "label": "Werkzeugoberfläche", "note": "`description` ist das, was der Agent liest, um zu entscheiden, wann er dies als Tool aufrufen soll." },
+    { "lines": "6", "label": "Typisierter Vertrag", "note": "Ein zod `schema` validiert Eingaben von **jeder** Oberfläche — Agent, UI, HTTP, MCP und A2A." },
+    { "lines": "7-10", "label": "Eine Implementierung", "note": "Der `run`-Körper ist die einzige Quelle der Wahrheit. Sowohl die UI-Schaltfläche als auch das Agententool führen genau dies aus." }
+  ]
+}
+```
+
+```tsx
+// In any React component — same action, called from a button
+const { mutate } = useActionMutation("reply-to-email");
+
+<Button onClick={() => mutate({ emailId, body: "Thanks!" })}>
+  Send Reply
+</Button>;
+```
+
+```tsx
+// And the agent panel mounted anywhere in your app
+import { AgentSidebar } from "@agent-native/core/client";
+
+<AgentSidebar />;
+```
+
+Eine Aktion, viele Oberflächen: Der Agent ruft es als Tool auf, der UI nennt es eine typsichere Mutation, [native chat](/docs/native-chat-ui) kann explizite Widget-Ergebnisse rendern, externe Agenten erreichen es über [A2A](/docs/a2a-protocol) und MCP-Hosts rufen es über den [MCP server](/docs/mcp-protocol) der App auf, optional mit MCP Apps UI-Ressourcen und Standard-Remote-MCP OAuth gehandhabt durch den Rahmen. Die vollständige Referenz finden Sie unter [Actions](/docs/actions).
+
+## Was kommt als nächstes? {#whats-next}
+
+- [**Getting Started**](/docs/getting-started) – Beginnen Sie mit einer Aktion, wählen Sie eine Vorlage aus oder installieren Sie einen Skill
+- [**Agent Surfaces**](/docs/agent-surfaces) – wählen Sie Headless, Rich Chat, eingebettetes Sidecar oder vollständige App
+- [**Key Concepts**](/docs/key-concepts) – die Architektur: SQL, actions, Polling-Synchronisierung, Kontextbewusstsein, Portabilität
+- [**Templates**](/docs/cloneable-saas) – Vorlagen als vollständige Produkte, die Sie besitzen
+- [**Workspace**](/docs/workspace) – die benutzerspezifische Anpassungsschicht (skills, Speicher, Anweisungen, MCP), unterstützt durch SQL, nicht durch Dateien
+- [**Dispatch**](/docs/dispatch) – die Workspace-Steuerungsebene: Geheimspeicher, Slack/E-Mail-Posteingang, anwendungsübergreifende Delegierung
+- [**Extensions**](/docs/extensions) – Sandbox-Mini-Apps, die der Agent sofort ohne Codeänderungen erstellt
+- [**Drop-in Agent**](/docs/drop-in-agent) – Mounten Sie `<AgentPanel>` in jede React-App

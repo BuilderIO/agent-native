@@ -1,5 +1,6 @@
-import { useMemo } from "react";
 import { ExtensionsListPage } from "@agent-native/core/client/extensions";
+import { useMemo } from "react";
+
 import { useAppHeaderControls } from "@/components/layout/AppLayout";
 
 export default function ExtensionsRoute() {

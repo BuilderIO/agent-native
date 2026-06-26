@@ -1,5 +1,5 @@
+import { appPath, useActionQuery, useT } from "@agent-native/core/client";
 import { IconBrandSlack } from "@tabler/icons-react";
-import { appPath, useActionQuery } from "@agent-native/core/client";
 
 interface SlackInstallation {
   status: string;
@@ -22,6 +22,7 @@ interface SlackInstallationsResponse {
  * `list-slack-installations` query never runs for private shares.
  */
 export function SlackShareHint({ canManage }: { canManage: boolean }) {
+  const t = useT();
   const slack = useActionQuery<SlackInstallationsResponse>(
     "list-slack-installations",
     undefined,
@@ -37,9 +38,11 @@ export function SlackShareHint({ canManage }: { canManage: boolean }) {
       <div className="flex items-center gap-2.5 rounded-md border border-border bg-muted/40 px-3 py-2">
         <IconBrandSlack className="h-4 w-4 shrink-0 text-muted-foreground" />
         <div className="min-w-0">
-          <div className="text-xs font-medium">Plays inline in Slack</div>
+          <div className="text-xs font-medium">
+            {t("slackShareHint.playsInline")}
+          </div>
           <p className="text-[11px] text-muted-foreground">
-            Paste this link in any connected workspace to play it inline.
+            {t("slackShareHint.connectedDescription")}
           </p>
         </div>
       </div>
@@ -60,12 +63,16 @@ export function SlackShareHint({ canManage }: { canManage: boolean }) {
     >
       <IconBrandSlack className="h-4 w-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium">Make it play inline in Slack</div>
+        <div className="text-xs font-medium">
+          {t("slackShareHint.makeInline")}
+        </div>
         <p className="text-[11px] text-muted-foreground">
-          Connect a workspace so this link unfurls as a video.
+          {t("slackShareHint.connectDescription")}
         </p>
       </div>
-      <span className="shrink-0 text-xs font-medium text-primary">Connect</span>
+      <span className="shrink-0 text-xs font-medium text-primary">
+        {t("slackShareHint.connect")}
+      </span>
     </a>
   );
 }

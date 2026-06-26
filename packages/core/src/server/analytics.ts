@@ -3,6 +3,10 @@
  * Supported environment variables:
  * - `GA_MEASUREMENT_ID` — Google Analytics 4 measurement ID
  *
+ * Netlify configuration-file env vars are build-time only for serverless
+ * functions, so the Vite plugin also bakes this public value into SSR bundles
+ * as `__AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__`.
+ *
  * Amplitude and Sentry are initialized client-side via their npm packages
  * (see `packages/core/src/client/analytics.ts`). Only GA requires script
  * tag injection because the gtag.js loader must be a `<script src>`.
@@ -17,16 +21,36 @@
  * ```
  */
 
-function getGaScript(): string | null {
-  const id = process.env.GA_MEASUREMENT_ID;
-  if (!id) return null;
+declare const __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: string | undefined;
+
+function normalizeMeasurementId(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function getGaMeasurementId(): string | null {
   return (
-    `<script async src="https://www.googletagmanager.com/gtag/js?id=${id}"></script>` +
+    normalizeMeasurementId(process.env.GA_MEASUREMENT_ID) ||
+    normalizeMeasurementId(
+      typeof __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__ === "string"
+        ? __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__
+        : undefined,
+    )
+  );
+}
+
+function getGaScript(): string | null {
+  const id = getGaMeasurementId();
+  if (!id) return null;
+  const srcId = encodeURIComponent(id);
+  const jsId = JSON.stringify(id);
+  return (
+    `<script async src="https://www.googletagmanager.com/gtag/js?id=${srcId}"></script>` +
     `<script>` +
     `window.dataLayer=window.dataLayer||[];` +
     `function gtag(){dataLayer.push(arguments);}` +
     `gtag('js',new Date());` +
-    `gtag('config','${id}');` +
+    `gtag('config',${jsId});` +
     `if(typeof sessionStorage!=='undefined'&&sessionStorage.getItem('__an_signin')){` +
     `sessionStorage.removeItem('__an_signin');` +
     `gtag('event','sign_in');` +

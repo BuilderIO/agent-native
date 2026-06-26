@@ -18,8 +18,6 @@
  * — it can be bundled into the serverless function alongside `mountMCP`.
  */
 
-import type { ActionEntry } from "../agent/production-agent.js";
-import { isMcpActionResult } from "../mcp-client/app-result.js";
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -27,19 +25,21 @@ import {
   type ActionMcpAppCsp,
   type ActionMcpAppResourceConfig,
 } from "../action.js";
-import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
-import {
-  getRequestContext,
-  getRequestOrgId,
-  getRequestUserEmail,
-  runWithRequestContext,
-} from "../server/request-context.js";
+import type { ActionEntry } from "../agent/production-agent.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
+import { getConfiguredAppBasePath } from "../server/app-base-path.js";
 import {
   buildDeepLink,
   toAbsoluteOpenUrl,
   toDesktopOpenUrl,
   toVsCodeOpenUrl,
 } from "../server/deep-link.js";
+import {
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 import {
   isAgentNativeOpenDeepLink,
   withCollapsedAgentSidebarParam,
@@ -50,7 +50,7 @@ import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
   MCP_CONNECT_SCOPE,
 } from "./connect-store.js";
-import { getConfiguredAppBasePath } from "../server/app-base-path.js";
+import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
@@ -750,7 +750,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v51";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v53";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -1340,9 +1340,7 @@ export async function createMCPServerForRequest(
   // in that case we run with no userEmail/orgId, which makes downstream
   // tools that require per-user scope return empty results rather than
   // cross-tenant data (the safe default).
-  const orgIdPromise = effectiveIdentity?.orgId
-    ? Promise.resolve(effectiveIdentity.orgId)
-    : resolveOrgIdFromDomain(effectiveIdentity?.orgDomain);
+  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
 
   /**
    * Wrap a callback in
@@ -2062,6 +2060,24 @@ export async function resolveOrgIdFromDomain(
     const { resolveOrgByDomain } = await import("../org/context.js");
     const org = await resolveOrgByDomain(orgDomain);
     return org?.orgId ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function resolveMcpIdentityOrgId(
+  identity: MCPCallerIdentity | undefined,
+): Promise<string | undefined> {
+  if (identity?.orgId) return identity.orgId;
+
+  const orgIdFromDomain = await resolveOrgIdFromDomain(identity?.orgDomain);
+  if (orgIdFromDomain) return orgIdFromDomain;
+
+  const userEmail = identity?.userEmail?.trim();
+  if (!userEmail) return undefined;
+  try {
+    const { resolveOrgIdForEmail } = await import("../org/context.js");
+    return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
   } catch {
     return undefined;
   }

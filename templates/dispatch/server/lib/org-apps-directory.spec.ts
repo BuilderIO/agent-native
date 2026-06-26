@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
 import { signA2AToken } from "@agent-native/core/a2a";
+import { describe, it, expect } from "vitest";
+
 import {
   ORG_APPS_PATH,
   buildOrgAppsResponse,

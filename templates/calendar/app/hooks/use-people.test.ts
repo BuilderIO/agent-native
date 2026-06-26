@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { filterPeopleResults } from "./use-people";
 
 describe("filterPeopleResults", () => {

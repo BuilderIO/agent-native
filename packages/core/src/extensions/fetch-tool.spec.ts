@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { createFetchToolEntry } from "./fetch-tool.js";
 
 describe("createFetchToolEntry", () => {

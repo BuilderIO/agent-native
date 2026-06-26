@@ -1,0 +1,436 @@
+---
+title: "Agent-Native कोड UI"
+description: "साझा UI पैकेज, डेस्कटॉप होस्ट ब्रिज और CLI रन स्टोर के साथ Agent-Native कोड सतहों का निर्माण और अनुकूलन करें।"
+---
+
+# Agent-Native कोड UI
+
+> **यह किसके लिए है:** मेजबान लेखक कोडिंग-कार्यक्षेत्र का निर्माण या अनुकूलन कर रहे हैं
+> साझा कोड UI पैकेज पर सतह (CLI, डेस्कटॉप, या एक ब्राउज़र टेम्पलेट)।
+
+## मुझे कौन सा कोडिंग दस्तावेज़ चाहिए? {#which-doc}
+
+| आप चाहते हैं…                                                                      | उपयोग करें                             |
+| ---------------------------------------------------------------------------------- | -------------------------------------- |
+| एक Claude-कोड/Codex-शैली प्रस्तुत करें **कोडिंग कार्यक्षेत्र UI**                  | **Agent-Native कोड UI** (यह पेज)       |
+| Claude कोड / Codex / Pi **एजेंट के रूप में** चलाएँ, अपने स्वयं के लूप + टूल के साथ | [Harness Agents](/docs/harness-agents) |
+| एजेंट के **`run-code` टूल** को चलाने वाले बैकएंड को स्वैप करें                     | [Adapters](/docs/sandbox-adapters)     |
+| एजेंट को कॉल करने के लिए एक CLI टूल (`gh`, `ffmpeg`) लपेटें                        | [Adapters](/docs/sandbox-adapters)     |
+
+Agent-Native कोड Agent-Native कोडिंग सतह है: कोडिंग सत्र, स्लैश कमांड, माइग्रेशन, ऑडिट, ट्रांसक्रिप्ट, रन नियंत्रण और फॉलो-अप के लिए एक स्थानीय Claude कोड/Codex-शैली कार्यक्षेत्र। एक खाली `npx @agent-native/core@latest` कमांड इस कार्यक्षेत्र को खोलता है; `npx @agent-native/core@latest code` उसी अनुभव के लिए स्पष्ट उपकमांड है।
+
+तीन परतें हैं:
+
+- **CLI**: `npx @agent-native/core@latest` और `npx @agent-native/core@latest code` रन शुरू करें, फिर से शुरू करें, निरीक्षण करें और रोकें।
+- **डेस्कटॉप**: बाईं ओर का कोड टैब समान रन मॉडल का उपयोग करते हुए मूल टर्मिनल लॉन्च, ऐप वेबव्यू और डेस्कटॉप डीप लिंक जोड़ता है।
+- **साझा UI**: `@agent-native/code-agents-ui` पुन: प्रयोज्य React सतह प्रस्तुत करता है।
+
+```an-diagram title="एक रन स्टोर पर तीन परतें" summary="CLI, Desktop, और साझा UI एक ही फ़ाइल-समर्थित रन स्टोर और निष्पादक पर अलग-अलग सतहें हैं; होस्ट इसे CodeAgentsHost अनुबंध के माध्यम से अनुकूलित करते हैं।"
+{
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">शुरू · फिर शुरू · स्थिति · रोकें</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">नेटिव टर्मिनल · webviews · डीप लिंक</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">साझा करेंd UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>फाइल-आधारित run store + executor<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
+  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px;align-items:center}.diagram-layers .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-layers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-layers .diagram-arrow{font-size:22px;line-height:1}.diagram-layers .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+वर्तमान विभाजन जानबूझकर अभिसरण कर रहा है: मानक एजेंट साइडबार और एजेंट टीमें कोर `run-manager` जीवनचक्र पर चलती हैं, जबकि Agent-Native कोड फ़ाइल-आधारित कोड रन स्टोर और साझा पृष्ठभूमि-रन नियंत्रक शब्दावली द्वारा समर्थित स्थानीय लंबे समय तक चलने वाले सत्रों का उपयोग करता है।
+
+साझा UI होस्ट-संचालित है। यह नहीं पता कि यह इलेक्ट्रॉन, ब्राउज़र टेम्पलेट, या भविष्य में होस्ट किए गए शेल में चल रहा है या नहीं। होस्ट एक `CodeAgentsHost` कार्यान्वयन प्रदान करते हैं।
+
+```ts
+import { CodeAgentsApp, type CodeAgentsHost } from "@agent-native/code-agents-ui";
+import "@agent-native/code-agents-ui/styles.css";
+
+const host: CodeAgentsHost = {
+  listRuns: (goalId) => listRunsSomehow(goalId),
+  listCodePacks: () => listCodePacksSomehow(),
+  createRun: (request) => createRunSomehow(request),
+  subscribeTranscript: (request, callback) =>
+    subscribeToTranscriptSomehow(request, callback),
+  readTranscript: (request) => readTranscriptSomehow(request),
+  appendFollowUp: (request) => appendFollowUpSomehow(request),
+  updateRun: (request) => updateRunSomehow(request),
+  retryRun: (request) => retryRunSomehow(request),
+  rerunRun: (request) => rerunRunSomehow(request),
+  controlRun: (goalId, runId, command, permissionMode) =>
+    controlRunSomehow({ goalId, runId, command, permissionMode }),
+};
+
+export function CodeSurface() {
+  return <CodeAgentsApp apps={[]} host={host} />;
+}
+```
+
+होस्ट एक ही सूची में रन स्रोतों को मिला सकते हैं। स्थानीय Agent-Native कोड सत्र
+एजेंट टीमों या अन्य पृष्ठभूमि-संचालित एडेप्टर के बगल में तब तक दिखाई दे सकता है जब तक प्रत्येक
+प्रवेश `CodeAgentRun` पर सामान्य हो जाता है। जब कोई होस्ट `sourceLabel` की आपूर्ति करता है,
+`source`, या `kind`, हब "स्थानीय कोड" जैसे छोटे स्रोत लेबल को प्रस्तुत करता है
+या रन सूची और चयनित-सत्र शीर्षलेख में "एजेंट टीमें"। उन फ़ील्ड को छोड़ दें
+एकल-स्रोत सतह के लिए; खाली स्थिति और आधार लेआउट अपरिवर्तित रहता है।
+
+## डेस्कटॉप होस्ट
+
+डेस्कटॉप साझा UI का उपयोग करता है लेकिन इलेक्ट्रॉन में विशेषाधिकार प्राप्त क्षमताएं रखता है:
+
+- एक मूल टर्मिनल खोलना
+- `AppWebview` के साथ वैकल्पिक ऐप-समर्थित सतहों को प्रस्तुत करना
+- `agentnative://open?...` लिंक को संभालना
+- स्थानीय रन प्रक्रियाओं को ट्रैक करना
+- सक्रिय रन के लिए रिकॉर्डिंग स्टीयरिंग बनाम कतारबद्ध फॉलो-अप
+- `/migrate` और `/audit` सहित मूल कोड सत्रों को पुनः प्रयास करना और पुनः चलाना
+- शुरू हुई प्रक्रिया को रोकना
+
+वह अलगाव मायने रखता है। UI को टेम्प्लेट द्वारा पुन: उपयोग किया जा सकता है, लेकिन मूल प्रक्रिया नियंत्रण डेस्कटॉप या CLI में रहना चाहिए।
+
+## Codex CLI प्रामाणिक {#codex-cli-auth}
+
+Agent-Native कोड OpenAI API कुंजी के बजाय स्थानीय Codex CLI लॉगिन का उपयोग कर सकता है।
+अपने `PATH` पर Codex CLI इंस्टॉल करें, एक बार साइन इन करें, फिर डेस्कटॉप या पुनः आरंभ करें
+यदि यह पहले से खुला था तो कोड UI करें:
+
+```bash
+npm install -g @openai/codex@latest
+codex login
+codex login status
+```
+
+डेस्कटॉप और CLI `codex login status` पढ़ते हैं और `codex exec` चलाते हैं, इसलिए वे
+जो भी ChatGPT सदस्यता या API-कुंजी आपके द्वारा स्थापित Codex CLI है उसका पुन: उपयोग करें
+reports. This is separate from the `@ai-sdk/harness-codex` package used by
+[Harness Agents](/docs/harness-agents); हार्नेस एडॉप्टर स्थानीय कॉपी कर सकता है
+Codex CLI को विश्वसनीय सैंडबॉक्स में केवल तभी दर्ज करें जब `codexCliAuth: true` हो
+स्पष्ट रूप से सक्षम।
+
+## ब्राउज़र होस्ट
+
+पुराना छिपा हुआ `code` टेम्पलेट हटा दिया गया है। ब्राउज़र-होस्टेड कोड सतह बनाने के लिए, एक सामान्य ऐप बनाएं और होस्ट कार्यान्वयन के साथ साझा UI पैकेज को माउंट करें:
+
+```bash
+npx @agent-native/core@latest create my-code-ui --template chat
+cd my-code-ui
+pnpm add @agent-native/code-agents-ui
+pnpm install
+pnpm dev
+```
+
+आपका होस्ट सामान्य actions के माध्यम से स्थानीय रन स्टोर को लपेट सकता है। ये हैं
+मेजबान के स्वामित्व वाले actions को आप स्वयं परिभाषित करेंगे - वे शिप किए गए ढांचे नहीं हैं
+actions - प्रत्येक `CodeAgentsHost` विधि को रन स्टोर पर मैप करना, उदाहरण के लिए:
+
+- `listRuns` का समर्थन करते हुए एक "सूची चलती है" कार्रवाई
+- `listCodePacks` का समर्थन करने वाली एक "सूची कोड पैक" कार्रवाई
+- `createRun` का समर्थन करने वाली एक "क्रिएट रन" कार्रवाई
+- `readTranscript` का समर्थन करने वाली एक "रीड ट्रांसक्रिप्ट" कार्रवाई
+- `appendFollowUp` का समर्थन करने वाली एक "अनुवर्ती अनुवर्ती कार्रवाई जोड़ें
+- `updateRun` का समर्थन करने वाली एक "अपडेट रन" कार्रवाई
+- `controlRun` का समर्थन करने वाली एक "कंट्रोल रन" कार्रवाई
+
+प्रत्येक व्यक्ति `@agent-native/core/code-agents` को कॉल करता है, जो इसे उजागर करता है
+फ़ाइल-समर्थित रन स्टोर और निष्पादक CLI द्वारा उपयोग किया जाता है।
+
+## CLI रन नियंत्रण
+
+शीर्ष-स्तरीय CLI Claude कोड या Codex की तरह व्यवहार करता है:
+
+```bash
+npx @agent-native/core@latest
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
+```
+
+जब आप स्पष्ट नामस्थान चाहते हैं तो `npx @agent-native/core@latest code` का उपयोग करें। अंतर्निर्मित स्लैश
+लक्ष्य और प्रोजेक्ट कमांड इंटरैक्टिव कार्यक्षेत्र के अंदर या सीधे चल सकते हैं
+शेल से:
+
+```bash
+npx @agent-native/core@latest code /migrate ./legacy-app --emit ./migration-dossier
+npx @agent-native/core@latest code /audit --url https://example.com
+npx @agent-native/core@latest code /release-check
+```
+
+यहां `/migrate` और `/audit` अंतर्निहित लक्ष्य हैं (अंतर्निहित लक्ष्य हैं
+`task`, `migrate`, और `audit`)। `/release-check` को a
+प्रोजेक्ट कमांड - `.agents/commands/` में परिभाषित, अंतर्निहित लक्ष्य नहीं। प्रोजेक्ट
+कमांड `.agents/commands/*.md` से आते हैं; प्रोजेक्ट skills
+`.agents/skills/*/SKILL.md`. नियंत्रण आदेश एक ही रन पर काम करते हैं
+रिकॉर्ड करता है कि डेस्कटॉप कोड टैब और साझा UI डिस्प्ले:
+
+```bash
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code status --last
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code stop --last
+npx @agent-native/core@latest code ui
+```
+
+`resume` संदर्भ जोड़ता है और रन जारी रखता है, `status` नवीनतम रन की रिपोर्ट करता है
+राज्य, `stop` सक्रिय नियंत्रक को काम रोकने के लिए कहता है, और `ui` स्थानीय खोलता है
+कोड सतह. ये रन नियंत्रण हैं, कोई अलग कार्यान्वयन पथ नहीं। यदि ए
+उच्च जोखिम वाला कमांड अनुमोदन के लिए रुकता है, `approve --last` उसे लंबित चलाता है
+आदेश और फिर आपको सत्र फिर से शुरू करने के लिए इंगित करता है।
+
+रन मोड प्रति सत्र संपादन नीति को स्पष्ट बनाते हैं:
+
+| मोड           | CLI ध्वज | व्यवहार                                                                                                        |
+| ------------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| **योजना मोड** | `--plan` | फ़ाइलें लिखे बिना या म्यूटेशन चलाए बिना निरीक्षण करें, योजना बनाएं और समझाएं।                                  |
+| **ऑटो मोड**   | `--auto` | फ़ाइलें संपादित करें, चेक चलाएँ, और केवल वास्तव में विनाशकारी फ़ाइल, गिट, प्रकाशन या डेटा संचालन के लिए रोकें। |
+
+स्थानीय Agent-Native कोड सत्रों के लिए ऑटो मोड डिफ़ॉल्ट है।
+आकलन, वास्तुकला, समीक्षा, या कोई भी कार्य जहां आप पहले प्रस्ताव चाहते हैं
+संपादन.
+
+क्रॉस-सरफेस सूचियों, डैशबोर्ड या मॉनिटरिंग पैन के लिए, साझा को प्राथमिकता दें
+रीडिंग कोड पर `@agent-native/core/code-agents` से बैकग्राउंड-रन एक्सपोर्ट
+फ़ाइलें सीधे चलाएँ। वे स्थानीय कोड सत्रों को समान शब्दावली में सामान्यीकृत करते हैं
+होस्टेड पृष्ठभूमि कार्य द्वारा उपयोग किया जाता है: रन आईडी, स्थिति, सीडब्ल्यूडी, आवश्यकता-इनपुट,
+अनुमोदन, प्रतिलेख ईवेंट और आर्टिफैक्ट रूट की आवश्यकता है।
+
+होस्ट की गई एजेंट टीमें ब्राउज़र के लिए एजेंट चैट रूट से भी प्रदर्शित होती हैं
+होस्ट जिन्हें सीधे सर्वर आयात के बिना कोड हब-संगत सूची की आवश्यकता होती है:
+`GET /_agent-native/agent-chat/runs/list?goalId=agent-team` रिटर्न
+`{ status: "ok", goalId, runs }`, जहां प्रत्येक रन में `kind` शामिल है,
+`source`, `sourceLabel`, `status`, `title`, टाइमस्टैम्प और कार्य मेटाडेटा।
+`GET /_agent-native/agent-chat/runs/:id/background-events` लौटाता है
+एजेंट टीम रन के लिए साझा पृष्ठभूमि प्रतिलेख ईवेंट।
+
+एडेप्टर-समर्थित होस्ट स्रोत मेटाडेटा भी संलग्न कर सकते हैं:
+
+```ts
+{
+  id: run.id,
+  goalId: "task",
+  title: run.title,
+  source: "agent-teams",
+  sourceLabel: "Agent Teams",
+  kind: "background-run",
+  status: run.status,
+  createdAt: run.createdAt,
+  updatedAt: run.updatedAt,
+}
+```
+
+## स्टोर चलाएं
+
+स्थानीय Agent-Native कोड रन यहां संग्रहीत हैं:
+
+```text
+~/.agent-native/code-agents
+```
+
+टेम्पलेट या टेस्ट रन स्टोर को अलग करने के लिए `AGENT_NATIVE_CODE_AGENTS_HOME` सेट करें।
+
+```bash
+AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
+```
+
+## मेज़बान अनुबंध
+
+`CodeAgentsHost` जानबूझकर छोटा है:
+
+| विधि                                                  | उद्देश्य                                                                 |
+| ----------------------------------------------------- | ------------------------------------------------------------------------ |
+| `listRuns(goalId?)`                                   | चयनित लक्ष्य के लिए सत्रों की सूची बनाएं                                 |
+| `listCodePacks?()`                                    | सूची `.agents/commands` और `.agents/skills`                              |
+| `createRun(request)`                                  | नया रन प्रारंभ करें                                                      |
+| `subscribeTranscript?(request, callback)`             | साझा वार्तालाप में ट्रांसक्रिप्ट अपडेट पुश करें                          |
+| `readTranscript(request)`                             | संगतता फ़ॉलबैक के रूप में पोल ट्रांसक्रिप्ट ईवेंट                        |
+| `appendFollowUp(request)`                             | एक अनुवर्ती जोड़ें, या तो सक्रिय कार्य का संचालन करें या पंक्तिबद्ध करें |
+| `updateRun(request)`                                  | अद्यतन मोड या मेटाडेटा चलाएँ                                             |
+| `retryRun?(request)`                                  | चयनित रन को यथास्थान पुनः प्रयास करें                                    |
+| `rerunRun?(request)`                                  | पिछले प्रॉम्प्ट से एक नया रन प्रारंभ करें                                |
+| `controlRun(goalId, runId, command, permissionMode?)` | फिर से शुरू करें, स्वीकृत करें, ताज़ा करें, या रोकें                     |
+| `openTerminal?(request)`                              | वैकल्पिक देशी टर्मिनल हुक                                                |
+
+ब्राउज़र होस्ट को मूल टर्मिनल लॉन्च का अनुकरण करने की कोशिश करने के बजाय एक सुंदर `openTerminal` त्रुटि लौटानी चाहिए।
+
+## साझा संगीतकार
+
+Agent-Native कोड समान `AgentComposerFrame` + `PromptComposer` /
+`TiptapComposer` स्टैक को `@agent-native/core/client/composer` से
+फ्रेमवर्क एजेंट साइडबार। अलग से फोर्क न करें
+टेक्स्टएरिया, कोडिंग-टूल पिकर, अपलोड पिकर, वॉयस बटन, मॉडल पिकर, या एंटर-टू-सबमिट
+कोड-जैसी सतहों के लिए कार्यान्वयन। यदि किसी होस्ट को एक अतिरिक्त नियंत्रण की आवश्यकता है, तो पास करें
+यह साझा कंपोज़र एक्सटेंशन के माध्यम से साइडबार, कोड UI, और
+ब्रेन चैट इंटरेक्शन मॉडल और विज़ुअल फ़ील्ड को समान रखता है।
+
+ब्रेन का आस्क रूट `AgentChatSurface` का उपयोग करता है, जो पहले से ही समर्थित है
+मानक साइडबार संगीतकार। कोड सीधे `PromptComposer` का उपयोग करता है क्योंकि होस्ट
+रन क्रिएशन, ट्रांसक्रिप्ट और फॉलो-अप डिलीवरी का मालिक है।
+
+## साझा कोडिंग उपकरण
+
+साइडबार डेवलपमेंट एजेंट और Agent-Native कोड दोनों समान न्यूनतम उपयोग करते हैं
+कोडिंग-टूल प्रोफ़ाइल: `bash`, `read`, `edit`, और `write`। `bash` डिफ़ॉल्ट है
+फ़ाइलों को सूचीबद्ध करने/खोजने, परीक्षण चलाने और प्रोजेक्ट CLIs को लागू करने के लिए; `read`
+लाइन क्रमांकित फ़ाइल स्लाइस दिखाता है; `edit` सटीक पाठ प्रतिस्थापन लागू करता है; और
+`write` नई फ़ाइलों या जानबूझकर पूर्ण पुनर्लेखन के लिए आरक्षित है। पुराने उपनाम
+जैसे कि `shell`, `read-file`, `write-file`, `list-files`, और `search-files`
+केवल संगतता हैं और डिफ़ॉल्ट विज्ञापित सतह का हिस्सा नहीं हैं।
+
+कोड-विशिष्ट UI कंपोजर के आसपास होता है, फोर्कड चैटफील्ड के अंदर नहीं। द
+साझा कोड UI इसके लिए स्लॉट जोड़ सकता है:
+
+- ऑटो / प्लान मोड नियंत्रण।
+- चयनित सीडब्ल्यूडी, प्रोजेक्ट पिकर, और रन मेटाडेटा।
+- केवल होस्ट के खर्चे जैसे टर्मिनल खोलना।
+
+बाकी सब कुछ साझा कंपोजर में रहता है: अनुलग्नक, संदर्भ, स्लैश और
+कौशल प्रविष्टि, पेस्ट-टेक्स्ट हैंडलिंग, वॉयस डिक्टेशन, ड्राफ्ट, कीबोर्ड
+शॉर्टकट, और सबमिशन शब्दार्थ।
+
+उपयोगकर्ता-सामना वाली प्रतिलेख संवादात्मक बनी रहनी चाहिए। कोड होस्ट कच्चे को सामान्यीकृत करते हैं
+साझा वार्तालाप रेंडरर में प्रतिलेख/स्थिति/टूल ईवेंट: सहायक
+पाठ एक मोड़ में एकत्रित हो जाता है, कम-सिग्नल जीवनचक्र का शोर मुख्य से बाहर रहता है
+सतह, और उपकरण गतिविधि विवरण के साथ कॉम्पैक्ट इनलाइन सारांश के रूप में प्रस्तुत होती है
+आवश्यकता पड़ने पर उपलब्ध।
+
+## स्लैश कमांड
+
+Agent-Native कोड माइग्रेशन को एक क्षमता के रूप में मानता है, न कि एक अलग ऐप श्रेणी के रूप में। `/migrate` एक अंतर्निहित लक्ष्य, एक प्रोजेक्ट कमांड या एक ही होस्ट अनुबंध के शीर्ष पर एक कस्टम निर्देश पैक हो सकता है।
+
+### `/migrate` के साथ Agent-Native पर माइग्रेट करना {#migrate}
+
+`/migrate` किसी मौजूदा ऐप, URL, या वर्णित उत्पाद को Agent-Native में स्थानांतरित करने का अंतर्निहित लक्ष्य है। यह कोड कार्यक्षेत्र में एक स्लैश लक्ष्य है - न कि मचान के लिए एक अलग टेम्पलेट और न ही एक बार का उत्पाद - इसलिए यह हर दूसरे कोड सत्र के समान सत्र स्टोर, ट्रांसक्रिप्ट, रन नियंत्रण और डेस्कटॉप हब साझा करता है, और आप इसे फिर से शुरू कर सकते हैं, संलग्न कर सकते हैं, निरीक्षण कर सकते हैं और इसे उसी तरह रोक सकते हैं।
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus dashboard"
+npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reports and CSV imports" --emit
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
+```
+
+स्थानीय स्रोत पथ केवल पढ़ने के लिए हैं; उत्पन्न आउटपुट को स्रोत ट्री के बाहर रहना चाहिए। पोर्टेबल माइग्रेशन डोजियर (`AGENTS.md`, `MIGRATION_PLAYBOOK.md`, मूल्यांकन, और उपलब्ध होने पर `ir.json` इन्वेंट्री) लिखने के लिए `--emit <dir>` का उपयोग करें और आंतरिक रन सतह को खोलने के बजाय इसे किसी अन्य कोडिंग एजेंट को सौंप दें। `/migrate` फ्रेमवर्क के सामान्य क्रेडेंशियल सिस्टम का पुन: उपयोग करता है - कोई माइग्रेशन-विशिष्ट कुंजी स्टोर नहीं है। `@agent-native/migrate` पैकेज कस्टम वर्कफ़्लो के लिए एक पुन: प्रयोज्य इंजन (`createMigrationRun`, `discoverMigration`, `planMigration`, स्रोत/लक्ष्य एडाप्टर) को उजागर करता है।
+
+प्रोजेक्ट-विशिष्ट कमांड इसमें रहते हैं:
+
+```text
+.agents/commands/*.md
+```
+
+टीम वर्कफ़्लोज़ जैसे रिलीज़ चेक, माइग्रेशन वेरिएंट, फ़्रेमवर्क अपग्रेड या ऑडिट के लिए इनका उपयोग करें।
+
+प्रोजेक्ट skills लाइव इन:
+
+```text
+.agents/skills/*/SKILL.md
+```
+
+जब होस्ट `listCodePacks` लागू करता है, तो साझा UI रेल में प्रोजेक्ट कमांड और skills दिखाता है। कमांड पंक्तियाँ `/<command>` डालें, और कौशल पंक्तियाँ एक केंद्रित "<skill> कौशल का उपयोग करें..." संकेत डालें ताकि रेल क्रियाशील बनी रहे। अंतर्निहित स्लैश लक्ष्य `/migrate` और `/audit` वैश्विक Agent-Native कोड नियंत्रणों के लिए आरक्षित रहते हैं, जैसे कि `status` और `resume` जैसे रन-कंट्रोल नाम - ये स्लैश के बिना लागू किए गए उपकमांड हैं (`npx @agent-native/core@latest code status`, `npx @agent-native/core@latest code resume`), स्लैश लक्ष्य नहीं।
+
+नए कोड होस्ट के लिए एक अलग स्लैश-कमांड रजिस्ट्री न बनाएं। प्रोजेक्ट
+कमांड और skills को `.agents/commands/*.md` से खोजा गया है और
+`.agents/skills/*/SKILL.md`; UI को उन पैक्स को प्रस्तुत करना चाहिए और संकेत सम्मिलित करना चाहिए
+साझा संगीतकार के माध्यम से।
+
+## बैकग्राउंड एजेंट रन-मैनेजर
+
+बैकग्राउंड कोडिंग-एजेंट कार्य को उसी रन-मैनेजर फाउंडेशन का पुन: उपयोग करना चाहिए
+बाकी Agent-Native:
+
+- स्थानीय कोड सत्रों के लिए कोड रन स्टोर/निष्पादक का उपयोग करें।
+- जब किसी सतह को सूचीबद्ध करने की आवश्यकता हो तो साझा पृष्ठभूमि-रन एडाप्टर/फाउंडेशन का उपयोग करें,
+  अन्य पृष्ठभूमि कार्यों के साथ-साथ स्थानीय कोड सत्रों का निरीक्षण करें या उन्हें पाटें।
+- होस्टेड एजेंट रन के लिए कोर `run-manager` का उपयोग करें ताकि स्ट्रीम, निरस्त, दिल की धड़कन,
+  पुनः प्रारंभ करने की क्षमता, सॉफ्ट टाइमआउट और स्टिक-रन क्लीनअप लगातार व्यवहार करते हैं।
+- जब UI किसी को काम सौंप रहा हो तो `agent-teams` / `spawnTask()` का उपयोग करें
+  सामान्य ऐप चैट से पृष्ठभूमि उप-एजेंट।
+
+समानांतर बैकग्राउंड-एजेंट रनर को सिर्फ इसलिए न जोड़ें क्योंकि एक नई सतह की आवश्यकता होती है
+अलग लेआउट. साझा
+इसके बजाय रन-मैनेजर फाउंडेशन।
+
+## फ़ॉलो-अप
+
+सक्रिय रन पर अनुवर्ती कार्रवाई दो डिलीवरी मोड का समर्थन करती है:
+
+- एंटर दबाने या सेंड पर क्लिक करने से तत्काल स्टीयरिंग संकेत रिकॉर्ड हो जाता है कि
+  सक्रिय धावक अगले सुरक्षित निरंतरता बिंदु पर लागू होता है।
+- MacOS पर Cmd+Enter दबाने पर या अन्यत्र Ctrl+Enter दबाने पर चलने का संकेत कतार में आ जाता है
+  वर्तमान मोड़ समाप्त होने के बाद।
+
+निष्क्रिय रन संगत व्यवहार बनाए रखते हैं: फॉलो-अप जोड़ा जाता है और रन तुरंत फिर से शुरू हो जाता है।
+
+यह कोड को एजेंट टीमों के समान उपयोगकर्ता-सामना वाले दो-तरफा संदेश भेजने का आकार देता है:
+उपयोगकर्ता सक्रिय कार्य से बात करना जारी रख सकता है, लेकिन निष्पादन केवल उसका उपभोग करता है
+सुरक्षित निरंतरता बिंदु पर संदेश। यदि कोई धावक तुरंत गाड़ी नहीं चला सकता, तो यह
+इसे छोड़ने या दौड़ने के बजाय अनुवर्ती कार्य को कतारबद्ध कार्य के रूप में जारी रखना चाहिए।
+
+## दूरस्थ प्रेषण
+
+डेस्कटॉप स्थानीय कोड एजेंट रनर को एक तैनात डिस्पैच रिले में उजागर कर सकता है ताकि
+फोन या टेलीग्राम चैट सत्र शुरू कर सकते हैं, निगरानी कर सकते हैं और जारी रख सकते हैं
+कंप्यूटर सक्रिय है।
+
+कनेक्शन केवल डेस्कटॉप से आउटबाउंड है:
+
+1. डेस्कटॉप डिस्पैच के साथ जुड़ता है और डिवाइस टोकन को स्थानीय रूप से संग्रहीत करता है।
+2. डेस्कटॉप लॉन्ग-पोल `/_agent-native/integrations/remote/poll`.
+3. मोबाइल सत्र और टेलीग्राम `/code` रिले डेटाबेस में कमांड को एनक्यू करते हैं।
+4. डेस्कटॉप कमांड का दावा करता है, स्थानीय रन स्टोर चलाता है, और परिणाम पोस्ट करता है और
+   प्रतिलेख ईवेंट डिस्पैच पर वापस।
+5. मोबाइल डिस्पैच से `hosts`, `runs`, और `transcript` पढ़ता है; यह कभी बात नहीं करता
+   सीधे डेस्कटॉप पर।
+
+```an-diagram title="रिमोट Dispatch केवल आउटबाउंड है" summary="मोबाइल कभी भी डेस्कटॉप से ​​सीधे बात नहीं करता. Desktop लंबे-चुनाव Dispatch, कमांड का दावा करता है, स्थानीय रन स्टोर चलाता है, और परिणामों को वापस दिखाता है।"
+{
+  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>मोबाइल / Telegram<br><small class=\"diagram-muted\">/code · सेशन</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Dispatch रिले<br><small class=\"diagram-muted\">होस्ट · रन · ट्रांसक्रिप्ट</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">long-polls · दावा करता है · run store चलाता है</small></div></div>",
+  "css": ".diagram-remote{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-remote .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+विहित दूरस्थ रिले समापनबिंदु हैं:
+
+```an-api title="डेस्कटॉप कतारबद्ध कार्य का दावा करता है"
+{
+  "method": "POST",
+  "path": "/_agent-native/integrations/remote/poll",
+  "summary": "डेस्कटॉप कतारबद्ध आदेशों का दावा करने के लिए रिले को लंबे समय तक पोल करता है",
+  "description": "Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.",
+  "auth": "Desktop device token",
+  "responses": [
+    { "status": "200", "description": "Claimed commands for this host (may be empty after the long-poll window)." }
+  ]
+}
+```
+
+| विधि       | मार्ग                                                    | कॉल करने वाला | उद्देश्य                                       |
+| ---------- | -------------------------------------------------------- | ------------- | ---------------------------------------------- |
+| `POST`     | `/_agent-native/integrations/remote/register`            | डेस्कटॉप सत्र | डेस्कटॉप होस्ट को जोड़ें और एक बार टोकन लौटाएं |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | मोबाइल/सत्र   | युग्मित होस्ट की सूची बनाएं                    |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | मोबाइल/सत्र   | युग्मित होस्ट को रद्द करें                     |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | मोबाइल/सत्र   | युग्मित होस्ट को निरस्त करें                   |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | डेस्कटॉप टोकन | कार्य का दावा करें                             |
+| `POST`     | `/_agent-native/integrations/remote/result`              | डेस्कटॉप टोकन | कार्य पूर्ण या विफल                            |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | डेस्कटॉप टोकन | मिरर ट्रांसक्रिप्ट इवेंट                       |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | मोबाइल/सत्र   | सत्रों की सूची बनाएं                           |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | मोबाइल/सत्र   | सत्र सारांश पढ़ें                              |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | मोबाइल/सत्र   | प्रतिबिंबित प्रतिलेख पढ़ें                     |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | मोबाइल/सत्र   | एक्सपो/मोबाइल पुश टोकन पंजीकृत करें            |
+
+टेलीग्राम डिस्पैच के माध्यम से उसी रिले का उपयोग करता है। समर्थित आदेश हैं:
+
+```text
+/code <prompt>
+/code list
+/code status <run>
+/code continue <run> <text>
+/code approve <id>
+/code deny <id>
+/code stop <run>
+```
+
+## स्टाइलिंग
+
+पैकेज स्टाइलशीट आयात करें:
+
+```ts
+import "@agent-native/code-agents-ui/styles.css";
+```
+
+स्टाइलशीट टेम्प्लेट और डेस्कटॉप शेल के समान shadcn-style HSL कस्टम गुणों का उपयोग करती है। साझा UI को फोर्क करने से पहले होस्ट ऐप में टोकन या छोटी क्लास ओवरराइड बदलने को प्राथमिकता दें।
+
+## सीमाएं
+
+ब्राउज़र टेम्प्लेट स्थानीय-प्रथम है। जब इसका स्थानीय नोड सर्वर सक्रिय हो तो यह रन शुरू और फिर से शुरू कर सकता है। मूल प्रक्रिया जीवनचक्र, टर्मिनल लॉन्च और ऐप वेबव्यू के लिए, डेस्कटॉप का उपयोग करें।

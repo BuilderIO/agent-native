@@ -1,12 +1,14 @@
-import { useMemo } from "react";
 import { IconSearch } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { useMemo } from "react";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+
 import type { TranscriptSegment } from "./transcript-bubbles";
 
 const STOPWORDS = new Set<string>([

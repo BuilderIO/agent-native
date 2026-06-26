@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import type { ActionEntry } from "../agent/production-agent.js";
 
 const mockNotifyActionChange = vi.hoisted(() => vi.fn());
@@ -62,6 +63,29 @@ describe("mountActionRoutes", () => {
 
     expect(result).toEqual({ error: "Forbidden" });
     expect(event._status).toBe(403);
+  });
+
+  it("serializes plain string action results as JSON strings", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const actions: Record<string, ActionEntry> = {
+      "archive-email": {
+        run: vi.fn(async () => "Archived 1 email(s) successfully"),
+      } as any,
+    };
+
+    mountActionRoutes(nitroApp, actions);
+
+    const event = { _method: "POST", req: { json: async () => ({}) } };
+    const result = await mounted[0].handler(event);
+
+    expect(event._responseHeaders["content-type"]).toBe("application/json");
+    expect(JSON.parse(result)).toBe("Archived 1 email(s) successfully");
   });
 
   it("isolates request context without mutating process.env", async () => {

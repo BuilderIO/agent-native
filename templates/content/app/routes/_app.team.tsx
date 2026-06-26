@@ -1,14 +1,18 @@
+import { useT } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
+import { messagesByLocale } from "@/i18n-data";
 
 export function meta() {
-  return [{ title: "Workspace access — Content" }];
+  return [{ title: messagesByLocale["en-US"].team.metaTitle }];
 }
 
 export default function TeamRoute() {
+  const t = useT();
   useSetPageTitle(
     <h1 className="text-lg font-semibold tracking-tight truncate">
-      Workspace access
+      {t("team.pageTitle")}
     </h1>,
   );
   return (
@@ -16,16 +20,15 @@ export default function TeamRoute() {
       <div className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-8">
         <div className="mb-6 space-y-1">
           <h2 className="text-2xl font-bold tracking-tight">
-            Shared document workspace
+            {t("team.heading")}
           </h2>
           <p className="text-sm text-muted-foreground">
-            Workspaces are the shared spaces where collaborators can access the
-            same Content documents.
+            {t("team.description")}
           </p>
         </div>
         <TeamPage
-          title="People and access"
-          createOrgDescription="Create a shared workspace for Content documents. You can invite collaborators after setup."
+          title={t("team.peopleTitle")}
+          createOrgDescription={t("team.createOrgDescription")}
           className="max-w-3xl"
         />
       </div>

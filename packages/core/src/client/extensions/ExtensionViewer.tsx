@@ -1,7 +1,3 @@
-import { agentNativePath, appPath } from "../api-path.js";
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate } from "react-router";
 import {
   IconArrowLeft,
   IconArrowBackUp,
@@ -14,29 +10,31 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { ShareButton } from "../sharing/ShareButton.js";
-import { AgentToggleButton } from "../AgentPanel.js";
-import { NotificationsBell } from "../notifications/NotificationsBell.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { buildExtensionHtml } from "../../extensions/html-shell.js";
+import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
+import { getThemeVars } from "../../extensions/theme.js";
 import { sendToAgentChat } from "../agent-chat.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { AgentToggleButton } from "../AgentPanel.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import {
-  isAllowedExtensionPath,
-  sanitizeExtensionRequestOptions,
-  checkBridgePolicy,
-  type BridgePolicyContext,
-  type ExtensionBridgeRole,
-} from "./iframe-bridge.js";
-import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { PromptComposer } from "../composer/PromptComposer.js";
+import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
+import { NotificationsBell } from "../notifications/NotificationsBell.js";
+import { ShareButton } from "../sharing/ShareButton.js";
 import {
   deleteOrHideExtension,
   invalidateExtensionRemoval,
@@ -46,10 +44,13 @@ import {
   extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
 } from "./extension-load-error.js";
-import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
-import { buildExtensionHtml } from "../../extensions/html-shell.js";
-import { getThemeVars } from "../../extensions/theme.js";
-import { isEmbedMcpChatBridgeActive } from "../embed-auth.js";
+import {
+  isAllowedExtensionPath,
+  sanitizeExtensionRequestOptions,
+  checkBridgePolicy,
+  type BridgePolicyContext,
+  type ExtensionBridgeRole,
+} from "./iframe-bridge.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -131,6 +132,16 @@ function extensionRole(value: unknown): ExtensionBridgeRole {
     value === "viewer"
     ? value
     : "viewer";
+}
+
+function serializeChatValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function buildExtensionViewerSrcDoc(
@@ -744,6 +755,18 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         return;
       }
 
+      if (message.type === "agent-native-send-to-chat") {
+        const text = serializeChatValue(message.message);
+        if (!text?.trim()) return;
+        sendToAgentChat({
+          message: text,
+          context: serializeChatValue(message.context),
+          submit: message.submit !== false,
+          openSidebar: message.openSidebar !== false,
+        });
+        return;
+      }
+
       if (message.type === "agent-native-extension-keydown") {
         document.dispatchEvent(
           new KeyboardEvent("keydown", {
@@ -864,11 +887,10 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         // (audit H4) Role-aware policy gate: viewer-shared extensions can read
         // but not write. Decided here in the parent before the request
         // leaves; the server enforces a second layer.
-        const policy = checkBridgePolicy(
-          path,
-          options.method ?? "GET",
-          bridgeContextRef.current,
-        );
+        const policy = checkBridgePolicy(path, options.method ?? "GET", {
+          ...bridgeContextRef.current,
+          extensionId,
+        });
         if (!policy.ok) {
           respond({
             response: {

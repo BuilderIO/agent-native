@@ -1,6 +1,12 @@
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import { useState } from "react";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -9,13 +15,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { LibraryPresetGrid } from "./LibraryPresetGrid";
+import { Textarea } from "@/components/ui/textarea";
+
 import type { LibraryPreset } from "../../../shared/library-presets";
+import { LibraryPresetGrid } from "./LibraryPresetGrid";
 
 export function CreateLibraryDialog({
   open,
@@ -26,6 +32,7 @@ export function CreateLibraryDialog({
   onOpenChange: (open: boolean) => void;
   onCreated?: (library: any) => void;
 }) {
+  const t = useT();
   const createLibrary = useActionMutation("create-library");
   const createFromPreset = useActionMutation("create-library-from-preset");
   const { data: presetData } = useActionQuery("list-library-presets", {});
@@ -67,7 +74,7 @@ export function CreateLibraryDialog({
         },
         onError: (error: Error) => {
           setCreatingPresetId(null);
-          toast.error(error.message || "Could not create preset brand kit.");
+          toast.error(error.message || t("brandKits.presetCreateFailed"));
         },
       },
     );
@@ -77,18 +84,19 @@ export function CreateLibraryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle>New brand kit</DialogTitle>
+          <DialogTitle>{t("brandKits.createDialogTitle")}</DialogTitle>
           <DialogDescription>
-            Start from a built-in style preset or create a blank brand kit for
-            your own references.
+            {t("brandKits.createDialogDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-5">
           <div className="space-y-3">
             <div>
-              <h3 className="text-sm font-medium">Start from a style preset</h3>
+              <h3 className="text-sm font-medium">
+                {t("brandKits.startFromPreset")}
+              </h3>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Create an editable brand kit with built-in generation guidance.
+                {t("brandKits.startFromPresetDescription")}
               </p>
             </div>
             <LibraryPresetGrid
@@ -102,40 +110,44 @@ export function CreateLibraryDialog({
           <Separator />
 
           <div className="space-y-2">
-            <Label htmlFor="library-title">Name</Label>
+            <Label htmlFor="library-title">{t("brandKitDetail.name")}</Label>
             <Input
               id="library-title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Engineering blog heroes"
+              placeholder={t("brandKits.titlePlaceholder")}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="library-description">Description</Label>
+            <Label htmlFor="library-description">
+              {t("assetDetail.description")}
+            </Label>
             <Textarea
               id="library-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="Dark editorial illustrations, product UI fragments, restrained palette."
+              placeholder={t("brandKits.descriptionPlaceholder")}
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="library-instructions">Custom instructions</Label>
+            <Label htmlFor="library-instructions">
+              {t("brandKitDetail.customInstructions")}
+            </Label>
             <Textarea
               id="library-instructions"
               value={customInstructions}
               onChange={(event) => setCustomInstructions(event.target.value)}
-              placeholder="Always keep product UI legible, avoid literal text unless requested, prefer quiet editorial compositions."
+              placeholder={t("brandKits.instructionsPlaceholder")}
               className="min-h-24"
             />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("brandKitDetail.cancel")}
           </Button>
           <Button onClick={submit} disabled={!title.trim()}>
-            Create
+            {t("brandKitDetail.create")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,5 +1,6 @@
-import { AppLayout } from "@/components/layout/AppLayout";
 import { TeamPage } from "@agent-native/core/client/org";
+
+import { AppLayout } from "@/components/layout/AppLayout";
 
 export default function Team() {
   return (

@@ -12,8 +12,8 @@
  * runtime even before the migration plugin is registered.
  */
 
-import { getDbExec } from "../../db/client.js";
-import { isPostgres } from "../../db/client.js";
+import { getDbExec, isPostgres } from "../../db/client.js";
+import { ensureTableExists, ensureIndexExists } from "../../db/ddl-guard.js";
 import type {
   ObservationalMemoryEntry,
   ObservationalMemoryOwner,
@@ -27,8 +27,7 @@ async function ensureTable(): Promise<void> {
   tableReady = (async () => {
     const client = getDbExec();
     const intType = isPostgres() ? "BIGINT" : "INTEGER";
-    await client.execute(
-      `CREATE TABLE IF NOT EXISTS observational_memory (
+    const createSql = `CREATE TABLE IF NOT EXISTS observational_memory (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL,
         tier TEXT NOT NULL,
@@ -42,16 +41,43 @@ async function ensureTable(): Promise<void> {
         owner_email TEXT NOT NULL,
         org_id TEXT,
         visibility TEXT NOT NULL DEFAULT 'private'
-      )`,
-    );
-    await client.execute(
-      `CREATE INDEX IF NOT EXISTS observational_memory_thread_tier_idx
-        ON observational_memory(thread_id, tier, created_at)`,
-    );
-    await client.execute(
-      `CREATE INDEX IF NOT EXISTS observational_memory_thread_owner_idx
-        ON observational_memory(thread_id, owner_email)`,
-    );
+      )`;
+
+    if (isPostgres()) {
+      // PG-guard: probe information_schema / pg_indexes before issuing DDL to
+      // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
+      await ensureTableExists("observational_memory", createSql);
+      await ensureIndexExists(
+        "observational_memory_thread_tier_idx",
+        `CREATE INDEX IF NOT EXISTS observational_memory_thread_tier_idx
+          ON observational_memory(thread_id, tier, created_at)`,
+      );
+      await ensureIndexExists(
+        "observational_memory_thread_owner_idx",
+        `CREATE INDEX IF NOT EXISTS observational_memory_thread_owner_idx
+          ON observational_memory(thread_id, owner_email)`,
+      );
+      return;
+    }
+
+    // SQLite (local dev): no lock problem — keep the original behaviour.
+    await client.execute(createSql);
+    try {
+      await client.execute(
+        `CREATE INDEX IF NOT EXISTS observational_memory_thread_tier_idx
+          ON observational_memory(thread_id, tier, created_at)`,
+      );
+    } catch {
+      // Index already exists.
+    }
+    try {
+      await client.execute(
+        `CREATE INDEX IF NOT EXISTS observational_memory_thread_owner_idx
+          ON observational_memory(thread_id, owner_email)`,
+      );
+    } catch {
+      // Index already exists.
+    }
   })().catch((err) => {
     // Reset so a transient failure (e.g. SQLITE_BUSY on HMR) can retry.
     tableReady = null;

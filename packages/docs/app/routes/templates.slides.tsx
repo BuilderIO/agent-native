@@ -1,7 +1,9 @@
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
 import { TemplateDocsLink } from "../components/template-docs";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -92,6 +94,7 @@ function CliCopy() {
 }
 
 export default function SlidesTemplate() {
+  const t = useT();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -114,7 +117,7 @@ export default function SlidesTemplate() {
             >
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            All Templates
+            {t("templateLanding.slides.s005")}
           </Link>
         </div>
 
@@ -129,12 +132,11 @@ export default function SlidesTemplate() {
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              The open-source AI alternative to PowerPoint &amp; Canva
+              {t("templateLanding.slides.s006")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Generate a full deck from a prompt, then refine conversationally
-              or edit visually.
+              {t("templateLanding.slides.s007")}
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -150,7 +152,7 @@ export default function SlidesTemplate() {
                   })
                 }
               >
-                Try It
+                {t("templateLanding.slides.s008")}
                 <svg
                   width="16"
                   height="16"
@@ -174,7 +176,7 @@ export default function SlidesTemplate() {
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
-              alt="Slides template screenshot"
+              alt={t("templateLanding.slides.s001")}
               className="w-full object-cover object-top"
             />
           </div>
@@ -183,22 +185,24 @@ export default function SlidesTemplate() {
 
       {/* How it works - numbered steps */}
       <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">How it works</h2>
+        <h2 className="mb-8 text-2xl font-bold tracking-tight">
+          {t("templateLanding.slides.s009")}
+        </h2>
         <div className="mx-auto grid max-w-3xl gap-6 sm:grid-cols-3">
           {[
             {
               step: "1",
-              title: "Describe",
+              title: t("templateLanding.slides.s002"),
               desc: "Tell the agent your topic, audience, and tone. Attach reference PDFs or images.",
             },
             {
               step: "2",
-              title: "Generate",
+              title: t("templateLanding.slides.s003"),
               desc: "The agent builds a complete deck — structure, content, layouts, and image prompts.",
             },
             {
               step: "3",
-              title: "Refine",
+              title: t("templateLanding.slides.s004"),
               desc: "Edit visually, conversationally, or in code. Changes appear through polling sync.",
             },
           ].map((s) => (
@@ -216,56 +220,58 @@ export default function SlidesTemplate() {
       {/* Core features - icon cards */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Everything you need
+          {t("templateLanding.slides.s010")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          A full presentation studio with AI built in.
+          {t("templateLanding.slides.s011")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">8 Slide Layouts</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.slides.s012")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Title, section, content, two-column, image, statement, full-bleed,
-              and blank.
+              {t("templateLanding.slides.s013")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">
-              Visual + Code Editing
+              {t("templateLanding.slides.s014")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Click to edit styles, double-click for text. Switch to raw HTML
-              for full control.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">AI Image Generation</h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Generate images with Gemini. Style references for brand
-              consistency. 3 variations to pick from.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Logo & Image Search</h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Search company logos via Logo.dev or Brandfetch. Google Images for
-              stock photos.
+              {t("templateLanding.slides.s015")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">
-              Drag & Drop Reordering
+              {t("templateLanding.slides.s016")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Reorder slides in the sidebar. Duplicate or delete with hover
-              actions.
+              {t("templateLanding.slides.s017")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Presentation Mode</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.slides.s018")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Full-screen with keyboard nav, auto-hiding controls, and speaker
-              notes.
+              {t("templateLanding.slides.s019")}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.slides.s020")}
+            </h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              {t("templateLanding.slides.s021")}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.slides.s022")}
+            </h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              {t("templateLanding.slides.s023")}
             </p>
           </div>
         </div>
@@ -276,11 +282,10 @@ export default function SlidesTemplate() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Sharing & Collaboration
+              {t("templateLanding.slides.s024")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Generate share links for read-only presentation access. Full
-              undo/redo history with labeled entries.
+              {t("templateLanding.slides.s025")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -297,7 +302,7 @@ export default function SlidesTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Share links with read-only access
+                {t("templateLanding.slides.s026")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -313,7 +318,7 @@ export default function SlidesTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Cmd+Z undo/redo with full history
+                {t("templateLanding.slides.s027")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -329,30 +334,29 @@ export default function SlidesTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Navigate to any point in history
+                {t("templateLanding.slides.s028")}
               </li>
             </ul>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Conversational Refinement
+              {t("templateLanding.slides.s029")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              The agent edits slides directly, and the UI refreshes through
-              polling sync.
+              {t("templateLanding.slides.s030")}
             </p>
             <div className="space-y-3 rounded-lg bg-[var(--bg-secondary)] p-4 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
-                "Make the title bigger"
+                {t("templateLanding.slides.s031")}
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Add a chart on slide 3"
+                {t("templateLanding.slides.s032")}
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Change the color scheme to blue"
+                {t("templateLanding.slides.s033")}
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Add speaker notes for slide 5"
+                {t("templateLanding.slides.s034")}
               </div>
             </div>
           </div>
@@ -362,7 +366,7 @@ export default function SlidesTemplate() {
       {/* Comparison table */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          How it compares
+          {t("templateLanding.slides.s035")}
         </h2>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
@@ -373,7 +377,7 @@ export default function SlidesTemplate() {
                   Google Slides / Pitch
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  AI Slide Generators
+                  {t("templateLanding.slides.s036")}
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Slides
@@ -383,50 +387,70 @@ export default function SlidesTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Visual editor
+                  {t("templateLanding.slides.s037")}
                 </td>
-                <td className="px-5 py-3">Yes, template-bound</td>
-                <td className="px-5 py-3">Limited / none</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.slides.s038")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.slides.s039")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Visual + code + agent
+                  {t("templateLanding.slides.s040")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  AI generation
+                  {t("templateLanding.slides.s041")}
                 </td>
-                <td className="px-5 py-3">Basic / none</td>
-                <td className="px-5 py-3">One-shot, rigid</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.slides.s042")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.slides.s043")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Iterative, conversational
+                  {t("templateLanding.slides.s044")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Image generation
+                  {t("templateLanding.slides.s045")}
                 </td>
                 <td className="px-5 py-3">None</td>
-                <td className="px-5 py-3">Basic</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.slides.s046")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
                   Gemini with style refs
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Customization
+                  {t("templateLanding.slides.s047")}
                 </td>
-                <td className="px-5 py-3">Themes only</td>
-                <td className="px-5 py-3">Prompt only</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Full source code</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.slides.s048")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.slides.s049")}
+                </td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.slides.s050")}
+                </td>
               </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Pricing
+                  {t("templateLanding.slides.s051")}
                 </td>
-                <td className="px-5 py-3">Free / per-seat</td>
-                <td className="px-5 py-3">Subscription</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.slides.s052")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.slides.s053")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Free & open source
+                  {t("templateLanding.slides.s054")}
                 </td>
               </tr>
             </tbody>
@@ -437,10 +461,10 @@ export default function SlidesTemplate() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Get started in minutes
+          {t("templateLanding.slides.s055")}
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template and start creating presentations with AI.
+          {t("templateLanding.slides.s056")}
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
@@ -448,14 +472,14 @@ export default function SlidesTemplate() {
             location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the docs
+            {t("templateLanding.slides.s057")}
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            View all templates
+            {t("templateLanding.slides.s058")}
           </Link>
         </div>
       </section>

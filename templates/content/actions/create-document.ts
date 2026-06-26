@@ -1,18 +1,19 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { buildDeepLink } from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  getRequestOrgId,
+} from "@agent-native/core/server/request-context";
+import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import {
-  getRequestUserEmail,
-  getRequestOrgId,
-} from "@agent-native/core/server/request-context";
-import { buildDeepLink } from "@agent-native/core/server";
-import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
-import { z } from "zod";
 import {
   createLocalFileDocument,
   isContentLocalFileMode,

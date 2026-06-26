@@ -4,6 +4,7 @@ const cooldownRows = new Map<string, Record<string, unknown>>();
 
 vi.mock("../db/client.js", () => ({
   intType: () => "INTEGER",
+  isPostgres: () => false,
   getDbExec: () => ({
     execute: async (input: string | { sql: string; args?: unknown[] }) => {
       const sql = typeof input === "string" ? input : input.sql;

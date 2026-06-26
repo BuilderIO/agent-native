@@ -7,7 +7,6 @@
  *   pnpm action resource-read --path <path> [--scope personal|shared|workspace]
  */
 
-import { parseArgs, fail } from "../utils.js";
 import {
   resourceGetByPath,
   ensurePersonalDefaults,
@@ -15,6 +14,7 @@ import {
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { parseArgs, fail } from "../utils.js";
 
 export default async function resourceReadScript(
   args: string[],

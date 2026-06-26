@@ -1,14 +1,15 @@
 [build]
-  ignore = "node ./scripts/netlify-ignore-build.mjs plan"
-  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter plan build"
-  publish = "templates/plan/dist"
-  functions = "templates/plan/.netlify/functions-internal"
+ignore = "node ./scripts/netlify-ignore-build.mjs plan"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter plan build"
+publish = "templates/plan/dist"
+functions = "templates/plan/.netlify/functions-internal"
 
 [build.environment]
-  NITRO_PRESET = "netlify"
-  NPM_CONFIG_PRODUCTION = "false"
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"
 
 # A2A/MCP calls may include plan generation, artifact serialization, and
 # feedback polling. Keep this aligned with other agent-heavy hosted templates.
 [functions."*"]
-  timeout = 75
+timeout = 75

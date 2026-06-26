@@ -1,0 +1,71 @@
+---
+title: "에이전트 사용"
+description: "에이전트와 함께 작업하는 일상적인 루프: 에이전트는 사용자가 보고 있는 것을 보고, 지시하고, 삽입하고, 가벼운 UI로 이동하고, 함께 공동 편집합니다."
+---
+
+# 에이전트 사용
+
+에이전트 네이티브의 기본 아이디어는 에이전트와 UI가 **동등한 파트너**라는 것입니다. 그 이유는 [What Is Agent-Native?](/docs/what-is-agent-native)를 참조하세요. 이 섹션은 그 약속의 나머지 절반, 즉 앱 옆에 도킹된 에이전트와 실제로 작업하는 느낌에 관한 것입니다.
+
+간단한 통과선이 있습니다. 상담원은 귀하가 보고 있는 내용을 **보고** 원하는 방향으로 **지시**하고, 어디에든 **삽입**할 수 있으며, 더 적합할 때는 완전히 **가벼운 UI**할 수 있으며, 동일한 문서를 동시에 **공동 편집**할 수 있습니다. 각각은 이 섹션의 페이지입니다.
+
+```an-diagram title="일상적인 루프" summary="도킹된 에이전트로 작업하는 5가지 방법 - 각각이 이 섹션의 페이지입니다."
+{
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>가벼운 UI</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">공동 편집</span><small class=\"diagram-muted\">실시간, 나란히</small></div></div>",
+  "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
+}
+```
+
+## 당신이 보고 있는 것을 봅니다 {#it-sees}
+
+에이전트는 화면을 보지 못합니다. 이메일을 열면 어떤 스레드인지 알 수 있습니다. 차트를 선택하면 어떤 차트인지 알 수 있습니다. 단락을 강조 표시하면 해당 범위에서만 작동할 수 있습니다. 이러한 공유된 인식 덕분에 매번 맥락을 자세히 설명하지 않고도 "답변" 또는 "선택 항목 요약"이라고 말할 수 있습니다.
+
+이는 에이전트가 해당 컨텍스트의 일부로 읽는 `application_state` SQL에 현재 탐색 및 선택이 있기 때문에 작동합니다. 또한 에이전트는 뷰 열기, 행 선택 등 동일한 상태를 되돌릴 수 있으므로 스크립트가 아닌 실제 UI에서 작동하는 것을 볼 수 있습니다.
+
+```an-callout
+{
+  "tone": "info",
+  "body": "**Shared awareness is two-way.** You and the agent both read and write `application_state`, so \"reply to this\" or \"summarize the selection\" just works — and when the agent navigates, the real UI moves with it."
+}
+```
+
+→ [**Context Awareness**](/docs/context-awareness) — 탐색 상태, 화면 보기, 명령 탐색 및 에이전트가 화면과 동기화를 유지하는 방법
+
+## 직접 감독 {#you-direct-it}
+
+대부분의 경우 채팅에 입력하여 상담원을 조종합니다. 이를 더 빠르게 만드는 두 가지 요소가 있습니다.
+
+**멘션.** 사용자 지정 에이전트, 연결된 에이전트 또는 `@`가 포함된 파일에 태그를 지정하여 대화에 가져옵니다. "`@analytics`가 지난 주 번호를 가져온 다음 요약 초안을 작성하도록 합니다." 멘션은 작성자를 떠나지 않고도 올바른 전문가에게 연락하거나 올바른 맥락을 첨부하는 방법입니다.
+
+**음성.** 작곡가에게 마이크가 있습니다. Builder의 호스팅된 텍스트 변환부터 자체 키 가져오기, 브라우저 대체에 이르기까지 다양한 제공업체 옵션을 사용하여 요청을 입력하는 대신 받아쓰기하세요.
+
+→ [**Agent Mentions**](/docs/agent-mentions) — `@`-사용자 정의 에이전트, 연결된 에이전트 및 채팅 파일을 언급합니다.
+→ [**Voice Input**](/docs/voice-input) — 채팅 작성기의 받아쓰기 및 전사 라우팅 방법.
+
+## 삽입 {#you-embed-it}
+
+에이전트는 탭하여 이동할 수 있는 별도의 앱이 아닙니다. 사이드바, 원시 패널 및 `sendToAgentChat()` 호출과 같은 소수의 React 구성 요소로 제공되며 모든 앱에 드롭됩니다. `<AgentSidebar>`를 렌더링하여 모든 화면에 전환 가능한 에이전트를 제공하거나 일회성 LLM 호출을 실행하는 대신 버튼을 연결하여 특정 작업을 채팅에 전달할 수 있습니다.
+
+→ [**Drop-in Agent**](/docs/drop-in-agent) — `<AgentPanel>`, `<AgentSidebar>` 및 `sendToAgentChat()`를 React 앱에 마운트합니다.
+→ [**Agent Surfaces**](/docs/agent-surfaces) — 워크플로가 헤드리스, 채팅 우선, 내장형 또는 전체 앱인지 선택하세요.
+
+## 가벼운 UI로 갈 수 있습니다 {#ui-light}
+
+모든 앱에 전체 대시보드가 필요한 것은 아닙니다. 상담원이 제품인 경우 대부분의 맞춤 UI를 건너뛸 수 있습니다. 앱을 열고 원하는 것을 요청하면 상담원이 나머지 작업을 수행하게 됩니다. 에이전트에는 여전히 기록, 작업 공간, 설정 등 관리 영역이 있지만 주요 상호 작용은 클릭이 아닌 대화입니다.
+
+→ [**Pure-Agent Apps**](/docs/pure-agent-apps) — 에이전트가 전체 제품인 앱
+
+## 함께 편집하세요 {#you-co-edit}
+
+귀하와 상담원이 동일한 문서를 작업할 때는 교대로 작업하지 않습니다. 실시간 공동작업을 통해 에이전트의 편집 내용이 팀원과 동일한 방식으로 실시간 커서로 사용자의 편집 내용과 함께 스트리밍됩니다. 덮어쓰기는 없습니다. 작동하는 동안 계속 입력할 수 있으며 변경사항이 발생하는 대로 표시됩니다.
+
+→ [**Real-Time Collaboration**](/docs/real-time-collaboration) — 동일한 문서에서 실시간 커서 및 에이전트 편집을 통한 다중 사용자 공동 편집.
+
+## 다음 단계 {#whats-next}
+
+- [**Context Awareness**](/docs/context-awareness) — 상담원은 귀하가 무엇을 보고 있는지 알고 있습니다.
+- [**Agent Mentions**](/docs/agent-mentions) — `@` 언급으로 지시
+- [**Voice Input**](/docs/voice-input) — 말로 지시
+- [**Drop-in Agent**](/docs/drop-in-agent) — 모든 React 앱에 삽입
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) — 에이전트가 제품인 경우 가벼운 UI로 이동
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — 동일한 문서를 함께 공동 편집

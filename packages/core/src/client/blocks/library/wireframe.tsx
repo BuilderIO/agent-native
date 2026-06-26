@@ -1,3 +1,4 @@
+import { IconPencil } from "@tabler/icons-react";
 import {
   useEffect,
   useId,
@@ -6,20 +7,21 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { IconPencil } from "@tabler/icons-react";
-import { defineBlock } from "../types.js";
+
 import { ltrCodeBlockProps } from "../code-block-direction.js";
+import { defineBlock } from "../types.js";
 import type {
   BlockReadProps,
   BlockEditProps,
   BlockRenderContext,
 } from "../types.js";
+import { useBlockCopy } from "./block-copy.js";
 import {
-  wireframeSchema,
-  wireframeMdx,
-  type WireframeData,
-  type WireframeSurface,
-} from "./wireframe.config.js";
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+  scopeDesignCss,
+} from "./sanitize-html.js";
+import { renderWireframeIconHtml } from "./wireframe-icons.js";
 import {
   HTML_ROUGH_SELECTOR,
   KitConfigContext,
@@ -31,11 +33,11 @@ import {
   useWireframeStyle,
 } from "./wireframe-kit.js";
 import {
-  sanitizeWireframeCss,
-  sanitizeWireframeHtml,
-  scopeDesignCss,
-} from "./sanitize-html.js";
-import { renderWireframeIconHtml } from "./wireframe-icons.js";
+  wireframeSchema,
+  wireframeMdx,
+  type WireframeData,
+  type WireframeSurface,
+} from "./wireframe.config.js";
 
 /**
  * Shared `wireframe` block — a hand-drawn low-fi mockup of one screen, rendered
@@ -291,9 +293,13 @@ function ArtboardFrame({
 
 function WireframeStyleToggleButton() {
   const style = useWireframeStyle();
+  const copy = useBlockCopy();
   const nextStyle = style === "sketchy" ? "clean" : "sketchy";
-  const label = nextStyle === "clean" ? "Clean" : "Sketchy";
-  const description = `Switch to ${label.toLowerCase()} visual style`;
+  const label = nextStyle === "clean" ? copy.clean : copy.sketchy;
+  const description = copy.switchVisualStyle.replace(
+    "{{style}}",
+    label.toLocaleLowerCase(),
+  );
 
   return (
     <button

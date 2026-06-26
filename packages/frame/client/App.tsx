@@ -9,13 +9,20 @@
  * When collapsed in dev mode, the sidebar is 100% gone.
  */
 
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import {
   TEMPLATES,
   getTemplate,
   getTemplateGatewayAppUrl,
   getTemplateGatewayUrl,
 } from "@agent-native/shared-app-config";
+import {
+  type CSSProperties,
+  useState,
+  useEffect,
+  useRef,
+  lazy,
+  Suspense,
+} from "react";
 
 // Lazy-load the AgentPanel; it provides the full Chat/CLI/Workspace UI.
 const AgentPanel = lazy(() =>
@@ -34,6 +41,7 @@ const SIDEBAR_STATE_CHANGE_EVENT = "agent-panel:state-change";
 const APP_IFRAME_ALLOW = "camera; microphone; display-capture; fullscreen";
 const OPEN_DESKTOP_URL = "agentnative://open";
 const DOWNLOAD_DESKTOP_URL = "https://www.agent-native.com/download";
+const SIDEBAR_ANIMATION_MS = 260;
 
 function getAppId(): string {
   const params = new URLSearchParams(window.location.search);
@@ -203,6 +211,32 @@ export function App() {
   // Show frame sidebar only in dev mode when open, and not during presentation
   const showFrameSidebar =
     frameMode === "dev" && sidebarOpen && !isPresentationMode;
+  const animateFrameSidebar = !sidebarFullscreen;
+  const [renderFrameSidebar, setRenderFrameSidebar] =
+    useState(showFrameSidebar);
+
+  useEffect(() => {
+    if (!animateFrameSidebar) {
+      setRenderFrameSidebar(showFrameSidebar);
+      return;
+    }
+
+    let unmountTimer: number | undefined;
+
+    if (showFrameSidebar) {
+      setRenderFrameSidebar(true);
+    } else {
+      unmountTimer = window.setTimeout(() => {
+        setRenderFrameSidebar(false);
+      }, SIDEBAR_ANIMATION_MS);
+    }
+
+    return () => {
+      if (unmountTimer !== undefined) {
+        window.clearTimeout(unmountTimer);
+      }
+    };
+  }, [animateFrameSidebar, showFrameSidebar]);
 
   // Notify iframe of sidebar state
   function notifyIframe(mode: FrameMode, width: number, open: boolean) {
@@ -417,7 +451,7 @@ export function App() {
 
   return (
     <div
-      className="flex h-screen w-screen overflow-hidden"
+      className="agent-frame-shell flex h-screen w-screen overflow-hidden"
       style={{
         background: "hsl(var(--background))",
         color: "hsl(var(--foreground))",
@@ -425,7 +459,10 @@ export function App() {
     >
       {/* App iframe — takes all remaining space. Hidden when sidebar is fullscreen. */}
       <div
-        className="flex-1 min-w-0 relative"
+        className="agent-frame-main-surface flex-1 min-w-0 relative overflow-hidden"
+        data-agent-frame-main-state={
+          showFrameSidebar && !sidebarFullscreen ? "open" : "closed"
+        }
         style={
           showFrameSidebar && sidebarFullscreen
             ? { display: "none" }
@@ -446,9 +483,9 @@ export function App() {
       </div>
 
       {/* Dev mode sidebar — looks identical to the in-app agent panel */}
-      {showFrameSidebar && (
+      {renderFrameSidebar && (
         <>
-          {!sidebarFullscreen && (
+          {!sidebarFullscreen && showFrameSidebar && (
             <div
               className="shrink-0 cursor-col-resize relative"
               style={{ width: 1, background: "hsl(var(--border))", zIndex: 50 }}
@@ -463,44 +500,67 @@ export function App() {
             </div>
           )}
           <div
-            className="flex flex-col shrink-0 overflow-hidden"
-            style={{
-              width: sidebarFullscreen ? "100%" : sidebarWidth,
-              flex: sidebarFullscreen ? 1 : undefined,
-              maxHeight: "100vh",
-            }}
+            className="agent-frame-sidebar flex flex-col shrink-0 overflow-hidden"
+            data-agent-frame-sidebar-animation={
+              animateFrameSidebar ? "desktop" : undefined
+            }
+            data-agent-frame-sidebar-state={
+              showFrameSidebar ? "open" : "closed"
+            }
+            style={
+              {
+                "--agent-frame-sidebar-width": `${sidebarWidth}px`,
+                width: animateFrameSidebar
+                  ? undefined
+                  : showFrameSidebar
+                    ? sidebarFullscreen
+                      ? "100%"
+                      : sidebarWidth
+                    : 0,
+                flex: showFrameSidebar && sidebarFullscreen ? 1 : undefined,
+                maxHeight: "100vh",
+                minWidth: 0,
+                pointerEvents: showFrameSidebar ? undefined : "none",
+              } as CSSProperties & { "--agent-frame-sidebar-width": string }
+            }
+            inert={showFrameSidebar ? undefined : true}
+            aria-hidden={showFrameSidebar ? undefined : true}
           >
-            <Suspense
-              fallback={
-                <div
-                  className="flex items-center justify-center h-full text-sm"
-                  style={{ color: "hsl(var(--muted-foreground))" }}
-                >
-                  Loading...
-                </div>
-              }
-            >
-              <AgentPanel
-                emptyStateText={`Ask me anything about ${app?.label || "your app"}`}
-                suggestions={suggestions}
-                onCollapse={() => setSidebarOpen(false)}
-                isFullscreen={sidebarFullscreen}
-                onToggleFullscreen={() => setSidebarFullscreen((prev) => !prev)}
-                devAppUrl={appUrl}
-                storageKey={appId}
-                agentChatSurface="dev-frame"
-                codeAccess={{
-                  enabled: isDesktop,
-                  unavailableTitle: "Open Desktop to use CLI",
-                  unavailableDescription:
-                    "Open Agent Native Desktop, click the + button, and add this app with its local dev URL to use CLI.",
-                  unavailableCtaLabel: "Open Desktop",
-                  unavailableCtaHref: OPEN_DESKTOP_URL,
-                  unavailableSecondaryCtaLabel: "Download",
-                  unavailableSecondaryCtaHref: DOWNLOAD_DESKTOP_URL,
-                }}
-              />
-            </Suspense>
+            <div className="agent-frame-sidebar-inner flex min-h-0 flex-1 flex-col">
+              <Suspense
+                fallback={
+                  <div
+                    className="flex items-center justify-center h-full text-sm"
+                    style={{ color: "hsl(var(--muted-foreground))" }}
+                  >
+                    Loading...
+                  </div>
+                }
+              >
+                <AgentPanel
+                  emptyStateText={`Ask me anything about ${app?.label || "your app"}`}
+                  suggestions={suggestions}
+                  onCollapse={() => setSidebarOpen(false)}
+                  isFullscreen={sidebarFullscreen}
+                  onToggleFullscreen={() =>
+                    setSidebarFullscreen((prev) => !prev)
+                  }
+                  devAppUrl={appUrl}
+                  storageKey={appId}
+                  agentChatSurface="dev-frame"
+                  codeAccess={{
+                    enabled: isDesktop,
+                    unavailableTitle: "Open Desktop to use CLI",
+                    unavailableDescription:
+                      "Open Agent Native Desktop, click the + button, and add this app with its local dev URL to use CLI.",
+                    unavailableCtaLabel: "Open Desktop",
+                    unavailableCtaHref: OPEN_DESKTOP_URL,
+                    unavailableSecondaryCtaLabel: "Download",
+                    unavailableSecondaryCtaHref: DOWNLOAD_DESKTOP_URL,
+                  }}
+                />
+              </Suspense>
+            </div>
           </div>
         </>
       )}

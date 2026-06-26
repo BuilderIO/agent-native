@@ -1,28 +1,29 @@
 import fs from "node:fs";
 import path from "node:path";
-import { autoDiscoverActions } from "../server/action-discovery.js";
-import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
+
+import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
-  getRequestOrgId,
-  getRequestUserEmail,
-  runWithRequestContext,
-} from "../server/request-context.js";
-import { resolveDevUserEmail } from "../scripts/dev-session.js";
-import { loadEnv } from "../scripts/utils.js";
+  registerBuiltinEngines,
+  resolveEngine,
+} from "../agent/engine/index.js";
+import type { EngineMessage } from "../agent/engine/types.js";
 import {
   actionsToEngineTools,
   type AgentLoopUsage,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
-import {
-  registerBuiltinEngines,
-  resolveEngine,
-} from "../agent/engine/index.js";
-import { DEFAULT_MODEL } from "../agent/default-model.js";
 import type { AgentChatEvent } from "../agent/types.js";
-import type { EngineMessage } from "../agent/engine/types.js";
+import { createGitHubRepoToolEntries } from "../provider-api/github-repo.js";
+import { resolveDevUserEmail } from "../scripts/dev-session.js";
+import { loadEnv } from "../scripts/utils.js";
+import { autoDiscoverActions } from "../server/action-discovery.js";
 import { captureCliOutput } from "../server/cli-capture.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
 
 export interface ParsedAgentArgs {
   prompt?: string;

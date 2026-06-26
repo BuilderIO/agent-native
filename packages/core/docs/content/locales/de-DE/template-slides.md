@@ -1,0 +1,293 @@
+---
+title: "Folien"
+description: "Generieren Sie Decks aus einer Eingabeaufforderung, bearbeiten Sie sie visuell und präsentieren Sie sie im Vollbildmodus. Ein Open-Source-Ersatz für Google Slides, Pitch und PowerPoint."
+---
+
+# Folien
+
+Generieren Sie vollständige Präsentationsdecks aus einer Eingabeaufforderung, bearbeiten Sie Folien visuell und präsentieren Sie sie im Vollbildmodus. Bitten Sie den Agenten um „ein Pitch-Deck mit 10 Folien für einen Kaffee-Abonnementdienst“ und sehen Sie zu, wie es in Sekundenschnelle Folie für Folie in den Editor gestreamt wird. Ein Open-Source-Ersatz für Google Slides, Pitch und PowerPoint.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3-Update für den Vorstand</h1><span class='wf-pill accent'>Titelfolie</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>Teilen</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Q3-Update für den Vorstand</strong><br/><small>Maya Chen · Geschäftsführerin</small><div style='height:46px'></div><span class='wf-pill'>Produktdynamik</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Foliengliederung</strong><div class='wf-box'>1 Titel</div><div class='wf-box'>2 Tagesordnung</div><div class='wf-box'>3 Metriken</div><div class='wf-box'>4 Ausgeliefert</div></div><div class='wf-card' style='flex:1'><strong>Sprechernotizen</strong><p class='wf-muted' style='margin:8px 0 0'>Mit Launch-Fortschritt und Retention-Story beginnen.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Titel</div><div class='wf-box'>2 Tagesordnung</div><div class='wf-box'>3 Metriken</div><div class='wf-box'>4 Ausgeliefert</div><div class='wf-box'>5 Risiken</div></div></div>"
+}
+```
+
+Wenn Sie ein Deck öffnen, bleiben die Folienleinwand, die Gliederung, die Notizen und der Filmstreifen auf einer Editoroberfläche, während der Agent weiterhin Folien erstellen, überarbeiten und durch actions navigieren kann.
+
+```an-diagram title="Aufforderung zum Deck" summary="Fragen Sie nach einem Deck, und der Agent streamt Folien nacheinander durch die gleichen Aktionen, die Sie vom CLI aus aufrufen könnten."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">\"10-slide pitch deck\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">wählt Layouts</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">create-deck</div><div class=\"diagram-pill\">add-slide &#215; n</div><small class=\"diagram-muted\">parallel, streamend</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>decks (SQL)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Editor rendert live</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## Was Sie damit machen können
+
+- **Decks aus einer Eingabeaufforderung generieren.** „Erstellen Sie ein 10-Folien-Pitch-Deck für einen Kaffeeabonnementdienst. Zielgruppe sind Investoren.“
+- **Folien visuell bearbeiten** – Doppelklicken Sie auf den zu bearbeitenden Text, klicken Sie auf einen Block für das Blasenmenü und verwenden Sie `/` für das Schrägstrichmenü, um Blöcke einzufügen.
+- **Generieren Sie Bilder mit KI.** Heldenbilder, Produktmodelle, Illustrationen – vorzugsweise an Assets delegiert, wobei die von Builder verwaltete Bildgenerierung bereit ist, einmal bereitgestellte und direkte Anbieterschlüssel als heutiges Ausweichmodell zu ermöglichen.
+- **Suchen Sie nach Stockfotos und Firmenlogos.** „Suchen Sie das Logo für stripe.com und fügen Sie es zu Folie 2 hinzu.“
+- **Präsentation im Vollbildmodus** mit Tastaturnavigation, Steuerelementen zum automatischen Ausblenden und Sprechernotizen.
+- **Kommentieren, zusammenarbeiten und teilen.** Mehrere Personen können dasselbe Deck in Echtzeit bearbeiten. Generieren Sie ein öffentliches, schreibgeschütztes URL oder teilen Sie es mit bestimmten Teamkollegen.
+- **Import aus PDF.** Verwandeln Sie einen PDF in ein Starter-Deck – der Agent analysiert es und legt den Inhalt dar.
+- **Import aus anderen Formaten.** Importieren Sie PPTX, DOCX, Google Docs, GitHub-Repos oder ein beliebiges URL als Ausgangspunkt. Export nach PPTX, Google Slides oder HTML.
+- **Designsysteme anwenden.** Markentoken, benutzerdefinierte Anweisungen und Standardpaletten werden als Designsysteme gespeichert und auf neue Decks angewendet.
+- **Frühere Versionen wiederherstellen.** Bei jedem Deckwechsel wird ein Snapshot erstellt; Alle früheren Versionen auflisten oder wiederherstellen.
+
+## Erste Schritte
+
+Live-Demo: [slides.agent-native.com](https://slides.agent-native.com).
+
+Wenn Sie die App öffnen:
+
+1. Klicken Sie auf **Neues Deck**.
+2. Fragen Sie den Agenten: „Erstellen Sie ein 10-Folien-Pitch-Deck für einen Kaffee-Abonnementdienst. Zielgruppe sind Investoren.“
+3. Sehen Sie sich die eingehenden Folien an. Klicken Sie auf eine beliebige Folie, um sie zu bearbeiten, oder bitten Sie den Agenten weiterhin um eine Verfeinerung.
+
+### Nützliche Eingabeaufforderungen
+
+- „Erstellen Sie ein 10-Folien-Pitch-Deck für einen Kaffee-Abonnementdienst. Zielgruppe sind Investoren.“
+- „Fügen Sie nach Folie 3 eine Preisfolie hinzu.“
+- „Vergrößern Sie den Titel dieser Folie und ändern Sie die Akzentfarbe in Grün.“
+- „Generieren Sie ein Heldenbild für die aktuelle Folie – dunkel, minimalistisch, filmisch.“
+- „Suchen Sie das Logo für stripe.com und fügen Sie es zu Folie 2 hinzu.“
+- „Ersetzen Sie überall in diesem Deck das Wort ‚Kunden‘ durch ‚Mitglieder‘.“
+- "Fassen Sie dieses PDF als 6-Folien-Deck zusammen." (PDF anbringen)
+
+Wählen Sie Text auf einer Folie aus und drücken Sie Befehl+I, um den Agenten mit dieser Auswahl zu fokussieren – er wird nur auf das reagieren, was Sie ausgewählt haben.
+
+## Für Entwickler
+
+Der Rest dieses Dokuments richtet sich an alle, die die Folienvorlage verzweigen oder erweitern.
+
+### Schnellstart
+
+Erstellen Sie eine neue Folien-App aus CLI:
+
+```bash
+npx @agent-native/core@latest create my-slides --standalone --template slides
+cd my-slides
+pnpm install
+pnpm dev
+```
+
+### Hauptfunktionen {#key-features}
+
+**Prompt-to-Deck-Generierung.** Fragen Sie nach einem Deck, und der Agent streamt Folien in den Editor, wobei er dieselben Erstellungs- und Bearbeitungsfunktionen verwendet, die Sie selbst ausführen können.
+
+**Bearbeitbare Folienleinwand.** Inline-Textbearbeitung, Schrägstricheinfügungen, Codebearbeitung, Drag-and-Drop-Reihenfolge, Rückgängigmachen/Wiederholen, Kommentare und Präsentationsmodus – alles live in der Deckoberfläche.
+
+**Importieren und Exportieren.** Einbinden von PPTX-, DOCX-, Google Docs-, PDFs-, URLs- und GitHub-Repos; Export nach PPTX, Google Slides, HTML oder einen Freigabelink.
+
+**Designsysteme und Medien.** Gespeicherte Markensysteme, Bildgenerierung, Aktiensuche und Logosuche halten Decks näher an der beabsichtigten visuellen Ausrichtung.
+
+**Zusammenarbeit und Verlauf.** Echtzeit-Yjs-Bearbeitung, Thread-Kommentare, gemeinsame Rollen und Deck-Versions-Snapshots sind integriert.
+
+### Zusammenarbeit mit dem Agenten
+
+Der Agenten-Chat befindet sich in der Seitenleiste. Es kann Decks erstellen, einzelne Folien bearbeiten, Bilder generieren, Logos suchen und im UI navigieren – alles mit demselben actions, den Sie vom CLI aus ausführen würden.
+
+#### Was der Agent sieht
+
+Wenn ein Deck geöffnet ist, sieht der Agent automatisch Folgendes:
+
+- Der aktuelle `deckId` und `slideIndex`.
+- Die vollständige Liste der Folien im Open Deck.
+- Der HTML-Inhalt der aktuell ausgewählten Folie.
+
+Dies wird als `current-screen`-Block in jede Nachricht eingefügt, sodass der Agent nie raten muss, was „diese Folie“ bedeutet. Die Daten stammen aus dem `navigation`-Anwendungsstatusschlüssel, den der UI bei jeder Navigation schreibt. Siehe `templates/slides/actions/view-screen.ts`.
+
+#### Text für fokussierte Bearbeitungen auswählen
+
+Wählen Sie Text auf einer Folie aus und drücken Sie Befehl+I, um den Agenten mit dieser vorinstallierten Auswahl zu fokussieren. Der Agent reagiert nur auf das, was Sie ausgewählt haben.
+
+#### Inline-Folienvorschau im Chat
+
+Der Agent kann über den Einbettungszaun des Frameworks eine Live-Folienvorschau direkt in eine Chat-Antwort einbetten. Es rendert über `app/routes/slide.tsx` einen chromlosen Iframe, sodass Sie das Ergebnis sehen können, ohne die Konversation zu verlassen.
+
+### Datenmodell
+
+Alle Deckdaten befinden sich in SQL über Drizzle ORM. Schema: `templates/slides/server/db/schema.ts`.
+
+```an-schema title="Slides-Datenmodell" summary="Ein Deck besitzt seine Folien als JSON in decks.data; Kommentare, Versionen, Freigaben und Designsysteme hängen daran."
+{
+  "entities": [
+    {
+      "id": "decks",
+      "name": "decks",
+      "note": "Slides live as JSON in data; carries ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true, "note": "e.g. deck-1712345-abc" },
+        { "name": "title", "type": "text" },
+        { "name": "data", "type": "text", "note": "JSON: { title, slides: [{ id, content, layout }] }" },
+        { "name": "created_at", "type": "text" },
+        { "name": "updated_at", "type": "text" }
+      ]
+    },
+    {
+      "id": "slide_comments",
+      "name": "slide_comments",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "deck_id", "type": "text", "fk": "decks.id" },
+        { "name": "slide_id", "type": "text", "note": "Slide, der Kommentar lebt weiter" },
+        { "name": "thread_id", "type": "text", "note": "Einfädeln" },
+        { "name": "parent_id", "type": "text", "nullable": true },
+        { "name": "content", "type": "text" },
+        { "name": "quoted_text", "type": "text", "nullable": true },
+        { "name": "author_email", "type": "text" },
+        { "name": "author_name", "type": "text" },
+        { "name": "resolved", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "deck_versions",
+      "name": "deck_versions",
+      "note": "Point-in-Time-Snapshots für die Wiederherstellung",
+      "fields": [
+        { "name": "deck_id", "type": "text", "fk": "decks.id" },
+        { "name": "title", "type": "text" },
+        { "name": "data", "type": "text", "note": "Volles Deck JSON" },
+        { "name": "change_label", "type": "text", "nullable": true }
+      ]
+    },
+    {
+      "id": "design_systems",
+      "name": "design_systems",
+      "note": "Reusable brand tokens; ownableColumns",
+      "fields": [
+        { "name": "data", "type": "text", "note": "colors / typography / spacing" },
+        { "name": "assets", "type": "text", "nullable": true },
+        { "name": "custom_instructions", "type": "text", "nullable": true },
+        { "name": "is_default", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "deck_share_links",
+      "name": "deck_share_links",
+      "note": "Persistente öffentliche Freigabe-Link-Snapshots",
+      "fields": [
+        { "name": "token", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "slides", "type": "text", "note": "JSON Folien-Schnappschuss" },
+        { "name": "aspect_ratio", "type": "text", "nullable": true },
+        { "name": "created_at", "type": "text" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "decks", "to": "slide_comments", "kind": "1-n", "label": "comments" },
+    { "from": "decks", "to": "deck_versions", "kind": "1-n", "label": "snapshots" }
+  ]
+}
+```
+
+Framework-Freigabetabellen (`deck_shares`, `design_system_shares`) ordnen Prinzipale den Viewer-/Editor-/Administratorrollen pro Ressource zu.
+
+#### Decks
+
+| Spalte       | Typ  | Notizen                                                   |
+| ------------ | ---- | --------------------------------------------------------- |
+| `id`         | Text | Primärschlüssel, z.B. `deck-1712345-abc`                  |
+| `title`      | Text | Deck-Titel                                                |
+| `data`       | Text | JSON-Blob: `{ title, slides: [{ id, content, layout }] }` |
+| `created_at` | Text | Zeitstempel                                               |
+| `updated_at` | Text | Zeitstempel                                               |
+
+Jedes Deck verfügt außerdem über das Standard-`ownableColumns` (Eigentümer, Sichtbarkeit, Freigabe-Token), sodass es in das Freigabemodell des Frameworks passt.
+
+#### Folienkommentare
+
+| Spalte                        | Notizen                                 |
+| ----------------------------- | --------------------------------------- |
+| `id`                          | Primärschlüssel                         |
+| `deck_id`                     | Übergeordnetes Deck                     |
+| `slide_id`                    | Slide, der Kommentar lebt weiter        |
+| `thread_id`, `parent_id`      | Einfädeln                               |
+| `content`, `quoted_text`      | Kommentartext und optionaler Textauszug |
+| `author_email`, `author_name` | Autor                                   |
+| `resolved`                    | Boolesches Flag                         |
+
+#### deck_shares
+
+Vom Framework bereitgestellte Freigabetabelle (erstellt über `createSharesTable`), die Prinzipale (Benutzer oder Organisationen) Rollen (Betrachter, Herausgeber, Administrator) pro Deck zuordnet.
+
+#### deck_versions
+
+Point-in-Time-Schnappschüsse eines Decks – `deck_id`, `title`, `data` (vollständiges Deck JSON) und ein optionales `change_label`. Wird von `list-deck-versions` / `restore-deck-version` verwendet.
+
+#### design_systems
+
+Wiederverwendbare Markentoken – `data` (Farben/Typografie/Abstand), `assets`, `custom_instructions` und eine `is_default`-Flagge. Verwendet `ownableColumns`, sodass Designsysteme pro Benutzer oder pro Organisation gemeinsam genutzt werden können.
+
+#### design_system_shares
+
+Framework-Freigabetabelle für Designsysteme, Zuordnung von Prinzipalen zu Rollen (Betrachter, Editor, Administrator).
+
+#### deck_share_links
+
+Persistente öffentliche Freigabe-Link-Snapshots, verschlüsselt durch `token`. In jeder Zeile werden ein `title`, ein JSON, ein `slides`-Array-Snapshot, ein optionaler `aspect_ratio` und ein `created_at` gespeichert. Persistente Freigabelinks bedeuten hier, dass sie Serverneustarts überstehen und über serverlose Instanzen hinweg funktionieren.
+
+#### Folienstruktur
+
+Jede Folie in `decks.data` ist:
+
+```json
+{
+  "id": "slide-1",
+  "layout": "title",
+  "content": "<div class=\"fmd-slide\" style=\"...\">...</div>"
+}
+```
+
+`content` ist rohes HTML – der Renderer (`app/components/deck/SlideRenderer.tsx`) stellt den schwarzen Hintergrund und das feste Seitenverhältnis bereit, und der HTML stellt alles bereit, was darin enthalten ist. Auch umfangreiche Einbettung wird unterstützt: Excalidraw-Diagramme über `ExcalidrawSlide.tsx` und Mermaid-Diagramme über `MermaidRenderer.tsx`.
+
+### Anpassen {#customizing}
+
+Die Slides-Vorlage ist vollständig forkbar. Wichtige Orte, auf die Sie bei der Erweiterung achten sollten:
+
+#### Actions — `templates/slides/actions/`
+
+Jeder vom Agenten aufrufbare Vorgang befindet sich hier als TypeScript-Datei. Einige davon werden Sie oft berühren:
+
+- `create-deck.ts` – neues Deck von Grund auf oder Massenaustausch.
+- `add-slide.ts` – eine Folie anhängen; Ich bevorzuge dies für die Streaming-Generierung.
+- `update-slide.ts` – chirurgisches Suchen/Ersetzen oder vollständiger Inhaltsaustausch.
+- `view-screen.ts` – Momentaufnahme dessen, was der Benutzer sieht.
+- `generate-image.ts`, `edit-image.ts`, `image-search.ts`, `logo-lookup.ts` – Bildwerkzeuge.
+- `extract-pdf.ts` – PDF-Aufnahme.
+
+Jede Aktion wird automatisch bei `POST /_agent-native/actions/:name` gemountet und kann vom CLI als `pnpm action <name>` aufgerufen werden. Fügen Sie hier eine neue Datei hinzu, um dem Agenten eine neue Funktion zu verleihen.
+
+#### Routen – `templates/slides/app/routes/`
+
+- `_index.tsx` – Deckliste.
+- `deck.$id.tsx` – der Editor.
+- `deck.$id_.present.tsx` – Präsentationsmodus.
+- `share.$token.tsx` – öffentliche schreibgeschützte Freigabeseite.
+- `slide.tsx` – Einbettung einer einzelnen Folie, die in Chat-Vorschauen verwendet wird.
+- `settings.tsx` – Vorlageneinstellungen.
+- `team.tsx` – Organisations- und Teammanagement.
+
+#### Editor-Komponenten – `templates/slides/app/components/editor/`
+
+Die meisten UI-Anpassungen finden hier statt: `SlideEditor.tsx`, `EditorToolbar.tsx`, `EditorSidebar.tsx`, Blasenmenüs, Schrägstrichmenü und die Bedienfelder für Bildgenerierung, Suche und Verlauf.
+
+#### Skills — `templates/slides/.agents/skills/`
+
+Agent skills, der Muster erklärt, wenn der Agent Code ändern muss:
+
+- `create-deck/` – wie man ein neues Deck mit Folien erstellt.
+- `slide-editing/` – So bearbeiten Sie einzelne Folien.
+- `deck-management/` – wie Decks gespeichert und abgerufen werden.
+- `slide-images/` – Bildgenerierungs- und Suchworkflow.
+
+#### AGENTS.md
+
+`templates/slides/AGENTS.md` ist der kurze Router, den der Agent bei jedem Gespräch liest. Es verweist auf skills unter `.agents/skills/` und legt die Kernregeln, den Anwendungsstatusvertrag und den Fähigkeitsindex fest. Die genauen HTML-Folienvorlagen für jedes Layout sind in `.agents/skills/create-deck/SKILL.md` verfügbar – aktualisieren Sie diese Fähigkeit, wann immer Sie ein Folienlayoutmuster hinzufügen oder ändern.
+
+#### API-Routen
+
+Für Fälle, in denen actions nicht die richtige Lösung sind (Datei-Uploads, Streaming), stellt die Vorlage einen kleinen Satz von REST-Endpunkten bereit: `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`. Siehe `templates/slides/server/routes/api/`.

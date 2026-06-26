@@ -7,6 +7,12 @@ description: "Mini-apps your users build inside your template — a custom KPI t
 
 Extensions are **mini-apps your users build inside your template**.
 
+When the agent needs a one-time interactive answer inside the chat itself, use
+[Generative UI](/docs/generative-ui) instead. Generative UI uses the same
+sandbox and bridge helpers, but `render-inline-extension` keeps the result
+transient, while `create-extension` saves a reusable extension that also appears
+in the Extensions view.
+
 If you've used QuickBooks Online, you've seen the model: QBO ships a core accounting product, and users layer on small custom widgets — a custom report, a payroll calculator, a tax-rule checker — that live inside the same app and use the same data. Extensions are the agent-native version of that idea, except your users don't write any code. They describe what they want, and the agent builds it.
 
 The framing matters: an extension isn't a generic "do whatever you want" sandbox. It's a **mini-app that extends a specific template** — Mail, Analytics, Calendar, Clips, Design — and uses that template's actions and data. A Mail extension reads emails. An Analytics extension reads a dashboard's metrics. A Calendar extension acts on the open event. They feel like part of the host product because they _are_ part of the host product.
@@ -169,12 +175,16 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 | `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`           |
 | `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                    |
 | `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                                   | `extensionData.remove('notes', 'note-1')`                 |
+| `window.slotContext`                             | Read the page/chat context passed into this slot          | `window.slotContext?.contactEmail`                        |
+| `agentNative.ui.output(value, opts?)`            | Record passive inline UI output in application state      | `agentNative.ui.output({ threshold })`                    |
+| `agentNative.chat.send(message, opts?)`          | Send a prompt or selected value back to the agent chat    | `agentNative.chat.send('Use Q2', { context: { q: 2 } })`  |
 
 Three rules of thumb:
 
 - **Prefer `appAction` over `dbQuery`.** Actions are the template's official surface — they handle access control, scoping, and validation for you. Reach for raw SQL only when no action fits.
 - **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
 - **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
+- **Use `agentNative.ui.output` for inline control values the agent should read later.** It writes `inline-ui:<extensionId>:output` to application state; `agentNative.chat.send` is for visible submit/apply messages.
 
 ```html
 <script>
@@ -187,6 +197,85 @@ Three rules of thumb:
   // List everything visible to me (mine + org)
   const all = await extensionData.list('notes', { scope: 'all' });
 </script>
+```
+
+### Authenticated Extension Data API {#authenticated-extension-data-api}
+
+The same store is also available through authenticated framework routes when
+another logged-in client needs to read or update the data an extension uses.
+These endpoints use the caller's normal app session and the extension's sharing
+roles; they are not a public or server-to-server API key surface. If you need
+third-party ingestion, define a template action or route with its own scoped key
+model, like Analytics does for `/track`.
+
+```an-api title="List extension data" method="GET" path="/_agent-native/extensions/data/:extensionId/:collection"
+{
+  "method": "GET",
+  "path": "/_agent-native/extensions/data/:extensionId/:collection",
+  "summary": "List rows in one extensionData collection",
+  "description": "`scope=user` reads only the caller's private rows. `scope=org` reads organization-shared rows. `scope=all` reads both the caller's private rows and org rows visible in the current org context. Results are capped by `limit` with a default of 100 and a max of 1000.",
+  "auth": "Authenticated session; requires viewer role on the extension.",
+  "params": [
+    { "name": "extensionId", "in": "path", "type": "string", "required": true, "description": "Extension id." },
+    { "name": "collection", "in": "path", "type": "string", "required": true, "description": "Collection name passed to `extensionData.list()`." },
+    { "name": "scope", "in": "query", "type": "\"user\" | \"org\" | \"all\"", "required": false, "description": "Read user-private rows, org-shared rows, or both. Defaults to `user`." },
+    { "name": "limit", "in": "query", "type": "number", "required": false, "description": "Maximum rows to return. Defaults to 100 and clamps to 1-1000." }
+  ],
+  "responses": [
+    { "status": "200", "description": "Array of rows with id, tool_id, collection, data, owner_email, scope, org_id, created_at, and updated_at.", "example": "[{\"id\":\"note-1\",\"tool_id\":\"ext_123\",\"collection\":\"notes\",\"data\":\"{\\\"title\\\":\\\"Team note\\\"}\",\"owner_email\":\"ada@example.com\",\"scope\":\"org\",\"org_id\":\"org_123\",\"created_at\":\"2026-06-25T12:00:00.000Z\",\"updated_at\":\"2026-06-25T12:00:00.000Z\"}]" },
+    { "status": "400", "description": "`scope=org` was requested without an org context." },
+    { "status": "404", "description": "Extension not found, or the caller has no access to it." }
+  ]
+}
+```
+
+```an-api title="Upsert extension data" method="POST" path="/_agent-native/extensions/data/:extensionId/:collection"
+{
+  "method": "POST",
+  "path": "/_agent-native/extensions/data/:extensionId/:collection",
+  "summary": "Create or update one extensionData item",
+  "description": "Writes one item to the extension's isolated key-value store. The uniqueness key is extension id, collection, scope, and item id. Objects are stored as JSON strings so the extension bridge can read them back consistently.",
+  "auth": "Authenticated session; requires editor, admin, or owner role on the extension.",
+  "params": [
+    { "name": "extensionId", "in": "path", "type": "string", "required": true, "description": "Extension id." },
+    { "name": "collection", "in": "path", "type": "string", "required": true, "description": "Collection name passed to `extensionData.set()`." },
+    { "name": "id", "in": "body", "type": "string", "required": false, "description": "Stable item id. If omitted, the server generates a UUID." },
+    { "name": "scope", "in": "body", "type": "\"user\" | \"org\"", "required": false, "description": "Write a user-private item or an org-shared item. Defaults to `user`." },
+    { "name": "data", "in": "body", "type": "object | string", "required": true, "description": "Value to persist. Objects are JSON-stringified before storage." }
+  ],
+  "request": {
+    "contentType": "application/json",
+    "example": "{\n  \"id\": \"note-1\",\n  \"scope\": \"org\",\n  \"data\": { \"title\": \"Team note\" }\n}"
+  },
+  "responses": [
+    { "status": "200", "description": "The written item summary.", "example": "{\"id\":\"note-1\",\"extensionId\":\"ext_123\",\"collection\":\"notes\",\"data\":\"{\\\"title\\\":\\\"Team note\\\"}\",\"ownerEmail\":\"ada@example.com\",\"scope\":\"org\",\"orgId\":\"org_123\",\"createdAt\":\"2026-06-25T12:00:00.000Z\",\"updatedAt\":\"2026-06-25T12:00:00.000Z\"}" },
+    { "status": "400", "description": "`data` is missing, or `scope=org` was requested without an org context." },
+    { "status": "403", "description": "Caller can view the extension but does not have editor-level access." },
+    { "status": "404", "description": "Extension not found, or the caller has no access to it." }
+  ]
+}
+```
+
+```an-api title="Delete extension data" method="DELETE" path="/_agent-native/extensions/data/:extensionId/:collection/:itemId"
+{
+  "method": "DELETE",
+  "path": "/_agent-native/extensions/data/:extensionId/:collection/:itemId",
+  "summary": "Delete one extensionData item",
+  "description": "Deletes the matching item from the selected scope. The default scope is `user`, which deletes only the caller's private item. Use `scope=org` to delete an org-shared item in the current org context.",
+  "auth": "Authenticated session; requires editor, admin, or owner role on the extension.",
+  "params": [
+    { "name": "extensionId", "in": "path", "type": "string", "required": true, "description": "Extension id." },
+    { "name": "collection", "in": "path", "type": "string", "required": true, "description": "Collection name passed to `extensionData.remove()`." },
+    { "name": "itemId", "in": "path", "type": "string", "required": true, "description": "Item id to delete." },
+    { "name": "scope", "in": "query", "type": "\"user\" | \"org\"", "required": false, "description": "Delete from user-private or org-shared storage. Defaults to `user`." }
+  ],
+  "responses": [
+    { "status": "200", "description": "Delete completed.", "example": "{\"ok\":true}" },
+    { "status": "400", "description": "`scope=org` was requested without an org context." },
+    { "status": "403", "description": "Caller can view the extension but does not have editor-level access." },
+    { "status": "404", "description": "Extension not found, or the caller has no access to it." }
+  ]
+}
 ```
 
 External APIs go through `extensionFetch`, which proxies the call server-side and substitutes secrets via the `${keys.NAME}` template:

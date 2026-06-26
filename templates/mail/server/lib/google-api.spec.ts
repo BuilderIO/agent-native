@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { gmailBatchGetMessages, googleFetch } from "./google-api.js";
 
 function jsonResponse(status: number, body: unknown, headers?: HeadersInit) {

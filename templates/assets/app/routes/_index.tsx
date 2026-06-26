@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router";
 import {
   AgentChatSurface,
   getBrowserTabId,
   markAgentChatHomeHandoff,
   readClientAppState,
   sendToAgentChat,
+  useT,
   writeClientAppState,
 } from "@agent-native/core/client";
 import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+
+import { GenerationResults } from "@/components/generation/GenerationResults";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 
 // The composer's model picker shows the chat LLM (Claude/OpenAI/Gemini). The
@@ -20,9 +23,17 @@ import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 const IMAGE_MODEL_STATE_KEY = "imageGenerationModel";
 const DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image";
 const IMAGE_MODEL_OPTIONS = [
-  { value: "gemini-3-pro-image", label: "Gemini 3 Pro · best quality" },
-  { value: "gemini-3.1-flash-image", label: "Gemini 3.1 Flash · fast" },
-  { value: "gemini-2.5-flash-image", label: "Gemini 2.5 Flash" },
+  {
+    value: "gemini-3-pro-image",
+    modelName: "Gemini 3 Pro",
+    descriptorKey: "create.modelBestQuality",
+  },
+  {
+    value: "gemini-3.1-flash-image",
+    modelName: "Gemini 3.1 Flash",
+    descriptorKey: "create.modelFast",
+  },
+  { value: "gemini-2.5-flash-image", modelName: "Gemini 2.5 Flash" },
 ] as const;
 
 // Empty-state starters. Clicking one prefills the composer (without sending) so
@@ -69,6 +80,7 @@ function chatThreadPath(threadId: string | null) {
 export default function CreatePage() {
   const { threadId } = useParams();
   const navigate = useNavigate();
+  const t = useT();
   const [imageModel, setImageModel] = useState<string>(DEFAULT_IMAGE_MODEL);
 
   useEffect(() => {
@@ -126,33 +138,36 @@ export default function CreatePage() {
           navigate,
         }}
         browserTabId={getBrowserTabId()}
+        threadFooterSlot={({ threadId }) => (
+          <GenerationResults threadId={threadId} />
+        )}
         imageModelMenu={{
           value: imageModel,
           options: IMAGE_MODEL_OPTIONS.map((option) => ({
             value: option.value,
-            label: option.label,
+            label:
+              "descriptorKey" in option && option.descriptorKey
+                ? `${option.modelName} · ${t(option.descriptorKey)}`
+                : option.modelName,
           })),
           onChange: handleImageModelChange,
-          label: "Image model",
+          label: t("create.imageModel"),
         }}
         showHeader={false}
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[]}
-        emptyStateText="Ask Assets what to create."
+        emptyStateText={t("create.emptyState")}
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder="Describe the asset - attach images or text context with +"
+        composerPlaceholder={t("create.composerPlaceholder")}
         composerSlot={
           <div className="assets-create-chat-intro">
-            <h1>What asset should we make?</h1>
-            <p>
-              Start with a hero image, product reveal, reference edit, or a
-              direction you want to explore.
-            </p>
+            <h1>{t("create.heroTitle")}</h1>
+            <p>{t("create.heroDescription")}</p>
             <div className="assets-create-chat-pill-row">
-              {CHAT_STARTERS.map(({ key, Icon, label, prompt }) => (
+              {CHAT_STARTERS.map(({ key, Icon, prompt }) => (
                 <button
                   key={key}
                   type="button"
@@ -165,7 +180,7 @@ export default function CreatePage() {
                   }
                 >
                   <Icon className="size-3.5" />
-                  {label}
+                  {t(`create.starters.${key}`)}
                 </button>
               ))}
             </div>

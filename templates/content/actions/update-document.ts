@@ -1,19 +1,22 @@
 import { defineAction } from "@agent-native/core";
+import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, desc } from "drizzle-orm";
+import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import { assertAccess } from "@agent-native/core/sharing";
-import { writeAppState } from "@agent-native/core/application-state";
-import { z } from "zod";
+import type { DocumentUpdateResponse } from "../shared/api.js";
+import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import {
   isLocalDocumentId,
   isContentLocalFileMode,
   updateLocalFileDocument,
 } from "./_local-file-documents.js";
-import { serializeDocumentSource } from "./_document-source.js";
 
 function nanoid(size = 12): string {
   const chars =
@@ -43,7 +46,7 @@ export default defineAction({
       .optional()
       .describe("Favorite status (true/false)"),
   }),
-  run: async (args) => {
+  run: async (args): Promise<DocumentUpdateResponse> => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
 
@@ -53,6 +56,7 @@ export default defineAction({
       return {
         ...doc,
         urlPath: `/page/${doc.id}`,
+        softDeletedDatabaseIds: [],
       };
     }
 
@@ -125,6 +129,8 @@ export default defineAction({
       }
     }
 
+    let softDeletedDatabaseIds: string[] = [];
+
     if (anyChange) {
       const updates: Record<string, unknown> = {
         updatedAt: new Date().toISOString(),
@@ -145,6 +151,13 @@ export default defineAction({
           .update(schema.contentDatabases)
           .set({ title: args.title, updatedAt: updates.updatedAt as string })
           .where(eq(schema.contentDatabases.documentId, id));
+      }
+
+      if (contentChanged) {
+        softDeletedDatabaseIds = await reconcileInlineDatabasesForDocument(
+          id,
+          content ?? "",
+        );
       }
     }
 
@@ -172,6 +185,7 @@ export default defineAction({
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
       source: serializeDocumentSource(doc),
+      softDeletedDatabaseIds,
     };
   },
 });

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { databaseTitleForPage } from "./create-content-database";
 
 describe("create content database", () => {

@@ -1,7 +1,8 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { z } from "zod";
+
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
 export function normalizeBrandWebsiteUrl(input: string): string {

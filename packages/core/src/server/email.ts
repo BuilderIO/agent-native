@@ -16,6 +16,8 @@ export interface EmailAttachment {
   filename: string;
   content: string | Buffer;
   contentType?: string;
+  contentId?: string;
+  disposition?: "attachment" | "inline";
 }
 
 export interface SendEmailArgs {
@@ -76,6 +78,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
             ? a.content
             : a.content.toString("base64"),
         content_type: a.contentType,
+        content_id: a.contentId,
       }));
     }
     const headers: Record<string, string> = {};
@@ -129,6 +132,8 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
             ? Buffer.from(a.content).toString("base64")
             : a.content.toString("base64"),
         type: a.contentType,
+        disposition: a.disposition ?? (a.contentId ? "inline" : undefined),
+        content_id: a.contentId,
       }));
     }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { CONTEXT_XRAY_MODEL_LIMIT, resolveContextWindow } from "./format.js";
 
 describe("resolveContextWindow", () => {

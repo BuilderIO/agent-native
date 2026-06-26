@@ -5,10 +5,6 @@
  * tools into a single tool with an `action` discriminator.
  */
 
-import type { ActionTool } from "../../agent/types.js";
-import { run as runList } from "./list-agent-engines.js";
-import { run as runSet } from "./set-agent-engine.js";
-import { run as runTest } from "./test-agent-engine.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
   normalizeAgentAppModelDefaultAppId,
@@ -22,10 +18,14 @@ import {
   normalizeModelForEngine,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
+import type { ActionTool } from "../../agent/types.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../../server/request-context.js";
+import { run as runList } from "./list-agent-engines.js";
+import { run as runSet } from "./set-agent-engine.js";
+import { run as runTest } from "./test-agent-engine.js";
 
 export const tool: ActionTool = {
   description:

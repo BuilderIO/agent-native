@@ -1,4 +1,7 @@
+import { useT } from "@agent-native/core/client";
 import { useMemo } from "react";
+
+import { messagesByLocale } from "@/i18n-data";
 
 /**
  * Lightweight Markdown renderer — handles headings, bold, italic, code blocks,
@@ -6,9 +9,25 @@ import { useMemo } from "react";
  * No external deps required.
  */
 export default function Markdown({ content }: { content: string }) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
+  const t = useT();
+  const labels = useMemo(
+    () => ({
+      embedBlocked: t("markdown.embedBlocked"),
+      sameOriginEmbedsOnly: t("markdown.sameOriginEmbedsOnly"),
+      embeddedContent: t("markdown.embeddedContent"),
+    }),
+    [t],
+  );
+  const html = useMemo(
+    () => renderMarkdown(content, labels),
+    [content, labels],
+  );
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
 }
+
+type MarkdownLabels = (typeof messagesByLocale)["en-US"]["markdown"];
+
+const DEFAULT_MARKDOWN_LABELS = messagesByLocale["en-US"].markdown;
 
 function escapeHtml(str: string): string {
   return str
@@ -140,17 +159,21 @@ function sanitizeEmbedSrc(src: string | undefined): string | null {
   return null;
 }
 
-function renderEmbedBlock(body: string): string {
+function renderEmbedBlock(
+  body: string,
+  labels: MarkdownLabels = DEFAULT_MARKDOWN_LABELS,
+): string {
   const parsed = parseEmbedBody(body);
   const safeSrc = sanitizeEmbedSrc(parsed.src);
   if (!safeSrc) {
+    const blockedSourceHtml = parsed.src
+      ? `<div class="mt-1 truncate font-mono text-[10px]">${escapeHtml(parsed.src)}</div>` // i18n-ignore stable sanitized URL echo in generated HTML
+      : "";
     return [
       '<div class="my-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">',
-      '<strong class="text-foreground">Embed blocked</strong>',
-      '<div class="mt-1">Only same-origin embed paths are allowed.</div>',
-      parsed.src
-        ? `<div class="mt-1 truncate font-mono text-[10px]">${escapeHtml(parsed.src)}</div>`
-        : "",
+      `<strong class="text-foreground">${escapeHtml(labels.embedBlocked)}</strong>`,
+      `<div class="mt-1">${escapeHtml(labels.sameOriginEmbedsOnly)}</div>`, // i18n-ignore generated HTML expression boundary
+      blockedSourceHtml,
       "</div>",
     ].join("");
   }
@@ -163,7 +186,7 @@ function renderEmbedBlock(body: string): string {
     : `aspect-ratio:${aspect.replace("/", " / ")}`;
   return [
     `<div class="my-4 overflow-hidden rounded-lg border border-border bg-muted/20" style="${style}">`,
-    `<iframe src="${escapeHtml(safeSrc)}" title="${escapeHtml(parsed.title || "Embedded content")}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerpolicy="same-origin" loading="lazy" class="h-full w-full border-0 bg-transparent"></iframe>`,
+    `<iframe src="${escapeHtml(safeSrc)}" title="${escapeHtml(parsed.title || labels.embeddedContent)}" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerpolicy="same-origin" loading="lazy" class="h-full w-full border-0 bg-transparent"></iframe>`,
     "</div>",
   ].join("");
 }
@@ -197,7 +220,10 @@ function renderInline(text: string): string {
   );
 }
 
-export function renderMarkdown(md: string): string {
+export function renderMarkdown(
+  md: string,
+  labels: MarkdownLabels = DEFAULT_MARKDOWN_LABELS,
+): string {
   const lines = md.split("\n");
   const out: string[] = [];
   let i = 0;
@@ -228,7 +254,7 @@ export function renderMarkdown(md: string): string {
       }
       i++; // skip closing ```
       if (safeLang === "embed") {
-        out.push(renderEmbedBlock(codeLines.join("\n")));
+        out.push(renderEmbedBlock(codeLines.join("\n"), labels));
         continue;
       }
       out.push(

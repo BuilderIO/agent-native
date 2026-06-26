@@ -1,30 +1,32 @@
+import { AgentToggleButton, useT } from "@agent-native/core/client";
 import { useLocation } from "react-router";
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
-import { AgentToggleButton } from "@agent-native/core/client";
 
-const pageTitles: Record<string, string> = {
-  "/": "Library",
-  "/library": "Library",
-  "/spaces": "Spaces",
-  "/archive": "Archive",
-  "/trash": "Trash",
-  "/notifications": "Notifications",
-  "/insights": "Insights",
+import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
+
+const pageTitleKeys: Record<string, string> = {
+  "/": "navigation.library",
+  "/library": "navigation.library",
+  "/spaces": "navigation.spaces",
+  "/archive": "navigation.archive",
+  "/trash": "navigation.trash",
+  "/notifications": "navigation.notifications",
+  "/insights": "navigation.insights",
 };
 
-function resolveTitle(pathname: string): string {
-  if (pageTitles[pathname]) return pageTitles[pathname];
+function resolveTitle(pathname: string, t: ReturnType<typeof useT>): string {
+  if (pageTitleKeys[pathname]) return t(pageTitleKeys[pathname]);
 
-  if (pathname.startsWith("/spaces/")) return "Space";
-  if (pathname.startsWith("/library/folder/")) return "Folder";
-  if (pathname.startsWith("/settings")) return "Settings";
-  if (pathname.startsWith("/extensions")) return "Extensions";
+  if (pathname.startsWith("/spaces/")) return t("navigation.space");
+  if (pathname.startsWith("/library/folder/")) return t("navigation.folder");
+  if (pathname.startsWith("/settings")) return t("navigation.settings");
+  if (pathname.startsWith("/extensions")) return t("navigation.extensions");
 
-  return "Clips";
+  return t("navigation.brand");
 }
 
 export function Header() {
   const location = useLocation();
+  const t = useT();
   const title = useHeaderTitle();
   const actions = useHeaderActions();
 
@@ -33,7 +35,7 @@ export function Header() {
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {title ?? (
           <h1 className="text-lg font-semibold tracking-tight truncate">
-            {resolveTitle(location.pathname)}
+            {resolveTitle(location.pathname, t)}
           </h1>
         )}
       </div>

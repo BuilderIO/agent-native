@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;

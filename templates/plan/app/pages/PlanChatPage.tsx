@@ -1,19 +1,15 @@
-import { useEffect } from "react";
 import {
   AgentChatHome,
   markAgentChatHomeHandoff,
+  useT,
 } from "@agent-native/core/client";
+import { useEffect } from "react";
+
 import { LocalCodebasePicker } from "@/components/plan/LocalCodebasePicker";
 import { schedulePlanRoutePrewarm } from "@/lib/route-prewarm";
 
-const PLAN_CHAT_SUGGESTIONS = [
-  "What shipped in the last week?",
-  "What does the new checkout UI look like?",
-  "When did the auth API change?",
-  "What is the shape of the billing API?",
-];
-
 export function PlanChatPage() {
+  const t = useT();
   useEffect(() => {
     function handleChatRunning(event: Event) {
       const detail = (event as CustomEvent).detail;
@@ -38,22 +34,26 @@ export function PlanChatPage() {
       showHeader={false}
       showTabBar={false}
       dynamicSuggestions={false}
-      suggestions={PLAN_CHAT_SUGGESTIONS}
-      emptyStateText="Ask Plan"
+      suggestions={[
+        t("chat.suggestionShipped"),
+        t("chat.suggestionUi"),
+        t("chat.suggestionAuth"),
+        t("chat.suggestionApi"),
+      ]}
+      emptyStateText={t("chat.emptyState")}
       emptyStateDisplay="hidden"
       centerComposerWhenEmpty
       composerLayoutVariant="hero"
       composerAreaClassName="plan-chat-composer-area"
-      composerPlaceholder="Ask what shipped, what changed, or what the current code shows..."
+      composerPlaceholder={t("chat.placeholder")}
       composerSlot={
         <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-4 text-center">
           <div className="space-y-2">
             <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
-              Ask Plan
+              {t("chat.heading")}
             </h1>
             <p className="mx-auto max-w-2xl text-sm leading-6 text-muted-foreground">
-              Search merged PR recaps, inspect visual blocks, and publish code
-              answers as diagrams, wireframes, API specs, and data models.
+              {t("chat.description")}
             </p>
           </div>
           <LocalCodebasePicker />

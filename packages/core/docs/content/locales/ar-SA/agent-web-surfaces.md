@@ -1,0 +1,169 @@
+---
+title: "موقع الوكيل العام"
+description: "اجعل المسارات العامة قابلة للزحف، وقابلة للقراءة، والاستشهاد بها، ويمكن استدعاؤها اختياريًا بواسطة الوكلاء — robots.txt، وllms.txt، ومرايا Markdown، وJSON-LD، وسطح MCP العام."
+---
+
+# موقع الوكيل العام
+
+تجعل شبكة الوكيل العام مسارات Agent-Native العامة سهلة على الوكلاء للزحف إليها وقراءتها والاستشهاد بها والاتصال بها. الهدف ليس جعل نقطة نهاية كل تطبيق عامة. الهدف هو نشر سطح عام نظيف للصفحات العامة بالفعل، مع الاحتفاظ بالبيانات الخاصة والوصول إلى الأدوات خلف ضوابط واضحة.
+
+موقع المستندات هو التنفيذ المرجعي. واليوم يتم شحنه:
+
+- `/robots.txt` مع سياسة الزاحف التي تسمح بالاسترداد ولكنها لا تسمح بالتدريب بشكل افتراضي.
+- `/sitemap.xml` مع URLs الأساسية المطلقة و`lastmod` عندما يعرضها الملف المصدر.
+- `/llms.txt` و`/llms-full.txt` لاكتشاف المحتوى المناسب للوكلاء.
+- مرايا Markdown مثل `/docs/getting-started.md`.
+- استجابات `Accept: text/markdown` لصفحات المستندات العامة بعد إنشاء الإنتاج.
+- JSON-LD للمؤسسة الأساسية وموقع الويب والبيانات الوصفية للصفحة.
+- تدقيق CLI (`npx @agent-native/core@latest audit-agent-web`) يتحقق من كل ما سبق.
+
+يؤدي إعداد `publicMcp: true` أيضًا إلى كشف actions التي تم اختيارها كنقطة نهاية MCP عامة، مما يسمح للوكلاء الخارجيين بالاتصال بهم مباشرة (راجع [MCP Protocol](/docs/mcp-protocol)).
+
+```an-diagram title="ما ينشر الطريق العام" summary="يتحول الطريق العام إلى تمثيلات صديقة للوكلاء. تعد قراءة المسار منفصلة عن أدوات الاتصال — ويظل الوصول إلى الأداة قيد الاشتراك."
+{
+  "html": "<div class=\"diagram-web\"><div class=\"diagram-box\" data-rough>الطريق العام<br><small class=\"diagram-muted\">المستمدة من إعدادات الوصول إلى الطريق</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">robots.txt</span><span class=\"diagram-pill\">sitemap.xml</span><span class=\"diagram-pill\">llms.txt</span><span class=\"diagram-pill\">مرآة .MD</span><span class=\"diagram-pill\">JSON-LD</span><span class=\"diagram-pill\">text/markdown</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col gate\"><span class=\"diagram-pill warn\">تظل الأدوات خاصة</span><small class=\"diagram-muted\">مطلوب publicMcp + publicAgent.expose</small></div></div>",
+  "css": ".diagram-web{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-web .diagram-arrow{font-size:22px;line-height:1}.diagram-web .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.diagram-web .gate{display:flex;flex-direction:column;gap:4px;align-items:flex-start}"
+}
+```
+
+## التكوين {#config}
+
+أضف `agentWeb` ضمن تكوين تطبيق مساحة العمل الحالي (في `package.json` لتطبيقك ضمن مفتاح `agent-native` - أو `workspace.agentWeb` أو `agentWeb` أو `root.agentWeb` بشكل مكافئ). لا تزال قائمة المسارات العامة مستمدة من إعدادات الوصول إلى المسار الخاصة بالتطبيق؛ يتحكم `agentWeb` في كيفية تمثيل هذا السطح العام للوكلاء.
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public",
+      "protectedPaths": ["/admin/*"],
+      "agentWeb": {
+        "discoverable": true,
+        "markdownTwins": true,
+        "llmsTxt": true,
+        "jsonLd": true,
+        "publicAgentCard": true,
+        "publicMcp": false,
+        "crawlerPolicy": "discoverable-no-training",
+        "crawlers": {
+          "training": "disallow",
+          "search": "allow",
+          "userTriggered": "allow",
+          "codingAgents": "allow",
+          "autonomousAgents": "allow"
+        }
+      }
+    }
+  }
+}
+```
+
+بالنسبة لمعظم التطبيقات، اترك الإعدادات الافتراضية كما هي. إذا كان التطبيق يحتوي على أي مسار عام، فسيتم تشغيل `discoverable` بشكل افتراضي. سياسة الزاحف الافتراضية هي "قابلة للاكتشاف وغير قابلة للتدريب": يُسمح بالبحث والاسترجاع بواسطة المستخدم ووكلاء الترميز ووكلاء التصفح المستقلين؛ برامج زحف التدريب غير مسموح بها.
+
+## توجيه مصدر الحقيقة {#route-source}
+
+يتبع اكتشاف ويب الوكيل نموذج الوصول إلى المسار:
+
+- تكشف التطبيقات العامة عن كل مسار باستثناء `protectedPaths`.
+- تكشف التطبيقات الداخلية عن `publicPaths` فقط.
+- يمكن للوكلاء قراءة صفحات المشاركة العامة والنماذج.
+- لا يتم تضمين البيانات الخاصة المرسلة ولوحات التحكم التي تمت مصادقتها وحالة المستخدم/المؤسسة مطلقًا لمجرد أن الصفحة القريبة عامة.
+
+يؤدي هذا إلى إبقاء التطبيقات المختلطة طبيعية. يمكن لتطبيق النماذج الكشف عن صفحة نموذج عامة والحفاظ على خصوصية عمليات الإرسال. يمكن لتطبيق المحتوى أن يكشف المنشورات المنشورة ويحافظ على خصوصية المحرر. يمكن لموقع المستندات أن يكشف كل شيء باستثناء أدوات الإدارة.
+
+## الصفحات العامة ليست أدوات عامة {#public-tools}
+
+الوصول إلى الصفحة العامة والوصول إلى الأداة العامة منفصلان. كون المسار عامًا فقط يعني أن الوكلاء يمكنهم قراءة هذا المسار مثل HTML، وMarkdown، وإدخالات خريطة الموقع، وإدخالات llms، والبيانات المنظمة.
+
+```an-callout
+{
+  "tone": "warning",
+  "body": "**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action *and* `publicMcp: true` on the app."
+}
+```
+
+للكشف عن إجراء من خلال بروتوكول الوكيل العام، يجب أن يتم تمكين الإجراء:
+
+```an-annotated-code title="اختيار إجراء آمن واحد على السطح العام"
+{
+  "filename": "actions/search-docs.ts",
+  "language": "ts",
+  "code": "export default defineAction({\n  description: \"Search published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Search published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});",
+  "annotations": [
+    {
+      "lines": "4",
+      "label": "الاشتراك الصريح",
+      "note": "بدون `publicAgent.expose === true`، لن يظهر الإجراء أبدًا على أي سطح وكيل عام - بغض النظر عن مدى عمومية مساراته."
+    },
+    {
+      "lines": "5-7",
+      "label": "وصف السلامة الذاتية",
+      "note": "قم بوضع علامة عليها للقراءة فقط، وأعلن ما إذا كانت تحتاج إلى مصادقة، وحدد ما إذا كانت ذات أهمية. يستبعد MCP العام إجراءات consequential/write ما لم تسمح بها السياسة صراحةً."
+    }
+  ]
+}
+```
+
+يظل `agentWeb.publicMcp` `false` بشكل افتراضي. عند تمكين MCP العام، يجب أن يعرض الخادم فقط actions مع `publicAgent.expose === true`، ويجب أن يستمر في استبعاد التبعية أو كتابة actions ما لم يسمح الإجراء وسياسة المصادقة بذلك صراحة.
+
+## ملفات وقت البناء {#build-time}
+
+تقوم أدوات إطار العمل المساعدة في `@agent-native/core/agent-web` بإنشاء الملفات الشائعة من قائمة صفحات واحدة:
+
+```ts
+import {
+  buildAgentWebStaticFiles,
+  normalizeAgentWebConfig,
+} from "@agent-native/core/agent-web";
+
+const config = normalizeAgentWebConfig(
+  { crawlerPolicy: "discoverable-no-training" },
+  { hasPublicRoutes: true },
+);
+
+const files = buildAgentWebStaticFiles({
+  siteName: "My Agent-Native App",
+  siteUrl: "https://example.com",
+  description: "Public docs for my app.",
+  config,
+  pages: [
+    {
+      path: "/docs",
+      title: "Docs",
+      description: "Start here.",
+      markdown: "# المستندات\n\nابدأ هنا.\n",
+      markdownPath: "/docs/getting-started.md",
+      lastmod: new Date(),
+    },
+  ],
+});
+```
+
+يمكن لتطبيقات Vite استخدام `createAgentWebVitePlugin` من `@agent-native/core/vite` لكتابة هذه الملفات إلى `public` أو `dist` أو `dist/client` أو `dist/server/public` أو `build/client` أثناء إنشاءات الإنتاج.
+
+## تدقيق الموقع {#audit}
+
+استخدم تدقيق CLI مقابل موقع منشور أو خادم إنتاج محلي:
+
+```bash
+npx @agent-native/core@latest audit-agent-web --url https://www.agent-native.com
+```
+
+يقوم التدقيق بالتحقق من:
+
+- SSR-HTML المرئي.
+- URLs الأساسية.
+- JSON-LD.
+- سياسة `robots.txt` وخريطة الموقع المطلقة URL.
+- إدخالات خريطة الموقع المطلقة.
+- `/llms.txt` و`/llms-full.txt`.
+- مرايا Markdown.
+- `Accept: text/markdown`.
+- لا توجد عمليات حظر غير مقصودة 401/403 لوكلاء مستخدم استرداد الوكيل المشترك.
+
+تخرج عملية التدقيق من الصفر إذا كان السطح العام المطلوب مفقودًا.
+
+## ما هي الخطوة التالية
+
+- [**Actions**](/docs/actions) — كيفية تفعيل actions في بروتوكول الوكيل العام
+- [**MCP Protocol**](/docs/mcp-protocol) — سطح MCP الذي يتيحه `publicMcp: true`
+- [**Deployment**](/docs/deployment) — حيث تتم كتابة هذه الملفات الثابتة أثناء عمليات الإنشاء

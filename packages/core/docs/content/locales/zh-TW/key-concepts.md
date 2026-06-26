@@ -1,0 +1,312 @@
+---
+title: "關鍵概念"
+description: "Agent-Native 應用程式的工作原理：首先是 actions、SQL 資料庫、應用程式代理迴圈、可選的 UI、輪詢同步、外部代理入口點、脈絡感知和可移植性。"
+---
+
+# 關鍵概念
+
+Agent-Native 應用程式如何在幕後工作 - 原則和架構。此頁面為合同；有關以這種方式建置的願景和案例，請參閱 [What Is Agent-Native?](/docs/what-is-agent-native)。
+
+## 架構 {#the-architecture}
+
+每個 Agent-Native 應用程式都由三部分協同工作：
+
+> **代理** — 讀取資料、寫入資料、執行 actions 和修改程式碼的自主 AI。可使用 skills 和說明進行定制。
+>
+> **應用** — 試劑週圍的產品表面。一開始這可能只是操作、豐富的聊天、小型控制平面或帶有儀表板、流程和視覺化的完整 React 介面。
+>
+> **電腦** — 資料庫、瀏覽器、程式碼執行。代理直接使用 SQL 和內建工具進行工作； MCP 伺服器是可選的附加元件，而不是基礎。
+
+```an-diagram title="代理、應用程式和電腦" summary="三層在一個共用的 SQL 儲存上協同工作。代理和應用程式讀取和寫入相同的資料。"
+{
+  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">讀取和寫入資料、執行 actions、修改程式碼</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full React 介面</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">SQL 資料庫 · browser · code execution</small></div></div>",
+  "css": ".diagram-arch{display:flex;flex-direction:column;align-items:center;gap:10px}.diagram-arch .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-arch .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:220px}.diagram-arch .diagram-arrow{font-size:20px;line-height:1}.diagram-arch .diagram-box{text-align:center;padding:12px 18px}"
+}
+```
+
+無頭應用程式可以使用 `pnpm agent` 從資料夾執行相同的正式環境應用程式代理迴圈，而 UI 應用程式則安裝嵌入式代理面板並使用 `pnpm dev` 在本機執行。在雲端中，Builder.io 提供了一個託管框架（在您的應用旁邊託管代理的環境），為團隊提供協作、視覺化編輯和託管基礎架構。
+
+## 代理建置塊 {#agent-building-blocks}
+
+每個 Agent-Native 應用程式都具有相同的代理建置塊，無論是否
+產品表面是無頭的、聊天優先的或完整的 UI：
+
+```an-file-tree title="指導和行為"
+{
+  "entries": [
+    { "path": "AGENTS.md", "note": "始終生效的指令：目的、核心規則、狀態鍵、actions 索引、skills 索引" },
+    { "path": ".agents/skills/<name>/SKILL.md", "note": "可複用行為：workflow 步驟、策略、範例、參考以及做/不做清單" },
+    { "path": "actions/<name>.ts", "note": "可執行能力：暴露給代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 的型別化操作" }
+  ]
+}
+```
+
+| 建置塊      | 使用它                                                                 | 載入時間                         |
+| ----------- | ---------------------------------------------------------------------- | -------------------------------- |
+| **說明**    | 代理應在每項工作中進行穩定的指導：應用程式是什麼、不變數、語氣、索引   | 每個回合                         |
+| **Skills**  | 可重用行為：如何遵循工作流程、應用策略、檢查證據或驗證輸出             | 當技能描述與工作匹配時按需       |
+| **Actions** | 實際操作：讀取或寫入資料、呼叫 API、傳送訊息、執行核准、生成型別化結果 | 每次都被列為工具；僅在呼叫時執行 |
+
+Skills 和 actions 一起工作。一項技能教代理如何做一類
+工作；操作是它在執行該工作時可以呼叫的程式碼路徑。例如，
+`customer-research` 技能可能會告訴代理要檢查哪些來源
+如何在 `search-crm` 和 `create-brief` actions 取得的同時總結證據
+並寫入實際資料。
+
+管理架構的六項規則：
+
+1. **資料存在於 SQL** - 所有應用程式狀態都透過 Drizzle ORM 存在於資料庫中
+2. **所有 AI 都透過代理** - 無行內 LLM 呼叫
+3. **Actions 用於代理操作** — 複雜的工作作為 actions 執行
+4. **即時同步使 UI 保持同步** — 透過 SSE 進行資料庫更改流，並以輪詢作為通用回退
+5. **代理可以修改程式碼** - 應用程式會隨著您的使用而不斷發展
+6. **SQL 中的應用程式狀態** — 臨時 UI 狀態存在於資料庫中，代理和 UI 都可讀
+
+## 四個區域清單 {#four-area-checklist}
+
+每個面向使用者的功能都應該更新所有適用的區域。跳過適用區域會破壞代理與本機合約；將 UI 強制到僅動作原語上也是一種氣味。
+
+| 區域                | 描述                                     |
+| ------------------- | ---------------------------------------- |
+| **1. UI**           | 使用者與之互動的頁面、元件或對話框       |
+| **2。行動**         | actions/中的代理可呼叫操作用於相同操作   |
+| **3. Skills**       | 更新 AGENTS.md 和/或建立紀錄該模式的技能 |
+| **4。應用程式狀態** | 導覽狀態、檢視螢幕資料和導覽指令         |
+
+只有 UI 的功能對於代理來說是不可見的。僅包含 actions 的完整 UI 功能對使用者來說是不可見的。沒有應用程式狀態的功能意味著代理對使用者正在做的事情一無所知。無頭操作可以合法地從操作 + 指令開始，並在稍後當人們需要瀏覽、核准、設定或共用時新增 UI/應用程式狀態。
+
+## SQL 中的資料 {#data-in-sql}
+
+所有應用程式狀態都透過 Drizzle ORM 儲存在 SQL 資料庫中。模式與提供者無關；支援的資料庫、`DATABASE_URL` 設定和可移植性規則位於 [Database](/docs/database) 中。
+
+核心 SQL 商店是自動建立的，並且在每個範本中都可用：
+
+- `application_state` - 短暫的 UI 狀態（導覽、草稿、選取）
+- `settings` — 持久鍵值設定
+- `oauth_tokens` — OAuth 憑證
+- `sessions` — 驗證工作階段
+
+```an-schema title="核心 SQL 商店" summary="在每個範本中自動建立 - 代理和 UI 都可以讀取和寫入這些範本。"
+{
+  "entities": [
+    { "id": "application_state", "name": "application_state", "note": "代理讀取脈絡的臨時 UI 狀態", "fields": [
+      { "name": "key", "type": "text", "pk": true, "note": "e.g。 '導覽'" },
+      { "name": "value", "type": "json", "note": "檢視、選取、草稿" }
+    ] },
+    { "id": "settings", "name": "settings", "note": "持久鍵值設定", "fields": [
+      { "name": "key", "type": "text", "pk": true },
+      { "name": "value", "type": "json" }
+    ] },
+    { "id": "oauth_tokens", "name": "oauth_tokens", "note": "OAuth 憑證", "fields": [
+      { "name": "provider", "type": "text", "pk": true },
+      { "name": "token", "type": "text" }
+    ] },
+    { "id": "sessions", "name": "sessions", "note": "驗證工作階段", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "userId", "type": "text" }
+    ] }
+  ]
+}
+```
+
+```ts
+// Drizzle schema for domain data
+import { table, text, integer } from "@agent-native/core/db/schema";
+
+export const forms = table("forms", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  schema: text("schema").notNull(), // JSON
+  ownerEmail: text("owner_email"),
+  createdAt: integer("created_at").notNull(),
+});
+```
+
+```bash
+# 資料庫快速檢查和一次性維護的核心動作
+pnpm action db-schema                                       # show all tables
+pnpm action db-query --sql "SELECT * FROM forms"
+pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
+# 大型文字列上的 Surgical find/replace — 傳送差異，而不是整個值
+pnpm action db-patch --table documents --column content \
+  --where "id='doc-1'" --find "old heading" --replace "new heading"
+```
+
+正式環境代理聊天外掛預設啟用原始資料庫寫入
+(`databaseTools: "write"`)，以便代理可以修復應用程式擁有的資料，而無需等待
+新型別的動作。這些寫入的範圍僅限於經過驗證的使用者/組織。設定
+`databaseTools: "read"` 僅保留 `db-schema` / `db-query` 檢查，或
+`databaseTools: "off"` / `false` 要求型別化應用程式 actions 取得所有資料
+存取。
+
+## 代理聊天橋 {#agent-chat-bridge}
+
+UI 從不直接呼叫 LLM。當使用者點選“產生圖表”或“寫入摘要”時，UI 透過 `postMessage` 向代理傳送訊息。代理完成工作 - 具有完整的對話歷史紀錄、skills、指令和迭代能力。
+
+```ts
+// In a React component — delegate AI work to the agent
+import { sendToAgentChat } from "@agent-native/core/client";
+
+sendToAgentChat({
+  message: "Generate a chart showing signups by source",
+  context: "Dashboard ID: main, date range: last 30 days",
+  submit: true,
+});
+```
+
+為什麼不呼叫 LLM 行內？
+
+- **人工智慧是不確定的。**您需要對話流來提供意見回饋和迭代——而不是一次性按鈕。
+- **脈絡很重要。**代理擁有您的完整程式碼庫、說明、skills 和歷史紀錄。行內呼叫則沒有這些。
+- **代理可以做更多事情。**它可以執行 actions、瀏覽網頁、修改程式碼以及將多個步驟連結在一起。
+- **無頭執行。**因為一切都透過代理進行，所以任何應用程式都可以完全由 Slack、Telegram 或其他代理透過 [A2A](/docs/a2a-protocol) 驅動。
+
+## Actions系統 {#actions-system}
+
+當代理需要做一些複雜的事情時——呼叫 API、處理資料、查詢資料庫——它會執行一個**操作**。 Actions 是 `actions/` 中的 TypeScript 檔案，匯出預設的 `defineAction()`：
+
+```ts
+// actions/fetch-data.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Fetch data from a source API.",
+  schema: z.object({
+    source: z.string().describe("Data source key, e.g. 'signups'"),
+  }),
+  run: async ({ source }) => {
+    const res = await fetch(`https://api.example.com/${source}`);
+    return await res.json();
+  },
+});
+```
+
+一次 `defineAction()` 呼叫將為您提供：
+
+- **代理工具** — 代理透過 zod 派生的 JSON 架構看到它並可以呼叫它。
+- **前端鉤子** - `useActionMutation("fetch-data")` 具有完整的 TypeScript 推理。
+- **框架傳輸** - 自動安裝在用戶端掛鉤後面。
+- **CLI** — `pnpm action fetch-data --source=signups` 用於指令碼和代理開發迴圈。
+- **MCP 工具/A2A 工具** — 當啟用 MCP 伺服器或 A2A 時，也會顯示相同的操作。
+
+相同的邏輯，一個定義，自動連線到每個消費者。請參閱 [Actions](/docs/actions) 取得完整參考。
+
+## 即時同步 {#polling-sync}
+
+資料庫更改透過`useDbSync()`同步到 UI。同行程透過`/_agent-native/events`寫流； `/_agent-native/poll` 仍然是跨行程和無伺服器的後備方案。當代理寫入資料庫（應用程式狀態、設定或域資料）時，版本計數器會遞增，並且用戶端會使相關的 React 查詢快取無效。
+
+```ts
+// Client: subscribe to agent/UI data changes once near the app shell
+import { useDbSync } from "@agent-native/core/client";
+
+useDbSync({ queryClient });
+```
+
+流程是：
+
+1. 代理執行寫入資料庫的操作
+2. 伺服器使用 `"action"` 或 `"settings"` 等來源發出更改事件
+3. `useDbSync` 透過 SSE 或輪詢回退接收它
+4. `useActionQuery` 掛鉤和來源版本 `useQuery` 掛鉤重新取得
+5. 元件無需重新載入頁面即可呈現新資料
+
+```an-diagram title="即時同步流程" summary="代理寫入變成 UI 渲染，無需手動重新整理 - 首先是 SSE，輪詢作為通用後備。"
+{
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Agent 操作<br><small class=\"diagram-muted\">寫入資料庫</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">變更事件<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">重新取得查詢<br><small class=\"diagram-muted\">渲染，無需重載</small></div></div>",
+  "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"
+}
+```
+
+這適用於所有部署環境（包括無伺服器和邊緣），因為它使用資料庫，而不是記憶狀態或檔案系統觀察器。
+
+## 框架 {#frames}
+
+_frame_ 是在您的應用程式旁邊託管代理的環境 - 在本機是嵌入式面板；在雲端端，它是 Builder.io 的託管表面。參見[Frames](/docs/frames)。
+
+Agent-Native 應用程式包括一個嵌入式代理面板，該面板與應用程式 UI 一起提供 AI 代理。這就是架構發揮作用的原因：代理需要電腦（資料庫、瀏覽器、程式碼執行），而應用程式需要代理來進行 AI 工作。
+
+> **嵌入式代理面板** - 每個應用程式中內建聊天和可選的 CLI 終端。支援 Claude 程式碼、Codex、Gemini、OpenCode 和 Builder.io。在本機執行。免費且開放原始碼。
+>
+> **雲端** — 透過即時協作、視覺化編輯、角色和權限部署到任何雲端。最適合團隊。
+
+## 情境感知 {#context-awareness}
+
+代理始終知道使用者在看什麼。 UI 在每次路由更改時將 `navigation` 金鑰寫入應用程式狀態。代理在執行操作之前透過 `view-screen` 操作讀取它。
+
+例如，當您開啟電子郵件對話串時，UI 會插入一行，例如：
+
+```json
+{ "key": "navigation", "value": { "view": "thread", "threadId": "th_abc123" } }
+```
+
+UI 在路由變更時寫入此資訊；代理在採取任何操作之前都會讀取它（透過 `view-screen`），因此它始終知道您關注的是哪個對話串 - 或圖表或幻燈片。
+
+請參閱 [Context Awareness](/docs/context-awareness) 了解完整模式：導覽狀態、檢視螢幕、導覽指令和抖動預防。
+
+## 一個動作，多個表面 {#protocols}
+
+將一個域操作作為一個動作執行一次；此框架將其暴露給每個消費者。相同的 `defineAction()` 成為代理工具、型別安全 UI 掛鉤、HTTP 端點、CLI 指令、MCP 工具和 A2A 工具，並且僅在表面需要時新增可選的 `link`、`mcpApp` 或顯式本機小工具中繼資料。 Skills 和說明涵蓋行為。
+
+有關完整的協議/表面矩陣（MCP 伺服器和 OAuth、MCP 應用程式、A2A、深層連結、本機聊天小工具、AgentChatRuntime 連線器、Agent Web 以及 ACP 和 A2UI 的轉接器範圍），以及選取產品形狀（無頭、豐富聊天、嵌入式邊車或完整應用程式），請參閱[Agent Surfaces](/docs/agent-surfaces)。
+
+## 代理修改程式碼 {#agent-modifies-code}
+
+這是一個功能，而不是一個錯誤。代理可以安全地編輯應用程式的來源程式碼：元件、路由、樣式、actions。
+
+沒有需要破壞的共用程式碼庫。您擁有該應用程式，代理會隨著時間的推移為您改進它：
+
+1. 分叉範本（例如分析範本）
+2. 透過詢問代理進行定制
+3. “為同期群分析新增新的圖表型別”——代理建置它
+4. “連線到我們的 Stripe 帳戶”- 代理編寫整合
+5. 您的應用無需手動開發即可不斷改進
+
+## 預設為便攜式 {#hosting-agnostic}
+
+兩條架構規則使應用程式可以跨資料庫和主機移植：
+
+- **與資料庫無關。** 使用 `@agent-native/core/db/schema` 寫入模式並使用 Drizzle 的可移植查詢 DSL 進行讀/寫，因此相同的程式碼可以在任何支援的提供者上執行。僅將原始 SQL 用於附加遷移或一次性維護，保持參數化且與方言無關。參見[Database](/docs/database)。
+- **與主機無關。** 伺服器在 Nitro 上執行並編譯為任何部署目標。切勿在伺服器路由或外掛中使用特定於節點的 API（`fs`、`child_process`、`path`），並且切勿假設持久伺服器行程 - 無伺服器和邊緣是無狀態的，因此將所有狀態保留在 SQL 中。參見[Deployment](/docs/deployment)。
+
+## 工作區 {#workspace}
+
+每個使用者都會獲得一個個人**工作空間** - 指令、skills、記憶、自訂子代理、計畫作業和連線的 MCP 伺服器 - 全部儲存在 SQL 而不是檔案中。這使得 Claude 程式碼級定制可以在多租戶 SaaS 中實現，而無需為每個使用者啟動一個容器。參見[Workspace](/docs/workspace)。
+
+## 相關建置塊 {#building-blocks}
+
+這些位於同一個合約之上，並且有自己的深入研究：
+
+- **[Dispatch](/docs/dispatch)** — 工作區控制平面：共用收件箱、機密庫、計畫作業以及透過 A2A 委托給專業應用程式的編排器。
+- **[Extensions](/docs/extensions)** — 代理在執行時建立的沙盒 Alpine.js 迷你應用，無需更改來源或遷移。
+- **[A2A Protocol](/docs/a2a-protocol)** — 同一工作區中的應用如何透過 JSON-RPC 發現並相互呼叫。
+
+## 您免費獲得的東西 {#what-you-get-for-free}
+
+采用此框架很有價值，主要是因為您不再需要建置什麼。一旦您的應用遵循這六個規則，您就繼承了：
+
+- **一個操作 = 每個表面。** 使用 `defineAction()` 定義的每個操作同時是一個代理工具、型別安全前端掛鉤 (`useActionQuery` / `useActionMutation`)、框架擁有的 HTTP 傳輸、CLI 指令、用於外部用戶端的 MCP 工具以及用於其他 Agent-Native 應用程式的 A2A 工具。可選的 `link` 和 `mcpApp` 中繼資料新增深層連結和 MCP 應用 UI，無需第二次實現。
+- **每個使用者一個完整的工作區。** Skills、共用 `LEARNINGS.md`、個人 `memory/MEMORY.md`、`AGENTS.md`、自訂子代理、計畫作業、連線的 MCP 伺服器 — 所有 SQL 支援，無需開發盒。參見[Workspace](/docs/workspace)。
+- **插入 React 元件。** `<AgentPanel />` 和 `<AgentSidebar />` 在應用程式中的任何位置呈現聊天 + 工作區。參見[Drop-in Agent](/docs/drop-in-agent)。
+- **BYO 代理聊天執行時。** 相同的聊天 UI 可以位於 OpenAI 代理、OpenAI 回應、Claude 代理 SDK、Vercel AI SDK、AG-UI 或您自己的規範化 HTTP 流之上。參見[Native 聊天介面](/docs/native-chat-ui#byo-agent-runtimes)。
+- **代理和 UI 之間的即時同步。**同一行程立即透過 `/_agent-native/events` 寫入流；輕量級輪詢使無伺服器、cron 和跨行程寫入保持收斂。改變 actions 會自動使操作支援的查詢失效，因此無需手動重新整理即可顯示代理建立的紀錄。請參閱下面的 [Live Sync](#polling-sync)。
+- **Auth、orgs、RBAC。** 每個範本都內建了帶有 orgs/members/roles 的更好的驗證。參見[Authentication](/docs/authentication)。
+- **脈絡感知。**代理始終透過 `navigation` 應用狀態鍵了解使用者正在檢視的內容。參見[Context Awareness](/docs/context-awareness)。
+- **MCP 用戶端 + 伺服器，雙向。** 應用程式攝取 MCP 伺服器（本機、遠端、集線器共用）*並且*將其自己的 actions 公開為 MCP 伺服器。請參閱 [MCP Clients](/docs/mcp-clients) 和 [MCP Protocol](/docs/mcp-protocol)。
+- **應用程式間委托。**不同應用程式中的代理透過 [A2A](/docs/a2a-protocol) 進行通信。同來源部署跳過 JWT；跨域使用共用的`A2A_SECRET`。
+- **子代理團隊。** 產生一個具有自己的對話串和工具的子代理，以聊天中行內的標籤形式出現。參見[Agent Teams](/docs/agent-teams)。
+- **可移植性。**任何 Drizzle 支援的 SQL 資料庫、任何 Nitro 相容的主機（Node、Workers、Netlify、Vercel、Deno、Lambda、Bun）。
+
+這就是“以及其他所有東西”，否則你需要自己將它們粘合在一起。
+
+## 深入研究 {#deep-dives}
+
+有關特定模式的詳細指導：
+
+- [What Is Agent-Native?](/docs/what-is-agent-native) — 願景和理念
+- [Context Awareness](/docs/context-awareness) — 導覽狀態、檢視螢幕、導覽指令
+- [Skills Guide](/docs/skills-guide) — 框架 skills，域 skills，建立自訂 skills
+- [Native 聊天介面](/docs/native-chat-ui) — 操作聲明的表格、圖表和 BYO 執行時狀態
+- [Agent Surfaces](/docs/agent-surfaces) — 無頭、豐富的聊天、嵌入式 sidecar 和完整應用路徑
+- [A2A Protocol](/docs/a2a-protocol) — 代理間通信
+- [Multi-App Workspace](/docs/multi-app-workspace) — 在一個單一儲存庫中託管多個應用程式，並具有共用驗證、skills、元件和憑證

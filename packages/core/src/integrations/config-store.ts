@@ -1,9 +1,5 @@
-import {
-  getDbExec,
-  isPostgres,
-  intType,
-  retryOnDdlRace,
-} from "../db/client.js";
+import { getDbExec, isPostgres, intType } from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -11,18 +7,23 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE TABLE IF NOT EXISTS integration_configs (
-            platform TEXT NOT NULL,
-            config_key TEXT NOT NULL,
-            config_data TEXT NOT NULL,
-            owner TEXT,
-            updated_at ${intType()} NOT NULL,
-            PRIMARY KEY (platform, config_key)
-          )
-        `),
-      );
+      const createSql = `CREATE TABLE IF NOT EXISTS integration_configs (
+  platform TEXT NOT NULL,
+  config_key TEXT NOT NULL,
+  config_data TEXT NOT NULL,
+  owner TEXT,
+  updated_at ${intType()} NOT NULL,
+  PRIMARY KEY (platform, config_key)
+)`;
+
+      if (isPostgres()) {
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("integration_configs", createSql);
+        return;
+      }
+
+      // SQLite (local dev): keep existing behavior
+      await client.execute(createSql);
     })().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.
       _initPromise = undefined;

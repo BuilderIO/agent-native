@@ -6,6 +6,9 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
+
+import { getSession } from "../server/auth.js";
+import { readBody } from "../server/h3-helpers.js";
 import {
   appStateGet,
   appStatePut,
@@ -13,8 +16,6 @@ import {
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
-import { getSession } from "../server/auth.js";
-import { readBody } from "../server/h3-helpers.js";
 
 /**
  * Resolve the session ID for app state scoping. Returns the authenticated

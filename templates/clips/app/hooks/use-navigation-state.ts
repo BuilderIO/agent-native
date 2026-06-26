@@ -7,6 +7,8 @@ export type ClipsView =
   | "archive"
   | "trash"
   | "record"
+  | "bug-report"
+  | "bug-report-done"
   | "recording"
   | "share"
   | "embed"
@@ -47,6 +49,8 @@ interface NavigateCommand extends Partial<NavigationState> {
  *   /archive                    -> archive
  *   /trash                      -> trash
  *   /record                     -> record
+ *   /bug-report                 -> bug-report
+ *   /bug-report/done            -> bug-report-done
  *   /r/:recordingId             -> recording
  *   /r/:recordingId/insights    -> insights
  *   /share/:shareId             -> share
@@ -116,6 +120,13 @@ function stateFromLocation(pathname: string, search: string): NavigationState {
   if (p === "/archive") return { view: "archive" };
   if (p === "/trash") return { view: "trash" };
   if (p === "/record") return { view: "record" };
+  if (p === "/bug-report") return { view: "bug-report" };
+  if (p === "/bug-report/done") {
+    return {
+      view: "bug-report-done",
+      recordingId: params.get("recordingId") || undefined,
+    };
+  }
   if (p === "/notifications") return { view: "notifications" };
   if (p.startsWith("/settings")) return { view: "settings" };
   if (p === "/library" || p === "/" || p === "") {
@@ -154,6 +165,12 @@ function pathFromCommand(cmd: NavigateCommand): string {
       return "/trash";
     case "record":
       return "/record";
+    case "bug-report":
+      return "/bug-report";
+    case "bug-report-done":
+      return cmd.recordingId
+        ? `/bug-report/done?recordingId=${encodeURIComponent(cmd.recordingId)}`
+        : "/bug-report/done";
     case "notifications":
       return "/notifications";
     case "settings":

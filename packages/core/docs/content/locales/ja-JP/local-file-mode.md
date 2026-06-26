@@ -1,0 +1,433 @@
+---
+title: "ローカル ファイル モード"
+description: "ローカルの Markdown、MDX、およびその他のリポジトリ ファイルを信頼できるソースとして使用して、エージェント ネイティブ アプリを実行します。これには、カスタム コンポーネントを含む Obsidian スタイルの MDX ドキュメントが含まれます。"
+---
+
+# ローカル ファイル モード
+
+ローカル ファイル モードにより、エージェント ネイティブ アプリは通常の UI とアクション サーフェスをアタッチできます
+リポジトリまたはワークスペース内のファイルに直接。アプリは依然としてホストされているように感じます
+製品ですが、そのリスト ビュー、エディタ、エージェント ツールはローカル ファイルの読み取りと書き込みを行います
+SQL がサポートするアプリ レコードの代わり。
+
+最初の実装はコンテンツ テンプレート内にあります。左側のサイドバーは
+ローカルの `.md` および `.mdx` ファイルから設定され、ページを選択すると標準ファイルが開きます
+コンテンツ エディター、および保存すると、選択したファイルに書き戻されます。同じファイルは
+Codex、Claude コード、Agent-Native サイドバー エージェント、または通常のエージェントでも編集できます
+編集者。
+
+コンテンツに関しては、これにより製品が MDX のオープンソース Obsidian のように感じられます:
+ドキュメントはファイルとして保存されますが、アプリにはビジュアル エディター、エージェント actions が追加されます。
+共有可能なコピー、および豊富なインタラクティブな MDX コンポーネント。
+
+リポジトリ優先のワークフローが必要な場合は、ローカル ファイル モードを使用します。
+
+- `docs/*.mdx` のドキュメント リポジトリ
+- `blog/*.mdx` のブログ
+- `resources/*.md` のポジショニング、メッセージング、チームメモなどのリソース
+- より豊富な MDX エディターを備えた個人用の Obsidian スタイルのナレッジ ベース
+- ローカルの React コードから生成されたインタラクティブなカスタム MDX ブロックを必要とするドキュメント
+- コーディング エージェントが簡単に検査してパッチを適用できるアプリ アーティファクト
+
+ホストされたコラボレーション アプリのエクスペリエンスが必要な場合は、データベース モードを使用します。
+マルチユーザー共有、SQL による権限、コメント、バージョン履歴、および
+ローカル ファイル システムにアクセスしない運用ホスティング。
+
+## メンタルモデル
+
+2 つの信頼できる情報源モードがあります:
+
+| モード                   | 真実の源                                                  | こんな人に最適                                                                                        |
+| ------------------------ | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| データベースモード       | SQL 行から Drizzle                                        | ホストされているアプリ、コラボレーション、共有、コメント、バージョン履歴                              |
+| ローカル ファイル モード | `agent-native.json` によって宣言されたリポジトリ ファイル | ローカル/開発ワークフロー、Git レビュー、コーディング エージェント編集、ファイルネイティブ コンテンツ |
+
+UI とエージェント actions は、両方のモードで同じ形状のままである必要があります。コンテンツ
+エディターは引き続きドキュメントを編集します。違いは、それらの文書が解決されるかどうかです
+SQL 行またはローカル ファイルへ。
+
+```an-diagram title="同じ行動、2 つの真実の情報源" summary="UI とエージェントは、両方のモードで同じアクションを呼び出します。アクション層は、各呼び出しが SQL 行またはリポジトリ ファイルのどちらに解決されるかを決定します。"
+{
+  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">コンテンツUI</div><div class=\"diagram-node\">エージェント + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">データベースモード</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">ホスト版 · 共有 · コメント · 履歴</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Gitレビュー · コーディングエージェント編集</small></div></div></div>",
+  "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+}
+```
+
+## リポジトリの例
+
+コンテンツ ワークスペースは次のように小さくすることができます:
+
+```an-file-tree title="Content workspace の repo"
+{
+  "entries": [
+    { "path": "agent-native.json", "note": "どのフォルダがコンテンツルートで、その種類は何かを宣言" },
+    { "path": "docs/", "note": "コンテンツルート: サイドバーにページとして表示" },
+    { "path": "docs/getting-started.mdx" },
+    { "path": "docs/guides/custom-components.mdx" },
+    { "path": "blog/", "note": "コンテンツルート" },
+    { "path": "blog/launch-post.mdx" },
+    { "path": "resources/", "note": "コンテンツルート" },
+    { "path": "resources/messaging/positioning.md" },
+    { "path": "components/", "note": "コンテンツルートではない: MDX が import できる preview コンポーネントライブラリ" },
+    { "path": "components/FrameworkTabs.tsx" },
+    { "path": "components/Callout.tsx" },
+    { "path": "extensions/", "note": "コンテンツルートではない: ローカル extension ライブラリ（sandboxed widgets）" },
+    { "path": "extensions/doc-status/extension.json" },
+    { "path": "extensions/doc-status/index.html" }
+  ]
+}
+```
+
+ローカル ファイル モードでは、コンテンツ サイドバーに `docs/`、`blog/`、および
+`resources/` ツリーをページとして表示します。 `docs/getting-started.mdx` を選択すると、
+ファイル。 UI で編集すると
+`docs/getting-started.mdx`.
+
+`components/` はコンテンツ ルートではありません。 MDX
+ファイルはインポートまたは参照できます。エディターは単純なローカル MDX コンポーネントをレンダリングできます
+コンテンツ アプリ全体を複製したりフォークしたりする必要はありません。
+
+`extensions/` もコンテンツ ルートではありません。これはローカル拡張ライブラリです:
+ソースをアプリ スロットに保持したままアプリ スロットでレンダリングできる小さなサンドボックス ウィジェット
+リポジトリ。
+
+## コンテンツをリポジトリにインストールする
+
+既存のドキュメント、ブログ、または MDX ワークスペースの場合は、コンテンツ ローカル ファイルをインストールします
+スキル:
+
+```bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+```
+
+これにより、`content` スキルがリポジトリのエージェント スキル フォルダにコピーされ、書き込まれます
+または、コンテンツのデフォルトで `agent-native.json` を更新します。
+
+- ワークスペース レベルの `mode: "local-files"`
+- `apps.content.mode: "local-files"`
+- `docs/`、`blog/`、`content/`、および `resources/` のコンテンツ ルート
+- ローカル MDX コンポーネントの `components/`
+- ローカル拡張ウィジェット用の `extensions/`
+
+インストールされたスキルは、コーディング エージェントにコンテンツ actions を使用するよう指示します
+(`list-documents`, `get-document`, `edit-document`, `update-document`,
+`share-local-file-document`、およびコンポーネント ファイル actions) (ローカル コンテンツ アプリの場合)
+または Agent Native デスクトップ ブリッジがそれらを公開します。橋が稼働していない場合、スキル
+フロントマター、インポート、JSX を保持しながら、安全な直接リポジトリ編集にフォールバックします。
+そして不明な MDX。
+
+## 構成
+
+`agent-native.json` をリポジトリまたはワークスペースのルートに追加します。
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "content": {
+      "mode": "local-files",
+      "roots": [
+        {
+          "name": "Docs",
+          "path": "docs",
+          "kind": "docs",
+          "extensions": [".md", ".mdx"]
+        },
+        {
+          "name": "Blog",
+          "path": "blog",
+          "kind": "blog",
+          "extensions": [".md", ".mdx"]
+        },
+        {
+          "name": "Resources",
+          "path": "resources",
+          "kind": "resources",
+          "extensions": [".md", ".mdx"]
+        }
+      ],
+      "components": "components",
+      "extensions": "extensions",
+      "hide": ["**/_*.md", "**/_*.mdx"]
+    }
+  }
+}
+```
+
+`AGENT_NATIVE_MODE=local-files` または
+`AGENT_NATIVE_DATA_MODE=local-files`;マニフェストが優先されるのは、
+リポジトリ自体のフォルダー コントラクトを文書化します。
+
+## コンテンツ ファイル形式
+
+コンテンツは Markdown および MDX を読み取ります。 Frontmatter はページのメタデータを保持し、本文は
+編集可能なドキュメント:
+
+```mdx
+---
+title: "はじめに"
+icon: "sparkles"
+isFavorite: true
+updatedAt: "2026-06-12T20:00:00.000Z"
+---
+
+# はじめに
+
+Use <FrameworkTabs value="react" /> to show framework-specific code.
+```
+
+タイトルは、存在する場合は `title` フロントマターから取得され、それ以外の場合は、
+ファイル名。エディターは、まだ視覚的に編集できない MDX ソースを保持します。そのため
+コーディング エージェントと通常のテキスト エディタは安全な避難口のままです。
+
+## カスタム MDX コンポーネント
+
+コンテンツは、構成された `components` フォルダーからローカル コンポーネントをプレビューできます。
+これは、タブ、コールアウト、パッケージなどのドキュメント スタイルの MDX コンポーネントを対象としています
+スニペット、またはフレームワーク固有のコード ブロックをインストールします。
+
+たとえば、コンテンツの隣にインタラクティブ コンポーネントを追加します。
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter({
+  label = "points",
+  accent = "blue",
+  featured = false,
+}: {
+  label?: string;
+  accent?: "blue" | "green" | "purple";
+  featured?: boolean;
+}) {
+  const [count, setCount] = useState(3);
+  const accentClass =
+    accent === "green"
+      ? "border-green-300 bg-green-50"
+      : accent === "purple"
+        ? "border-purple-300 bg-purple-50"
+        : "border-blue-300 bg-blue-50";
+
+  return (
+    <div className={`rounded-md border p-4 ${accentClass}`}>
+      <div className="text-sm text-muted-foreground">Launch impact</div>
+      <div className="mt-1 text-3xl font-semibold">
+        {count} {label}
+      </div>
+      {featured ? <div className="mt-1 text-sm">Featured metric</div> : null}
+      <button
+        type="button"
+        className="mt-3 rounded border px-3 py-1 text-sm"
+        onClick={() => setCount((value) => value + 1)}
+      >
+        Add point
+      </button>
+    </div>
+  );
+}
+
+export const ImpactCounterInputs = {
+  label: {
+    type: "string",
+    label: "Metric label",
+    default: "points",
+  },
+  accent: {
+    type: "select",
+    label: "Accent",
+    options: ["blue", "green", "purple"],
+    default: "blue",
+  },
+  featured: {
+    type: "boolean",
+    label: "Featured",
+    default: false,
+  },
+};
+```
+
+次に、ローカルの MDX ファイルからそれを使用します。
+
+```mdx
+---
+title: "起動ノート"
+---
+
+# 起動ノート
+
+<ImpactCounter label="wins" />
+```
+
+Content dev サーバーは、PascalCase という名前のエクスポートと PascalCase のデフォルトを検出します
+は、`.tsx`、`.jsx`、`.ts`、および `.js` ファイルから `components/` の下にエクスポートします。それら
+コンポーネントはエディタ内でレンダリングされ、
+**ローカルコンポーネント**。スラッシュを挿入すると、
+`<ImpactCounter />`;必要に応じて、MDX ソースにプロパティを追加します。
+
+コンポーネントの実行は、意図的にローカル開発/デスクトップ ブリッジ機能ではなく、
+プレーン ホスト ブラウザー フォルダー アクセス。 `content.agent-native.com` を開くと、
+**ローカル ファイル** を選択し、Chrome でフォルダーを選択します。アプリが読み書きできる
+`.md` および `.mdx` ファイルは、ブラウザ ファイル システム アクセス API を介してアクセスされますが、
+Chrome は、Vite をコンパイルするための絶対フォルダー パスを公開しません
+`components/*.tsx`。カスタム React コンポーネントをプレビューしてホット リロードするには、
+コンテンツをローカルに保存するか、信頼できるローカル ブリッジができるように Agent Native デスクトップを使用します
+選択したワークスペースをローカルのコンテンツ開発サーバーに登録します。そのモードでは、
+Vite を介して既存のコンポーネント ファイルを編集し、ホット リロードし、または追加します。
+コンポーネント ファイルを削除すると、コンポーネント レジストリとスラッシュ メニューが再ロードされます。
+
+エージェントは、登録されたコンポーネント ファイルを操作することもできます。使用
+`list-local-component-files` で登録されたワークスペース ID を検索し、
+`write-local-component-file` は、`.tsx`、`.jsx`、`.ts` を作成または更新します。
+ワークスペースの `components/` フォルダーにある `.js` ファイル。 MDX ファイルは
+コンポーネントの使用法に関する信頼できる情報源。コンポーネント ファイルは通常のリポジトリのままです
+Git でレビューされたソース ファイル。
+
+コンポーネントが入力メタデータをエクスポートする場合、エディターでコンポーネントを選択する
+は、コンポーネントの右上隅に編集ボタンを表示します。サポートされている入力タイプ
+は、`string`、`textarea`、`number`、`boolean`、および `select` です。フォームには
+は MDX タグに戻るため、ローカル ファイルが信頼できる情報源のままになります。
+メタデータは `ComponentNameInputs`、`ComponentNameConfig.inputs` としてエクスポートできます
+`Component.inputs`、または `agentNative.inputs`。
+
+リテラル props を含む単純なコンポーネント タグはインラインでプレビューできます。
+
+```mdx
+<FrameworkTabs value="react" />
+
+<Callout type="warning">This setting affects production deploys.</Callout>
+```
+
+複雑な JSX 式はソースに保存されます。編集者が安全に作業できない場合
+コンポーネント プロップをプレビューしても、警告のプレースホルダーが表示されません。
+サイレントにデータを削除します。
+
+## ローカル ファイルの共有
+
+他のユーザーはパスを読み取ることができないため、ローカル ファイルは直接共有されません
+あなたのマシン。コンテンツ ツールバーの [共有] ボタンは、
+選択したファイルのデータベースにバックアップされたコピー。そのコピーに移動して、
+通常の共有ポップオーバー。元のローカル ファイルはローカル ファイルの下に残ります。
+データベース コピーは、ローカル ファイル モードの共有コピーの下に表示され、
+標準ドキュメント共有モデル。
+
+## ローカル内線番号
+
+ローカル ファイル モードでは、設定されたファイルからリポジトリにバックアップされた拡張機能をロードすることもできます。
+`extensions` フォルダー。各拡張子は、`extension.json`
+マニフェストと HTML エントリ ファイル:
+
+```text
+extensions/
+  doc-status/
+    extension.json
+    index.html
+```
+
+```json
+{
+  "id": "doc-status",
+  "name": "Doc Status",
+  "description": "Shows metadata for the selected Content file.",
+  "entry": "index.html",
+  "slots": ["content.sidebar.bottom"],
+  "permissions": {
+    "appActions": ["list-documents"],
+    "extensionData": true
+  }
+}
+```
+
+`index.html` は、通常で使用されるのと同じ Alpine/Tailwind 拡張本体形式です
+データベースベースの拡張機能。コンテンツ アプリがローカル拡張機能を認識すると、
+`content.sidebar.bottom` を宣言すると、
+the Content sidebar. The host passes `window.slotContext` with the selected
+ドキュメント ID、タイトル、ソース メタデータ、コンテンツがローカル ファイル モードかどうか。
+
+ローカル拡張子はアプリによってプレビューされますが、ファイルとして編集されます。拡張機能
+リストにはローカル ファイル バッジが表示され、フルページ ビューアは に戻ります
+エントリファイル。 SQL でサポートされる拡張機能 actions (更新、削除、共有、
+履歴は適用されません。エディタ、Codex、Claude コード、または Git 履歴を使用してください。
+ソースの変更。
+
+v1 の場合、ローカル拡張機能は意図的に保守的です:
+
+- 独自の小さな実行時状態に `extensionData` を使用できます
+- `extension.json` にリストされている `appAction` のみを呼び出すことができます
+- 生の SQL ヘルパーと外部 `extensionFetch` は無効になります
+- スロット ターゲットは `extension.json` で宣言されており、SQL を通じてインストールされていません
+
+これにより、ローカル ワークスペースに Obsidian のようなプラグイン サーフェスが提供されます。
+任意のリポジトリ ファイルは、データベースベースの拡張機能のすべての機能を継承します。
+
+## アプリでの使用方法
+
+ローカル ファイル モードは、フレームワークのローカル アーティファクト ヘルパーを通じて実装されます。
+アプリは、所有するアーティファクト タイプのルートを宣言し、読み取りと書き込みを行います
+UI とエージェントがすでに使用している同じアクション サーフェスを介して。
+
+コンテンツの場合、それは次のことを意味します:
+
+- `list-documents` には、構成された `.md` および `.mdx` ファイルがリストされます。
+- `get-document` は、選択されたローカル ファイルを読み取ります。
+- `update-document` は、選択されたローカル ファイルを書き込みます。
+- `create-document` は、選択したフォルダーに新しいローカル `.mdx` ファイルを作成します。
+- `delete-document` はローカル ファイルを削除します。
+- 検索は、設定されたローカル ファイル全体で実行されます。
+
+コンテンツ UI からのローカル ファイル ページの移動、名前変更、並べ替えはできません
+はまだサポートされています。これらの操作はワークスペースまたはコーディング エージェントを使用して実行します。
+コンテンツ サイドバーには、結果のファイル ツリーが反映されます。
+
+これにより、エージェント契約がシンプルになります。エージェントはコンテンツ actions を使用し続けることができます。
+これらの actions は、ターゲットが SQL ベースであるかファイルベースであるかを決定します。
+
+他のアプリも時間の経過とともに同じパターンを採用する可能性があります。スライド アプリではマッピングが可能
+`slides/*.mdx` をデッキに、計画アプリは `plans/*` を計画ドキュメントにマッピングでき、
+ダッシュボード アプリでは、`dashboards/*.mdx` をダッシュボードにマッピングできます。アプリ固有のもの
+フォルダは、同じローカル アーティファクト コントラクトの上に階層化された規則です。
+
+## ローカル ファイルとエクスポート/インポート
+
+コンテンツには 2 つの異なるファイル ワークフローがあります:
+
+| ワークフロー                           | 何が起こるか                                                                                                                              |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `/local-files` エクスポート/インポート | データベース モードは依然として信頼できる情報源です。ファイルは、エクスポート、編集、プレビュー、インポートするための明示的な同期面です。 |
+| ローカル ファイル モード               | ファイルは真実の情報源です。コンテンツ サイドバーとエディタはローカル ファイルで直接動作します。                                          |
+
+ホストされたワークスペースでファイルを時折確認したい場合は、エクスポート/インポートを使用します。
+リポジトリ自体がワークスペースである場合は、ローカル ファイル モードを使用します。
+
+## 歴史とコラボレーション
+
+ローカル ファイル モードはファイルネイティブの履歴に基づいています:
+
+- 重要な変更を Git にコミットする
+- プル リクエストをレビューに使用する
+- コーディング エージェントが同じファイルを直接編集できるようにする
+- 通常のファイルの差分を使用して変更を理解する
+
+データベース モードは、引き続きホスト型コラボレーション機能に適しています。
+共有、コメント、SQL によるバージョン履歴、ライブ マルチユーザー編集。
+
+プロバイダー同期は、どちらのモードの上にも重ねることができます。たとえば、ドキュメント リポジトリでは、
+CMS からローカル MDX ファイルにコンテンツをプルする actions を追加するか、選択したものをプッシュします
+ローカル ファイルを CMS に戻します。
+
+## 生産の安全性
+
+ローカル ファイル モードでは、アプリ actions に構成されたワークスペースへの直接書き込みアクセスが許可されます
+ファイル。これは、ローカル開発および信頼できるシングルテナント ファイルに適しています
+ブリッジですが、これはデフォルトの実稼働セキュリティ モデルではありません。
+
+`NODE_ENV=production` の場合、フレームワークは、次の操作を行わない限り `local-files` モードを拒否します。
+セット:
+
+```bash
+AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
+```
+
+誰もが使用できる信頼できるシングルテナント展開に対してのみ設定してください
+アプリは構成されたファイルの読み取りと書き込みを許可されます。通常のホストの場合、
+マルチユーザー アプリでは、データベース モードと SQL による共有を使用します。

@@ -1,0 +1,401 @@
+---
+title: "內容"
+description: "MDX 的開放原始碼 Obsidian：編輯本機 Markdown/MDX 檔案，生成豐富的互動式自訂塊，並使用 AI 代理進行編寫。"
+---
+
+# 內容
+
+內容是 MDX 的開放原始碼 Obsidian：本機檔案友好檔案
+代理可以在其中讀取、寫入、重新組織和發布頁面的工作空間
+你。開啟檔案，要求“重寫此段落以使其更加簡潔”或“建立一個
+名為第四季度規劃的頁面，其中包含目標、指標和風險的子頁面” - 相同
+無論你自己做還是要求，都會有結果。
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:210px 1fr;gap:14px;padding:16px;min-height:500px;box-sizing:border-box'><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Content</strong><span class='wf-pill accent'>第三季路線圖</span><span class='wf-pill'>Goals</span><span class='wf-pill'>Metrics</span><span class='wf-pill'>Risks</span><hr/><span class='wf-pill'>工程 wiki</span><span class='wf-pill'>閱讀清單</span><span class='wf-pill'>每週同步</span></aside><main style='display:flex;flex-direction:column;gap:12px;min-width:0;padding:8px 20px'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>第三季路線圖</h1><div style='flex:1'></div><button>分享</button><button class='primary'>Publish</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:12px;padding:22px'><h2 style='margin:0'>發布目標</h2><p style='margin:0'>發布 onboarding 流程，縮短設定時間，並紀錄負責人交接。</p><div class='wf-box'>概覽 · 負責人、時間視窗、狀態</div><div class='wf-box'>主要目標</div><div class='wf-box'>工作流表</div></div></main></div>"
+}
+```
+
+當您開啟應用程式時，您將在編輯器旁邊看到一個頁面樹。代理始終知道您正在檢視哪個頁面以及您選取了哪些文字，因此檔案編輯可以保持在目前頁面。
+
+```an-diagram title="一份檔案，多名編輯" summary="您和代理都透過相同的 Yjs 管道進行寫入。 SQL 是規範儲存；本機檔案和 Notion 是可選的同步表面。"
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">你輸入<br><small class=\"diagram-muted\">slash 選單、工具列</small></div><div class=\"diagram-node\">代理編輯<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">即時、無衝突合併</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">規範 SQL 儲存</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">本機 .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion 頁面<br><small class=\"diagram-muted\">拉取 · 推送</small></div></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## 你可以用它做什麼
+
+- **編寫包含標題、清單、表格、程式碼塊、圖片和連結的富文字**。斜線指令（`/`）插入塊；選取文字會快顯格式工具列。
+- **在樹中組織頁面** — 無限嵌套、拖動重新排序、釘選您經常使用的頁面。
+- **搜尋所有內容**，透過標題和內容進行全文搜尋。
+- **像 Obsidian 一樣編輯本機 Markdown/MDX 檔案。**使用 `/local-files` 檢視
+  將工作區匯出到檔案，在您自己的工具中編輯它們，預覽
+  更改，並將其匯入回來。在本機檔案模式下，內容直接寫入
+  選定的 `.md` 或 `.mdx` 檔案。
+- **生成豐富的互動式自訂塊。**註冊本機 React 元件，
+  將它們插入為 MDX，並讓代理建立或更新元件檔案
+  您的檔案。
+- **與 Notion 同步。** 將本機檔案連結到 Notion 頁面，並向任一方向拉取或推送內容。評論也可以雙向同步。
+- **即時協作。**多人（和代理）可以同時編輯同一份檔案。
+- **與團隊成員共用檔案**或將其公開 - 預設情況下為私人，具有檢視者/編輯者/管理員角色。
+- **向代理詢問任何事情**：“重寫此段落。” “在頂部新增 TL;DR。” “找到我上週的所有會議紀錄。” “讓這個語氣更加正式。”
+
+## 開始使用
+
+線上示範：[content.agent-native.com](https://content.agent-native.com)。
+
+開啟應用程式後，點選側邊欄中的 **+ 新頁面**，為其指定標題，然後開始編寫。要使用代理，請在側邊欄中輸入：
+
+- “建立一個名為 Onboarding 的頁面，並在其下新增三個子頁面。”
+- “重寫此段落以使其更加簡潔。” （開啟頁面）
+- “新增有關定價的部分，其中包含三個要點。”
+- “將此檔案總結為頂部的 TL;DR。”
+- “從 Notion 中擷取最新版本。” （連結 Notion 頁面後）
+
+選取文字並按 Cmd+I 以使代理聚焦於預載入的選取 — “使此內容更加有力”，然後對您突出顯示的內容進行操作。
+
+## 本機 Markdown/MDX 檔案 {#local-files}
+
+內容可以透過本機檔案往返檔案，無需克隆或執行
+本機內容應用程式。感覺就像 MDX 的黑曜石：檔案保持可檢查
+並且可編輯，同時該應用程式為您提供豐富的編輯器、代理 actions、共用和
+自訂塊。開啟 `/local-files`，在瀏覽器或 Agent Native Desktop 中選取一個資料夾，並將目前檔案樹匯出為 Markdown/MDX
+`content/`。
+
+每個匯出的檔案都包含檔案中繼資料的 frontmatter（`id`、`title`、
+`parentId`、`position`、釘選夾/搜尋/可見性標誌和 `updatedAt`）加上
+檔案內文為 Markdown。您可以在普通編輯器中編輯這些檔案，
+然後返回 `/local-files` 預覽並將更改匯入回內容中。
+
+當您想要來源程式碼管理中的內容、想要批處理時，此工作流程非常有用
+使用本機工具編輯檔案，或者希望為偏愛檔案的團隊提供非克隆路徑
+作為審查表面。託管應用程式仍然是共用的事實來源，
+評論、權限和即時協作；本機資料夾是顯式的
+同步表面。
+
+內容還可以在**本機檔案模式**下執行，其中檔案是內容的來源
+真相而不是 SQL 檔案。將 `agent-native.json` 新增到倉庫，設定
+`mode: "local-files"`，並設定`docs/`、`blog/`等根，
+`content/` 和 `resources/`。然後標準內容編輯器填充其
+來自本機 `.md`/`.mdx` 檔案的左側邊欄，並將編輯寫回
+透過普通檔案actions選取檔案。將其用於回購優先檔案，
+由 MDX 驅動的部落格、資源庫或黑曜石風格的個人內容
+元件；當您需要託管協作時切換回資料庫模式並且
+SQL 支援的共用。請參閱 [Local File Mode](/docs/local-file-mode)
+獨立儲存庫布局、設定、自訂 MDX 元件、本機
+`extensions/`小工具、安全正式環境指南。
+
+要將內容本機檔案技能安裝到現有儲存庫中：
+
+```bash
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+```
+
+安裝程式會複製您的編碼代理的 `content` 技能並寫入或
+使用 `docs/`、`blog/`、`content/` 的內容根更新 `agent-native.json`
+和`resources/`。當本機內容應用、Agent Native 桌面或受信任
+本機網橋正在執行，代理應使用內容actions，例如
+`list-documents`、`get-document`、`edit-document`、`update-document` 和
+`share-local-file-document` 而不是原始檔案系統寫入。沒有那個本機
+bridge，已安裝的技能仍然為代理提供了回購編輯合同
+安全 Markdown/MDX 編輯。
+
+## 對於開發者
+
+本檔案的其餘部分適用於任何分叉內容範本或擴充功能它的人。
+
+### 快速啟動
+
+使用內容範本搭建新工作區：
+
+```bash
+npx @agent-native/core@latest create my-workspace --standalone --template content
+cd my-workspace
+pnpm install
+pnpm dev
+```
+
+開啟 `http://localhost:8083` 並建立您的第一個頁面。然後要求代理“建立一個名為 Onboarding 的頁面，並在其下新增三個子頁面”。
+
+### 主要功能 {#key-features}
+
+**嵌套頁面。**檔案形成一個可拖動的樹，其中包含釘選夾、圖示、排序和頁面級共用。
+
+**豐富的 MDX 編輯器。** Tiptap 支援標題、清單、表格、程式碼塊、圖片、連結、斜線指令、選取工具列和本機 React 元件。
+
+**即時協作。** Yjs 使多個編輯者和代理編輯保持同步，而不會相互幹擾。
+
+**搜尋和評論。**全文搜尋、錨定評論、版本歷史紀錄和恢復流程內建於檔案介面中。
+
+**同步表面。**檔案可以與 Notion 或本機 Markdown/MDX 資料夾同步，其中 SQL 充當協作快取/歷史紀錄層。
+
+### 本機檔案同步
+
+受保護的 `/local-files` 路由使用瀏覽器檔案系統存取 API，或
+保護 Agent Native 桌面內的本機資料夾橋，以進行讀寫
+使用者選取的資料夾中的 Markdown/MDX 檔案。連結資料夾後
+匯入後，選取的檔案被視為權限：開啟頁面讀取
+檔案，普通編輯器先儲存寫入檔案。 SQL 然後更新為
+現有檔案 UI、搜尋和版本面板的快取/歷史層，不
+作為真相的來源。右上角頁面選單公開本機來源路徑：
+相對路徑始終可用，絕對路徑在真正的本機檔案中可用
+模式和 Agent Native 桌面，以及在 Finder 中顯示可透過
+桌面橋或伺服器支援的本機檔案模式。
+
+批量同步路由呼叫：
+
+- `export-content-source` — 讀取可存取的檔案樹並返回
+  確定性 `content/` 檔案包。
+- `import-content-source` - 驗證檔案，建立新的私人檔案，
+  更新呼叫者具有編輯存取權限的檔案，保留版本
+  歷史紀錄，並拒絕無效的父週期。
+
+來源格式位於 `shared/content-source.ts`。將該檔案保留為
+檔名、frontmatter、解析和序列化的單一合約。
+
+本機檔案工作區還可以透過
+設定的`components`資料夾。內容開發伺服器匯入 PascalCase
+從這些檔案匯出，渲染匹配的 MDX 標籤，例如 `<ImpactCounter />`
+在編輯器內，並在本機元件下的斜線選單中公開它們。
+這是“Obsidian for MDX”層：自訂 MDX 塊保留在本機
+工作空間，但編輯器可以渲染它們，代理可以生成或更新
+其來源，無需克隆內容應用程式。最小的工作區元件可以
+是：
+
+```tsx
+// components/ImpactCounter.tsx
+import { useState } from "react";
+
+export function ImpactCounter({
+  label = "points",
+  start = 3,
+}: {
+  label?: string;
+  start?: number;
+}) {
+  const [count, setCount] = useState(start);
+  return (
+    <button type="button" onClick={() => setCount(count + 1)}>
+      Impact: {count} {label}
+    </button>
+  );
+}
+
+export const ImpactCounterInputs = {
+  label: { type: "string", label: "Label", default: "points" },
+  start: { type: "number", label: "Starting count", default: 3 },
+};
+```
+
+在本機 MDX 中使用它作為`<ImpactCounter />`，或者從編輯器斜杠插入
+本機元件下的選單。匯出輸入中繼資料時，選取
+編輯器中的元件顯示一個角落編輯按鈕，用於重寫 MDX 屬性
+在本機檔案中。
+
+The browser **Local files** picker can read and write `.md` and `.mdx` files on
+其自己的可執行 React 元件預覽需要本機編譯器。執行
+本機內容或使用 Agent Native Desktop，以便選定的工作空間路徑可以
+已註冊到本機內容開發伺服器。 Vite 然後匯入
+`components/*.tsx`，熱重載編輯現有元件檔案，並重新載入
+新增或刪除檔案時的元件註冊表。代理可以使用
+`list-local-component-files` 和 `write-local-component-file` 進行檢查或
+更新註冊的元件檔案，同時編輯器從同一來源更新。
+
+### 評論
+
+對帶有引用文字錨點、回覆和解決狀態的檔案進行對話串化評論。由 `document_comments` 桌子和 `app/components/editor/CommentsSidebar.tsx` 提供支援。 Actions：`list-comments`、`add-comment`。 Notion 評論可以透過`sync-notion-comments`雙向同步。
+
+### 版本歷史
+
+每個重要更新都會對 `document_versions` 表中的一行進行快照。 UI 在 `app/components/editor/VersionHistoryPanel.tsx` 中呈現這些。
+
+### 分享和可見性
+
+預設情況下，檔案是私人的。您可以更改對 `org` 或 `public` 的可見性，或授予每個使用者和每個組織角色（`viewer`、`editor`、`admin`）。此框架的自動安裝共用 actions 開箱即用：
+
+- `share-resource --resourceType document --resourceId <id> --principalType user --principalId <email> --role editor`
+- `unshare-resource` / `list-resource-shares` / `set-resource-visibility`
+
+檢視`sharing`技能。
+
+### 團隊
+
+`/team` 上的專用團隊頁面（請參閱 `app/routes/_app.team.tsx`）使用框架的 `TeamPage` 元件來建立組織和管理成員。
+
+### 與代理合作
+
+由於代理會看到您目前的螢幕，因此大多數提示不需要您明確引用檔案。當您開啟一個頁面時，“this”表示該頁面。
+
+對於小型編輯，代理使用 `edit-document --find ... --replace ...`，因此只有更改的文字流經 Yjs — 您將看到差異應用到位，而不是整個頁面重新渲染。對於更大的重寫，它使用 `update-document --content ...`。
+
+如果您選取文字並按 Cmd+I（或將焦點放在代理面板上），則選取內容將與您的下一條訊息一起作為脈絡行動，因此“使此內容更加有力”會針對您突出顯示的內容進行操作。
+
+### 資料庫和屬性
+
+檔案可以託管行內資料庫 - Notion 樣式的表，其中每一行本身就是一個檔案。代理可以透過 actions 建立資料庫、新增專案、設定列定義以及設定屬性值：`create-content-database`、`add-database-item`、`set-document-property`。屬性定義（型別、可見性、選項、位置）位於 `document_property_definitions` 中；每行值位於 `document_property_values` 中。
+
+### 額外的actions
+
+除了資料模型中的 CRUD 表面之外，範本還提供了 `export-document` 用於將頁面轉換為 Markdown 或 HTML、`transcribe-media` 用於將指令碼附加到頁面，以及 `restore-document-version` 用於回滾到較早的快照。
+
+### 資料模型
+
+九個表，全部在`server/db/schema.ts`中定義：
+
+- **`documents`** — 頁面樹。列：`id`、`parent_id`、`title`、`content`（降價）、`icon`、`position`、`is_favorite`、`visibility`、`owner_email`、`org_id`、`created_at`、 `updated_at`。
+- **`document_versions`** — 版本歷史紀錄的標題和內容的完整快照。使用`restore-document-version`回滾。
+- **`document_comments`** — 帶有 `thread_id`、`parent_id`、`quoted_text`、`resolved` 的對話串註解以及用於雙向 Notion 同步的可選 `notion_comment_id`。
+- **`document_sync_links`** — 每個 Notion 連結檔案一行跟蹤遠端頁面 ID、上次同步時間、衝突狀態、內容哈希和錯誤。
+- **`document_property_definitions`** — 行內資料庫的列定義：名稱、型別、可見性、選項和位置。
+- **`content_databases`** — 附加到 `document_id` 的行內資料庫物件，帶有標題和檢視設定 JSON。
+- **`content_database_items`** — 行內資料庫中的行，每行將 `database_id` 連結到 `document_id`。
+- **`document_property_values`** — 每個檔案的屬性值（`property_id` → `value_json`）。
+- **`document_shares`** — 透過 `createSharesTable` 建立的每使用者和每組織撥款。
+
+```an-schema title="內容資料模型" summary="Nine tables in server/db/schema.ts. documents is the page tree; the rest hang off it for versions, comments, Notion sync, inline databases, and sharing."
+{
+  "entities": [
+    {
+      "id": "documents",
+      "name": "documents",
+      "note": "The page tree (ownable, markdown body)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "parent_id", "type": "id", "fk": "documents.id", "nullable": true, "note": "infinite nesting" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" },
+        { "name": "icon", "type": "string", "nullable": true },
+        { "name": "position", "type": "int", "note": "sibling ordering" },
+        { "name": "is_favorite", "type": "bool" },
+        { "name": "visibility", "type": "enum", "note": "私人|組織|民眾" },
+        { "name": "owner_email", "type": "string" },
+        { "name": "org_id", "type": "id", "nullable": true }
+      ]
+    },
+    {
+      "id": "document_versions",
+      "name": "document_versions",
+      "note": "版本歷史紀錄的完整 title/content 快照",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "content", "type": "markdown" }
+      ]
+    },
+    {
+      "id": "document_comments",
+      "name": "document_comments",
+      "note": "帶有引用文字錨的線索評論",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "thread_id", "type": "id" },
+        { "name": "parent_id", "type": "id", "fk": "document_comments.id", "nullable": true },
+        { "name": "quoted_text", "type": "string", "nullable": true },
+        { "name": "resolved", "type": "bool" },
+        { "name": "notion_comment_id", "type": "string", "nullable": true, "note": "雙向概念同步" }
+      ]
+    },
+    {
+      "id": "document_sync_links",
+      "name": "document_sync_links",
+      "note": "每個概念連結檔案一行",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "notion_page_id", "type": "string" },
+        { "name": "conflict", "type": "bool" },
+        { "name": "content_hash", "type": "string" }
+      ]
+    },
+    {
+      "id": "content_databases",
+      "name": "content_databases",
+      "note": "附加到檔案的行內資料庫物件",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "title", "type": "string" },
+        { "name": "view_config", "type": "json" }
+      ]
+    },
+    {
+      "id": "content_database_items",
+      "name": "content_database_items",
+      "note": "Rows in an inline database (each row is a document)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "database_id", "type": "id", "fk": "content_databases.id" },
+        { "name": "document_id", "type": "id", "fk": "documents.id" }
+      ]
+    },
+    {
+      "id": "document_property_definitions",
+      "name": "document_property_definitions",
+      "note": "行內資料庫的列定義",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "name", "type": "string" },
+        { "name": "type", "type": "string" },
+        { "name": "options", "type": "json", "nullable": true },
+        { "name": "position", "type": "int" }
+      ]
+    },
+    {
+      "id": "document_property_values",
+      "name": "document_property_values",
+      "note": "每個檔案的屬性值",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "property_id", "type": "id", "fk": "document_property_definitions.id" },
+        { "name": "value_json", "type": "json" }
+      ]
+    },
+    {
+      "id": "document_shares",
+      "name": "document_shares",
+      "note": "Per-user and per-org grants (createSharesTable)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "document_id", "type": "id", "fk": "documents.id" },
+        { "name": "principal", "type": "string" },
+        { "name": "role", "type": "enum", "note": "觀眾|編輯|行政" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "documents", "to": "documents", "kind": "1-n", "label": "has children" },
+    { "from": "documents", "to": "document_versions", "kind": "1-n", "label": "has snapshots" },
+    { "from": "documents", "to": "document_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "documents", "to": "document_sync_links", "kind": "1-1", "label": "概念連結" },
+    { "from": "documents", "to": "content_databases", "kind": "1-n", "label": "hosts databases" },
+    { "from": "content_databases", "to": "content_database_items", "kind": "1-n", "label": "has rows" },
+    { "from": "document_property_definitions", "to": "document_property_values", "kind": "1-n", "label": "has values" },
+    { "from": "documents", "to": "document_shares", "kind": "1-n", "label": "has share grants" }
+  ]
+}
+```
+
+內容以降價形式儲存。編輯器在記憶中與 Tiptap JSON 模型進行相互轉換； SQL 行始終是降價的，因此 actions、搜尋和 Notion 同步可以在單一規範格式上執行。
+
+所有可擁有的表都包括透過 `ownableColumns()` 的 `owner_email` 和 `org_id`，因此從建立那一刻起，每一行的範圍都僅限於登入使用者（以及可選的活動組織）。
+
+### 自訂它
+
+改變行為時要注意的四個地方：
+
+- **`actions/`** — 代理或 UI 可以執行的每個操作。使用`defineAction`新增一個像`actions/publish-to-wordpress.ts`這樣的新檔案，雙方都可以免費獲得。現有actions主要：`create-document.ts`、`edit-document.ts`、`update-document.ts`、`delete-document.ts`、`list-documents.ts`、`search-documents.ts`、`get-document.ts`、`pull-notion-page.ts`、`push-notion-page.ts`、`add-comment.ts`、`view-screen.ts`、 `navigate.ts`。
+- **`app/routes/`** — 頁面表面。 `_app.tsx` 是無路徑布局，保持側邊欄和代理面板安裝； `_app._index.tsx`為落地檢視； `_app.page.$id.tsx`是編輯器路由； `_app.team.tsx`是團隊設定頁面。
+- **`app/components/editor/`** — Tiptap 編輯器。在`extensions/`下新增新的節點型別，並在`DocumentEditor.tsx`中註冊。氣泡工具列、斜杠選單和懸停預覽都是您可以編輯的元件檔案。
+- **`.agents/skills/`** — 代理在行動前閱讀的指南。如果您新增新功能（例如，CMS 發布管道），請將 `SKILL.md` 放入新技能資料夾中，以便代理正確使用它。現有skills：`document-editing`、`notion-integration`、`real-time-sync`、`delegate-to-agent`、`storing-data`、`self-modifying-code`、`security`、`frontend-design`、`create-skill`、`capture-learnings`。
+- **`AGENTS.md`** — 帶有操作備忘單和常見工作表的頂級代理指南。每當您新增主要功能時更新它，以便代理無需探索即可發現它。
+- **`server/db/schema.ts`** — 資料模型。此處新增列或表。內容範本沒有 `db:push` 指令碼；它依賴於在啟動時執行的嚴格附加遷移。編輯 `server/db/schema.ts`，編寫匹配的附加遷移，並在下次應用啟動時應用更改 - 架構更新絕不能刪除、重新命名或破壞性地更改現有表或列（有關準則，請參閱 [Database](/docs/database#migrations)）。
+- **`shared/notion-markdown.ts`** — 降價到 Notion 塊的轉換。如果您新增需要透過 Notion 往返的新塊型別，請擴充功能此功能。
+
+代理可以自行進行所有這些更改 - 要求它“向檔案新增標籤列並將其公開在側邊欄中”，它將更新架構、遷移、連線 UI 並編寫操作。

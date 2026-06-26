@@ -1,5 +1,6 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { runWithRequestContext } from "../server/request-context.js";
 import { resolveA2ACallerAuth } from "./caller-auth.js";
 

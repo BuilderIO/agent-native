@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { captureCliOutput } from "./cli-capture.js";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

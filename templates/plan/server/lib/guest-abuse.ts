@@ -32,8 +32,10 @@
  * window where a per-row check could not run.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { getHeader, getRequestIP, type H3Event } from "h3";
+
 import { getDbExec } from "@agent-native/core/db";
+import { getHeader, getRequestIP, type H3Event } from "h3";
+
 import {
   GUEST_AUTHOR_DOMAIN,
   isGuestAuthorIdentity,

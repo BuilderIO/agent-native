@@ -20,6 +20,7 @@
  */
 
 import crypto from "node:crypto";
+
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
 /** Default token TTL, in seconds. 10 minutes covers a typical video session. */

@@ -1,3 +1,5 @@
+import { IconCode, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
+import { common, createLowlight } from "lowlight";
 import {
   useMemo,
   useRef,
@@ -6,24 +8,23 @@ import {
   type ReactNode,
   type UIEvent,
 } from "react";
-import { IconCode, IconPencil, IconPlus, IconTrash } from "@tabler/icons-react";
-import { common, createLowlight } from "lowlight";
-import { cn } from "../../utils.js";
-import { defineBlock } from "../types.js";
-import type { BlockReadProps, BlockEditProps } from "../types.js";
-import { ltrCodeBlockProps } from "../code-block-direction.js";
+
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../../components/ui/popover.js";
-import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
+import { cn } from "../../utils.js";
+import { ltrCodeBlockProps } from "../code-block-direction.js";
+import { defineBlock } from "../types.js";
+import type { BlockReadProps, BlockEditProps } from "../types.js";
 import {
   codeTabsSchema,
   codeTabsMdx,
   type CodeTabsData,
   type CodeTabsTab,
 } from "./code-tabs.config.js";
+import { CodeSurface, DEFAULT_CODE_MAX_LINES } from "./HighlightedCode.js";
 
 /**
  * Standard `code-tabs` block (STANDARD core library): a vertical file tab rail

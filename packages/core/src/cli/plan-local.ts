@@ -9,15 +9,15 @@
  * public block catalog before authoring local MDX; it never sends plan content.
  */
 
-import fs from "node:fs";
+import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http, {
   type IncomingMessage,
   type Server,
   type ServerResponse,
 } from "node:http";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 import {

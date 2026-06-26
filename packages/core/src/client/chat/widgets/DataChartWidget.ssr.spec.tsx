@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
 import { renderToString } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
+
 import { DataChartWidget } from "./DataChartWidget.js";
 
 vi.mock("recharts", () => {

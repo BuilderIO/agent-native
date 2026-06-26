@@ -1,3 +1,12 @@
+import { useT } from "@agent-native/core/client";
+import type { Alias } from "@shared/types";
+import {
+  IconX,
+  IconUsersGroup,
+  IconPencil,
+  IconArrowsDiagonal,
+  IconPlus,
+} from "@tabler/icons-react";
 import {
   useState,
   useRef,
@@ -7,21 +16,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
-import {
-  IconX,
-  IconUsersGroup,
-  IconPencil,
-  IconArrowsDiagonal,
-  IconPlus,
-} from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useContacts, type Contact } from "@/hooks/use-emails";
-import { useAliases, useCreateAlias } from "@/hooks/use-aliases";
-import {
-  isAliasToken,
-  aliasIdFromToken,
-  ALIAS_PREFIX,
-} from "@/lib/alias-utils";
+
 import {
   Dialog,
   DialogContent,
@@ -31,12 +26,19 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import type { Alias } from "@shared/types";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAliases, useCreateAlias } from "@/hooks/use-aliases";
+import { useContacts, type Contact } from "@/hooks/use-emails";
+import {
+  isAliasToken,
+  aliasIdFromToken,
+  ALIAS_PREFIX,
+} from "@/lib/alias-utils";
+import { cn } from "@/lib/utils";
 
 /** Which header field a RecipientInput represents — used for cross-field drag. */
 export type RecipientField = "to" | "cc" | "bcc";
@@ -144,6 +146,7 @@ function AliasPopover({
   onClose,
   onExpand,
 }: AliasPopoverProps) {
+  const t = useT();
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: 0, left: 0 });
@@ -194,7 +197,9 @@ function AliasPopover({
           {alias.name}
         </span>
         <span className="rounded-full bg-indigo-500/15 px-2 py-0.5 text-[11px] font-medium text-indigo-300">
-          {alias.emails.length} recipients
+          {t("mail.recipients.recipientCount", {
+            count: alias.emails.length,
+          })}
         </span>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -206,7 +211,7 @@ function AliasPopover({
               <IconPencil className="size-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Edit alias</TooltipContent>
+          <TooltipContent>{t("mail.recipients.editAlias")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
@@ -218,7 +223,9 @@ function AliasPopover({
               <IconArrowsDiagonal className="size-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Expand to individual emails</TooltipContent>
+          <TooltipContent>
+            {t("mail.recipients.expandToIndividualEmails")}
+          </TooltipContent>
         </Tooltip>
       </div>
       {/* Email list */}
@@ -250,6 +257,7 @@ interface SaveAliasModalProps {
 }
 
 function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
+  const t = useT();
   const [name, setName] = useState("");
   const createAlias = useCreateAlias();
 
@@ -263,9 +271,13 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle className="text-[14px]">Save as alias</DialogTitle>
+          <DialogTitle className="text-[14px]">
+            {t("mail.recipients.saveAsAlias")}
+          </DialogTitle>
           <DialogDescription className="text-[12px]">
-            Create a reusable group of {emails.length} recipients
+            {t("mail.recipients.createReusableGroup", {
+              count: emails.length,
+            })}
           </DialogDescription>
         </DialogHeader>
         <Input
@@ -277,7 +289,7 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
             if (e.key === "Enter") handleSave();
             e.stopPropagation();
           }}
-          placeholder="Alias name"
+          placeholder={t("mail.recipients.aliasName")}
         />
         <DialogFooter>
           <button
@@ -285,7 +297,7 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
             onClick={onClose}
             className="rounded-lg px-3 py-1.5 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground"
           >
-            Cancel
+            {t("mail.compose.cancel")}
           </button>
           <button
             type="button"
@@ -293,7 +305,9 @@ function SaveAliasModal({ emails, onClose }: SaveAliasModalProps) {
             disabled={!name.trim() || createAlias.isPending}
             className="rounded-lg bg-indigo-600 px-3 py-1.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-40"
           >
-            {createAlias.isPending ? "Saving…" : "Save"}
+            {createAlias.isPending
+              ? t("mail.recipients.saving")
+              : t("mail.integrations.save")}
           </button>
         </DialogFooter>
       </DialogContent>
@@ -311,6 +325,7 @@ export function RecipientInput({
   field,
   onMoveRecipient,
 }: RecipientInputProps) {
+  const t = useT();
   const [inputValue, setInputValue] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -611,7 +626,9 @@ export function RecipientInput({
                     {alias.name}
                   </span>
                   <span className="shrink-0 text-[11px] text-indigo-400/70">
-                    {alias.emails.length} people
+                    {t("mail.recipients.peopleCount", {
+                      count: alias.emails.length,
+                    })}
                   </span>
                 </button>
               ))}
@@ -765,7 +782,7 @@ export function RecipientInput({
             className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground/35 transition-colors hover:text-muted-foreground/60"
           >
             <IconPlus className="size-3" />
-            Save as alias
+            {t("mail.recipients.saveAsAlias")}
           </button>
         )}
       </div>

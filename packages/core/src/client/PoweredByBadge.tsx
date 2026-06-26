@@ -1,5 +1,6 @@
-import type { CSSProperties } from "react";
 import { IconBrandGithub } from "@tabler/icons-react";
+import type { CSSProperties } from "react";
+
 import { appPath } from "./api-path.js";
 
 export interface PoweredByBadgeProps {

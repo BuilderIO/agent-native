@@ -1,0 +1,680 @@
+---
+title: "实时协作"
+description: "多用户协作编辑，其中 AI 代理是一流的同行：CRDT 合并、实时呈现、SSE 快速路径和细粒度服务器端合并 - 在任何 SQL 数据库和任何主机上。"
+---
+
+# 实时协作
+
+想象一下打开文档并看到同伴的光标滚动到某个段落，
+然后文本会自行重写——就像外科手术一样，不会丢失你的位置。那
+同伴可能是队友。可能是代理吧来自框架的
+从角度来看它们是相同的：都产生合并的 Yjs 操作
+无冲突地进入共享文档。这是
+代理与本地协作模型。
+
+## 愿景 {#vision}
+
+与代理一起编辑感觉就像在 Google Docs 或 Figma 中工作
+一位既快速又不知疲倦的同事：
+
+如果您只需要在代理或其他用户写入 SQL 时刷新 UI，则不需要任何这些 — 使用 [`useDbSync`](/docs/client)。此页面用于对单个富文本文档进行字符级共同编辑（共享光标、无冲突合并）。两者都使用相同的 `/_agent-native/poll` 通道。
+
+它建立在三项经过实战检验的技术之上：**Yjs**（CRDT，用于无冲突合并）、**TipTap**（富文本编辑器）和**基于轮询的同步**（适用于所有部署环境，包括无服务器和边缘）。
+
+- **CRDT 合并** - 人类和代理的并发编辑无需合并
+  冲突。您输入一个段落；代理重写另一个；两者
+  干净利落地着陆。
+- **存在** - `PresenceBar` 显示当前谁在文档中，
+  当客服人员正在积极编辑时，包括客服人员存在指示器。
+- **代理作为对等编辑器** — 代理通过相同的 Yjs 进行编辑流程
+  作为人工编辑的基础设施。它们显示为实时状态，不会干扰光标
+  位置、选择或撤消堆栈。
+- **随处可用** — Drizzle 支持的任何 SQL 数据库（SQLite、Postgres）。
+  Nitro 支持的任何托管目标，包括无服务器和边缘。
+
+## 架构 {#architecture}
+
+协作系统有五个互锁层。
+
+```an-diagram title="五层互锁" summary="从内存中的 CRDT 到在对等点之间传送更新的传输 — 每一层都有一项工作。"
+{
+  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; 无冲突合并，无协调器</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL 规范内容</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; 由 updatedAt 门控的对账</span><small class=\"diagram-muted\">代理编辑通过 SQL 更新时间传播</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; 主客户端选举</span><small class=\"diagram-muted\">恰好一个标签页应用快照</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE 快速路径 + 轮询</span><small class=\"diagram-muted\">约几十毫秒，任何地方都可降级为 2 秒轮询</small></div></div>",
+  "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+}
+```
+
+### 1。 Yjs Y.Doc（CRDT层）
+
+每个协作文档都是一个包含共享类型的 `Y.Doc` — 通常是
+`Y.XmlFragment` 用于富文本（TipTap 读取的 ProseMirror 节点树）或
+`Y.Map` / `Y.Array` 用于结构化 JSON 数据。 Yjs合并并发更新
+没有中央协调员；任何两个交换状态的客户端
+无论顺序如何，结果都是相同的。
+
+### 2。 SQL 规范内容（持久的事实来源）
+
+Yjs 状态以 Base64 编码的二进制形式保存在 `_collab_docs` 表中。
+该表由框架管理且与提供商无关（SQLite 和 Postgres 使用
+相同的模式）。每行都有一个乐观并发版本列
+防止并发写入竞争。墓碑压缩会机会性地运行
+当存储的 blob 超过新编码状态的 4 倍时 — 无后台作业
+必需。
+
+### 3。 `updatedAt` 门控协调（代理编辑传播）
+
+代理 actions 不会推送到进程中的 Yjs。相反，该操作会编辑
+规范的 SQL 内容列和凹凸 `updatedAt`。变更同步系统
+检测到碰撞，打开的编辑器重新获取记录，并且主要客户端
+通过 `setContent` 将新内容应用到共享的 Y.Doc 中。一个`updatedAt`
+gate 确保仅采用真正较新的内容 - 滞后的民意调查响应
+无法恢复编辑。
+
+### 4。主客户选举（重复数据删除）
+
+打开多个选项卡时，只有一个选项卡应用权威的 SQL 快照
+进入共享的 Y.Doc。领先的是 Yjs `clientID` 最低的选项卡
+当前可见的对等体中。代理的意识条目使用
+`AGENT_CLIENT_ID` (max int) 所以它永远不可能成为领先。客户端编辑
+独自一人永远是领先者。选举是确定性的，没有协调
+往返（从 `@agent-native/core/client` 到 `isReconcileLeadClient`）。
+
+### 5。 SSE 快速路径+轮询回退（传输）
+
+协作更新事件通过两条路径传输：
+
+- **SSE 快速路径** — 客户端订阅 `/_agent-native/poll-events`
+  （`useDbSync` 使用的相同 `EventSource`）。协作更新事件到来
+  推送式，通常为数十毫秒。虽然 SSE 很健康
+  轮询循环放松到较慢的节奏（默认情况下约为 12 秒）。
+- **轮询回退** — `/_agent-native/poll?since=N` 每 2 秒轮询一次
+  当 SSE 不可用时。这使得协作可以在任何部署上进行
+  目标 - 包括持久连接的无服务器功能
+  不可能，不同的调用可以处理不同的请求。
+
+本地 Yjs 更新已去抖并与 `Y.mergeUpdates` 合并（约 80 毫秒）
+在发送到服务器之前，减少击键级别的网络流量。
+批次立即在 `visibilitychange` 或 `pagehide` 上刷新。一个
+状态向量差异（`GET /:docId/state?stateVector=…`）仅在
+重新连接、环形缓冲区溢出或每 15 个轮询周期 - 不是每个
+循环。
+
+网络错误使用带抖动的指数退避，上限约为 15 秒。
+
+```an-diagram title="两条编辑路径，一条合并" summary="人类击键流程 Y.Doc → 服务器 → SSE。代理编辑经过 SQL：操作在更新时发生碰撞，主要客户进行协调，然后更改重新进入 Yjs。"
+{
+  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">人工编辑</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce 约 80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">代理编辑</span><div class=\"diagram-node\">Action 写入 SQL<br><small class=\"diagram-muted\">更新 updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>主客户端<br><small class=\"diagram-muted\">setContent 写入 Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
+  "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## 快速入门 {#quickstart}
+
+### 1。安装包
+
+```bash
+pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap @tiptap/core
+```
+
+### 2。添加Vite优化Deps
+
+防止 Vite 在开发过程中以不兼容的方式重新捆绑 TipTap：
+
+```ts
+// vite.config.ts
+import { reactRouter } from "@react-router/dev/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [reactRouter(), agentNative()],
+  optimizeDeps: {
+    include: [
+      "yjs",
+      "y-protocols/awareness",
+      "@tiptap/core",
+      "@tiptap/extension-collaboration",
+      "@tiptap/extension-collaboration-caret",
+      "@tiptap/y-tiptap",
+    ],
+  },
+});
+```
+
+### 3。添加协作服务器插件
+
+始终将 `resourceType` 设置为注册的可共享资源的名称
+通过 `registerShareableResource`。如果没有它，协作推送事件就会被传递
+所有经过身份验证的用户（没有文档级范围）和服务器
+记录一次性警告。
+
+```ts
+// server/plugins/collab.ts
+import { createCollabPlugin } from "@agent-native/core/server";
+
+export default createCollabPlugin({
+  table: "documents",
+  contentColumn: "content",
+  idColumn: "id",
+  resourceType: "document", // required for access-scoped event delivery
+});
+```
+
+### 4.使用客户端钩子
+
+```ts
+import {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+} from "@agent-native/core/client";
+
+const TAB_ID = generateTabId(); // or Math.random().toString(36)
+
+const { ydoc, awareness, isLoading, activeUsers, agentActive, agentPresent } =
+  useCollaborativeDoc({
+    docId: documentId,
+    requestSource: TAB_ID,
+    user: {
+      name: emailToName(session.email),
+      email: session.email,
+      color: emailToColor(session.email),
+    },
+  });
+```
+
+### 5.添加TipTap扩展
+
+```ts
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+
+const editor = useEditor({
+  extensions: [
+    StarterKit.configure({ history: false }), // Yjs owns undo
+    Collaboration.configure({ document: ydoc }),
+    CollaborationCaret.configure({
+      provider: { awareness },
+      user: { name, color },
+    }),
+  ],
+  // Do NOT pass content here — Yjs owns the content
+});
+```
+
+### 6。首次加载时的种子（如果内容存在）
+
+协作扩展不会从 `content` 属性自动播种。如果
+Y.Doc 为空，文档已有内容，为其播种：
+
+```ts
+useEffect(() => {
+  if (!ydoc || !editor || !isLoaded) return;
+  const fragment = ydoc.getXmlFragment("default");
+  if (fragment.length === 0 && initialContent) {
+    editor.commands.setContent(initialContent);
+  }
+}, [ydoc, editor, isLoaded]);
+```
+
+用户身份源自会话电子邮件。该框架提供了 `emailToColor()` 和 `emailToName()` 帮助程序，用于根据电子邮件地址生成一致的光标颜色和显示名称。
+
+## 评论 {#comments}
+
+模板可以添加评论系统，对文档进行线程讨论。内容模板的评论系统包括完整的实现：
+
+- `document_comments` SQL 表（话题、回复、已解决状态）
+- 内容模板的REST路由，用于在`/api/comments/:id`处更新/删除；通过 `add-comment` / `list-comments` actions 创建并列出运行。自定义模板针对核心 `POST /_agent-native/collab/:docId/search-replace` 路由实现自己的等效端点。
+- 带有线索视图和回复的评论侧边栏 UI
+- 解析/取消解析线程
+- **发送到 AI** 按钮 - 通过 `sendToAgentChat()` 将评论线程上下文发送到代理聊天
+- 代理actions：`list-comments`，`add-comment`
+- Notion评论同步：`sync-notion-comments`双向拉/推操作
+
+## 协作路线 {#collab-routes}
+
+所有协作路由均由协作插件自动挂载在 `/_agent-native/collab/` 下：
+
+| 路线                          | 目的                                       |
+| ----------------------------- | ------------------------------------------ |
+| `GET /:docId/state`           | 获取完整的 Y.Doc 状态 (base64)             |
+| `POST /:docId/update`         | 应用客户端 Yjs 更新                        |
+| `POST /:docId/text`           | 应用全文替换（基于差异）                   |
+| `POST /:docId/search-replace` | 在 Y.XmlFragment 中进行外科手术式查找/替换 |
+| `POST /:docId/awareness`      | 同步光标/存在状态                          |
+| `GET /:docId/users`           | 列出文档上的活跃用户                       |
+
+## 代理编辑操作 {#edit-document}
+
+内容模板的 `edit-document` 操作是代理在协作模式下更改文档的主要方式：
+
+```bash
+# 单次编辑
+pnpm action edit-document --id doc123 --find "old text" --replace "new text"
+
+# 批量编辑
+pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
+
+# 删除文字
+pnpm action edit-document --id doc123 --find "delete me" --replace ""
+```
+
+---
+
+## 存在套件 {#presence-kit}
+
+存在套件在现有感知层之上提供 Liveblocks/Figma 级实时光标和选择基元。
+
+从焦点浏览器子路径导入客户端状态和编辑器 UI：
+
+```ts
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+  useCollaborativeDoc,
+  usePresence,
+} from "@agent-native/core/client/collab";
+```
+
+服务器端代理存在帮助程序保留在较低级别的协作包中：
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+```
+
+### 公共API {#presence-public-api}
+
+| API                                                 | 目的                                                                                              |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `useCollaborativeDoc(options)`                      | 创建稳定的 `Y.Doc` 和感知实例，处理状态向量同步、SSE 快速路径、轮询回退、活动用户和代理存在标志。 |
+| `usePresence(awareness, localClientId)`             | 派生远程参与者并发布任意本地感知字段，例如光标、选择、视口或工具模式。                            |
+| `<PresenceBar>`                                     | 渲染活跃的协作者和人工智能代理，并带有可选的头像点击跟随模式连接。                                |
+| `<LiveCursorOverlay>`                               | 根据标准化的 0-1 坐标在定位容器上渲染远程光标标签。                                               |
+| `<RemoteSelectionRings>`                            | 在您的应用解析的选定 DOM 元素周围渲染彩色环和标签。                                               |
+| `useFollowUser(options)`                            | 当关注的参与者发布视口更改时调用回调。                                                            |
+| `toNormalized()` / `fromNormalized()`               | 将指针坐标与标准化容器坐标相互转换。                                                              |
+| `dedupeCollabUsersByEmail()`                        | 构建自定义头像堆栈，无需一个用户在每个打开的选项卡中显示一次。                                    |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | 用于 Y.Map/Y.Array 结构化协作的客户端挂钩。视为较低级别，直到模板证明准确的产品模式。             |
+
+`UseCollaborativeDocOptions`:
+
+| 选项                  | 描述                                              |
+| --------------------- | ------------------------------------------------- |
+| `docId`               | 文档 ID，或 `null` 以禁用挂钩。                   |
+| `pollInterval`        | SSE 不可用时的轮询间隔。默认值：`2000`。          |
+| `pollIntervalWithSse` | SSE 运行状况良好时轮询间隔较慢。默认值：`12000`。 |
+| `pauseWhenHidden`     | 隐藏时暂停远程更新/状态轮询。默认值：`true`。     |
+| `baseUrl`             | 协作端点前缀。默认值：`/_agent-native/collab`。   |
+| `requestSource`       | 稳定的选项卡/源 ID 用于忽略自产生的刷新噪音。     |
+| `user`                | 光标中显示 `{ name, email, color }` 并存在 UI。   |
+
+`UseCollaborativeDocResult`:
+
+| 字段           | 描述                                            |
+| -------------- | ----------------------------------------------- |
+| `ydoc`         | 当前`docId`的稳定`Y.Doc`。                      |
+| `awareness`    | 光标、选择和跟随模式使用的 Yjs Awareness 实例。 |
+| `isLoading`    | 初始服务器状态仍在加载中。                      |
+| `isSynced`     | 挂钩已赶上服务器状态。                          |
+| `activeUsers`  | 来自意识的人类合作者。                          |
+| `agentActive`  | 代理正在积极编辑。                              |
+| `agentPresent` | 代理有此文档的认知条目。                        |
+
+### 快速认知 {#fast-awareness}
+
+感知状态更改现在以约 150 毫秒的速度传播，而不是 2 秒的轮询周期：
+
+- **客户端 → 服务器**：对 `setPresence()` 或 `awareness.setLocalStateField()` 的任何调用都会在 150 毫秒内触发对 POST 到 `/_agent-native/collab/:docId/awareness` 的节流，将快速更改合并为一个请求。
+- **服务器 → 客户端**：`postAwareness` 处理程序在存储后发出 `AWARENESS_CHANGE_EVENT`。 `/_agent-native/poll-events` SSE 流将这些事件推送式转发到连接的对等点。仅轮询部署继续工作 - 光标降级到轮询节奏而不会出现错误。
+
+### `usePresence(awareness, localClientId)` {#use-presence}
+
+返回远程参与者的反应列表和本地在线状态有效负载的设置器：
+
+```ts
+import { usePresence } from "@agent-native/core/client";
+
+const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
+
+// Publish cursor position (normalized 0–1)
+setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
+
+// others: OtherPresence[]
+// {
+//   clientId: number
+//   user: { name, email, color }
+//   presence: { cursor?, selection?, viewport?, ... }
+//   isAgent: boolean   ← true for AGENT_CLIENT_ID
+// }
+```
+
+代理 (AGENT_CLIENT_ID) 显示为 `isAgent: true` 的一级参与者。当 `agentUpdateSelection()` 被称为服务器端时，它的选择元数据像任何其他参与者一样流经 `usePresence`。
+
+### `LiveCursorOverlay` {#live-cursor-overlay}
+
+将远程光标呈现为容器元素上的绝对定位标签：
+
+```tsx
+import { LiveCursorOverlay } from "@agent-native/core/client";
+
+// cursor positions stored as { x, y } normalized 0–1 under presence.cursor
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <LiveCursorOverlay
+    others={others} // from usePresence
+    containerRef={containerRef}
+    cursorKey="cursor" // key in presence payload (default: "cursor")
+  />
+</div>;
+```
+
+代理的光标清晰地呈现为闪烁图标。光标在 10 秒不活动后淡出，并以 120 毫秒平滑 CSS 过渡。
+
+### `RemoteSelectionRings` {#remote-selection-rings}
+
+在远程选择的元素上渲染彩色轮廓环+名称标签：
+
+```tsx
+import { RemoteSelectionRings } from "@agent-native/core/client";
+
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <RemoteSelectionRings
+    others={others}
+    selectionKey="selection" // key in presence payload (default: "selection")
+    resolveRect={(descriptor) =>
+      document.querySelector(descriptor)?.getBoundingClientRect() ?? null
+    }
+    containerRef={containerRef}
+  />
+</div>;
+```
+
+### `useFollowUser` {#follow-user}
+
+每当跟随的参与者的视口发生变化时调用回调：
+
+```ts
+import { useFollowUser } from "@agent-native/core/client";
+
+const { isFollowing, stopFollowing } = useFollowUser({
+  others,
+  followingId, // null to stop following
+  viewportKey: "viewport",
+  onViewport: (vp) => {
+    if (vp.fileId) setActiveFileId(vp.fileId);
+    if (vp.zoom) setZoom(vp.zoom);
+  },
+});
+```
+
+参与者使用 `setPresence({ viewport: { fileId, zoom } })` 发布他们的视口。
+
+### `PresenceBar`跟随模式道具 {#presence-bar-follow}
+
+`PresenceBar` 组件现在接受可选的跟随模式道具：
+
+```tsx
+<PresenceBar
+  activeUsers={activeUsers}
+  agentActive={agentActive}
+  onAvatarClick={(user) => {
+    // user is null for the agent avatar
+    const email = user?.email ?? "agent@system";
+    setFollowing((prev) => (prev === email ? null : email));
+  }}
+  followingEmail={followingEmail} // highlighted avatar + "Following X" chip
+/>
+```
+
+### 标准化坐标助手 {#norm-coords}
+
+```ts
+import { toNormalized, fromNormalized } from "@agent-native/core/client";
+
+// In a pointer event handler:
+const norm = toNormalized(
+  e.clientX,
+  e.clientY,
+  container.getBoundingClientRect(),
+);
+setPresence({ cursor: norm });
+
+// In a cursor renderer:
+const px = fromNormalized(norm, container.getBoundingClientRect());
+```
+
+### 代理光标管道 {#agent-cursor}
+
+服务器端actions调用`agentUpdateSelection()`来发布代理在哪里工作。设计模板的 `edit-design` 和 `generate-design` actions 自动调用此函数。其他模板也可以执行相同的操作：
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+
+agentEnterDocument(docId);
+agentUpdateSelection(docId, {
+  selection: "#target-element",
+  editingFile: "index.html",
+});
+try {
+  // ... perform edits ...
+} finally {
+  agentLeaveDocument(docId);
+}
+```
+
+选择元数据作为 `other.presence.selection` 在连接的客户端上通过 `usePresence` 流动。
+
+---
+
+## 路由表 {#routes}
+
+所有路由均由协作自动挂载在`/_agent-native/collab/`下
+插件：
+
+| 路线                          | 目的                                                      |
+| ----------------------------- | --------------------------------------------------------- |
+| `GET /:docId/state`           | 完整的 Y.Doc 状态 (base64)。接受 `?stateVector=` 进行差异 |
+| `POST /:docId/update`         | 应用客户端 Yjs 更新 (base64)。默认最大 2 MB               |
+| `POST /:docId/text`           | 应用全文替换（基于差异）                                  |
+| `POST /:docId/search-replace` | 在 Y.XmlFragment 中进行外科手术式查找/替换                |
+| `POST /:docId/json`           | 将完整的 JSON 差异应用于 Y.Map/Y.Array                    |
+| `GET /:docId/json`            | 读取当前JSON状态                                          |
+| `POST /:docId/patch`          | 应用手术 JSON 补丁操作（更新插入/删除/重新排序）          |
+| `POST /:docId/awareness`      | 同步光标/存在状态                                         |
+| `GET /:docId/users`           | 列出文档上的活跃用户                                      |
+
+## 传输和性能 {#transport}
+
+| 财产                 | 值                                           |
+| -------------------- | -------------------------------------------- |
+| 更新去抖             | ~80 ms（通过 `Y.mergeUpdates` 合并快速击键） |
+| 轮询间隔（无 SSE）   | 2秒（可通过`pollInterval`配置）              |
+| 轮询间隔（SSE 健康） | ~12秒（可通过`pollIntervalWithSse`配置）     |
+| 状态向量获取频率     | 重新连接、环形缓冲区间隙或每 15 个轮询周期时 |
+| 出错时退避           | 带抖动的指数，上限约为 15 秒                 |
+| 最大有效负载（写入） | 默认 2 MB，可通过 `maxPayloadBytes` 配置     |
+| 压缩阈值             | 存储的 blob > 4× 新编码触发墓碑紧凑          |
+| 每次写入数据库读取   | 1（仅在`persistMergedState`内部读取CAS版本） |
+
+## 安全 {#security}
+
+### 始终设置 `resourceType`
+
+```ts
+createCollabPlugin({
+  resourceType: "document", // the name passed to registerShareableResource
+});
+```
+
+如果没有 `resourceType`，插件会记录警告并广播协作推送
+部署中所有经过身份验证的用户的事件，无文档级别
+范围。非所有者退回到状态向量追赶（安全但更高
+延迟），无论是否设置 `resourceType`。
+
+### 访问检查
+
+所有协作路由都需要身份验证。当 `resourceType` 设置时，读取
+至少需要查看者访问权限，并且写入需要编辑者访问权限，使用
+与共享系统相同的 `resolveAccess` / `assertAccess` 帮助程序。 404
+（不是 403）在访问失败时返回，以避免泄漏文档存在。
+
+### 有效负载限制
+
+写入路由（`update`、`text`、`json`、`patch`、`search-replace`）拒绝
+有效负载超出 HTTP 413 配置的限制。默认值为 2 MB。
+覆盖每个插件：
+
+```ts
+createCollabPlugin({
+  resourceType: "document",
+  maxPayloadBytes: 512 * 1024, // 512 KB
+});
+```
+
+### 意识范围
+
+意识路线（`POST /awareness`、`GET /users`）由相同的门控
+读取时进行访问检查 - 缺乏查看者访问权限的用户无法了解其他人
+正在编辑文档。
+
+## 模式 {#patterns}
+
+### 结构化数据的粒度服务器端合并
+
+对于结构化文档（幻灯片、表单构建器、设计文件），Yjs
+当两个代理或用户重写相同的主体协作模型时，可能会发生冲突
+顶级记录同时进行。更安全的模式是**粒度服务器端
+merge**：定义一个接受一组目标操作的操作，并且
+以原子方式应用它们，因此对不同项目的并发编辑都可以保留。
+
+**幻灯片 (`patch-deck`)** — 而不是每次更换整个牌组 JSON
+更改，该操作接受每张幻灯片的操作：
+
+```ts
+// Conceptual patch-deck action shape
+type PatchDeckOp =
+  | { type: "patch"; slideId: string; fields: Partial<SlideFields> }
+  | { type: "add"; position: number; slide: SlideData }
+  | { type: "delete"; slideId: string }
+  | { type: "reorder"; slideId: string; newIndex: number };
+```
+
+两个用户编辑不同的幻灯片均成功；
+甲板层。
+
+**表单 (`patch-form-fields`)** — 使用更新插入/删除/重新排序进行字段级合并
+操作，因此对不同表单字段的并发编辑都可以生存。
+
+在以下情况下使用此模式：
+
+- 文档是结构化的（容器内的项目）。
+- 并发编辑针对不同的项目。
+- 身体协作（Yjs `Y.XmlFragment`）过度杀伤或不适用。
+
+在以下情况下使用主体协作（Y.XmlFragment + TipTap）：
+
+- 该文档是自由格式的富文本，可以编辑任何区域。
+- 游标级 CRDT 合并很重要。
+
+### 协作撤消范围（Y.UndoManager）
+
+设计模板使用 `Y.UndoManager` 将撤消/重做范围限制为本地
+用户自己的编辑。远程对等编辑和代理编辑永远不会被撤消
+用户的 Cmd+Z。
+
+```ts
+import * as Y from "yjs";
+
+const LOCAL_EDIT_ORIGIN = "local";
+
+const undoManager = new Y.UndoManager(ydoc.getText("content"), {
+  trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+  captureTimeout: 800, // coalesce rapid slider drags into one undo step
+});
+
+// Wrap local edits with the tracked origin
+ydoc.transact(() => {
+  // apply local style change
+}, LOCAL_EDIT_ORIGIN);
+
+// Undo/redo — only reverses LOCAL_EDIT_ORIGIN transactions
+undoManager.undo(); // Cmd+Z
+undoManager.redo(); // Shift+Cmd+Z
+```
+
+关键属性：
+
+- `trackedOrigins` 必须是 `Set`。仅具有匹配来源的 transactions
+  在撤消堆栈中捕获。
+- 远程更新（来源 `"remote"`）和代理更新（来源 `"agent"`）
+  从未被捕获。
+- 当活动文档发生变化时，重新创建并处置管理器；陈旧
+  经理拥有可以无限增长的参考资料。
+
+## 已知限制 {#limitations}
+
+```an-callout
+{
+  "tone": "risk",
+  "body": "**同一区域同时重写是最后写入获胜。**如果代理重写了一个段落，而人类在“完全相同的区域”中有未保存的编辑，则主要客户端快照可能会破坏正在进行的人类编辑。不同区域中的编辑始终通过 CRDT 干净地合并。对于结构化文档，请使用粒度服务器端合并来完全避免这种情况。"
+}
+```
+
+- **同区域同时重写为 LWW** — 如果代理重写了
+  段落和人类在完全相同的区域中有未保存的编辑，
+  主要客户快照可以覆盖人类正在进行的更改。编辑
+  不同区域通过 CRDT 正确合并。细粒度服务器端合并
+  （见上文）避免了结构化文档的这种情况。
+- **无服务器上的进程内写入锁** — `_writeLocks` 映射为
+  进程本地。并发请求登陆不同的Serverless
+  调用在 SQL CAS 层（乐观并发）序列化
+  比内存锁。这是安全的，但意味着高吞吐量场景
+  无服务器可能会看到更多 CAS 重试。
+- **感知是针对每个进程的** — 感知内存存储是
+  进程本地。无服务器/多进程部署看到部分感知
+  每次调用的状态。客户仍然会收到每个的完整认知快照
+  轮询周期，因此状态指示器会在一个轮询间隔内更新。
+
+## 存在 {#presence}
+
+`useCollaborativeDoc` 钩子返回：
+
+- `activeUsers` — 所有对等点的 `CollabUser` 数组（姓名、电子邮件、颜色）
+  当前在文档中（来自意识）。
+- `agentActive` - 代理进行编辑后短暂的 `true`（用于
+  瞬态视觉指示器）。
+- `agentPresent` - `true`，而代理具有主动感知条目
+  （持久存在心跳）。
+
+Use `emailToColor(email)` and `emailToName(email)` from
+`@agent-native/core/client` 生成一致的光标颜色和显示
+电子邮件地址中的姓名。
+
+使用 `activeUsers` 渲染的 `PresenceBar` 显示活人和特工
+合作者。每张幻灯片的存在（哪些用户正在查看给定的幻灯片）
+同一意识状态之上的层。
+
+## 相关文档 {#related}
+
+- [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
+  提供 `updatedAt` 碰撞驱动编辑器协调的系统。
+- [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
+  和`assertAccess`为`resourceType`引用的访问模型。
+- [Sharing](/docs/sharing) — 如何共享文档以及如何授予访问权限。
+- [Template: Content](/docs/template-content) — 参考实现
+  协作富文本编辑。
+- [Template: Slides](/docs/template-slides) — 精细的 `patch-deck` 操作
+  结构化并发编辑。
+- [Template: Forms](/docs/template-forms) — 字段级 `patch-form-fields`
+  服务器端合并。
+- [Template: Design](/docs/template-design) — `Y.UndoManager` 撤消/重做范围
+  本地用户编辑。

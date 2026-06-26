@@ -1,7 +1,8 @@
-import { agentNativePath } from "../api-path.js";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getCallbackOrigin } from "../frame.js";
+
 import { trackEvent } from "../analytics.js";
+import { agentNativePath } from "../api-path.js";
+import { getCallbackOrigin } from "../frame.js";
 import { openMcpAppHostLink } from "../mcp-app-host.js";
 
 export interface BuilderStatus {

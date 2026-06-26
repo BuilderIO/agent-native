@@ -1,6 +1,6 @@
+import Constants from "expo-constants";
 import { useCallback, useState } from "react";
 import { Platform } from "react-native";
-import Constants from "expo-constants";
 
 import { registerRemotePushToken } from "@/lib/remote-sessions-api";
 

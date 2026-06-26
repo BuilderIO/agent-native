@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+import { IconX } from "@tabler/icons-react";
 import {
   useState,
   useRef,
@@ -7,14 +9,14 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useNavigate } from "react-router";
-import { IconX } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
-import { useContacts, type Contact } from "@/hooks/use-emails";
+
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useContacts, type Contact } from "@/hooks/use-emails";
+import { cn } from "@/lib/utils";
 
 interface SearchBarProps {
   onClose: () => void;
@@ -29,6 +31,7 @@ export function SearchBar({
   autoFocus = true,
   hasActiveSearch = false,
 }: SearchBarProps) {
+  const t = useT();
   const navigate = useNavigate();
   const [query, setQuery] = useState(initialQuery);
   const [selectedIndex, setSelectedIndex] = useState(-1);
@@ -192,7 +195,7 @@ export function SearchBar({
             if (hasActiveSearch || query.trim()) return;
             setTimeout(onClose, 100);
           }}
-          placeholder="Search..."
+          placeholder={t("mail.search.placeholder")}
           className={cn(
             "h-8 sm:h-7 flex-1 min-w-0 bg-transparent border-none px-2.5 text-[13px] text-foreground placeholder:text-muted-foreground/60 outline-none",
             hasActiveSearch && "font-medium",
@@ -207,12 +210,12 @@ export function SearchBar({
                   e.preventDefault();
                   handleClear();
                 }}
-                className="flex h-5 w-5 mr-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
+                className="flex h-5 w-5 me-1 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent"
               >
                 <IconX className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Clear search (Esc)</TooltipContent>
+            <TooltipContent>{t("mail.search.clear")}</TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -222,7 +225,7 @@ export function SearchBar({
         <div
           data-search-dropdown
           ref={listRef}
-          className="absolute right-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
+          className="absolute end-0 top-full mt-1 w-72 rounded-lg border border-border bg-popover shadow-lg z-50 py-1 overflow-hidden"
         >
           {matchedContacts.map((contact, i) => (
             <button
@@ -236,7 +239,7 @@ export function SearchBar({
               }}
               onMouseEnter={() => setSelectedIndex(i)}
               className={cn(
-                "flex w-full items-center gap-3 px-3 py-2 text-left text-[13px]",
+                "flex w-full items-center gap-3 px-3 py-2 text-start text-[13px]",
                 i === selectedIndex && "bg-accent",
               )}
             >

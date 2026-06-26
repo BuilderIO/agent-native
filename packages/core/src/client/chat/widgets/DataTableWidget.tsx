@@ -1,4 +1,5 @@
 import { IconExternalLink, IconTable } from "@tabler/icons-react";
+
 import { requestAgentSidebarOpen } from "../../agent-sidebar-state.js";
 import { appPath } from "../../api-path.js";
 import { startAgentChatViewTransition } from "../../chat-view-transition.js";

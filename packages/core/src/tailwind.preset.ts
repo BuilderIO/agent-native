@@ -1,5 +1,3 @@
-import type { Config } from "tailwindcss";
-
 /**
  * @deprecated Legacy Tailwind v3 preset.
  *
@@ -17,6 +15,8 @@ import type { Config } from "tailwindcss";
  */
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
+
+import type { Config } from "tailwindcss";
 
 // Scan @agent-native/core's dist/client for Tailwind classes used in
 // core components (AgentPanel, AssistantChat, etc.)

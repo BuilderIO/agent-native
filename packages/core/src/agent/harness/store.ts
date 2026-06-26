@@ -1,9 +1,9 @@
+import { getDbExec, intType, isPostgres } from "../../db/client.js";
 import {
-  getDbExec,
-  intType,
-  isPostgres,
-  retryOnDdlRace,
-} from "../../db/client.js";
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../../db/ddl-guard.js";
 
 export type AgentHarnessSessionStatus =
   | "running"
@@ -50,26 +50,66 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE TABLE IF NOT EXISTS agent_harness_sessions (
-            id TEXT PRIMARY KEY,
-            harness_name TEXT NOT NULL,
-            thread_id TEXT NOT NULL,
-            run_id TEXT,
-            provider_session_id TEXT,
-            status TEXT NOT NULL DEFAULT 'idle',
-            resume_state TEXT,
-            workspace_ref TEXT,
-            pending_approval TEXT,
-            owner_email TEXT,
-            org_id TEXT,
-            created_at ${intType()} NOT NULL,
-            updated_at ${intType()} NOT NULL,
-            stopped_at ${intType()}
-          )
-        `),
-      );
+      const createSql = `
+        CREATE TABLE IF NOT EXISTS agent_harness_sessions (
+          id TEXT PRIMARY KEY,
+          harness_name TEXT NOT NULL,
+          thread_id TEXT NOT NULL,
+          run_id TEXT,
+          provider_session_id TEXT,
+          status TEXT NOT NULL DEFAULT 'idle',
+          resume_state TEXT,
+          workspace_ref TEXT,
+          pending_approval TEXT,
+          owner_email TEXT,
+          org_id TEXT,
+          created_at ${intType()} NOT NULL,
+          updated_at ${intType()} NOT NULL,
+          stopped_at ${intType()}
+        )
+      `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema / pg_indexes before issuing DDL to
+        // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
+        await ensureTableExists("agent_harness_sessions", createSql);
+        for (const col of [
+          "run_id",
+          "provider_session_id",
+          "resume_state",
+          "workspace_ref",
+          "pending_approval",
+          "owner_email",
+          "org_id",
+        ] as const) {
+          await ensureColumnExists(
+            "agent_harness_sessions",
+            col,
+            `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS ${col} TEXT`,
+          );
+        }
+        await ensureColumnExists(
+          "agent_harness_sessions",
+          "stopped_at",
+          `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS stopped_at ${intType()}`,
+        );
+        await ensureIndexExists(
+          "idx_agent_harness_sessions_thread",
+          `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_thread ON agent_harness_sessions(thread_id, updated_at)`,
+        );
+        await ensureIndexExists(
+          "idx_agent_harness_sessions_status",
+          `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_status ON agent_harness_sessions(status, updated_at)`,
+        );
+        await ensureIndexExists(
+          "idx_agent_harness_sessions_owner",
+          `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_owner ON agent_harness_sessions(owner_email, updated_at)`,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await client.execute(createSql);
       for (const col of [
         "run_id",
         "provider_session_id",
@@ -80,47 +120,41 @@ export async function ensureAgentHarnessSessionTables(): Promise<void> {
         "org_id",
       ] as const) {
         try {
-          if (isPostgres()) {
-            await client.execute(
-              `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS ${col} TEXT`,
-            );
-          } else {
-            await client.execute(
-              `ALTER TABLE agent_harness_sessions ADD COLUMN ${col} TEXT`,
-            );
-          }
+          await client.execute(
+            `ALTER TABLE agent_harness_sessions ADD COLUMN ${col} TEXT`,
+          );
         } catch {
           // Column already exists.
         }
       }
       try {
-        if (isPostgres()) {
-          await client.execute(
-            `ALTER TABLE agent_harness_sessions ADD COLUMN IF NOT EXISTS stopped_at ${intType()}`,
-          );
-        } else {
-          await client.execute(
-            `ALTER TABLE agent_harness_sessions ADD COLUMN stopped_at ${intType()}`,
-          );
-        }
+        await client.execute(
+          `ALTER TABLE agent_harness_sessions ADD COLUMN stopped_at ${intType()}`,
+        );
       } catch {
         // Column already exists.
       }
-      await retryOnDdlRace(() =>
-        client.execute(
+      try {
+        await client.execute(
           `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_thread ON agent_harness_sessions(thread_id, updated_at)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
+        );
+      } catch {
+        // Index already exists.
+      }
+      try {
+        await client.execute(
           `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_status ON agent_harness_sessions(status, updated_at)`,
-        ),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
+        );
+      } catch {
+        // Index already exists.
+      }
+      try {
+        await client.execute(
           `CREATE INDEX IF NOT EXISTS idx_agent_harness_sessions_owner ON agent_harness_sessions(owner_email, updated_at)`,
-        ),
-      );
+        );
+      } catch {
+        // Index already exists.
+      }
     })().catch((err) => {
       initPromise = undefined;
       throw err;

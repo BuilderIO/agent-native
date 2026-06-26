@@ -1,7 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
-import { addBytesProcessed } from "./cost-tracker";
-import { getIdToken } from "./auth";
 import { appApiPath } from "@agent-native/core/client";
+import { useQuery } from "@tanstack/react-query";
+
+import { getIdToken } from "./auth";
+import { addBytesProcessed } from "./cost-tracker";
 
 export interface QueryMetricsResult {
   rows: Record<string, unknown>[];

@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
+
+import { describe, expect, it } from "vitest";
 
 function manageDraftSource(): string {
   return readFileSync(new URL("./manage-draft.ts", import.meta.url), "utf8");

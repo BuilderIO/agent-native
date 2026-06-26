@@ -1,6 +1,7 @@
 import { runMigrations, getDbExec, isPostgres } from "@agent-native/core/db";
 import { registerEvent } from "@agent-native/core/event-bus";
 import { z } from "zod";
+
 // Side-effect import — registers `recording` as a shareable resource with the
 // framework before any HTTP request runs. The framework's auto-mounted
 // share-resource / set-resource-visibility / list-resource-shares actions
@@ -718,6 +719,34 @@ const migrations = runMigrations(
         `CREATE INDEX IF NOT EXISTS slack_installations_team_app_status_idx ON slack_installations (team_id, api_app_id, status)`,
         `CREATE INDEX IF NOT EXISTS slack_installations_owner_idx ON slack_installations (owner_email, created_at)`,
         `CREATE INDEX IF NOT EXISTS slack_installations_org_idx ON slack_installations (org_id, created_at)`,
+      ].join("; "),
+    },
+    {
+      version: 44,
+      sql: [
+        `CREATE TABLE IF NOT EXISTS recording_bug_reports (
+          recording_id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+          workspace_id TEXT NOT NULL,
+          org_id TEXT,
+          project_id TEXT,
+          title TEXT,
+          description TEXT NOT NULL DEFAULT '',
+          severity TEXT NOT NULL DEFAULT 'normal',
+          source_url TEXT,
+          page_title TEXT,
+          app_version TEXT,
+          environment TEXT,
+          reporter_email TEXT,
+          reporter_name TEXT,
+          reporter_id TEXT,
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+        `CREATE INDEX IF NOT EXISTS recording_bug_reports_owner_idx ON recording_bug_reports (owner_email, updated_at)`,
+        `CREATE INDEX IF NOT EXISTS recording_bug_reports_project_idx ON recording_bug_reports (project_id, updated_at)`,
       ].join("; "),
     },
   ],

@@ -18,7 +18,19 @@ vi.mock("@agent-native/core/client", () => ({
     );
   },
   appPath: (path: string) => path,
+  markAgentChatHomeHandoff: vi.fn(),
   navigateWithAgentChatViewTransition: navigateWithAgentChatViewTransitionMock,
+  useT: () => (key: string) => {
+    const strings: Record<string, string> = {
+      "home.composerPlaceholder": "What do you want to do?",
+      "home.description": "Build, publish, and analyze forms with an agent.",
+      "home.heading": "What should this form do?",
+      "home.pillAnalytics": "Analytics",
+      "home.pillConfiguration": "Configuration",
+      "home.pillForms": "Forms",
+    };
+    return strings[key] ?? key;
+  },
 }));
 
 vi.mock("react-router", () => ({
@@ -87,6 +99,6 @@ describe("Forms ask home", () => {
       "restoreActiveThread",
       false,
     );
-    expect(container.textContent).toContain("What do you want to do?");
+    expect(container.textContent).toContain("What should this form do?");
   });
 });

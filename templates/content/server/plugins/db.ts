@@ -1,4 +1,5 @@
 import { runMigrations } from "@agent-native/core/db";
+
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
 
 function scheduleBlocksRepairRetry(attempt = 1): void {
@@ -203,6 +204,8 @@ const runContentMigrations = runMigrations(
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT,
       document_id TEXT NOT NULL,
+      owner_document_id TEXT,
+      owner_block_id TEXT,
       title TEXT NOT NULL DEFAULT 'Untitled database',
       view_config_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -492,6 +495,22 @@ const runContentMigrations = runMigrations(
                 AND d.type = 'blocks'
                 AND d.options_json LIKE '%"primary":true%'
             )`,
+    },
+    // v53-v54: ownership metadata for inline databases. Nullable by design:
+    // full-page databases and non-owning references leave these empty.
+    {
+      version: 53,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_document_id TEXT`,
+    },
+    {
+      version: 54,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS owner_block_id TEXT`,
+    },
+    // v55: soft-delete marker for inline database lifecycle. Nullable keeps
+    // existing databases active; cleanup remains a later explicit path.
+    {
+      version: 55,
+      sql: `ALTER TABLE content_databases ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
     },
   ],
   { table: "content_migrations" },

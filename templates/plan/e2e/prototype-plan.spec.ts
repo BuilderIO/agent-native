@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import {
   test,
   expect,
@@ -5,7 +7,7 @@ import {
   type Page,
   type Locator,
 } from "@playwright/test";
-import { readFileSync } from "node:fs";
+
 import {
   expectedPlanCommentAuthorEmail,
   planE2eAuthEmailPath,

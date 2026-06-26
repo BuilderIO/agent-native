@@ -1,0 +1,680 @@
+---
+title: "リアルタイム コラボレーション"
+description: "AI エージェントがファーストクラスのピアであるマルチユーザー共同編集: CRDT マージ、ライブ プレゼンス、SSE 高速パス、および詳細なサーバー側マージ - 任意の SQL データベースおよび任意のホスト上で。"
+---
+
+# リアルタイム コラボレーション
+
+ドキュメントを開いて、同僚のカーソルが段落までスクロールしているのを想像してみてください。
+その後、場所を失うことなく、外科的にテキスト自体が書き換えられます。それ
+ピアはチームメイトである可能性があります。それは代理人かもしれない。フレームワークの
+観点からは、これらは同一です。両方ともマージする Yjs 操作を生成します。
+共有ドキュメントに競合が発生しないようにします。これは
+エージェントネイティブのコラボレーション モデル。
+
+## ビジョン {#vision}
+
+エージェントと一緒に編集すると、Google ドキュメントや Figma で作業しているような気分になります
+即席で疲れを知らない同僚:
+
+エージェントまたは別のユーザーが SQL に書き込むときに UI を更新するだけの場合は、これは必要ありません。[`useDbSync`](/docs/client) を使用してください。このページは、単一のリッチ テキスト ドキュメントを文字レベルで共同編集するためのものです (共有カーソル、競合のない結合)。どちらも同じ `/_agent-native/poll` チャネルに乗ります。
+
+これは、**Yjs** (競合のないマージのための CRDT)、**TipTap** (リッチ テキスト エディター)、**ポーリング ベースの同期** (サーバーレスやエッジを含むすべての展開環境で機能します) という 3 つの実績のあるテクノロジーに基づいて構築されています。
+
+- **CRDT マージ** — 人間とエージェントによる同時編集は、
+  衝突。入力するのは 1 つの段落です。エージェントは別のものを書き換えます。両方
+  きれいに着地します。
+- **プレゼンス** — `PresenceBar` は、現在ドキュメント内に誰がいるかを示します。
+  エージェントがアクティブに編集しているときのエージェントの存在インジケーターを含みます。
+- **ピア編集者としてのエージェント** — エージェントの編集フローは同じ Yjs を介して行われます
+  人間が編集するインフラストラクチャ。カーソルを中断することなく、ライブで表示されます
+  位置、選択、または元に戻すスタック。
+- **どこでも動作** — Drizzle がサポートするあらゆる SQL データベース (SQLite、Postgres)。
+  サーバーレスやエッジなど、Nitro がサポートする任意のホスティング ターゲット。
+
+## アーキテクチャ {#architecture}
+
+コラボレーション システムには 5 つの連動レイヤーがあります。
+
+```an-diagram title="5つの連動層" summary="メモリ内の CRDT からピア間で更新を運ぶトランスポートまで、各層には 1 つのジョブがあります。"
+{
+  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; 競合なしマージ、調整役なし</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL の正規コンテンツ</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt で制御する調整</span><small class=\"diagram-muted\">エージェント編集は SQL bump 経由で伝播</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; リードクライアント選出</span><small class=\"diagram-muted\">ちょうど 1 つのタブがスナップショットを適用</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE 高速パス + ポーリング</span><small class=\"diagram-muted\">数十 ms 程度、どこでも 2 秒ポーリングへフォールバック</small></div></div>",
+  "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+}
+```
+
+### 1. Yjs Y.Doc (CRDT レイヤー)
+
+各共同ドキュメントは、共有タイプを含む `Y.Doc` です。通常は
+リッチ テキストの場合は `Y.XmlFragment` (TipTap が読み取る ProseMirror ノード ツリー)、または
+`Y.Map` / `Y.Array` (構造化 JSON データ)。 Yjs は同時更新をマージします
+中央コーディネーターがいない。状態を交換する 2 つのクライアントのリーチ
+順序に関係なく同じ結果。
+
+### 2. SQL 正規コンテンツ (信頼できる信頼できる情報源)
+
+Yjs 状態は、base64 でエンコードされたバイナリとして `_collab_docs` テーブルに保存されます。
+テーブルはフレームワークによって管理され、プロバイダーに依存しません (SQLite および Postgres は使用します
+同一のスキーマ)。各行にはオプティミスティック同時実行バージョン列が含まれます
+同時書き込み競合を防止します。トゥームストーン圧縮は便宜的に実行されます
+保存された BLOB が新しくエンコードされた状態の 4 倍を超えたとき — バックグラウンド ジョブなし
+必須。
+
+### 3. `updatedAt` ゲートによる調整 (エージェント編集の伝播)
+
+エージェント actions は、Yjs インプロセスにプッシュしません。代わりに、アクションは
+正規の SQL コンテンツ列とバンプ `updatedAt`。変更同期システム
+バンプを検出し、開いているエディターがレコードを再フェッチし、リード クライアントが
+`setContent` 経由で新しいコンテンツを共有 Y.Doc に適用します。 `updatedAt`
+ゲートにより、真に新しいコンテンツのみが採用されるようになり、アンケートの回答に遅れが生じます
+編集を元に戻すことはできません。
+
+### 4.主要クライアントの選択 (重複排除)
+
+複数のタブが開いている場合、1 つだけが正式な SQL スナップショットを適用します
+共有 Y.Doc にコピーします。リードは Yjs `clientID` が最も低いタブです
+現在表示されているピアの中にあります。エージェントの認識エントリは
+`AGENT_CLIENT_ID` (max int) なので、リードになることはありません。クライアントの編集
+常に単独でリードします。選挙は決定的であり、調整は行われない
+往復 (`isReconcileLeadClient` から `@agent-native/core/client`)。
+
+### 5. SSE 高速パス + ポーリング フォールバック (トランスポート)
+
+コラボ更新イベントは 2 つのパスを経由して送信されます:
+
+- **SSE 高速パス** — クライアントは `/_agent-native/poll-events` をサブスクライブします
+  (`useDbSync` で使用されるのと同じ `EventSource`)。コラボアップデートイベントが到着
+  プッシュ形式 (通常は数十ミリ秒)。 SSE が正常な間、
+  ポーリング ループはゆっくりとしたリズム (デフォルトでは約 12 秒) に緩和されます。
+- **ポーリング フォールバック** — `/_agent-native/poll?since=N` は 2 秒ごとにポーリングされます
+  SSE が利用できない場合。これにより、あらゆる導入環境でコラボレーションが機能します
+  ターゲット — 永続的な接続が行われるサーバーレス機能を含む
+  不可能であり、異なる呼び出しは異なるリクエストを処理できます。
+
+ローカル Yjs アップデートはデバウンスされ、`Y.mergeUpdates` と結合されます (~80 ミリ秒)
+サーバーに送信される前に、キーストローク レベルのネットワーク トラフィックが削減されます。
+バッチは `visibilitychange` または `pagehide` ですぐにフラッシュされます。あ
+状態ベクトルの差分 (`GET /:docId/state?stateVector=…`) は
+再接続、リングバッファ オーバーフロー、または 15 回ごとのポーリング サイクル — 毎回ではありません
+サイクル。
+
+ネットワーク エラーでは、最大 15 秒のジッターを伴う指数バックオフが使用されます。
+
+```an-diagram title="2 つの編集パス、1 つのマージ" summary="人間のキーストロークは Y.Doc → サーバー → SSE という流れになります。エージェントの編集は SQL を通過します。アクションが updatedAt に達し、リード クライアントが調整され、変更が Yjs に再度入ります。"
+{
+  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">人による編集</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce 約80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">エージェント編集</span><div class=\"diagram-node\">ActionがSQLを書き込む<br><small class=\"diagram-muted\">updatedAtを更新</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>リードクライアント<br><small class=\"diagram-muted\">setContentをY.Docへ</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
+  "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## クイックスタート {#quickstart}
+
+### 1.パッケージをインストールする
+
+```bash
+pnpm add @tiptap/extension-collaboration @tiptap/extension-collaboration-caret @tiptap/y-tiptap @tiptap/core
+```
+
+### 2. Vite optimizeDeps
+
+開発中に Vite が互換性のない方法で TipTap を再バンドルするのを防ぎます:
+
+```ts
+// vite.config.ts
+import { reactRouter } from "@react-router/dev/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [reactRouter(), agentNative()],
+  optimizeDeps: {
+    include: [
+      "yjs",
+      "y-protocols/awareness",
+      "@tiptap/core",
+      "@tiptap/extension-collaboration",
+      "@tiptap/extension-collaboration-caret",
+      "@tiptap/y-tiptap",
+    ],
+  },
+});
+```
+
+### 3.コラボサーバープラグインを追加します
+
+`resourceType` は、登録されている共有可能なリソースの名前に常に設定します
+`registerShareableResource`経由。これがないと、コラボプッシュイベントが配信されます
+ドキュメントレベルのスコープを持たないすべての認証されたユーザーとサーバー
+1 回限りの警告をログに記録します。
+
+```ts
+// server/plugins/collab.ts
+import { createCollabPlugin } from "@agent-native/core/server";
+
+export default createCollabPlugin({
+  table: "documents",
+  contentColumn: "content",
+  idColumn: "id",
+  resourceType: "document", // required for access-scoped event delivery
+});
+```
+
+### 4. クライアントフックを使用する
+
+```ts
+import {
+  useCollaborativeDoc,
+  emailToColor,
+  emailToName,
+} from "@agent-native/core/client";
+
+const TAB_ID = generateTabId(); // or Math.random().toString(36)
+
+const { ydoc, awareness, isLoading, activeUsers, agentActive, agentPresent } =
+  useCollaborativeDoc({
+    docId: documentId,
+    requestSource: TAB_ID,
+    user: {
+      name: emailToName(session.email),
+      email: session.email,
+      color: emailToColor(session.email),
+    },
+  });
+```
+
+### 5. TipTap 拡張機能を追加する
+
+```ts
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+
+const editor = useEditor({
+  extensions: [
+    StarterKit.configure({ history: false }), // Yjs owns undo
+    Collaboration.configure({ document: ydoc }),
+    CollaborationCaret.configure({
+      provider: { awareness },
+      user: { name, color },
+    }),
+  ],
+  // Do NOT pass content here — Yjs owns the content
+});
+```
+
+### 6.最初のロード時にシード (コンテンツが存在する場合)
+
+コラボレーション拡張機能は、`content` プロパティから自動シードされません。もし
+Y.Doc は空で、ドキュメントには既存のコンテンツがあります。シードします:
+
+```ts
+useEffect(() => {
+  if (!ydoc || !editor || !isLoaded) return;
+  const fragment = ydoc.getXmlFragment("default");
+  if (fragment.length === 0 && initialContent) {
+    editor.commands.setContent(initialContent);
+  }
+}, [ydoc, editor, isLoaded]);
+```
+
+ユーザー ID はセッション電子メールから取得されます。このフレームワークは、電子メール アドレスから一貫したカーソルの色と表示名を生成するための `emailToColor()` および `emailToName()` ヘルパーを提供します。
+
+## コメント {#comments}
+
+テンプレートでは、ドキュメントに関するスレッド形式のディスカッションを含むコメント システムを追加できます。コンテンツ テンプレートのコメント システムには、以下の完全な実装が含まれています。
+
+- `document_comments` SQL テーブル (スレッド、返信、解決済みステータス)
+- コンテンツ テンプレートの REST ルートは、`/api/comments/:id` で更新/削除されます。 `add-comment` / `list-comments` actions を通じて実行される作成とリスト。カスタム テンプレートは、コア `POST /_agent-native/collab/:docId/search-replace` ルートに対して独自の同等のエンドポイントを実装します。
+- スレッド表示と返信 UI を備えたコメント サイドバー
+- スレッドの解決/解決解除
+- **AI に送信** ボタン — コメント スレッドのコンテキストを `sendToAgentChat()` 経由でエージェント チャットに送信します
+- エージェント actions: `list-comments`、`add-comment`
+- Notion コメント同期: 双方向プル/プッシュ用の `sync-notion-comments` アクション
+
+## コラボルート {#collab-routes}
+
+すべてのコラボ ルートは、コラボ プラグインによって `/_agent-native/collab/` の下に自動マウントされます:
+
+| ルート                        | 目的                                             |
+| ----------------------------- | ------------------------------------------------ |
+| `GET /:docId/state`           | 完全な Y.Doc 状態 (base64) を取得                |
+| `POST /:docId/update`         | クライアント Yjs アップデートを適用              |
+| `POST /:docId/text`           | 全文置換を適用 (差分ベース)                      |
+| `POST /:docId/search-replace` | Y.XmlFragment での外科的検索/置換                |
+| `POST /:docId/awareness`      | カーソル/プレゼンス状態を同期                    |
+| `GET /:docId/users`           | ドキュメント上のアクティブなユーザーをリストする |
+
+## エージェント編集アクション {#edit-document}
+
+コンテンツ テンプレートの `edit-document` アクションは、エージェントが共同モードでドキュメントに変更を加える主な方法です。
+
+```bash
+# 単一編集
+pnpm action edit-document --id doc123 --find "old text" --replace "new text"
+
+# バッチ編集
+pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
+
+# テキストの削除
+pnpm action edit-document --id doc123 --find "delete me" --replace ""
+```
+
+---
+
+## プレゼンス キット {#presence-kit}
+
+プレゼンス キットは、既存のアウェアネス レイヤーの上に Liveblocks/Figma グレードのライブ カーソルと選択プリミティブを提供します。
+
+フォーカスされたブラウザのサブパスからクライアント側のプレゼンスとエディタ UI をインポートします:
+
+```ts
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+  useCollaborativeDoc,
+  usePresence,
+} from "@agent-native/core/client/collab";
+```
+
+サーバー側のエージェント プレゼンス ヘルパーは、下位​​レベルのコラボレーション パッケージに残ります。
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+```
+
+### パブリック API {#presence-public-api}
+
+| API                                                 | 目的                                                                                                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `useCollaborativeDoc(options)`                      | 安定した `Y.Doc` および認識インスタンスを作成し、状態ベクトルの同期、SSE 高速パス、ポーリング フォールバック、アクティブ ユーザー、およびエージェントの存在フラグを処理します。 |
+| `usePresence(awareness, localClientId)`             | リモート参加者を取得し、カーソル、選択、ビューポート、ツール モードなどの任意のローカル認識フィールドを公開します。                                                             |
+| `<PresenceBar>`                                     | オプションのアバタークリックフォローモード接続を使用して、アクティブなコラボレーターと AI エージェントをレンダリングします。                                                    |
+| `<LiveCursorOverlay>`                               | 正規化された 0 ～ 1 座標から、配置されたコンテナ上にリモート カーソル ラベルをレンダリングします。                                                                              |
+| `<RemoteSelectionRings>`                            | アプリによって解決された、選択した DOM 要素の周囲に色付きのリングとラベルをレンダリングします。                                                                                 |
+| `useFollowUser(options)`                            | フォローされている参加者がビューポートの変更を公開するときにコールバックを呼び出します。                                                                                        |
+| `toNormalized()` / `fromNormalized()`               | ポインタ座標を正規化されたコンテナ座標との間で変換します。                                                                                                                      |
+| `dedupeCollabUsersByEmail()`                        | 開いているタブごとに 1 人のユーザーが 1 回表示されることなく、カスタム アバター スタックを構築します。                                                                          |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | Y.Map/Y.Array 構造化コラボレーションのためのクライアント フック。テンプレートが正確な製品パターンを証明するまでは、下位レベルとして扱います。                                   |
+
+`UseCollaborativeDocOptions`:
+
+| オプション            | 説明                                                                                          |
+| --------------------- | --------------------------------------------------------------------------------------------- |
+| `docId`               | ドキュメント ID、またはフックを無効にする `null`。                                            |
+| `pollInterval`        | SSE が利用できない場合のポーリング間隔。デフォルト: `2000`。                                  |
+| `pollIntervalWithSse` | SSE が正常な間はポーリング間隔が遅くなります。デフォルト: `12000`。                           |
+| `pauseWhenHidden`     | 非表示の間、リモート アップデート/プレゼンス ポーリングを一時停止します。デフォルト: `true`。 |
+| `baseUrl`             | Collab エンドポイント プレフィックス。デフォルト: `/_agent-native/collab`。                   |
+| `requestSource`       | 安定したタブ/ソース ID は、自己発生のリフレッシュ ノイズを無視するために使用されます。        |
+| `user`                | カーソルとプレゼンス UI に `{ name, email, color }` が表示されます。                          |
+
+`UseCollaborativeDocResult`:
+
+| フィールド     | 説明                                                               |
+| -------------- | ------------------------------------------------------------------ |
+| `ydoc`         | 現在の `docId` の安定した `Y.Doc`。                                |
+| `awareness`    | カーソル、選択、フォロー モードで使用される Yjs 認識インスタンス。 |
+| `isLoading`    | サーバーの初期状態はまだロード中です。                             |
+| `isSynced`     | フックがサーバーの状態に追いつきました。                           |
+| `activeUsers`  | 意識からの人間の協力者。                                           |
+| `agentActive`  | エージェントは現在編集中です。                                     |
+| `agentPresent` | エージェントには、この文書に関する認識エントリがあります。         |
+
+### 素早い認識 {#fast-awareness}
+
+認識状態の変更は、2 秒のポーリング サイクルではなく、約 150 ミリ秒で伝播されるようになりました:
+
+- **クライアント → サーバー**: `setPresence()` または `awareness.setLocalStateField()` への呼び出しは、150 ミリ秒以内に調整された POST から `/_agent-native/collab/:docId/awareness` をトリガーし、急速な変更を 1 つのリクエストにまとめます。
+- **サーバー → クライアント**: `postAwareness` ハンドラーは、保存後に `AWARENESS_CHANGE_EVENT` を発行します。 `/_agent-native/poll-events` SSE ストリームは、これらのイベントをプッシュ形式で接続されたピアに転送します。ポーリングのみの展開は引き続き機能します。カーソルはエラーなしでポーリングの頻度を低下させます。
+
+### `usePresence(awareness, localClientId)` {#use-presence}
+
+リモート参加者の反応リストとローカル プレゼンス ペイロードのセッターを返します。
+
+```ts
+import { usePresence } from "@agent-native/core/client";
+
+const { others, setPresence } = usePresence(awareness, ydoc?.clientID);
+
+// Publish cursor position (normalized 0–1)
+setPresence({ cursor: { x: 0.4, y: 0.7 }, selection: "#hero" });
+
+// others: OtherPresence[]
+// {
+//   clientId: number
+//   user: { name, email, color }
+//   presence: { cursor?, selection?, viewport?, ... }
+//   isAgent: boolean   ← true for AGENT_CLIENT_ID
+// }
+```
+
+エージェント (AGENT_CLIENT_ID) は、`isAgent: true` のファーストクラス参加者として表示されます。 `agentUpdateSelection()` がサーバー側で呼び出されると、その選択メタデータは他の参加者と同様に `usePresence` を介して流れます。
+
+### `LiveCursorOverlay` {#live-cursor-overlay}
+
+リモート カーソルをコンテナ要素上の絶対位置のラベルとしてレンダリングします。
+
+```tsx
+import { LiveCursorOverlay } from "@agent-native/core/client";
+
+// cursor positions stored as { x, y } normalized 0–1 under presence.cursor
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <LiveCursorOverlay
+    others={others} // from usePresence
+    containerRef={containerRef}
+    cursorKey="cursor" // key in presence payload (default: "cursor")
+  />
+</div>;
+```
+
+エージェントのカーソルは、輝くアイコンではっきりと表示されます。 10 秒間非アクティブ状態が続くとカーソルがフェードアウトし、120 ミリ秒でのスムーズな CSS 遷移が行われます。
+
+### `RemoteSelectionRings` {#remote-selection-rings}
+
+リモートで選択された要素上に色付きのアウトライン リングと名前タグをレンダリングします:
+
+```tsx
+import { RemoteSelectionRings } from "@agent-native/core/client";
+
+<div ref={containerRef} style={{ position: "relative" }}>
+  {content}
+  <RemoteSelectionRings
+    others={others}
+    selectionKey="selection" // key in presence payload (default: "selection")
+    resolveRect={(descriptor) =>
+      document.querySelector(descriptor)?.getBoundingClientRect() ?? null
+    }
+    containerRef={containerRef}
+  />
+</div>;
+```
+
+### `useFollowUser` {#follow-user}
+
+フォローされている参加者のビューポートが変更されるたびにコールバックを呼び出します。
+
+```ts
+import { useFollowUser } from "@agent-native/core/client";
+
+const { isFollowing, stopFollowing } = useFollowUser({
+  others,
+  followingId, // null to stop following
+  viewportKey: "viewport",
+  onViewport: (vp) => {
+    if (vp.fileId) setActiveFileId(vp.fileId);
+    if (vp.zoom) setZoom(vp.zoom);
+  },
+});
+```
+
+参加者は、`setPresence({ viewport: { fileId, zoom } })` を使用してビューポートを公開します。
+
+### `PresenceBar` フォローモードの小道具 {#presence-bar-follow}
+
+`PresenceBar` コンポーネントは、オプションのフォローモード プロパティを受け入れるようになりました。
+
+```tsx
+<PresenceBar
+  activeUsers={activeUsers}
+  agentActive={agentActive}
+  onAvatarClick={(user) => {
+    // user is null for the agent avatar
+    const email = user?.email ?? "agent@system";
+    setFollowing((prev) => (prev === email ? null : email));
+  }}
+  followingEmail={followingEmail} // highlighted avatar + "Following X" chip
+/>
+```
+
+### 正規化された座標ヘルパー {#norm-coords}
+
+```ts
+import { toNormalized, fromNormalized } from "@agent-native/core/client";
+
+// In a pointer event handler:
+const norm = toNormalized(
+  e.clientX,
+  e.clientY,
+  container.getBoundingClientRect(),
+);
+setPresence({ cursor: norm });
+
+// In a cursor renderer:
+const px = fromNormalized(norm, container.getBoundingClientRect());
+```
+
+### エージェント カーソルの配管 {#agent-cursor}
+
+サーバー側 actions は `agentUpdateSelection()` を呼び出し、エージェントが動作している場所を公開します。デザイン テンプレートの `edit-design` および `generate-design` actions はこれを自動的に呼び出します。他のテンプレートでも同じことができます:
+
+```ts
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
+
+agentEnterDocument(docId);
+agentUpdateSelection(docId, {
+  selection: "#target-element",
+  editingFile: "index.html",
+});
+try {
+  // ... perform edits ...
+} finally {
+  agentLeaveDocument(docId);
+}
+```
+
+選択メタデータは、接続されたクライアント上の `usePresence` を介して `other.presence.selection` として流れます。
+
+---
+
+## ルートテーブル {#routes}
+
+すべてのルートはコラボによって `/_agent-native/collab/` の下に自動マウントされます
+プラグイン:
+
+| ルート                        | 目的                                                                         |
+| ----------------------------- | ---------------------------------------------------------------------------- |
+| `GET /:docId/state`           | 完全な Y.Doc 状態 (base64)。差分として `?stateVector=` を受け入れます        |
+| `POST /:docId/update`         | クライアント Yjs アップデート (base64) を適用します。デフォルトでは最大 2 MB |
+| `POST /:docId/text`           | 全文置換 (差分ベース) を適用                                                 |
+| `POST /:docId/search-replace` | Y.XmlFragment での外科的検索/置換                                            |
+| `POST /:docId/json`           | 完全な JSON 差分を Y.Map/Y.Array に適用                                      |
+| `GET /:docId/json`            | 現在の JSON 状態を読み取る                                                   |
+| `POST /:docId/patch`          | 外科的 JSON パッチ操作を適用 (更新/削除/並べ替え)                            |
+| `POST /:docId/awareness`      | カーソル/プレゼンス状態を同期                                                |
+| `GET /:docId/users`           | ドキュメント上のアクティブなユーザーをリストする                             |
+
+## 輸送とパフォーマンス {#transport}
+
+| プロパティ                 | 値                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------- |
+| デバウンスを更新           | ~80 ミリ秒 (`Y.mergeUpdates` を介して高速キーストロークを結合)                                |
+| ポーリング間隔 (SSE なし)  | 2 秒 (`pollInterval` 経由で設定可能)                                                          |
+| ポーリング間隔 (SSE 正常)  | ~12 秒 (`pollIntervalWithSse` 経由で設定可能)                                                 |
+| 状態ベクトルのフェッチ頻度 | 再接続時、リングバッファギャップ時、または 15 回ごとのポーリングサイクル                      |
+| エラー時のバックオフ       | ジッターを伴う指数関数、最大 15 秒                                                            |
+| 最大ペイロード (書き込み)  | デフォルトは 2 MB、`maxPayloadBytes` 経由で設定可能                                           |
+| 圧縮しきい値               | 保存された BLOB > 4 倍の新しいエンコードにより、トゥームストーン コンパクトがトリガーされます |
+| 書き込みごとの DB 読み取り | 1 (`persistMergedState` 内で読み取られる CAS バージョンのみ)                                  |
+
+## セキュリティ {#security}
+
+### 常に `resourceType` を設定してください
+
+```ts
+createCollabPlugin({
+  resourceType: "document", // the name passed to registerShareableResource
+});
+```
+
+`resourceType` がない場合、プラグインは警告をログに記録し、コラボ プッシュをブロードキャストします
+展開上のすべての認証済みユーザーに対するドキュメントレベルなしのイベント
+スコープ。非所有者は状態ベクトルのキャッチアップに戻ります (安全だがより高い
+遅延)、`resourceType` が設定されているかどうかに関係ありません。
+
+### アクセスチェック
+
+すべてのコラボルートには認証が必要です。 `resourceType` が設定されている場合、
+少なくとも閲覧者アクセスが必要で、書き込みには編集者アクセスが必要です。
+共有システムと同じ `resolveAccess` / `assertAccess` ヘルパー。 A404
+ドキュメントの存在の漏洩を避けるために、アクセス失敗時に (403 ではなく) が返されます。
+
+### ペイロード制限
+
+書き込みルート (`update`、`text`、`json`、`patch`、`search-replace`) 拒否
+ペイロードが HTTP 413 で設定された制限を超えています。デフォルトは 2 MB です。
+プラグインごとにオーバーライドします:
+
+```ts
+createCollabPlugin({
+  resourceType: "document",
+  maxPayloadBytes: 512 * 1024, // 512 KB
+});
+```
+
+### 認知度の範囲設定
+
+認識ルート (`POST /awareness`、`GET /users`) は同じによってゲートされます
+読み取り時のアクセス チェック - 閲覧者アクセス権がないユーザーは他のユーザーを知ることができません
+ドキュメントを編集中です。
+
+## パターン {#patterns}
+
+### 構造化データの詳細なサーバー側マージ
+
+構造化ドキュメント (スライドデッキ、フォームビルダー、デザインファイル) の場合は、Yjs
+2 人のエージェントまたはユーザーが同じ内容を書き換えると、ボディ コラボレーション モデルが競合する可能性がある
+トップレベルの記録を同時に達成。より安全なパターンは **詳細なサーバー側
+merge**: 一連のターゲット操作を受け入れるアクションを定義し、
+それらはアトミックに適用されるため、異なる項目への同時編集は両方とも存続します。
+
+**スライド (`patch-deck`)** — すべてのデッキ JSON を交換する代わりに
+変更すると、アクションはスライドごとの操作を受け入れます:
+
+```ts
+// Conceptual patch-deck action shape
+type PatchDeckOp =
+  | { type: "patch"; slideId: string; fields: Partial<SlideFields> }
+  | { type: "add"; position: number; slide: SlideData }
+  | { type: "delete"; slideId: string }
+  | { type: "reorder"; slideId: string; newIndex: number };
+```
+
+2 人のユーザーが異なるスライドを編集すると、両方とも成功します。
+デッキレベル。
+
+**フォーム (`patch-form-fields`)** — 更新/挿入/削除/並べ替えによるフィールドレベルのマージ
+異なるフォームフィールドへの同時編集が両方とも存続するように操作します。
+
+次の場合にこのパターンを使用します。
+
+- ドキュメントは構造化されています (コンテナ内のアイテム)。
+- 同時編集は異なるアイテムを対象とします。
+- ボディコラボ (Yjs `Y.XmlFragment`) は過剰であるか、適用できません。
+
+次の場合にボディ コラボ (Y.XmlFragment + TipTap) を使用します。
+
+- ドキュメントは自由形式のリッチ テキストであり、任意の領域を編集できます。
+- カーソルレベルの CRDT マージが重要です。
+
+### 協調的な元に戻すスコープ (Y.UndoManager)
+
+デザイン テンプレートは、`Y.UndoManager` を使用して元に戻す/やり直しをローカルにスコープします
+ユーザー自身の編集。リモート ピアの編集とエージェントの編集は、
+ユーザーの Cmd+Z。
+
+```ts
+import * as Y from "yjs";
+
+const LOCAL_EDIT_ORIGIN = "local";
+
+const undoManager = new Y.UndoManager(ydoc.getText("content"), {
+  trackedOrigins: new Set([LOCAL_EDIT_ORIGIN]),
+  captureTimeout: 800, // coalesce rapid slider drags into one undo step
+});
+
+// Wrap local edits with the tracked origin
+ydoc.transact(() => {
+  // apply local style change
+}, LOCAL_EDIT_ORIGIN);
+
+// Undo/redo — only reverses LOCAL_EDIT_ORIGIN transactions
+undoManager.undo(); // Cmd+Z
+undoManager.redo(); // Shift+Cmd+Z
+```
+
+主要なプロパティ:
+
+- `trackedOrigins` は `Set` でなければなりません。オリジンが一致するtransactionsのみ
+  元に戻すスタックにキャプチャされます。
+- リモート アップデート (オリジン `"remote"`) とエージェント アップデート (オリジン `"agent"`) は
+  一度も捕らえられなかった。
+- アクティブなドキュメントが変更されたときにマネージャーを再作成して破棄します。古い
+  マネージャーは、際限なく増加する可能性のある参照を保持します。
+
+## 既知の制限 {#limitations}
+
+```an-callout
+{
+  "tone": "risk",
+  "body": "**同じリージョンの同時書き換えは、最後に書き込んだ方が勝ちです。**人間が *まったく同じリージョン* に未保存の編集を行っているときにエージェントがパッセージを書き換えると、リードクライアントのスナップショットが進行中の人間による編集を破壊する可能性があります。異なるリージョンでの編集は常に CRDT を介してきれいにマージされます。構造化ドキュメントの場合、これを完全に回避するには、詳細なサーバー側マージを使用します。"
+}
+```
+
+- **同一リージョンの同時書き換えは LWW です** — エージェントが書き換える場合
+  通路と人間がまったく同じ領域に未保存の編集を行っています。
+  リードクライアントのスナップショットは、人間による実行中の変更を上書きする可能性があります。で編集
+  異なるリージョンは、CRDT を介して正しくマージされます。きめ細かなサーバー側マージ
+  (上記を参照) は、構造化ドキュメントの場合はこれを回避します。
+- **サーバーレスでのインプロセス書き込みロック** — `_writeLocks` マップは
+  プロセスローカル。同時リクエストが異なるサーバーレスに到達する
+  呼び出しは、むしろ SQL CAS レイヤー (オプティミスティック同時実行) でシリアル化されます
+  メモリ内ロックよりも。これは安全ですが、
+  サーバーレスでは、CAS の再試行がさらに発生する可能性があります。
+- **認識はプロセスごとです** — メモリ内の認識ストアは
+  プロセスローカル。サーバーレス/マルチプロセス展開では部分的に認識される
+  呼び出しごとの状態。クライアントは引き続き、各
+  ポーリング サイクル。したがって、プレゼンス インジケーターは 1 つのポーリング間隔内で更新されます。
+
+## プレゼンス {#presence}
+
+`useCollaborativeDoc` フックは次を返します:
+
+- `activeUsers` — すべてのピアの `CollabUser` (名前、電子メール、色) の配列
+  現在文書内にあります (意識から出典)。
+- `agentActive` — エージェントが編集を行った直後の `true` (
+  一時的な視覚インジケータ)。
+- `agentPresent` — エージェントがアクティブな認識エントリを持っている間は `true`
+  (永続的なプレゼンスのハートビート)。
+
+`emailToColor(email)` と `emailToName(email)` を使用
+`@agent-native/core/client` は一貫したカーソルの色を生成し、表示します
+電子メール アドレスからの名前。
+
+`activeUsers` でレンダリングされた `PresenceBar` には、生きた人間とエージェントが表示されます
+協力者。スライドごとのプレゼンス (どのユーザーが特定のスライドを閲覧しているか)
+同じ意識状態の上にレイヤーを重ねます。
+
+## 関連ドキュメント {#related}
+
+- [Real-Time Sync](/docs/client#usedbsync) — `useDbSync` + `useChangeVersion`
+  `updatedAt` バンプ ドライビング エディター調整を提供するシステム。
+- [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
+  `resourceType` によって参照されるアクセス モデルの場合は `assertAccess`。
+- [Sharing](/docs/sharing) — ドキュメントの共有方法とアクセスの許可方法。
+- [Template: Content](/docs/template-content) — のリファレンス実装
+  共同リッチテキスト編集。
+- [Template: Slides](/docs/template-slides) — granular `patch-deck` action for
+  構造化された同時編集。
+- [Template: Forms](/docs/template-forms) — フィールドレベル `patch-form-fields`
+  サーバー側のマージ。
+- [Template: Design](/docs/template-design) — `Y.UndoManager` 元に戻す/やり直しの範囲
+  ローカル ユーザーの編集に。

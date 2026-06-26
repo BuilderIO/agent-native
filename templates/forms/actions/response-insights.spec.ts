@@ -1,9 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,
   DATA_TABLE_WIDGET,
 } from "@agent-native/core/data-widgets";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const dbMock = vi.hoisted(() => {
   let results: unknown[][] = [];

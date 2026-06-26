@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { z } from "zod";
-import { nanoid } from "nanoid";
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { fetchICalName } from "../server/lib/ical-fetcher.js";
 import type { ExternalCalendar } from "../shared/api.js";
 

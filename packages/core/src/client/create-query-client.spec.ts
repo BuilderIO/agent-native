@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createAgentNativeQueryClient } from "./create-query-client.js";
 
 describe("createAgentNativeQueryClient", () => {

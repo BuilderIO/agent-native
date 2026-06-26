@@ -1,3 +1,5 @@
+import nodePath from "node:path";
+
 /**
  * Auto-discover actions from a template's actions/ directory.
  *
@@ -27,7 +29,6 @@
  */
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
-import nodePath from "node:path";
 import { captureCliOutput } from "./cli-capture.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
@@ -574,6 +575,14 @@ export async function mergeCoreSharingActions(
     [
       "context-report",
       () => import("../agent/context-xray/actions/context-report.js"),
+    ],
+    [
+      "get-localization-preference",
+      () => import("../localization/actions/get-localization-preference.js"),
+    ],
+    [
+      "set-localization-preference",
+      () => import("../localization/actions/set-localization-preference.js"),
     ],
     [
       "change-appearance",

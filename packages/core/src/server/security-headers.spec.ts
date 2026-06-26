@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
+
 import { createApp, createRouter, defineEventHandler } from "h3";
 import { describe, expect, it } from "vitest";
+
 import {
   computeInlineScriptHash,
   createSecurityHeadersMiddleware,

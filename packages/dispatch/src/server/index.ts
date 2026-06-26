@@ -2,8 +2,9 @@ import {
   registerPackageActions,
   type NitroPluginDef,
 } from "@agent-native/core/server";
-import type { DispatchConfig } from "../config.js";
+
 import { dispatchActions } from "../actions/index.js";
+import type { DispatchConfig } from "../config.js";
 
 /**
  * Register dispatch's package-contributed actions on import. The framework's

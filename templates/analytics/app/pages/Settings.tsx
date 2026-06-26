@@ -1,26 +1,33 @@
-import { ChangelogSettingsCard } from "@agent-native/core/client";
-import { useAuth } from "@/components/auth/AuthProvider";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import {
+  ChangelogSettingsCard,
+  LanguagePicker,
+  openAgentSettings,
+  useT,
+} from "@agent-native/core/client";
 import { Link } from "react-router";
+
+import { useAuth } from "@/components/auth/AuthProvider";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+
 import changelog from "../../CHANGELOG.md?raw";
 
 export default function Settings() {
   const { auth } = useAuth();
+  const t = useT();
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <ChangelogSettingsCard markdown={changelog} />
-
       <Card className="bg-card border-border/50">
         <CardHeader>
-          <CardTitle className="text-base">Account</CardTitle>
+          <CardTitle className="text-base">{t("settings.account")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {auth && (
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">
-                Signed in as
+                {t("settings.signedInAs")}
               </span>
               <span className="text-sm font-medium">{auth.email}</span>
             </div>
@@ -30,34 +37,63 @@ export default function Settings() {
 
       <Card className="bg-card border-border/50">
         <CardHeader>
-          <CardTitle className="text-base">Data Source Credentials</CardTitle>
+          <CardTitle className="text-base">
+            {t("settings.credentials")}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground mb-3">
-            API keys and credentials are managed on the Data Sources page.
+            {t("settings.credentialsDescription")}
           </p>
           <Button variant="outline" size="sm" asChild>
-            <Link to="/data-sources">Manage Data Sources</Link>
+            <Link to="/data-sources">{t("settings.manageDataSources")}</Link>
           </Button>
         </CardContent>
       </Card>
 
       <Card className="bg-card border-border/50">
         <CardHeader>
-          <CardTitle className="text-base">About</CardTitle>
+          <CardTitle className="text-base">
+            {t("settings.languageTitle")}
+          </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p>
-            Analytics is a tool for connecting data sources and building custom
-            dashboards. Connect Google Analytics, BigQuery, Stripe, and more —
-            then ask the agent to create dashboards.
-          </p>
-          <p>
-            Use the Data Sources page to manage connections. Use the Query
-            Explorer for ad-hoc BigQuery SQL.
-          </p>
+        <CardContent className="max-w-xs space-y-1.5">
+          <Label>{t("settings.languageLabel")}</Label>
+          <LanguagePicker label={t("settings.languageLabel")} />
         </CardContent>
       </Card>
+
+      <Card className="bg-card border-border/50">
+        <CardHeader>
+          <CardTitle className="text-base">
+            {t("settings.agentTitle")}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            {t("settings.agentDescription")}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => openAgentSettings()}
+          >
+            {t("settings.openAgentSettings")}
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-card border-border/50">
+        <CardHeader>
+          <CardTitle className="text-base">{t("settings.about")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>{t("settings.aboutDescription")}</p>
+          <p>{t("settings.aboutUsage")}</p>
+        </CardContent>
+      </Card>
+
+      <ChangelogSettingsCard markdown={changelog} />
     </div>
   );
 }

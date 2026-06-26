@@ -1,0 +1,265 @@
+---
+title: "伺服器"
+description: "Nitro 伺服器路由、外掛、框架安裝的路由、請求脈絡和 SQL 支援的同步。"
+---
+
+# 伺服器
+
+Agent-Native 應用程式使用 [Nitro](https://nitro.build) 作為伺服器路由和外掛。大多數產品行為應該存在於 [Actions](/docs/actions) 中；自訂路由適用於 actions 不適合的協議表面：上傳、流式傳輸、公開頁面、webhooks、OAuth 回呼和特定於提供者的 API。
+
+```an-diagram title="伺服器上執行什麼" summary="操作是預設的。自訂檔案路由和框架安裝的路由共用相同的 Nitro 應用程式和相同的 SQL 資料庫。"
+{
+  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">瀏覽器 / UI</div><div class=\"diagram-node\">代理迴圈</div><div class=\"diagram-node\">外部用戶端<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro 伺服器</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">預設表面</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">啟動：遷移、工作</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL 資料庫<br><small class=\"diagram-muted\">Drizzle · 協調點</small></div></div>",
+  "css": ".diagram-server{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-server .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-server .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.diagram-server .diagram-row{display:flex;align-items:center;gap:8px}.diagram-server .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## 基於檔案的路由 {#file-based-routes}
+
+`server/routes/` 和 Nitro 中的路由將檔名對應到方法和路徑：
+
+```text
+server/routes/
+  api/
+    health.get.ts              -> GET  /api/health
+    uploads.post.ts            -> POST /api/uploads
+    webhooks/
+      stripe.post.ts           -> POST /api/webhooks/stripe
+  [...page].get.ts             -> SSR catch-all for public pages
+```
+
+每條路由匯出一個`defineEventHandler`：
+
+```ts
+// server/routes/api/health.get.ts
+import { defineEventHandler } from "h3";
+
+export default defineEventHandler(() => ({
+  ok: true,
+  service: "my-template",
+}));
+```
+
+### 路由命名約定 {#route-naming-conventions}
+
+| 檔名模式           | HTTP 方法 | 範例路徑                  |
+| ------------------ | --------- | ------------------------- |
+| `index.get.ts`     | GET       | `/api/items`              |
+| `index.post.ts`    | POST      | `/api/items`              |
+| `[id].get.ts`      | GET       | `/api/items/:id`          |
+| `[id].patch.ts`    | PATCH     | `/api/items/:id`          |
+| `[id].delete.ts`   | DELETE    | `/api/items/:id`          |
+| `[...slug].get.ts` | GET       | `/api/items/*` 或包羅萬象 |
+
+## 首選 Actions 進行應用操作 {#actions-first}
+
+如果 UI 和代理都需要執行某些操作，請定義操作而不是自訂 API 路由。 Actions自動變成：
+
+- 代理工具。
+- 型別化前端掛鉤。
+- `/_agent-native/actions/:name`下的 HTTP 端點。
+- MCP 和 A2A 可呼叫工具。
+- CLI 用於開發的指令。
+
+僅當您需要路由型協議或二進制/流行為時才使用自訂 `/api/*` 路由。參見[Actions](/docs/actions)。
+
+## 一次性文字完成 {#complete-text}
+
+大多數人工智慧工作應透過代理聊天進行，以便使用者可以檢視、引導和審核
+發生了什麼。對於有意不需要的窄伺服器端轉換
+工具、聊天紀錄或執行狀態，使用 `completeText()` 作為顯式轉義
+孵化。
+
+```ts
+// actions/classify-message.ts
+import { defineAction } from "@agent-native/core/action";
+import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Classify a short message",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
+    const result = await completeText({
+      systemPrompt:
+        "Return exactly one label: urgent, follow-up, waiting, or archive.",
+      input: body,
+      maxOutputTokens: 16,
+      temperature: 0,
+    });
+
+    return { label: result.text.trim() };
+  },
+});
+```
+
+`completeText()` 透過與代理相同的設定引擎層執行
+聊天，包括 Builder、Anthropic、AI SDK 提供者、使用者/應用模型預設值，
+請求範圍的秘密和引擎規範化的錯誤。它僅適用於伺服器；不要
+從用戶端程式碼呼叫模型提供者。如果操作是面向使用者的，則將其包裝起來
+在一個操作中，以便 UI 和代理共用相同的功能。
+
+## 請求脈絡和存取 {#request-context}
+
+Actions 由框架自動安裝並與請求脈絡一起執行。自訂路由則不然。如果自訂路由讀取或寫入可擁有的資源，則載入工作階段並包裝工作：
+
+```an-annotated-code title="將自訂路由範圍限定為請求使用者"
+{
+  "filename": "server/routes/api/projects.get.ts",
+  "language": "ts",
+  "code": "import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project分享s));\n    },\n  );\n});",
+  "annotations": [
+    {
+      "lines": "7-10",
+      "label": "自訂路由沒有自動脈絡",
+      "note": "與操作不同，檔案路由必須載入工作階段本身，並且在沒有經過驗證的使用者時無法關閉。"
+    },
+    {
+      "lines": "12-13",
+      "label": "建立請求脈絡",
+      "note": "`runWithRequestContext` 使 user/org 在工作期間可供範圍界定助手使用。"
+    },
+    {
+      "lines": "18-19",
+      "label": "範圍可擁有的讀取",
+      "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+    }
+  ]
+}
+```
+
+`getDb`是透過`server/db/index.ts`中的`createGetDb(schema)`為每個應用程式建立的，因此自訂路由從範本（`../../db/index.js`）匯入，而不是從`@agent-native/core/db`匯入；見[Database — Where the DB Client Lives](/docs/database#db-client)。不要在自訂路由中執行無作用域的 `db.select().from(ownableTable)`。
+
+## 伺服器外掛 {#server-plugins}
+
+外掛位於 `server/plugins/` 中並在啟動時執行。將它們用於遷移、提供者設定、重複作業、整合轉接器和框架外掛設定。
+
+```ts
+// server/plugins/db.ts
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+遷移必須是累加的。切勿將破壞性的 SQL 放入啟動外掛中。
+
+## 框架安裝路由 {#framework-routes}
+
+框架在`/_agent-native/`下掛載自己的路由。將該命名空間視為保留。
+
+| 路由前綴                         | 目的                                                             |
+| -------------------------------- | ---------------------------------------------------------------- |
+| `/_agent-native/actions/:name`   | 操作 HTTP 端點                                                   |
+| `/_agent-native/agent-chat`      | 代理聊天迴圈                                                     |
+| `/_agent-native/poll`            | SQL 支援的 UI 同步                                               |
+| `/_agent-native/resources/*`     | 工作區資源                                                       |
+| `/_agent-native/extensions/*`    | 執行時擴充功能和擴充功能代理（舊別名：`/_agent-native/tools/*`） |
+| `/_agent-native/integrations/*`  | 訊息傳遞/webhook 整合                                            |
+| `/_agent-native/a2a`             | 代理到代理 JSON-RPC                                              |
+| `/_agent-native/mcp`             | MCP 端點                                                         |
+| `/_agent-native/onboarding/*`    | 設定清單                                                         |
+| `/_agent-native/observability/*` | 跟蹤、意見回饋、評估、實驗                                       |
+| `/_agent-native/file-upload`     | 檔案上傳提供者端點                                               |
+
+自訂應用路由應使用 `/api/*`、公開應用路徑或不與 `/_agent-native/` 衝突的提供者特定回調路徑。
+
+## SQL 支援的同步 {#sync}
+
+Agent-Native 不依賴於檔案系統觀察程式或置頂記憶狀態。當 actions 或框架助手更改資料時，資料庫同步版本會遞增。用戶端 `useDbSync()` 掛鉤輪詢 `/_agent-native/poll` 並使 React 查詢快取無效。
+
+這適用於無伺服器和多執行個體部署，因為資料庫是協調點。如果您在 actions 之外編寫自訂突變，請使用框架助手或發出適當的同步失效，以便開啟 UI 重新整理。
+
+```an-diagram title="SQL-backed 同步迴圈" summary="沒有觀察者，沒有置頂狀態。寫入會碰撞 SQL 中的版本；每個用戶端都會輪詢版本並重新取得。"
+{
+  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / 輔助函式<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL 資料庫</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
+  "css": ".diagram-sync{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sync .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+```an-api title="輪詢端點" method="GET" path="/_agent-native/poll"
+{
+  "method": "GET",
+  "path": "/_agent-native/poll",
+  "summary": "返回目前的每個來源資料庫同步版本，以便用戶端可以偵測更改。",
+  "description": "`useDbSync()` calls this on an interval (and falls back to it when SSE is unavailable). When a returned version is higher than the client's last-seen value, the matching React Query caches are invalidated and refetch.",
+  "auth": "Session cookie (request-scoped identity)",
+  "responses": [
+    { "status": "200", "description": "Current sync versions keyed by source." }
+  ]
+}
+```
+
+## Webhooks {#webhooks}
+
+入站 webhooks 應驗證、保留並快速返回。長時間執行的代理工作應使用整合佇列模式：
+
+1. 驗證平台簽名或質詢。
+2. 將持久工作插入 SQL。
+3. 自觸發簽名的處理器路由。
+4. 立即返回 200。
+5. 讓新的處理器執行執行代理迴圈並發布結果。
+
+```an-diagram title="整合佇列模式" summary="Webhook 處理常式以毫秒為單位返回；單獨的簽名執行執行緩慢的代理工作。"
+{
+  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>入站 webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">將工作寫入 SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">執行代理迴圈並發布結果</small></div></div>",
+  "css": ".diagram-webhook{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-webhook .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-webhook .diagram-step{display:flex;align-items:center;gap:8px}.diagram-webhook .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+> [!WARNING]
+> 不要依賴返回回應後未等待的承諾 — 無伺服器主機會凍結執行。請參閱 [Messaging](/docs/messaging) 以了解規範整合佇列。
+
+## 進階：逃生艙口 {#advanced-escape-hatches}
+
+大多數範本永遠不需要這些。 Nitro 檔案路由和框架的代理
+聊天外掛已經連線應用伺服器和正式環境代理處理常式。
+僅在外部建置自訂伺服器整合時才使用它們
+標準範本外掛堆堆疊。
+
+### 程式化式 H3 伺服器 {#create-server}
+
+對於直接需要 H3 應用的自訂包或測試，`createServer()`
+返回預設定的應用程式和路由器：
+
+```ts
+import { createServer } from "@agent-native/core/server";
+import { defineEventHandler } from "h3";
+
+const { app, router } = createServer();
+
+router.get(
+  "/api/health",
+  defineEventHandler(() => ({ ok: true })),
+);
+```
+
+### 正式環境代理處理常式 {#agent-handler}
+
+框架的代理聊天外掛已安裝正式環境代理處理常式
+用於範本。僅在建置時直接呼叫`createProductionAgentHandler()`
+標準範本外掛堆堆疊之外的自訂伺服器整合 -
+否則透過`AGENTS.md`、skills、actions和
+代理聊天外掛。
+
+```ts
+import { createProductionAgentHandler } from "@agent-native/core/server";
+
+const handler = createProductionAgentHandler({
+  scripts,
+  systemPrompt: "You are the app agent...",
+});
+```

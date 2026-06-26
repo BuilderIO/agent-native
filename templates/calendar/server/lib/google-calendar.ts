@@ -1,16 +1,17 @@
-import type {
-  CalendarEvent,
-  GoogleAuthStatus,
-  UpdateEventScope,
-} from "../../shared/api.js";
-import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
+import { getDbExec } from "@agent-native/core/db";
 import {
   saveOAuthTokens,
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
 } from "@agent-native/core/oauth-tokens";
 import { isOAuthConnected, getOAuthAccounts } from "@agent-native/core/server";
-import { getDbExec } from "@agent-native/core/db";
+
+import type {
+  CalendarEvent,
+  GoogleAuthStatus,
+  UpdateEventScope,
+} from "../../shared/api.js";
+import { getGoogleEventColorHex } from "../../shared/google-event-colors.js";
 import {
   createOAuth2Client,
   oauth2GetUserInfo,

@@ -1,0 +1,330 @@
+---
+title: "보안"
+description: "에이전트 네이티브 앱의 보안 모델: 입력 유효성 검사, SQL 주입 방지, XSS, 데이터 범위 지정, 비밀 관리 및 인증 패턴."
+---
+
+# 보안
+
+에이전트 기반 앱은 기본적으로 안전하도록 설계되었습니다. 프레임워크는 여러 계층에서 자동 보호 기능을 제공합니다. 즉, SQL 수준 데이터 격리, 매개변수화된 쿼리, 입력 유효성 검사 및 인증을 즉시 사용할 수 있습니다.
+
+## 무료로 얻는 것과 소유한 것 {#what-you-own}
+
+```an-diagram title="계층별 방어" summary="프레임워크는 대부분의 위협 표면을 소유합니다. 당신은 외부 입력의 범위 지정 및 유효성 검사를 위한 태그 지정 테이블이라는 두 가지를 소유하고 있습니다."
+{
+  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">프레임워크 소유</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">직접 소유</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
+  "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+}
+```
+
+표준 패턴을 기반으로 구축하면 프레임워크가 이미 대부분의 위협 표면을 처리합니다.
+
+- **데이터 격리** — 에이전트 SQL가 다시 작성되어 현재 사용자(및 활성 조직)의 행만 볼 수 있습니다. [Data Scoping](#data-scoping)를 참조하세요.
+- **SQL 주입** — `db-query`/`db-exec` 및 Drizzle는 항상 매개변수화됩니다. [SQL Injection Prevention](#sql-injection)를 참조하세요.
+- **XSS** — React 자동 이스케이프, TipTap 및 `react-markdown` 삭제. [XSS Prevention](#xss)를 참조하세요.
+- **인증 및 CSRF** — 모든 `defineAction`는 인증으로 보호됩니다. 쿠키는 `httpOnly` + `SameSite=lax`입니다. [Authentication](#auth)를 참조하세요.
+- **비밀 암호화** — 자격 증명과 저장소는 저장 시 암호화됩니다. [Secrets Management](#secrets)를 참조하세요.
+
+실제로 고려해야 할 작은 표면이 남습니다:
+
+- **A. 범위 지정을 위해 테이블에 태그를 지정하세요.** [`ownableColumns()`](#data-scoping)를 통해 `owner_email`(및 팀 데이터의 경우 `org_id`)를 추가하고 [access guards](#access-guards)를 통해 Drizzle 읽기/쓰기를 라우팅합니다.
+- **B. 외부 입력을 검증하고 라우팅합니다.** 모든 작업에 Zod [`schema:`](#input-validation)를 제공하고 [SSRF guard](#ssrf)를 통해 사용자/에이전트 URL의 서버 측 가져오기를 보냅니다.
+
+이 두 가지를 올바르게 설정하면 나머지는 기본값입니다. [Production Checklist](#production-checklist)는 배송 전 한 페이지의 확인서입니다.
+
+## 보안을 위한 설계 {#secure-by-design}
+
+프레임워크 아키텍처는 표준 패턴을 사용할 때 일반적인 취약점을 방지합니다.
+
+| 취약성      | 프레임워크 보호                                                                  |
+| ----------- | -------------------------------------------------------------------------------- |
+| SQL 주입    | `db-query`/`db-exec` 및 Drizzle ORM의 매개변수화된 쿼리                          |
+| XSS         | React는 JSX를 자동 이스케이프합니다. TipTap은 서식 있는 텍스트를 삭제합니다      |
+| 데이터 유출 | 임시 뷰를 통한 SQL 수준 범위 지정(`owner_email`, `org_id`)                       |
+| 인증 우회   | 인증 가드는 모든 `defineAction` 엔드포인트를 자동 보호합니다                     |
+| 입력 주입   | `defineAction`의 Zod 스키마 유효성 검사                                          |
+| CSRF        | `SameSite=lax` + `httpOnly` 쿠키                                                 |
+| 비밀 노출   | `.env`가 무시되었습니다. 유휴 상태에서 암호화된 자격 증명 및 저장소(AES-256-GCM) |
+| SSRF        | `ssrfSafeFetch`는 내부/메타데이터 대상을 차단하고 리디렉션 리바인딩              |
+
+## 입력 검증 {#input-validation}
+
+모든 작업에 `defineAction`와 Zod `schema:`를 사용하세요. 프레임워크는 코드가 실행되기 전에 자동으로 입력의 유효성을 검사합니다.
+
+```ts
+import { z } from "zod";
+import { defineAction } from "@agent-native/core/action";
+
+export default defineAction({
+  description: "Create a note",
+  schema: z.object({
+    title: z.string().min(1).max(200).describe("Note title"),
+    content: z.string().optional().describe("Note body"),
+  }),
+  run: async (args) => {
+    // args is guaranteed valid — invalid input never reaches here
+  },
+});
+```
+
+잘못된 입력은 명확한 오류 메시지(HTTP의 경우 400, 에이전트 호출의 경우 구조적 오류)를 반환합니다. 레거시 `parameters:` 형식은 런타임 유효성 검사를 제공하지 않습니다.
+
+## SQL 주입 방지 {#sql-injection}
+
+프레임워크의 `db-query` 및 `db-exec` 도구는 매개변수화된 쿼리를 사용합니다. 사용자 입력은 인수로 전달되며 SQL 문자열에 삽입되지 않습니다.
+
+```ts
+// SAFE — parameterized query (framework default)
+await exec({ sql: "INSERT INTO notes (title) VALUES (?)", args: [title] });
+
+// SAFE — Drizzle ORM (always generates parameterized queries)
+await db.insert(notes).values({ title, ownerEmail: email });
+
+// DANGEROUS — string concatenation (never do this)
+await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
+```
+
+```an-callout
+{
+  "tone": "risk",
+  "body": "문자열 연결이나 템플릿 리터럴로 SQL를 빌드하지 마세요. 사용자 입력을 `args`에서 `exec` / `db-query`로 전달하거나 Drizzle을 사용하세요. 둘 다 항상 매개변수화됩니다. `pnpm guards` 검사는 CI 시간에 범위가 지정되지 않은 쿼리와 연결된 쿼리를 포착합니다."
+}
+```
+
+## XSS 예방 {#xss}
+
+React는 모든 JSX 표현식을 자동 이스케이프합니다. 추가 지침:
+
+- 사용자가 제어하는 콘텐츠에는 `dangerouslySetInnerHTML`를 사용하지 마세요
+- 절대 `innerHTML`, `eval()` 또는 `document.write()`를 사용하지 마세요
+- 서식 있는 텍스트 편집의 경우 TipTap(프레임워크 종속성)을 사용하세요. 스키마를 통해 삭제됩니다.
+- 마크다운을 렌더링하려면 `react-markdown`를 사용하세요. React 요소로 안전하게 변환됩니다.
+
+## 서버측 가져오기(SSRF) {#ssrf}
+
+사용자 또는 에이전트가 제어하는 URL의 모든 서버 측 `fetch`는 프레임워크 SSRF 가드를 통과해야 하거나 클라우드 메타데이터(`169.254.169.254`), `localhost` 또는 내부 서비스를 가리킬 수 있습니다.
+
+```ts
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+
+const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
+```
+
+`ssrfSafeFetch`는 개인/내부 대상을 차단하고, 연결 시 확인된 IP를 다시 확인하고(DNS 리바인딩), 모든 리디렉션 홉을 다시 검증하여 공용 URL가 개인 네트워크로 리디렉션할 수 없도록 합니다. 확장 iframe 프록시, `upload-image` 및 디자인 토큰 가져오기 도구는 모두 이를 통해 라우팅됩니다. 비행 전 확인을 위해서는 `isBlockedExtensionUrlWithDns(url)`와 `redirect: "manual"`를 함께 사용하세요.
+
+## 데이터 범위 지정 {#data-scoping}
+
+프로덕션에서 프레임워크는 에이전트 SQL 쿼리를 현재 사용자의 데이터로 자동으로 제한합니다. 이는 SQL 수준에서 시행되며 에이전트는 이를 우회할 수 없습니다. 이 섹션은 범위 지정 파이프라인에 대한 표준 참조입니다. 역학에 대한 [Authentication](/docs/authentication) 및 [Multi-Tenancy](/docs/multi-tenancy) 문서 링크는 여기에 있습니다.
+
+### 범위 지정 파이프라인 {#scoping-pipeline}
+
+인증된 세션에서 에이전트가 실행하는 SQL까지 범위 지정 흐름:
+
+```
+session.orgId → AGENT_ORG_ID → SQL row scoping
+```
+
+```an-diagram title="범위 지정 파이프라인" summary="SQL 에이전트는 기본 테이블을 직접 건드리지 않습니다. 현재 ID로 범위가 지정된 임시 뷰를 통해 읽으므로 기본 테이블 이름은 소유한 행만 반환할 수 있습니다."
+{
+  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">로그인된 세션<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">에이전트 SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
+  "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+로그인된 세션은 `email` 및 (조직이 활성화된 경우) `orgId`를 전달합니다. 프레임워크는 해당 세션에서 요청 컨텍스트를 설정하고, 활성 조직을 에이전트 SQL에 `AGENT_ORG_ID`로 노출하고, 현재 ID가 소유한 행만 볼 수 있도록 모든 쿼리를 다시 작성합니다. 쿼리가 UI, 작업 또는 에이전트에서 발생하는지 여부에 관계없이 동일한 경로가 적용됩니다. 에이전트는 사용자가 구성원이 아닌 조직에 대한 데이터를 읽을 수 없습니다.
+
+### 사용자별 범위 지정(`owner_email`)
+
+사용자별 데이터가 있는 모든 테이블에는 **반드시** `owner_email` 텍스트 열이 있어야 합니다. camelCase Drizzle 속성 이름을 사용하세요. — `accessFilter`는 `resourceTable.ownerEmail`를 읽습니다.
+
+```ts
+import {
+  table,
+  text,
+  integer,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+// Minimal: just the owner column
+export const notes = table("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content"),
+  ownerEmail: text("owner_email").notNull(), // REQUIRED — camelCase property
+});
+
+// Or use ownableColumns() to add owner_email + org_id + visibility in one call
+export const notes = table("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content"),
+  ...ownableColumns(),
+});
+```
+
+프레임워크는 쿼리를 자동으로 필터링하는 임시 SQL 보기를 생성합니다.
+
+```sql
+CREATE TEMPORARY VIEW "notes" AS
+  SELECT * FROM main."notes"
+  WHERE "owner_email" = 'alice@example.com';
+```
+
+INSERT 문은 열이 아직 없을 때 `owner_email`를 자동으로 삽입합니다.
+
+`db-query` / `db-exec` 도구는 스키마 한정 테이블 참조(`public.<table>`, `main.<table>`)를 거부합니다. 정규화된 이름은 기본 테이블로 확인되고 위의 임시 뷰를 우회합니다. 에이전트는 기본 테이블 이름을 사용합니다. 범위 지정은 자동으로 적용됩니다.
+
+### 조직별 범위 지정(`org_id`)
+
+팀이 데이터를 공유하는 다중 사용자 앱의 경우 `org_id` 열을 추가하세요. 두 열이 모두 있으면 쿼리의 범위는 `WHERE owner_email = ? AND org_id = ?`로 지정됩니다.
+
+`ownableColumns()` 스키마 도우미는 한 번의 호출로 `owner_email`, `org_id` 및 `visibility`를 추가하므로 새 테넌트 인식 테이블은 기본적으로 전체 범위 계약을 얻습니다.
+
+```ts
+import { table, text, ownableColumns } from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(), // adds owner_email + org_id + visibility
+});
+```
+
+```an-schema title="What ownableColumns() adds" summary="테이블을 테넌트 인식하고 공유 가능하게 만드는 세 개의 열입니다."
+{
+  "entities": [
+    {
+      "id": "ownable",
+      "name": "ownable resource",
+      "note": "Any table that spreads ...ownableColumns()",
+      "fields": [
+        { "name": "owner_email", "type": "text", "nullable": false, "note": "Creator. Auto-filled by write actions; auto-injected on INSERT." },
+        { "name": "org_id", "type": "text", "nullable": true, "note": "생성 시 소유자의 활성 조직입니다. 조직 가시성 검사를 진행합니다." },
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "비공개 | 조직 | 공개 — 대략적인 기본값, 기본값은 비공개입니다." }
+      ]
+    }
+  ]
+}
+```
+
+### actions의 액세스 가드 {#access-guards}
+
+원시 에이전트 SQL는 위 임시 보기의 범위에 속합니다. Drizzle를 사용하여 직접 쿼리하는 작업 코드는 프레임워크의 액세스 도우미를 통과해야 읽기 및 쓰기 범위가 현재 ID로 유지됩니다.
+
+- **`accessFilter`** — 현재 사용자/조직이 볼 수 있는 행으로 쿼리를 제한하는 `WHERE` 조건자를 반환합니다. 목록/읽기 쿼리에 사용하세요.
+- **`resolveAccess`** — 현재 요청에 대한 유효 액세스 범위(소유자, 조직, 공유)를 확인합니다.
+- **`assertAccess`** — 쓰기 또는 단일 레코드 읽기를 보호하여 현재 ID가 대상 행에서 작동하지 않을 수 있는 경우 발생합니다.
+
+`ownableColumns()`로 구축된 테이블에는 이러한 범위의 읽기 및 쓰기가 필요합니다. 사용자 정의 Nitro 경로는 소유 가능한 데이터를 쿼리하기 전에 요청 컨텍스트를 설정해야 합니다. `guard-no-unscoped-queries` 검사(`pnpm guards`를 통해 실행)는 CI 시간에 이를 시행합니다. 전체 도우미 API에 대해서는 `sharing` 스킬을 참조하세요.
+
+### 검증
+
+```bash
+pnpm action db-check-scoping           # 모든 테이블에 owner_email이 있는지 확인하세요.
+pnpm action db-check-scoping --require-org  # org_id도 필요합니다.
+```
+
+## 비밀 관리 {#secrets}
+
+| 비밀번호 유형              | 저장 장소                                                |
+| -------------------------- | -------------------------------------------------------- |
+| 배포 수준 키(앱당 하나)    | `.env` 파일(gitignored, 서버 측에만 해당)                |
+| 사용자별 / 조직별 API 키   | `saveCredential` / `resolveCredential`(저장 시 암호화됨) |
+| 등록된 비밀(사이드바 볼트) | `app_secrets` 볼트(저장 시 암호화됨)                     |
+| OAuth 토큰(구글, GitHub)   | `saveOAuthTokens()`를 통한 `oauth_tokens` 매장           |
+| 세션 토큰                  | 자동(더 나은 인증이 이를 처리함)                         |
+
+사용자별/조직별 자격 증명 및 저장소는 저장 시 `SECRETS_ENCRYPTION_KEY`로 키가 지정된 AES-256-GCM로 암호화됩니다(`BETTER_AUTH_SECRET`로 대체). 생산은 하나 없이는 시작을 거부합니다. 기존 일반 텍스트 자격 증명 행을 암호화하려면 `pnpm action db-migrate-encrypt-credentials`(멱등성, 비파괴)를 실행하세요.
+
+`settings`, `application_state`, 소스 코드 또는 작업 응답에 비밀을 저장하지 마세요. 위의 자격 증명/볼트 API를 사용하세요. 암호화와 사용자별 범위 지정을 모두 처리합니다.
+
+## 인증 {#auth}
+
+인증은 자동입니다. 전체 설정은 [Authentication](/docs/authentication) 문서를 참조하세요.
+
+**보안 핵심 사항:**
+
+- `defineAction` 엔드포인트는 인증 가드에 의해 자동 보호됩니다
+- 사용자 정의 `/api/` 경로는 `getSession(event)`를 호출하고 결과를 확인해야 합니다
+- 상태 변경 작업은 POST(actions의 기본값)를 사용해야 합니다.
+- `SameSite=lax` + `httpOnly` 쿠키는 대부분의 CSRF 공격을 방지합니다.
+
+## A2A 신원 확인 {#a2a-identity}
+
+앱이 A2A 프로토콜을 통해 서로 호출할 때 공유 비밀로 서명된 JWT 토큰을 사용하여 신원을 확인합니다.
+
+```bash
+A2A_SECRET=your-shared-secret-at-least-32-chars
+```
+
+1. 앱 A는 `sub: "steve@example.com"`를 포함하는 JWT에 서명합니다
+2. App B는 동일한 비밀을 사용하여 JWT 서명을 확인합니다
+3. 앱 B는 확인된 `sub` 클레임을 요청 컨텍스트로 읽습니다.
+4. 데이터 범위 지정 적용 — 앱 B에는 Steve의 데이터만 표시됩니다.
+
+프로덕션에 `A2A_SECRET`가 없으면 모든 A2A 엔드포인트와 `/_agent-native/integrations/process-task` 자체 실행 엔드포인트는 **503**을 반환합니다. A2A 트래픽을 호출하거나 수신하는 모든 앱에 설정하세요. (로컬 개발의 경우 프레임워크는 여전히 인증되지 않은 호출을 허용합니다.)
+
+## 인바운드 Webhooks {#webhooks}
+
+인바운드 웹훅 핸들러(Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub)는 프로덕션에서 기본적으로 위조된 요청을 거부합니다. 해당 서명 비밀 env var가 누락되면 핸들러는 수락 및 전달 대신 401을 반환합니다.
+
+이것은 이전에는 "경고 및 수락" 입장이었습니다. 그렇지 않으면 놓칠 수 있는 비밀을 설정하거나 로컬 개발자 전용 `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1`를 사용하여 이전 동작을 다시 선택하세요. 통합별 서명 비밀 변수는 [Messaging](/docs/messaging#env-vars)를 참조하세요.
+
+## 제작 체크리스트 {#production-checklist}
+
+### 인증 및 비밀
+
+- [ ] `BETTER_AUTH_SECRET`는 임의의 32자 이상의 문자열(`openssl rand -hex 32`)로 설정됩니다. 단, `A2A_SECRET`에서 파생된 호스팅 작업공간 배포가 아닌 경우
+- [ ] `OAUTH_STATE_SECRET`는 별도의 임의의 32개 이상의 문자 문자열로 설정됩니다(`BETTER_AUTH_SECRET`를 재사용하지 마세요) — [OAuth State Signing](#oauth-state) 참조
+- [ ] A2A 트래픽을 호출하거나 수신하는 모든 앱에 설정된 `A2A_SECRET` — [A2A Identity Verification](#a2a-identity) 참조
+- [ ] `SECRETS_ENCRYPTION_KEY` 세트(또는 `BETTER_AUTH_SECRET` 대체에 의존) - [Secrets Management](#secrets) 참조
+- [ ] `AUTH_SKIP_EMAIL_VERIFICATION`는 프로덕션에서 설정되지 **않습니다**(또는 QA 미리보기 배포에만 설정됨)
+
+### 웹훅 비밀(사용하는 통합에 대한 비밀 설정)
+
+- [ ] 활성화된 각 인바운드 통합에 대한 서명 비밀 세트 - 통합별 목록은 [Inbound Webhooks](#webhooks) 및 [Messaging](/docs/messaging#env-vars)를 참조하세요.
+- [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS`는 프로덕션에 **설정되지 않았습니다**
+
+### 스키마
+
+- [ ] 모든 사용자 대상 테이블에는 `owner_email`가 있고 다중 사용자 테이블에도 `org_id`가 있습니다. — [Data Scoping](#data-scoping) 참조
+- [ ] 소유 가능한 테이블 읽기/쓰기는 [access guards](#access-guards)를 통과합니다.
+- [ ] 모든 actions는 Zod `schema:`와 함께 `defineAction`를 사용합니다. — [Input Validation](#input-validation) 참조
+- [ ] 사용자/에이전트 URL의 서버 측 가져오기는 `ssrfSafeFetch`를 통과합니다. — [SSRF](#ssrf) 참조
+- [ ] 사용자 콘텐츠가 있는 `dangerouslySetInnerHTML` 없음(또는 출력이 DOMPurify를 통해 실행됨)
+- [ ] 문자열로 연결된 SQL 없음
+- [ ] `pnpm guards`는 깨끗합니다 (`guard-no-unscoped-queries`, `guard-no-env-credentials`, `guard-no-env-mutation`, `guard-no-localhost-fallback`, `guard-no-unscoped-credentials`, `guard-no-drizzle-push`)
+- [ ] 데이터 격리를 확인하기 위해 두 개의 사용자 계정으로 테스트함
+
+### 기타 경화
+
+- [ ] `AGENT_NATIVE_DEBUG_ERRORS`는 실제 제품에서 설정되지 **않습니다**(디버그 미리보기에만 해당)
+- [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK`는 조직이 실제로 작업 공간 키를 공유하지 않는 한 **설정되지 않습니다** — [Cross-User Tooling Secrets](#tooling-secrets) 참조
+- [ ] 다중 테넌트 배포에서 **사용자는 자신의 `ANTHROPIC_API_KEY`를 가져옵니다** — 프레임워크는 배포 수준 env var로 폴백하는 것을 거부합니다.
+
+---
+
+아래 섹션에서는 특정 배포에서만 사용할 수 있는 틈새 환경 플래그를 다룹니다. 대부분의 앱은 절대 터치하지 않습니다.
+
+## OAuth 상태 서명 {#oauth-state}
+
+OAuth 흐름(Google, Atlassian, Zoom)은 전용 HMAC 키를 사용하여 상태 봉투에 서명합니다.
+
+```bash
+OAUTH_STATE_SECRET=$(openssl rand -hex 32)
+```
+
+이것은 `GOOGLE_CLIENT_SECRET`(Google과 공유되는 자격 증명)로 대체되었습니다. Google 비밀이 유출되면 공격자가 OAuth 상태 봉투를 위조할 수 있었습니다. 전용 키는 타사 비밀과 무관합니다. `OAUTH_STATE_SECRET`가 설정되지 않은 경우 프레임워크는 `BETTER_AUTH_SECRET`로 대체됩니다. 호스팅된 작업 공간 배포는 이미 필요한 `A2A_SECRET`에서 목적별 OAuth 키를 파생할 수도 있습니다. 해당 서버 비밀을 사용할 수 없으면 OAuth 흐름이 프로덕션에서 실패합니다.
+
+`redirect_uri` 쿼리 매개변수는 허용 목록(동일 출처 + 프레임워크 `/_agent-native/...` 경로)에 대해서도 검증됩니다. 템플릿의 사용자 정의 OAuth 흐름은 상태에 서명하기 전에 프레임워크의 `isAllowedOAuthRedirectUri()` 도우미를 사용해야 합니다.
+
+## 교차 사용자 도구 사용의 비밀 {#tooling-secrets}
+
+`${keys.NAME}`를 참조하는 도구 및 자동화는 기본적으로 사용자별 비밀을 확인합니다. 이 버전에서는 작업 공간 범위 대체가 **기본적으로 꺼져 있습니다**. 그렇지 않으면 악의적인 조직 구성원이 작업 공간 `OPENAI_API_KEY`를 심고 다른 구성원의 API 호출을 수집할 수 있습니다.
+
+귀하의 조직이 실제로 작업 공간 전체 키(예: 단일 회사 Stripe 키)를 공유하는 경우 다음을 사용하여 이전 동작을 다시 선택하세요.
+
+```bash
+AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
+```
+
+작업 영역 범위 비밀 쓰기에는 이 플래그에 관계없이 여전히 조직 소유자/관리자 역할이 필요합니다.

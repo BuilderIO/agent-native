@@ -2,7 +2,6 @@
  * set-agent-engine — validates and writes agent engine selection to settings.
  */
 
-import type { ActionTool } from "../../agent/types.js";
 import {
   listAgentEngines,
   getAgentEngineEntry,
@@ -10,6 +9,7 @@ import {
   normalizeModelForEngine,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
+import type { ActionTool } from "../../agent/types.js";
 import { putSetting } from "../../settings/index.js";
 
 export const tool: ActionTool = {

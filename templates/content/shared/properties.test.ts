@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   CREATABLE_DOCUMENT_PROPERTY_TYPES,
   DEFAULT_BLOCKS_FIELD_NAME,

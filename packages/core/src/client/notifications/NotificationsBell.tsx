@@ -1,21 +1,22 @@
-import { agentNativePath, appPath } from "../api-path.js";
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
   IconBell,
   IconBellRinging,
   IconLoader2,
   IconX,
 } from "@tabler/icons-react";
-import { usePausingInterval } from "../use-pausing-interval.js";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import type {
+  Notification as NotificationDto,
+  NotificationSeverity,
+} from "../../notifications/types.js";
+import { agentNativePath, appPath } from "../api-path.js";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import type {
-  Notification as NotificationDto,
-  NotificationSeverity,
-} from "../../notifications/types.js";
+import { usePausingInterval } from "../use-pausing-interval.js";
 
 interface NotificationsBellProps {
   /** Poll interval in ms. Set to 0 to disable polling. Default: 10000. */
@@ -244,7 +245,7 @@ export function NotificationsBell({
           {hasUnread ? (
             <span
               aria-hidden
-              className="an-notifications-bell__badge absolute -right-0.5 -top-0.5 rounded-full bg-destructive px-1 text-[10px] leading-[14px] font-medium text-destructive-foreground"
+              className="an-notifications-bell__badge absolute -end-0.5 -top-0.5 rounded-full bg-destructive px-1 text-[10px] leading-[14px] font-medium text-destructive-foreground"
             >
               {unreadCount > 99 ? "99+" : unreadCount}
             </span>
@@ -314,7 +315,7 @@ export function NotificationsBell({
                     type="button"
                     onClick={onItemClick}
                     className={
-                      "flex w-full flex-col items-start gap-0.5 px-3 py-2 pr-8 text-left" +
+                      "flex w-full flex-col items-start gap-0.5 px-3 py-2 pe-8 text-start" +
                       (link ? " cursor-pointer" : "")
                     }
                   >
@@ -340,7 +341,7 @@ export function NotificationsBell({
                       e.stopPropagation();
                       void dismiss(n.id);
                     }}
-                    className="absolute right-2 top-2 hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:flex"
+                    className="absolute end-2 top-2 hidden rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground group-hover:flex"
                   >
                     <IconX size={12} />
                   </button>

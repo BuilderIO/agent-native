@@ -1,0 +1,817 @@
+---
+title: "الخطط المرئية"
+description: "تعمل خطط Agent-Native على تحويل خطة وكيل الترميز إلى مستند منظم وقابل للمراجعة - الرسوم البيانية والإطارات السلكية والتعليمات البرمجية المشروحة والتعليقات وروابط المشاركة. التثبيت مرة واحدة من CLI؛ المراجعون الذين تشاركهم مع التعديل كضيف ولا تقم بتسجيل الدخول إلا للحفظ أو المشاركة."
+---
+
+# الخطط المرئية
+
+> **يقوم معظم الأشخاص بتثبيت الخطة كمهارة، وليس كتطبيق داعم.** أمر CLI واحد
+> يضيف `/visual-plan` و`/visual-recap` skills بالإضافة إلى الخطة المستضافة
+> بوكيل الترميز الخاص بك — راجع [Plan plugin & marketplace](/docs/plan-plugin)
+> للمكون الإضافي ومسارات السوق. تفرع قالب الخطة (مغطى تحت
+> [For developers](#for-developers)) هو المسار الثانوي للاستضافة الذاتية أو
+> البناء على الخطة نفسها.
+
+خطط Agent-Native هي وضع خطة مرئية لوكلاء الترميز. يتحول إلى عادي
+Codex، أو رمز Claude، أو Markdown، أو خطة التنفيذ الملصقة في خطة منظمة
+سطح المراجعة الذي يحتوي على نص منسق ورسوم بيانية وإطارات سلكية وإرشادات تفصيلية للتعليمات البرمجية المشروحة
+وملفات الأشجار والشروح والتعليقات والروابط القابلة للمشاركة.
+
+يتعلق الأمر بأمرين. يقوم `/visual-plan` ببناء خطة **قبل** الوكيل
+يكتب الكود. يُحدث `/visual-recap` تغييرًا **حدث بالفعل** — علاقات عامة،
+الالتزام أو التفرع أو git diff — في مراجعة التعليمات البرمجية المرئية على ارتفاعات عالية. كلاهما مفتوح
+سطح المراجعة نفسه، بحيث يمكنك التعليق والتعليق وإرسال التعليقات مرة أخرى إلى
+الوكيل بنفس الطريقة.
+
+```an-diagram title="أمرين، وسطح مراجعة واحد" summary="يتم نشر كلا الأمرين من خلال موصل Plan MCP المستضاف في نفس سطح التعليق التوضيحي والتعليق."
+{
+  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">قبل الكود - البنية وواجهة UI وإعادة التنظيم</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">بعد الكود - PR و commit و branch و diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">موصل Plan MCP<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">سطح المراجعة<br><small class=\"diagram-muted\">مخططات · إطارات سلكية · كود مشروح · تعليقات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">وكيل البرمجة<br><small class=\"diagram-muted\">تمت إعادة الملاحظات</small></div></div>",
+  "css": ".diagram-plan{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-plan .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-plan .diagram-arrow{font-size:22px;line-height:1}.diagram-plan .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}"
+}
+```
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>خطة إعادة تصميم الدفع</h1><div style='flex:1'></div><button>مشاركة</button><button class='primary'>موافقة</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>الإطار السلكي الحالي</div><div class='wf-box'>الإطار السلكي المقترح</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>خطة التنفيذ</strong><div class='wf-box'>قرار: الإبقاء على غلاف الدفع الحالي</div><div class='wf-box'>شرح الكود مع التعليقات</div><div class='wf-box'>أسئلة مفتوحة</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>التعليقات</strong><div class='wf-box'>تثبيت على CTA الأساسي</div><div class='wf-box'>سؤال للوكيل</div><div class='wf-box'>ملاحظة نصية محلولة</div><button class='primary'>إرجاع الملاحظات</button></aside></div>"
+}
+```
+
+هناك طريقتان للدخول في الخطط:
+
+- **من وكيل الترميز (CLI)** — أمر واحد لتثبيت المهارة، والتسجيل
+  موصل الخطط المستضاف، والمصادقة عليه.
+- **في المتصفح** — يمكن لأي شخص تشارك معه فتح المحرر وإنشاء
+  قم بالتحرير كضيف **بدون تسجيل**. يقومون بتسجيل الدخول فقط عندما يريدون الحفظ
+  أو المشاركة.
+
+## تثبيت المهارة {#install}
+
+استخدم Agent-Native CLI. هذا هو الإعداد الموصى به لأنه يقوم بتثبيت
+تعليمات مهارات التخطيط، وتسجيل موصل الخطط المستضاف MCP، **و** التشغيل
+تدفق المصادقة/الإعداد الخاص بالعميل في خطوة واحدة، لذا لا يتم استدعاء الأداة الأول
+اصطدم بحائط OAuth:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+يقوم الأمر بتثبيت كلا الأمرين: `/visual-plan` و`/visual-recap`.
+
+إذا كنت تستخدم مضيفًا يستند إلى الدردشة ويقبل موصل MCP URLs مباشرةً
+(بدلاً من عميل تم تكوينه بواسطة CLI)، قم بتوصيل موصل الخطط المستضاف على
+`https://plan.agent-native.com/_agent-native/mcp` — راجع [MCP Clients](/docs/mcp-clients) للتعرف على الإعداد الخاص بالعميل.
+
+المصادقة عبارة عن تسجيل دخول إلى المتصفح لمرة واحدة عند الإعداد — وهذا هو المقصود، وهو كذلك
+هو ما يتيح للوكيل الاستمرار ومشاركة الخطط التي ينشئها. ما المصادقة
+تعتمد الخطوة على عميلك:
+
+- **تحصل الأجهزة المضيفة القادرة على استخدام OAuth** (رمز Claude) على إدخال URL فقط MCP بالإضافة إلى مطالبة
+  قم بتشغيل `/mcp` واختر **مصادقة**.
+- **Codex / Cowork** تشغيل تدفق قصير لرمز جهاز المتصفح: يطبع CLI رمزًا،
+  يفتح صفحة التحقق، ويكتب الموصل بمجرد الموافقة.
+- في **غير التفاعلي أو CI**، يتم تخطي خطوة المصادقة والدقيقة
+  تمت طباعة أمر التشغيل لاحقًا لك.
+
+افتراضيًا، يستهدف CLI كل عميل محلي مدعوم يمكنه تكوينه. تمرير
+`--client codex`، أو `--client claude-code`، أو عميل محدد آخر عندما
+تريد تضييق نطاق الإعداد ليقتصر على مضيف واحد:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan
+```
+
+مرر `--no-connect` لتسجيل الموصل دون المصادقة، ثم قم بتشغيل
+`npx @agent-native/core@latest connect https://plan.agent-native.com --client all`
+عندما تكون مستعدًا، أو اختر `--client` الأضيق:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --no-connect
+```
+
+لإنشاء ملخص تلقائيًا عن **كل طلب سحب**، قم بتمرير `--with-github-action`.
+يقوم هذا بكتابة إجراء GitHub الذي يقوم بتشغيل مهارة `visual-recap` في كل PR و
+ينشر خطة ملخص تفاعلية مع لقطة شاشة مضمنة كتعليق ثابت —
+راجع [PR Visual Recap](/docs/pr-visual-recap).
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --with-github-action
+```
+
+بعد كتابة سير العمل، قم بتشغيل `npx @agent-native/core@latest recap setup` للتكوين
+أسرار/متغيرات GitHub Actions حيثما أمكن و`npx @agent-native/core@latest recap doctor`
+للتحقق من أن الريبو جاهز.
+
+إذا كنت تريد فقط ملف التعليمات المحمول من خلال Skills CLI المفتوح، فاستخدم:
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill visual-plan
+```
+
+يؤدي ذلك إلى تثبيت تعليمات المهارة فقط. ولا يسجل MCP المستضاف
+الموصل، لذا استخدم مسار Agent-Native CLI عندما تريد الإعداد بأمر واحد.
+
+> **هل تفضل تثبيت مكون إضافي مرة واحدة؟** يمكن إضافة رمز Claude وCodex
+> `BuilderIO/agent-native` مباشرة كسوق للمكونات الإضافية، والذي يجمع
+> خطط skills *و*الموصل في عملية تثبيت واحدة وتحديثات تلقائية مثل skills
+> تحسين — راجع [Plan plugin & marketplace](/docs/plan-plugin).
+
+### الخطط المفتوحة داخل VS Code {#vscode-extension}
+
+إذا كنت تعيش في VS Code، فقم بتثبيت
+[Agent-Native Plans extension](https://marketplace.visualstudio.com/items?itemName=Builder.agent-native)
+لفتح نفس سطح مراجعة الخطة في لوحة جانبية بدلاً من إرسالك إلى
+علامة تبويب متصفح منفصلة. لا تزال أدوات الخطط تُرجع رابط الويب العادي وMCP
+تتضمن البيانات الوصفية أيضًا عملية تسليم رمز VS URL:
+
+```text
+vscode://builder.agent-native/open?url=<encoded-plan-url>
+```
+
+يتعامل الامتداد مع URI، ويفتح الخطة التي تم فك تشفيرها URL في عرض ويب VS Code،
+ويتضمن أمرًا لتشغيل تدفق الاتصال Agent Native MCP الحالي لـ VS
+الكود / GitHub مساعد الطيار. وهذا مفيد بشكل خاص من رمز Claude أو غيره
+سير عمل وكيل الترميز حيث يجب أن تظل الخطة بجوار الملفات التي يتم تحريرها.
+
+## استخدمه من وكيل الترميز الخاص بك
+
+بعد التثبيت، اطلب من وكيلك الأمر الذي يناسب العمل:
+
+- ينشئ `/visual-plan` خطة منظمة **قبل** التنفيذ — لـ
+  الهندسة المعمارية، أو الواجهة الخلفية، أو إعادة البناء، أو UI، أو أعمال المنتجات المختلطة - السحب
+  الرسوم البيانية والإطارات السلكية والنماذج بالحجم الطبيعي والنماذج الأولية القابلة للنقر والتعليمات البرمجية المشروحة
+  الإرشادات التفصيلية وأشجار الملفات حسب ما يتطلبه العمل.
+- يُنشئ `/visual-recap` **مراجعة** على ارتفاعات عالية للتغيير الذي تم بالفعل
+  حدث - علاقات عامة، أو التزام، أو فرع، أو git diff - مثل المخطط، وAPI، والملف، و
+  قبل/بعد الكتل بدلاً من جدار من الفرق الخام.
+
+يجب على الوكيل فحص قاعدة التعليمات البرمجية أولاً، ثم إنشاء الخطة المرئية عند
+الاتجاه الخاطئ سيكون مكلفًا. يفتح رابط الخطط المرتجعة مراجعة UI في
+المتصفح أو رمز VS، حتى تتمكن من إضافة تعليقات توضيحية وتصحيح واختيار الخيارات والمطالبة
+التحديثات قبل بدء تغييرات التعليمات البرمجية.
+
+عند وجود Codex أو رمز Claude أو Markdown أو الخطة الملصقة بالفعل، استخدم
+`/visual-plan`; the agent preserves that source plan and builds the richer review
+السطح منه بدلاً من البدء من جديد.
+
+إذا كان التمرير الأول لا يزال يحتوي على قرارات قابلة للإجابة، فيمكن للوكيل وضع
+**نموذج الأسئلة المفتوحة** الموجود أسفل نفس الخطة. الرد عليه والإرسال
+يبدأ الوكيل في مراجعة الخطة الحالية.
+
+## ما يمكنك فعله به
+
+- **المراجعة قبل التنفيذ.** React للرسومات التخطيطية، والإطارات السلكية، وعلامات تبويب الخيارات،
+  نماذج الأسئلة المفتوحة، وملاحظات المخاطر، والإرشادات التفصيلية للتعليمات البرمجية المشروحة، والتعليمات البرمجية
+  المعاينة قبل أن يقوم الوكيل بتحرير الملفات.
+- **التعليق مباشرة على الخطة.** تثبيت التعليقات على النص أو الصور أو الإطارات السلكية أو
+  مواقع اللوحة القماشية؛ اختر ما إذا كان التعليق مخصصًا للوكيل أم للإنسان
+  مراجع؛ @mention زملاء الفريق الذين لديهم شرائح مضمّنة؛ وحل التعليقات باسم
+  تتطور الخطة.
+- **قم بإرسال التعليقات إلى الوكيل بوضوح.** يتم إرفاق التعليقات النصية إلى أقرب موظف
+  كتلة النثر والتعليقات المرئية تتضمن البيانات الوصفية المستهدفة الدقيقة والمتصفح
+  تتضمن عملية التسليم لقطات شاشة مركزة لمجموعة صغيرة من التعليقات المرئية/اللوحية
+  المواقع بدلاً من صورة عملاقة واحدة يصعب قراءتها.
+- **قم بتصدير النتيجة.** احتفظ بإيصال HTML أو Markdown أو JSON للخطة
+  عندما تحتاج إلى عملية تسليم سهلة التحكم في المصدر.
+
+## التحرير في المتصفح كضيف {#guest}
+
+لا يحتاج الأشخاص الذين تشارك معهم الخطة إلى تثبيت أي شيء. يفتحون الخطط
+محرر و**إنشاء وتعديل بدون تسجيل** — يعملان كضيف. تسجيل الدخول
+مطلوب فقط عندما يريد شخص ما **حفظ أو مشاركة** عمله الخاص.
+
+عندما يقوم أحد الضيوف بتسجيل الدخول، تتم **المطالبة** بالخطط التي أنشأها كضيف في
+حسابهم، لذلك لن يتم فقدان أي شيء قاموا ببنائه.
+
+خطِّط لتعديلات النثر بشكل مضمّن: انقر داخل أي قسم نصي، واكتب، ونسِّق باستخدام النص المنسق
+شريط أدوات المحرر أو قائمة الشرطة المائلة، والخطط تحفظ تلقائيًا عملية التخفيض الأساسية. مراجعة
+يعمل وضع التعليقات التوضيحية مؤقتًا على تحويل أقسام النص للقراءة فقط بحيث يمكن تثبيت النقرات
+ردود الفعل؛ اترك وضع المراجعة لمواصلة تحرير النثر.
+
+## المشاركة والتعليق {#sharing}
+
+المشاركة والتعليق هما سير العمل الذي يحتاج إلى حساب:
+
+- **عرض** خطة عامة أو مشتركة تعمل لأي شخص لديه الرابط - بدون حساب
+  مطلوب.
+- **التعليق** على خطة مشتركة يتطلب حساب وكيل أصلي.
+- **مشاركة** خطة (نشرها على رابط، مشاركة خاصة، وصول المراجعين،
+  المراجعة عبر الأجهزة أو الفريق) تسجيل الدخول. وسيظهر تسجيل الدخول إلى Google عندما
+  تم تكوين vars env القياسي لـ Google OAuth.
+
+موصل الخطط المستضاف موجود في `https://plan.agent-native.com/_agent-native/mcp`.
+لا تضع الأسرار المشتركة أبدًا في ملفات المهارات.
+
+## وضع خصوصية الملفات المحلية {#local-files}
+
+للعمل الذي يركز على الخصوصية، اطلب وضع الملفات المحلية:
+
+```text
+Use /visual-plan in local-files mode. Do not write this plan to the Plan DB.
+```
+
+أو قم بتعيين الاصطلاح لبيئة الوكيل الخاصة بك:
+
+```bash
+export AGENT_NATIVE_PLANS_MODE=local-files
+```
+
+في هذا الوضع، يكتب الوكيل مجلد MDX محلي ويجب ألا يتصل بالمضيف
+تخطيط أدوات MCP. استخدم مجلد الريبو مثل `plans/<slug>/` عندما تريد الخطة
+تم تسجيل الدخول باستخدام الرمز. استخدم مجلدًا مؤقتًا أو متجاهلاً، مثل
+`/tmp/agent-native-plans/<slug>/` أو `.agent-native/plans/<slug>/`، عند
+يجب أن تظل الخطة خارج البوابة. يحتوي المجلد على:
+
+- `plan.mdx`
+- اختياري `canvas.mdx`
+- اختياري `prototype.mdx`
+- اختياري `.plan-state.json`
+
+بعد كتابة المجلد، يبدأ الوكيل إنشاء جسر مضيف محلي صغير ويفتح
+استضاف خطة UI مقابل هذا المصدر المحلي فقط:
+
+```bash
+npx @agent-native/core@latest plan local check --dir plans/<slug>
+npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --open
+```
+
+يبدو شكل الجسر URL
+`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+الصفحة هي عارض الخطة العادي، لكن المتصفح يجلب `plan.mdx`،
+`canvas.mdx`، و`prototype.mdx`، و`.plan-state.json`، وأصول الصور المحلية من
+جسر المضيف المحلي. لا تتم كتابة محتوى الخطة في قاعدة البيانات المستضافة وهي
+لم يتم إرساله عبر الخطة المستضافة actions. استمر في تشغيل عملية الجسر أثناء
+مراجعة؛ URL محلي على جهازك وليس رابط فريق قابل للمشاركة. ال
+يكتب أمر الخدمة URL المفتوح إلى `.plan-url` افتراضيًا حتى يتمكن وكلاء التشفير من ذلك
+التقطها دون حذف stdout طويل الأمد؛ تعامل مع هذا الملف على أنه محلي فقط
+لأن URL يحتوي على رمز الجسر، ولا يجب الالتزام به.
+
+في نظام التشغيل macOS، يفضل `--open` Chrome/Chromium لأن Safari يمكنه حظر المستضاف
+صفحة تخطيط HTTPS من جلب جسر المضيف المحلي HTTP. بدون رأس
+استكشاف الأخطاء وإصلاحها، تشغيل:
+
+```bash
+npx @agent-native/core@latest plan local verify --dir plans/<slug> --kind plan
+```
+
+يبدأ `verify` عملية الجسر، ويتحقق من الاختبار المبدئي للشبكة الخاصة وJSON
+الحمولة، وطباعة التشخيص، والمخارج.
+
+إذا قمت بتشغيل تطبيق الخطة محليًا باستخدام نفس `PLAN_LOCAL_DIR`، فيمكنك أيضًا
+افتح مسار التطبيق القابل للتحرير:
+
+```text
+http://localhost:<port>/local-plans/<slug>
+```
+
+بالنسبة للمجلدات المدعومة بالريبو، يمكن للمسار المحلي المباشر أن يحمل النسبي للريبو
+مسار المجلد حتى تستمر تعديلات المتصفح في الكتابة إلى هذا المجلد:
+
+```text
+http://localhost:<port>/local-plans/<slug>?path=plans%2F<slug>
+```
+
+يستخدم تطبيق الخطة `apps.plan.roots[0].path` في `agent-native.json` باعتباره
+موقع الريبو الافتراضي للخطط المحلية التي يتم الترويج لها، ويعود إلى `plans/`:
+
+```json
+{
+  "version": 1,
+  "apps": {
+    "plan": {
+      "mode": "local-files",
+      "roots": [{ "name": "Plans", "path": "plans", "kind": "plans" }]
+    }
+  }
+}
+```
+
+تتضمن مسارات الخطة المحلية المباشرة إجراء قائمة لحفظ مجلد محلي مؤقت
+في موقع الريبو هذا. بعد الترقية، يتم إعادة فتح الصفحة باستخدام `?path=...` و
+يواصل الحفظ التلقائي لتعديلات MDX في مجلد الريبو.
+
+يمنع وضع الملفات المحلية الخطة أو محتوى التلخيص من الانتقال إلى Agent-Native
+خطة قاعدة البيانات. كما أنه يعطل أيضًا المشاركة المستضافة وتعليقات المتصفح وسجل الخطة
+ونشر/تصدير الإيصالات حتى تختار النشر بشكل صريح. لتحريك
+الخطة المحلية في قاعدة البيانات المستضافة، اتصل بـ `publish-visual-plan` بالخطة المحلية
+مسار المجلد MDX؛ يؤدي هذا إلى تحميل الخطة، وتعيين معرف مستضاف لها، وتمكين المشاركة
+والتعليق، وإرجاع URL المستضاف. وضع الملفات المحلية لا
+جعل LLM محليًا لوكيل الترميز الخاص بك تلقائيًا؛ اختر محليًا أو معتمدًا
+نموذج إذا كانت حدود الخصوصية هذه مهمة أيضًا.
+
+## مزامنة الملفات المحلية على سطح المكتب {#desktop-local-sync}
+
+يوفر Agent Native Desktop أيضًا للخطط المستضافة جسر مجلد محلي أصلي. هذا
+يختلف عن وضع خصوصية الملفات المحلية: تظل قاعدة بيانات الخطة المستضافة هي
+مصدر الحقيقة للمشاركة والتعليقات والسجل والمراجعة المباشرة، أثناء سطح المكتب
+يمكنه عكس الملفات المصدر للخطة الحالية إلى المجلد الذي تختاره.
+
+افتح خطة في Agent Native Desktop، واستخدم **الملفات المحلية** actions بقائمة الخطة،
+ثم:
+
+- **ربط المجلد المحلي** — اختر المجلد لمصدر MDX لهذه الخطة.
+- **مزامنة مع المجلد المحلي** — اكتب `plan.mdx`، `canvas.mdx` اختياري،
+  `prototype.mdx` اختياري، و`.plan-state.json` اختياري، وأصول الصور.
+- **استيراد التعديلات المحلية** — اقرأ المجلد وقم بتطبيقه من خلاله
+  `import-visual-plan-source` مع الطابع الزمني للتحديث الحالي للخطة.
+- **تغييرات المزامنة التلقائية** — استمر في تصدير أحدث مصدر للخطة المستضافة بعد
+  التعديلات التي تم إجراؤها في التطبيق.
+
+لا يتطلب هذا المسار استنساخ تطبيق الخطة أو تشغيل CLI. إنه لـ
+مراجعة/تحرير الملف أولاً حول خطة مستضافة، وليس لإبقاء محتوى الخطة خارجًا
+لقاعدة البيانات المستضافة.
+
+## حذف بيانات الخطة المستضافة {#delete-data}
+
+يمكن للمالكين الذين سجلوا الدخول حذف خططهم المستضافة والملخصات من قائمة الخطط أو
+قائمة إجراءات الخطة.
+
+- **الحذف المبدئي** ينقل الخطة إلى علامة التبويب **المحذوفة**، ويضع الخطة العادية
+  تتوقف طرق العرض/الروابط المباشرة عن العمل، وتزيل الوصول العام عن طريق إنشاء الصف
+  خاص. يتم الاحتفاظ بصفوف SQL حتى يتمكن المالك من استعادة الخطة لاحقًا.
+- **الاستعادة** متاحة من علامة التبويب **المحذوفة** للخطط المحذوفة أوليًا.
+- **يؤدي الحذف الدائم** إلى إزالة صف الخطة المستضافة والتعليقات المتعلقة بنطاق الخطة،
+  الأقسام، وأحداث النشاط، ولقطات الإصدار، ومنح المشاركة، وتقارير إساءة الاستخدام، و
+  سجلات الأصول SQL. يتطلب UI كتابة `DELETE <plan-id>` قبل النهائي
+  الزر ممكّن.
+
+يؤدي الحذف الدائم إلى إزالة سجلات قاعدة بيانات تطبيق الخطة والأصول المدعومة بـ SQL
+بايت/مراجع. إذا كان النشر يستخدم موفر تحميل خارجي، الموفر
+يتبع الاحتفاظ بالكائن دورة حياة هذا الموفر بسبب التحميل المشترك
+لا يعرض التجريد حاليًا حذف الكائن. وضع خصوصية الملفات المحلية
+يحتفظ بالمصدر في مجلد MDX المحلي بدلاً من ذلك؛ لا يؤدي حذف البيانات المستضافة إلى
+المس الملفات المحلية.
+
+## مطالبات مفيدة
+
+- "استخدم `/visual-plan` قبل تغيير تدفق المصادقة."
+- "قم بإنشاء `/visual-plan` لشاشة الإعداد الجديدة مع حالات الجوال وسطح المكتب."
+- "استخدم `/visual-plan` في خطة Markdown أدناه وتسهيل مراجعتها."
+- "قم بتشغيل `/visual-recap` على هذا العلاقات العامة حتى أتمكن من مراجعة شكل التغيير أولاً."
+- "استخدم `/visual-recap` في الفرق بين `main` وهذا الفرع."
+- "استخدم `/visual-recap` في وضع الملفات المحلية حتى لا تتم كتابة محتوى التلخيص في قاعدة بيانات الخطة."
+
+## الاسترداد من أخطاء المصادقة {#auth-errors}
+
+إذا قامت أداة الخطط بإرجاع `needs auth` أو `Unauthorized` أو `Session
+تم إنهاؤه`، لا تستمر في إعادة المحاولة. قم بمصادقة الموصل باستخدام
+`npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex`
+لـ Codex، أو أعد تشغيل `/mcp` → **المصادقة** في مضيف قادر على OAuth. ابدأ
+سلسلة رسائل Codex جديدة أو إعادة تشغيل/إعادة تحميل العميل ذي الصلة قبل توقع الأداة
+التسجيل المراد تحديثه.
+
+## للمطورين
+
+باقي هذا المستند مخصص لأي شخص يقوم بتقسيم قالب الخطط أو استضافته بنفسه.
+يجب على معظم المستخدمين تثبيت المهارة باستخدام CLI بدلاً من دعم التطبيق.
+
+### بداية سريعة
+
+```bash
+npx @agent-native/core@latest create my-plans --standalone --template plan
+cd my-plans
+pnpm install
+pnpm dev
+```
+
+تستخدم المهارة المدعومة بالتطبيق المستضاف:
+
+- التطبيق: `https://plan.agent-native.com`
+- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+
+يكون القالب المحلي مفيدًا عند تطوير الخطط نفسها، أو اختبار الثبات المحلي، أو تشغيل سطح مراجعة مستضاف ذاتيًا بالكامل.
+
+### نموذج البيانات
+
+يتواجد المخطط في `templates/plan/server/db/schema.ts`. الجداول الأساسية:
+
+| الجدول             | ما يحمله                                                                                                                                                                                     |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plans`            | كل خطة أو ملخص — `title`، `brief`، `kind` (الخطة/الملخص)، `status`، `source`، `html`/`markdown`/`content`، `hosted_plan_id/url`، إحصائيات الاستخدام، `source_url`، `deleted_at`/`deleted_by` |
+| `plan_sections`    | الأقسام المرتبة ضمن الخطة — `type`، `title`، `body`، `html`، `sort_order`، `created_by`                                                                                                      |
+| `plan_comments`    | التعليقات المترابطة — `kind`، `status`، `anchor`، `message`، `resolution_target`، `mentions_json`، `resolved_by`                                                                             |
+| `plan_events`      | سجل التدقيق للأحداث البشرية/الوكيل في الخطة                                                                                                                                                  |
+| `plan_versions`    | لقطات لحظية لسجل الإصدارات                                                                                                                                                                   |
+| `plan_shares`      | منح المشاركة لكل مدير (المشاهد / المحرر / المشرف)                                                                                                                                            |
+| `plan_guest_mints` | سجلات الحد الأقصى لإصدار جلسة الضيف                                                                                                                                                          |
+| `plan_assets`      | أصول الصور المضمنة المخزنة كـ base64 (احتياطي عند عدم وجود موفر تحميل)                                                                                                                       |
+
+```an-schema title="نموذج بيانات الخطة" summary="يحتوي صف الخطة الواحد على أقسام مرتبة بالإضافة إلى التعليقات والأحداث والإصدارات والمشاركات والأصول المضمنة."
+{
+  "entities": [
+    { "id": "plans", "name": "plans", "note": "each plan or recap", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "title", "type": "text" },
+      { "name": "brief", "type": "text", "nullable": true },
+      { "name": "kind", "type": "enum", "note": "خطة | خلاصة" },
+      { "name": "status", "type": "text" },
+      { "name": "source", "type": "text", "nullable": true },
+      { "name": "hosted_plan_id", "type": "text", "nullable": true, "note": "hosted_plan_url paired" },
+      { "name": "source_url", "type": "text", "nullable": true },
+      { "name": "deleted_at", "type": "timestamp", "nullable": true, "note": "soft delete; deleted_by paired" }
+    ] },
+    { "id": "plan_sections", "name": "plan_sections", "note": "ordered sections within a plan", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "type", "type": "text" },
+      { "name": "title", "type": "text", "nullable": true },
+      { "name": "body", "type": "text", "nullable": true },
+      { "name": "html", "type": "text", "nullable": true },
+      { "name": "sort_order", "type": "integer" },
+      { "name": "created_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_comments", "name": "plan_comments", "note": "threaded comments", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "kind", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "anchor", "type": "json", "nullable": true },
+      { "name": "message", "type": "text" },
+      { "name": "resolution_target", "type": "text", "nullable": true, "note": "agent | human | null" },
+      { "name": "mentions_json", "type": "json", "nullable": true },
+      { "name": "resolved_by", "type": "text", "nullable": true }
+    ] },
+    { "id": "plan_events", "name": "plan_events", "note": "audit log of agent/human events", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_versions", "name": "plan_versions", "note": "point-in-time snapshots", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] },
+    { "id": "plan_shares", "name": "plan_shares", "note": "per-principal grants", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" },
+      { "name": "role", "type": "enum", "note": "عارض | محرر | admin" }
+    ] },
+    { "id": "plan_guest_mints", "name": "plan_guest_mints", "note": "rate-limit records for guest session issuance", "fields": [
+      { "name": "id", "type": "text", "pk": true }
+    ] },
+    { "id": "plan_assets", "name": "plan_assets", "note": "inline image assets as base64", "fields": [
+      { "name": "id", "type": "text", "pk": true },
+      { "name": "plan_id", "type": "text", "fk": "plans.id" }
+    ] }
+  ],
+  "relations": [
+    { "from": "plans", "to": "plan_sections", "kind": "1-n", "label": "has sections" },
+    { "from": "plans", "to": "plan_comments", "kind": "1-n", "label": "has comments" },
+    { "from": "plans", "to": "plan_events", "kind": "1-n", "label": "has events" },
+    { "from": "plans", "to": "plan_versions", "kind": "1-n", "label": "has versions" },
+    { "from": "plans", "to": "plan_shares", "kind": "1-n", "label": "has shares" },
+    { "from": "plans", "to": "plan_assets", "kind": "1-n", "label": "has assets" }
+  ]
+}
+```
+
+### مفتاح actions
+
+Actions في `templates/plan/actions/`:
+
+- **الإنشاء** — `create-visual-plan`، `create-visual-recap`، `create-ui-plan`، `create-prototype-plan`، `create-plan-design`، `create-visual-questions`
+- **القراءة والتحرير** — `get-visual-plan`، `update-visual-plan`، `list-visual-plans`، `import-visual-plan-source`، `patch-visual-plan-source`، `read-visual-plan-source`، `export-visual-plan`
+- **دورة الحياة** — `delete-visual-plan` للحذف المبدئي والاستعادة والحذف الدائم للتأكيد المكتوب للمالك فقط
+- **النشر والمشاركة** — `publish-visual-plan`
+- **الإصدارات** — `list-plan-versions`، `get-plan-version`، `restore-plan-version`
+- **التعليقات والملاحظات** — `get-plan-feedback`، `reply-to-plan-comment`، `resolve-plan-comment`، `consume-plan-feedback`، `delete-plan-comment`
+- **النموذج الأولي** — `convert-visual-plan-to-prototype`، `create-prototype-plan`
+- **السياق والتنقل** — `view-screen`، `navigate`
+
+### كتل MDX المخصصة {#custom-mdx-blocks}
+
+الملفات المصدرية للخطط هي MDX، لكن التطبيق لا يعرض JSX المستورد بشكل عشوائي
+المكونات. يجب تسجيل علامة MDX المخصصة ككتلة خطة حتى يتمكن الخادم من
+تحليله وإجراء تسلسل له، ويمكن للمتصفح عرضه وتحريره، ويمكن للوكيل
+شاهدها في مفردات المجموعة التي تم إرجاعها بواسطة `get-plan-blocks`.
+
+تحتوي الكتلة المسجلة على ثلاثة أسطح:
+
+- مخطط خالٍ من React وتكوين MDX، آمن للخادم ورمز الوكيل.
+- إدخال نوع/مخطط وقت تشغيل عادي في `shared/plan-content.ts`.
+- مواصفات كتلة المتصفح مع `Read` ومكونات `Edit` React الاختيارية.
+
+حافظ على استقرار الكتلة `type` وMDX `tag`. يتم تخزين `type` في الوضع الطبيعي
+الخطة JSON؛ `tag` هو اسم المكون في `plan.mdx`. يعالج التسجيل
+سمات MDX الأساسية `id`، و`title`، و`summary`، و`editable`، لذا لا تفعل ذلك
+كررها في `toAttrs`.
+
+1. أضف تكوينًا مشتركًا لشكل البيانات ورحلة ذهابًا وإيابًا MDX.
+
+```ts
+// templates/plan/shared/risk-card.config.ts
+import { z } from "zod";
+import {
+  markdown,
+  type BlockMdxConfig,
+} from "@agent-native/core/blocks/server";
+
+export type RiskCardSeverity = "low" | "medium" | "high";
+
+export interface RiskCardData {
+  severity?: RiskCardSeverity;
+  body: string;
+}
+
+const severities = new Set(["low", "medium", "high"]);
+
+export const riskCardSchema = z.object({
+  severity: z.enum(["low", "medium", "high"]).optional(),
+  body: markdown(z.string().trim().min(1).max(10_000)),
+}) as z.ZodType<RiskCardData>;
+
+export const riskCardMdx: BlockMdxConfig<RiskCardData> = {
+  tag: "RiskCard",
+  childrenField: "body",
+  toAttrs: (data) => ({
+    severity: data.severity,
+  }),
+  fromAttrs: (attrs, children) => {
+    const severity = attrs.string("severity");
+
+    return {
+      severity: severities.has(severity ?? "")
+        ? (severity as RiskCardSeverity)
+        : undefined,
+      body: children,
+    };
+  },
+};
+```
+
+2. قم بتوسيع نموذج محتوى الخطة المقيس في
+   `templates/plan/shared/plan-content.ts`.
+
+أضف `type` الجديد إلى `PlanBlockType`، وأضف واجهة كتلة مطابقة إلى
+اتحاد `PlanBlock`، وأضف نفس شكل البيانات إلى `planBlockSchema`. هذا يبقي
+عمليات حفظ قاعدة البيانات، واستيراد المصدر، وتصحيحات `update-block` للتحقق من صحة الإعدادات المخصصة
+حظره بدلاً من رفضه كنوع غير معروف.
+
+3. قم بتسجيل مواصفات الخادم الخالية من React في
+   `templates/plan/shared/plan-block-registry.ts`.
+
+```ts
+import {
+  BlockRegistry,
+  defineBlock,
+  registerLibraryBlockConfigs,
+  registerBlocks,
+} from "@agent-native/core/blocks/server";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "./risk-card.config.js";
+
+const ServerReadStub = () => null;
+
+const riskCardServerBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: ServerReadStub,
+  placement: ["block"],
+  label: "Risk card",
+  description:
+    "ملاحظة مخاطر بصيغة markdown بدرجة خطورة منخفضة أو متوسطة أو عالية.",
+});
+
+export function registerPlanBlocks(registry: BlockRegistry): void {
+  registerLibraryBlockConfigs(registry, {
+    overrides: PLAN_SERVER_LIBRARY_OVERRIDES,
+  });
+  registerBlocks(registry, [riskCardServerBlock]);
+}
+```
+
+4. قم بتسجيل مواصفات المتصفح في
+   `templates/plan/app/components/plan/planBlocks.tsx`.
+
+```tsx
+import {
+  defineBlock,
+  registerLibraryBlocks,
+  registerBlocks,
+  type BlockReadProps,
+} from "@agent-native/core/blocks";
+import {
+  riskCardMdx,
+  riskCardSchema,
+  type RiskCardData,
+} from "@shared/risk-card.config";
+
+function RiskCardBlock({ data, blockId, ctx }: BlockReadProps<RiskCardData>) {
+  return (
+    <section
+      className="rounded-md border border-border bg-card p-4"
+      data-block-id={blockId}
+      data-severity={data.severity}
+    >
+      <div className="mb-2 text-xs font-semibold uppercase text-muted-foreground">
+        {data.severity ?? "risk"}
+      </div>
+      {ctx.renderMarkdown?.(data.body) ?? (
+        <p className="whitespace-pre-wrap text-sm">{data.body}</p>
+      )}
+    </section>
+  );
+}
+
+const riskCardBlock = defineBlock<RiskCardData>({
+  type: "risk-card",
+  schema: riskCardSchema,
+  mdx: riskCardMdx,
+  Read: RiskCardBlock,
+  placement: ["block"],
+  editSurface: "panel",
+  label: "Risk card",
+  description:
+    "ملاحظة مخاطر بصيغة markdown بدرجة خطورة منخفضة أو متوسطة أو عالية.",
+  empty: () => ({ severity: "medium", body: "Describe the risk." }),
+});
+
+registerLibraryBlocks(planBlockRegistry, {
+  overrides: PLAN_LIBRARY_OVERRIDES,
+});
+registerBlocks(planBlockRegistry, [riskCardBlock]);
+```
+
+مع تنفيذ ذلك، يمكن للخطة MDX استخدام:
+
+```mdx
+<RiskCard id="risk-auth" severity="high">
+
+Token refresh failures can strand active reviewer sessions.
+
+</RiskCard>
+```
+
+يجعل تسجيل الخادم هذا المصدر قابلاً للاستيراد/التصدير، كما يجعل العميل
+التسجيل يجعله يعرض في `PlanBlockView`. إذا كان يجب إنشاء الكتلة بواسطة
+، حافظوا على دقة `label` و`description` و`placement` و`empty`؛ تلك
+تتدفق الحقول إلى مفردات الكتلة المباشرة.
+
+عند تجاوز كتلة موجودة، قم بتسجيل التجاوز بعد المشاركة
+تسجيل المكتبة. آخر تسجيل هو الفوز لكل من `type` وMDX `tag`.
+
+بعد إضافة كتلة، قم بإجراء اختبارات الخطة المركزة:
+
+```bash
+pnpm --filter plan test -- plan-mdx plan-block-registry
+```
+
+### خريطة الطريق
+
+- `app/routes/plans.$id.tsx` — محرر الخطة/سطح المراجعة
+- `app/routes/plans._index.tsx` — قائمة الخطط
+- `app/routes/share.$token.tsx` — عرض الخطة العامة/المشتركة
+- `app/routes/local-plans.$slug.tsx` — معاينة وضع الملفات المحلية
+
+### الوضع المحلي (متقدم، غير متصل بالإنترنت) {#local-mode}
+
+للاستخدام دون الاتصال بالإنترنت وبدون حساب، يمكنك تشغيل تطبيق الخطط محليًا وتوجيهه إلى مجلدات MDX المحلية. بالنسبة لمسار no-DB الأكثر صرامة، استخدم [local-files privacy mode](#local-files)، الذي يقرأ من مجلدات MDX بدلاً من إنشاء صفوف SQL المحلية. يعد الوضع المحلي مسارًا منفصلاً ومتقدمًا — وليس التدفق المستضاف الافتراضي.
+
+## الأحداث والإشعارات {#events}
+
+يُصدر قالب الخطة أربعة أحداث في ناقل أحداث إطار العمل. أي أتمتة
+يمكنه الاشتراك فيها — لا حاجة إلى رمز تكامل مخصص.
+
+### مرجع الحدث {#event-reference}
+
+#### `plan.created`
+
+يتم تشغيله عند إنشاء خطة مرئية جديدة أو ملخص جديد.
+
+| الحقل       | اكتب                  | الوصف                                       |
+| ----------- | --------------------- | ------------------------------------------- |
+| `planId`    | سلسلة                 | معرف الخطة الفريد                           |
+| `title`     | سلسلة                 | عنوان الخطة                                 |
+| `kind`      | `"plan"` \| `"recap"` | سواء كانت هذه خطة أم ملخصًا                 |
+| `status`    | سلسلة                 | الحالة الأولية (مثل `"review"`)             |
+| `path`      | سلسلة                 | المسار النسبي للتطبيق (مثل `/plans/plan-…`) |
+| `createdBy` | سلسلة                 | `"agent"` دائمًا لإنشاء الخطة               |
+
+#### `plan.commented`
+
+يتم تشغيله عند إضافة تعليق واحد أو أكثر إلى الخطة.
+
+| الحقل              | اكتب                             | الوصف                                                   |
+| ------------------ | -------------------------------- | ------------------------------------------------------- |
+| `planId`           | سلسلة                            | معرف الخطة                                              |
+| `title`            | سلسلة                            | عنوان الخطة                                             |
+| `kind`             | `"plan"` \| `"recap"`            | التخطيط أو التلخيص                                      |
+| `commentIds`       | سلسلة[]                          | معرفات التعليقات الجديدة                                |
+| `commentCount`     | الرقم                            | عدد التعليقات الجديدة في هذه المجموعة                   |
+| `resolutionTarget` | `"agent"` \| `"human"` \| `null` | الهدف السائد — `"agent"` إذا كان أي تعليق يستهدف وكيلًا |
+| `excerpt`          | سلسلة                            | أول 200 حرف من التعليق الأول                            |
+| `author`           | سلسلة \| فارغة                   | البريد الإلكتروني للمعلق، إذا كان معروفًا               |
+| `path`             | سلسلة                            | المسار النسبي للتطبيق                                   |
+
+#### `plan.published`
+
+يتم تشغيله عند نشر خطة محلية (أو إعادة نشرها) على URL المستضافة القابلة للمشاركة.
+
+| الحقل                 | اكتب                  | الوصف                                 |
+| --------------------- | --------------------- | ------------------------------------- |
+| `planId`              | سلسلة                 | معرف الخطة المحلية                    |
+| `title`               | سلسلة                 | عنوان الخطة                           |
+| `kind`                | `"plan"` \| `"recap"` | التخطيط أو التلخيص                    |
+| `hostedPlanId`        | سلسلة                 | معرف الخطة المستضافة                  |
+| `url`                 | سلسلة                 | URL العامة الكاملة للخطة المستضافة    |
+| `requestedVisibility` | سلسلة                 | `"public"`، `"private"`، وما إلى ذلك. |
+
+#### `plan.status.changed`
+
+يتم تشغيله عند تغير حالة الخطة (على سبيل المثال، `review` → `approved`).
+
+| الحقل       | اكتب                  | الوصف                                    |
+| ----------- | --------------------- | ---------------------------------------- |
+| `planId`    | سلسلة                 | معرف الخطة                               |
+| `title`     | سلسلة                 | عنوان الخطة                              |
+| `kind`      | `"plan"` \| `"recap"` | التخطيط أو التلخيص                       |
+| `oldStatus` | سلسلة \| فارغة        | الحالة السابقة                           |
+| `newStatus` | سلسلة                 | الحالة الجديدة                           |
+| `changedBy` | سلسلة \| فارغة        | البريد الإلكتروني للشخص الذي قام بتغييره |
+| `path`      | سلسلة                 | المسار النسبي للتطبيق                    |
+
+### وصفات الأتمتة {#automation-recipes}
+
+يتم إنشاء عمليات التشغيل التلقائي هذه عن طريق سؤال وكيل الخطة - لا يلزم إجراء تغييرات على التعليمات البرمجية.
+يتصل الوكيل بـ `manage-automations` مع `action=define`، ويكتب
+مورد `jobs/<name>.md`، ويبدأ الاشتراك في الحدث فورًا.
+
+#### الإخطار عبر الرد التلقائي على الويب عندما يعلق شخص ما على الخطة
+
+اسأل وكيل الخطة:
+
+> "عندما يضيف شخص ما تعليقًا بشريًا على الخطة، يتم إرسال رسالة POST إلى خطاف الويب الخاص بي."
+
+يقوم الوكيل بإنشاء آلية مثل هذا:
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+Send a POST request to ${keys.NOTIFY_WEBHOOK} with a JSON body containing:
+  - "title": the plan title from the event payload
+  - "excerpt": the comment excerpt from the event payload
+  - "url": the base app URL concatenated with the path field from the event payload
+  - "author": the author field from the event payload (may be null)
+```
+
+قبل أن تتمكن من تشغيل التشغيل التلقائي، يلزمك إضافة خطاف الويب URL كمفتاح مخصص:
+
+1. انتقل إلى **الإعدادات → المفاتيح** وأضف مفتاحًا باسم `NOTIFY_WEBHOOK` مع
+   خطاف الويب URL (على سبيل المثال، خطاف ويب وارد Slack، أو نقطة نهاية HTTP عامة، أو أي
+   خدمة الإشعارات URL).
+2. يمكنك اختياريًا تعيين القائمة المسموح بها URL على المفتاح لتقييد الأصول التي يمكنها ذلك
+   POST إلى.
+
+تقوم أداة `web-request` بحل `${keys.NOTIFY_WEBHOOK}` من جانب الخادم قبل
+الإرسال — لا يظهر URL الأولي أبدًا في سياق الوكيل.
+
+**لاستهداف Slack على وجه التحديد:** اضبط `NOTIFY_WEBHOOK` على Slack الوارد
+الخطاف السريع على الويب URL
+(`https://hooks.slack.com/services/…`). نص الأتمتة أعلاه بالفعل
+ينتج حمولة يقبلها خطاف الويب الوارد لـ Slack عبر `text` أو `blocks`
+الحقول - اطلب من الوكيل تنسيق النص كرسالة Slack إذا كنت تريد المزيد من الثراء
+التنسيق.
+
+#### قم بتنبيه وكيل الترميز عندما تستهدفه التعليقات
+
+للحصول على تعليقات موجهة إلى وكيل الترميز (`resolutionTarget === "agent"`)، اسأل:
+
+> "عندما يستهدف تعليق الخطة الوكيل، قم بتشغيل وكيل الترميز الخاص بي مع الخطة
+> مقتطف كسياق."
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is agent"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+Use the manage-notifications action or web-request tool to alert the coding agent
+that new agent-targeted feedback has arrived on plan ${planId}: "${excerpt}".
+Include the plan path so the agent can navigate directly to it.
+```
+
+نظرًا لأن التشغيل الآلي يقوم بتشغيل حلقة وكيل كاملة (`mode: agentic`)، يمكنه الاتصال
+`web-request`، أو إرسال إشعارات، أو استدعاء أي إجراء يمكن للوكيل الوصول إليه.
+تعتمد آلية التسليم الدقيقة على قنوات الإشعارات المتوفرة لديك
+مُهيأ — يختار الوكيل أفضل وكيل متاح.
+
+## ما هي الخطوة التالية
+
+- [**PR Visual Recap**](/docs/pr-visual-recap) - تشغيل `/visual-recap` تلقائيًا عند كل طلب سحب
+- [**Automations**](/docs/automations) — عمليات التشغيل الآلي المجدولة والمشغلة بالحدث
+- [**Plan plugin & marketplace**](/docs/plan-plugin) - قم بتثبيت الخطة skills كرمز Claude أو البرنامج الإضافي Codex
+- [**Skills**](/docs/skills-guide) — كيفية تثبيت Agent-Native لـ skills
+- [**MCP Clients**](/docs/mcp-clients) — تكوين موصلات MCP المستضافة
+- [**Templates**](/docs/cloneable-saas) — نموذج الاستنساخ والامتلاك

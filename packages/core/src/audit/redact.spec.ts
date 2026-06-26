@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { redactArgsToJson, __test } from "./redact.js";
 
 describe("redactArgsToJson", () => {

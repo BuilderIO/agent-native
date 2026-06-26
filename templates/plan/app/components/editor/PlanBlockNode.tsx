@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import {
   createRegistryBlockNode,
   RegistryBlockDataProvider,
@@ -6,6 +5,7 @@ import {
   type RegistryBlockDataValue,
 } from "@agent-native/core/client";
 import { createPlanBlockId, type PlanBlock } from "@shared/plan-content";
+import type { ReactNode } from "react";
 
 /* -------------------------------------------------------------------------- */
 /* Plan's registry-block node — a thin wrapper over the shared core node.      */

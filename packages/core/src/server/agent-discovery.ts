@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { TEMPLATES } from "../cli/templates-meta.js";
-import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
@@ -11,6 +11,7 @@ import {
   workspaceAppRouteAccessFromPackageJson,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
 export interface DiscoveredAgent {
   id: string;

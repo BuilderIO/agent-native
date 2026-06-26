@@ -1,5 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { createPortal } from "react-dom";
+import * as Select from "@radix-ui/react-select";
 import {
   IconX,
   IconTrash,
@@ -13,11 +12,14 @@ import {
   IconCode,
   IconChevronDown,
 } from "@tabler/icons-react";
-import * as Select from "@radix-ui/react-select";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+
+import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
+import { useT } from "../i18n.js";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
-import { agentNativePath } from "../api-path.js";
 
 export interface ShareDialogProps {
   open: boolean;
@@ -113,37 +115,56 @@ const BUTTON_GHOST_ICON = cn(
   "h-8 w-8 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
 );
 
-const VIS_META: Record<
-  Visibility,
-  { label: string; description: string; Icon: typeof IconLock }
-> = {
-  private: {
-    label: "Private",
-    description: "Only people with access can view",
-    Icon: IconLock,
-  },
-  org: {
-    label: "Organization",
-    description: "Anyone in your organization can view",
-    Icon: IconBuilding,
-  },
-  public: {
-    label: "Public",
-    description: "Anyone signed in with the link can view",
-    Icon: IconWorld,
-  },
+const VIS_ICONS: Record<Visibility, typeof IconLock> = {
+  private: IconLock,
+  org: IconBuilding,
+  public: IconWorld,
 };
 
-const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
-  [
-    { value: "viewer", label: "Viewer", description: "Can view" },
-    { value: "editor", label: "Editor", description: "Can edit" },
+function useVisibilityMeta() {
+  const t = useT();
+  return {
+    private: {
+      label: t("share.private"),
+      description: t("share.privateDescription"),
+      Icon: VIS_ICONS.private,
+    },
+    org: {
+      label: t("share.organization"),
+      description: t("share.organizationDescription"),
+      Icon: VIS_ICONS.org,
+    },
+    public: {
+      label: t("share.public"),
+      description: t("share.publicDescription"),
+      Icon: VIS_ICONS.public,
+    },
+  } satisfies Record<
+    Visibility,
+    { label: string; description: string; Icon: typeof IconLock }
+  >;
+}
+
+function useRoleOptions() {
+  const t = useT();
+  return [
+    {
+      value: "viewer",
+      label: t("share.viewer"),
+      description: t("share.viewerDescription"),
+    },
+    {
+      value: "editor",
+      label: t("share.editor"),
+      description: t("share.editorDescription"),
+    },
     {
       value: "admin",
-      label: "Admin",
-      description: "Can edit and manage access",
+      label: t("share.admin"),
+      description: t("share.adminDescription"),
     },
-  ];
+  ] satisfies Array<{ value: Role; label: string; description: string }>;
+}
 
 /**
  * Framework share dialog. Drop into any template via
@@ -164,6 +185,7 @@ export function ShareDialog(props: ShareDialogProps) {
     embedTabContent,
     linkTabExtras,
   } = props;
+  const t = useT();
 
   const sharesQuery = useActionQuery<SharesResponse>("list-resource-shares", {
     resourceType,
@@ -196,8 +218,8 @@ export function ShareDialog(props: ShareDialogProps) {
   if (!open) return null;
 
   const titleText = resourceTitle
-    ? `Share "${resourceTitle}"`
-    : `Share ${resourceType}`;
+    ? t("share.titleWithResource", { title: resourceTitle })
+    : t("share.titleWithType", { type: resourceType });
 
   return createPortal(
     <div
@@ -218,13 +240,15 @@ export function ShareDialog(props: ShareDialogProps) {
             </div>
             {sharesQuery.data?.ownerEmail ? (
               <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                Owner: {displayName(sharesQuery.data.ownerEmail, orgMembers)}
+                {t("share.owner", {
+                  name: displayName(sharesQuery.data.ownerEmail, orgMembers),
+                })}
               </div>
             ) : null}
           </div>
           <button
             type="button"
-            aria-label="Close"
+            aria-label={t("share.close")}
             onClick={onClose}
             className={BUTTON_GHOST_ICON}
           >
@@ -235,7 +259,7 @@ export function ShareDialog(props: ShareDialogProps) {
         {tabsEnabled ? (
           <div
             role="tablist"
-            aria-label="Share options"
+            aria-label={t("share.shareOptions")}
             className="mx-5 mt-1 flex gap-1 border-b border-border"
           >
             {hasLinkTab ? (
@@ -243,21 +267,21 @@ export function ShareDialog(props: ShareDialogProps) {
                 active={tab === "link"}
                 onClick={() => setTab("link")}
                 icon={<IconLink size={14} strokeWidth={1.75} />}
-                label="Link"
+                label={t("share.link")}
               />
             ) : null}
             <TabTrigger
               active={tab === "invite"}
               onClick={() => setTab("invite")}
               icon={<IconMail size={14} strokeWidth={1.75} />}
-              label="Invite"
+              label={t("share.invite")}
             />
             {hasEmbedTab ? (
               <TabTrigger
                 active={tab === "embed"}
                 onClick={() => setTab("embed")}
                 icon={<IconCode size={14} strokeWidth={1.75} />}
-                label="Embed"
+                label={t("share.embed")}
               />
             ) : null}
           </div>
@@ -290,7 +314,7 @@ export function ShareDialog(props: ShareDialogProps) {
 
         <div className="flex justify-end border-t border-border px-5 py-3">
           <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
-            Done
+            {t("share.done")}
           </button>
         </div>
       </div>
@@ -340,13 +364,15 @@ function LinkTab(props: {
   extras?: ReactNode;
 }) {
   const { resourceType, resourceId, shareUrl, sharesQuery, extras } = props;
+  const t = useT();
+  const visibilityMeta = useVisibilityMeta();
 
   const setVisibility = useActionMutation("set-resource-visibility");
   const data = sharesQuery.data;
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const canManage = data?.role === "owner" || data?.role === "admin";
-  const meta = VIS_META[visibility];
+  const meta = visibilityMeta[visibility];
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
@@ -359,7 +385,9 @@ function LinkTab(props: {
   return (
     <div className="space-y-4">
       <div>
-        <div className="mb-2 text-sm font-semibold">General access</div>
+        <div className="mb-2 text-sm font-semibold">
+          {t("share.generalAccess")}
+        </div>
         <div className="flex items-center gap-3">
           <span
             aria-hidden
@@ -380,7 +408,7 @@ function LinkTab(props: {
         </div>
       </div>
 
-      <CopyField label="Share link" value={shareUrl} />
+      <CopyField label={t("share.shareLink")} value={shareUrl} />
 
       {extras}
     </div>
@@ -407,6 +435,8 @@ function InviteTab(props: {
     showVisibility,
     orgMembers,
   } = props;
+  const t = useT();
+  const visibilityMeta = useVisibilityMeta();
 
   const share = useActionMutation("share-resource");
   const unshare = useActionMutation("unshare-resource");
@@ -422,7 +452,7 @@ function InviteTab(props: {
   const visibility: Visibility =
     (data?.visibility as Visibility | null) ?? "private";
   const canManage = data?.role === "owner" || data?.role === "admin";
-  const meta = VIS_META[visibility];
+  const meta = visibilityMeta[visibility];
 
   const handleAdd = () => {
     const trimmed = email.trim();
@@ -473,7 +503,7 @@ function InviteTab(props: {
           <div className="flex items-stretch gap-2">
             <input
               type="email"
-              placeholder="Add people by email"
+              placeholder={t("share.addPeopleByEmail")}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => {
@@ -492,14 +522,16 @@ function InviteTab(props: {
                 onChange={(e) => setNotifyPeople(e.target.checked)}
                 className="h-4 w-4 rounded border-input accent-primary"
               />
-              Notify people
+              {t("share.notifyPeople")}
             </label>
           ) : null}
         </div>
       ) : null}
 
       <div>
-        <div className="mb-2 text-sm font-semibold">People with access</div>
+        <div className="mb-2 text-sm font-semibold">
+          {t("share.peopleWithAccess")}
+        </div>
         <ul className="flex flex-col gap-1 list-none p-0 m-0">
           {data?.ownerEmail ? (
             <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
@@ -507,7 +539,9 @@ function InviteTab(props: {
               <span className="flex-1 min-w-0 truncate">
                 {displayName(data.ownerEmail, orgMembers)}
               </span>
-              <span className="text-xs text-muted-foreground">Owner</span>
+              <span className="text-xs text-muted-foreground">
+                {t("share.ownerRole")}
+              </span>
             </li>
           ) : null}
           {shares.map((s) => (
@@ -534,7 +568,7 @@ function InviteTab(props: {
               {canManage ? (
                 <button
                   type="button"
-                  aria-label="Remove"
+                  aria-label={t("share.remove")}
                   onClick={() => handleRemove(s)}
                   className={BUTTON_GHOST_ICON}
                 >
@@ -545,7 +579,7 @@ function InviteTab(props: {
           ))}
           {!shares.length && !data?.ownerEmail ? (
             <li className="px-1 py-1.5 text-sm text-muted-foreground">
-              No one has access yet.
+              {t("share.noAccess")}
             </li>
           ) : null}
         </ul>
@@ -553,7 +587,9 @@ function InviteTab(props: {
 
       {showVisibility ? (
         <div>
-          <div className="mb-2 text-sm font-semibold">General access</div>
+          <div className="mb-2 text-sm font-semibold">
+            {t("share.generalAccess")}
+          </div>
           <div className="flex items-center gap-3">
             <span
               aria-hidden
@@ -583,11 +619,12 @@ function InviteTab(props: {
 // ---------------------------------------------------------------------------
 
 function DefaultEmbedBody({ embedUrl }: { embedUrl: string }) {
+  const t = useT();
   const code = `<div style="position:relative;padding-bottom:56.25%;height:0"><iframe src="${embedUrl}" frameborder="0" allowfullscreen allow="autoplay; picture-in-picture" style="position:absolute;inset:0;width:100%;height:100%"></iframe></div>`;
   return (
     <div className="space-y-3">
-      <CopyField label="Embed URL" value={embedUrl} />
-      <CopyField label="Embed code" value={code} multiline />
+      <CopyField label={t("share.embedUrl")} value={embedUrl} />
+      <CopyField label={t("share.embedCode")} value={code} multiline />
     </div>
   );
 }
@@ -606,6 +643,7 @@ function CopyField({
   multiline?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const t = useT();
   const copy = async () => {
     if (!(await writeClipboardText(value))) {
       setCopied(false);
@@ -636,7 +674,7 @@ function CopyField({
         <button
           type="button"
           onClick={copy}
-          aria-label="Copy"
+          aria-label={t("share.copy")}
           className={cn(BUTTON_OUTLINE_SM, "w-9 px-0")}
         >
           {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
@@ -649,7 +687,7 @@ function CopyField({
 const selectContentClass =
   "z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md";
 const selectItemClass =
-  "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 pl-8 pr-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
+  "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
 
 function SelectItems({
   items,
@@ -664,7 +702,7 @@ function SelectItems({
           value={it.value}
           className={selectItemClass}
         >
-          <span className="absolute left-2 top-2 flex h-4 w-4 items-center justify-center">
+          <span className="absolute start-2 top-2 flex h-4 w-4 items-center justify-center">
             <Select.ItemIndicator>
               <IconCheck size={14} />
             </Select.ItemIndicator>
@@ -684,15 +722,17 @@ function SelectItems({
 }
 
 function RoleSelect(props: { value: Role; onChange: (v: Role) => void }) {
+  const t = useT();
+  const roleOptions = useRoleOptions();
   const current =
-    ROLE_OPTIONS.find((o) => o.value === props.value) ?? ROLE_OPTIONS[0];
+    roleOptions.find((o) => o.value === props.value) ?? roleOptions[0];
   return (
     <Select.Root
       value={props.value}
       onValueChange={(v) => props.onChange(v as Role)}
     >
       <Select.Trigger
-        aria-label="Role"
+        aria-label={t("share.role")}
         className={cn(
           BUTTON_BASE,
           "h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
@@ -710,7 +750,7 @@ function RoleSelect(props: { value: Role; onChange: (v: Role) => void }) {
           sideOffset={4}
         >
           <Select.Viewport>
-            <SelectItems items={ROLE_OPTIONS} />
+            <SelectItems items={roleOptions} />
           </Select.Viewport>
         </Select.Content>
       </Select.Portal>
@@ -723,7 +763,9 @@ function VisibilitySelect(props: {
   onChange: (v: Visibility) => void;
   disabled?: boolean;
 }) {
-  const current = VIS_META[props.value];
+  const t = useT();
+  const visibilityMeta = useVisibilityMeta();
+  const current = visibilityMeta[props.value];
   return (
     <Select.Root
       value={props.value}
@@ -731,10 +773,10 @@ function VisibilitySelect(props: {
       disabled={props.disabled}
     >
       <Select.Trigger
-        aria-label="General access"
+        aria-label={t("share.generalAccess")}
         className={cn(
           BUTTON_BASE,
-          "h-7 px-1 -ml-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
+          "h-7 px-1 -ms-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
         )}
       >
         <Select.Value>{current.label}</Select.Value>
@@ -750,10 +792,10 @@ function VisibilitySelect(props: {
         >
           <Select.Viewport>
             <SelectItems
-              items={(Object.keys(VIS_META) as Visibility[]).map((k) => ({
+              items={(Object.keys(VIS_ICONS) as Visibility[]).map((k) => ({
                 value: k,
-                label: VIS_META[k].label,
-                description: VIS_META[k].description,
+                label: visibilityMeta[k].label,
+                description: visibilityMeta[k].description,
               }))}
             />
           </Select.Viewport>

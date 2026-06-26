@@ -1,3 +1,4 @@
+import { defineEventHandler } from "h3";
 /**
  * Shared SSR catch-all handler for React Router framework mode.
  *
@@ -16,14 +17,11 @@
  * the unknown scheme — silently 302'ing every request to "/".
  */
 import { createRequestHandler } from "react-router";
-import { defineEventHandler } from "h3";
-import { getSentryClientConfigScript } from "./sentry-config.js";
-import { computeInlineScriptHash } from "./security-headers.js";
+
 import {
-  getAppBasePathFromViteEnv,
-  stripAppBasePath as canonicalStripAppBasePath,
-} from "./app-base-path.js";
-import { runWithRequestContext } from "./request-context.js";
+  DEFAULT_SSR_CACHE_HEADERS,
+  DEFAULT_SPECULATION_RULES_PATH,
+} from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_HEIGHT,
@@ -33,9 +31,12 @@ import {
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
 import {
-  DEFAULT_SSR_CACHE_HEADERS,
-  DEFAULT_SPECULATION_RULES_PATH,
-} from "../shared/cache-control.js";
+  getAppBasePathFromViteEnv,
+  stripAppBasePath as canonicalStripAppBasePath,
+} from "./app-base-path.js";
+import { runWithRequestContext } from "./request-context.js";
+import { computeInlineScriptHash } from "./security-headers.js";
+import { getSentryClientConfigScript } from "./sentry-config.js";
 
 export {
   DEFAULT_SSR_CACHE_HEADERS,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { getPlanCodeAnnotationLayout } from "./PlanContentRenderer";
 
 describe("getPlanCodeAnnotationLayout", () => {

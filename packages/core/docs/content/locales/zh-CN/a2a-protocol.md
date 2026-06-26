@@ -1,0 +1,392 @@
+---
+title: "A2A协议"
+description: "通过 JSON-RPC 进行代理间通信：发现、消息传递、流式传输和任务管理。"
+---
+
+# A2A协议
+
+通过 HTTP 进行代理间通信。代理相互发现、发送消息并接收结构化结果。
+
+## 概述 {#overview}
+
+A2A（代理到代理）是用于代理间通信的 JSON-RPC 协议。邮件代理可以要求分析代理运行查询。日历代理可以搜索项目管理代理中的问题。每个代理通过代理卡公开其功能，并通过标准 JSON-RPC 端点接受工作。
+
+A2A 是此框架中跨应用程序委派的基础 - 最显着的是 [Dispatch](/docs/dispatch)，它将单个入站消息（Slack、电子邮件等）路由到工作区中最适合处理它的任何应用程序。
+
+关键概念：
+
+- **代理卡** — `/.well-known/agent-card.json` 上描述 skills 和功能的公共元数据
+- **JSON-RPC** — 代理本机应用程序使用 `POST /_agent-native/a2a`；外部/遗留节点可以使用 `POST /a2a`
+- **任务** - 每条消息都会创建一个具有生命周期的任务（已提交、正在工作、已完成、失败、已取消）
+- **JWT 承载身份验证** - 生产 A2A 需要 `A2A_SECRET` 或显式遗留 `apiKeyEnv`
+
+```an-diagram title="一名代理人将工作交给另一名代理人" summary="邮件代理发现分析代理的卡，发送 JSON-RPC 消息，并返回已完成的任务。"
+{
+  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>邮件 Agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">任务 · 已完成</div></div><div class=\"diagram-card\" data-rough><strong>分析 Agent</strong><small class=\"diagram-muted\">运行 run-query，返回结果</small></div></div>",
+  "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
+}
+```
+
+## 服务器设置 {#server-setup}
+
+大多数模板通过框架代理聊天插件获取 A2A。如果您自己安装它，请在服务器插件中调用 `mountA2A()`：
+
+```ts
+// server/plugins/a2a.ts
+import { mountA2A } from "@agent-native/core/a2a";
+
+export default defineNitroPlugin((nitro) => {
+  mountA2A(nitro, {
+    name: "Analytics Agent",
+    description: "Runs analytics queries and returns chart data",
+    skills: [
+      {
+        id: "run-query",
+        name: "Run Query",
+        description: "Execute a SQL query against the analytics database",
+        tags: ["analytics", "sql"],
+        examples: ["Show me signups by source this month"],
+      },
+    ],
+    // Optional legacy external-peer bearer key. Prefer A2A_SECRET for
+    // agent-native workspace calls and production deployments.
+    apiKeyEnv: "A2A_API_KEY",
+    streaming: true, // enable message/stream
+  });
+});
+```
+
+此安装座：
+
+- `GET /.well-known/agent-card.json` — 公共发现元数据。
+- `POST /_agent-native/a2a` — 主要代理本机 JSON-RPC 端点。
+- `POST /_agent-native/a2a/_process-task` — 内部异步处理器路由，使用 `A2A_SECRET` 签名。
+
+对于公开传统/简单路径的外部代理，客户端还回退到 `/a2a`。生产代理本机部署应设置 `A2A_SECRET`；如果没有它，托管运行时将无法关闭，而不是接受未经身份验证的远程工作。
+
+## 代理卡 {#agent-card}
+
+代理卡是根据您的配置自动生成的，并在 `/.well-known/agent-card.json` 上提供。其他代理获取它以发现您的代理的 skills。
+
+### 每租户技能过滤 {#agent-card-filtering}
+
+卡端点是公共的，因此框架会在提供服务之前编辑 skills，其 ID 显示每个用户或每个组织的集成。任何 ID 以 `mcp__user_<emailhash>_…` 或 `mcp__org_<orgid>_…` 开头的技能都会从已发布的卡牌中删除。操作员控制的 stdio MCP 工具（从 `mcp.config.json` 加载）和模板定义的 skills 保持可见。这可以防止未经身份验证的调用者对存在哪些租户或他们连接的集成进行指纹识别。参见`packages/core/src/a2a/server.ts`。
+
+```json
+{
+  "name": "Analytics Agent",
+  "description": "Runs analytics queries and returns chart data",
+  "url": "https://analytics.example.com",
+  "version": "1.0.0",
+  "protocolVersion": "0.3",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "skills": [
+    {
+      "id": "run-query",
+      "name": "Run Query",
+      "description": "Execute a SQL query against the analytics database",
+      "tags": ["analytics", "sql"],
+      "examples": ["Show me signups by source this month"]
+    }
+  ],
+  "securitySchemes": {
+    "jwtBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+    "apiKey": { "type": "http", "scheme": "bearer" }
+  },
+  "security": [{ "jwtBearer": [] }, { "apiKey": [] }]
+}
+```
+
+_（版本可能有所不同；在 `/.well-known/agent-card.json` 获取当前 `protocolVersion` 的应用的实时卡。）_
+
+当设置了`A2A_SECRET`（推荐路径）时，该卡会通告一个
+`jwtBearer` 方案如上。仅当遗留时才添加`apiKey`方案
+还配置了 `apiKeyEnv`，因此仅设置了 `A2A_SECRET` 的卡就会发布
+单独的`jwtBearer`。
+
+## JSON-RPC方法 {#json-rpc-methods}
+
+所有方法均通过 `POST /_agent-native/a2a` 调用，格式为 JSON-RPC 2.0：
+
+| 方法             | 描述                                                                   | 关键参数                      |
+| ---------------- | ---------------------------------------------------------------------- | ----------------------------- |
+| `message/send`   | 发送消息并等待任务完成。通过`async: true`立即返回`working`状态并轮询。 | `message, contextId?, async?` |
+| `message/stream` | 发送消息，接收SSE任务更新                                              | `message, contextId?`         |
+| `tasks/get`      | 按 ID 获取任务 - 用于轮询异步任务是否完成                              | `id`                          |
+| `tasks/cancel`   | 取消正在运行的任务                                                     | `id`                          |
+
+```an-api title="主要 A2A 端点" summary="所有 JSON-RPC 方法都是这里的 POSTed。显示message/send。"
+{
+  "method": "POST",
+  "path": "/_agent-native/a2a",
+  "summary": "发送消息并等待任务完成",
+  "description": "JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. Pass `async: true` to return immediately in `working` state and poll with `tasks/get`.",
+  "auth": "JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)",
+  "params": [
+    { "name": "Authorization", "in": "header", "type": "string", "required": false, "description": "Bearer token. Required in hosted production runtimes; optional in local dev." },
+    { "name": "method", "in": "body", "type": "string", "required": true, "description": "One of message/send, message/stream, tasks/get, tasks/cancel." },
+    { "name": "params.message", "in": "body", "type": "object", "required": false, "description": "{ role, parts[] } for message/send and message/stream." },
+    { "name": "params.async", "in": "body", "type": "boolean", "required": false, "description": "Return immediately in working state and poll via tasks/get. Use on serverless hosts." },
+    { "name": "params.id", "in": "body", "type": "string", "required": false, "description": "Task id for tasks/get and tasks/cancel." }
+  ],
+  "request": {
+    "contentType": "application/json",
+    "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"message/send\",\n  \"params\": {\n    \"message\": {\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"Show signups by source\" }]\n    },\n    \"async\": true\n  }\n}"
+  },
+  "responses": [
+    { "status": "200", "description": "JSON-RPC result containing the task. With async:true the task returns in working state.", "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"result\": { \"id\": \"task_123\", \"status\": { \"state\": \"working\" } }\n}" },
+    { "status": "503", "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated." }
+  ]
+}
+```
+
+当使用 `async: true` 调用 `message/send` 时，JSON-RPC 处理程序会将任务排入队列，并将 POST 自触发到内部 `/_agent-native/a2a/_process-task` 路由，以便处理程序在具有自己的完全超时的新函数执行中运行。该路由使用绑定到任务 ID 的 HMAC 令牌进行身份验证（5 分钟生存期，使用 `A2A_SECRET` 签名）。它安装在 `/_agent-native/a2a` JSON-RPC 路由之前，因此 h3 的前缀匹配不会吞噬它。
+
+```an-diagram title="无服务器上的异步任务生命周期" summary="async:true 在几毫秒内返回工作，然后在调用者轮询时重新执行运行代理循环。"
+{
+  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">约毫秒级</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>自触发 POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · 全新执行 · 完整超时</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
+  "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
+  "caption": "A recurring sweeper re-claims any task left in flight if the function execution dies mid-run."
+}
+```
+
+> [!IMPORTANT]
+> **无服务器 Webhook 和网关超时：**
+> 托管环境网关（例如 Netlify、Vercel 或 Cloudflare Pages）对面向公众的 HTTP 路由施加严格的执行限制（通常为 10 到 30 秒）。由于代理循环可能需要大量时间来运行查询、获取上下文和执行工具，因此在调用 A2A 端点或处理外部 webhooks 时，您**必须使用 `async: true`**。这会立即将 `working` 状态返回到 API 网关，仅保持连接打开几毫秒，而自触发的 `/process-task` POST 在后台执行代理循环。不要阻止主 HTTP 请求等待代理循环完成。
+
+消息包含键入的部分 - 文本、结构化数据和文件都可以在一条消息中传输：
+
+```an-annotated-code title="带有键入部分的 A2A 消息"
+{
+  "language": "json",
+  "code": "{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}",
+  "annotations": [
+    { "lines": "4", "label": "text part", "note": "代理阅读简单的自然语言指令。" },
+    { "lines": "5", "label": "data part", "note": "结构化 JSON 参数 - e.g。日期范围 - 与提示一起传递。" },
+    { "lines": "6-9", "label": "file part", "note": "按名称 `mimeType` 和 base64 `bytes` 附加文件。" }
+  ]
+}
+```
+
+## 客户端 {#client}
+
+`A2AClient` 类处理发现、消息传递和流式传输：
+
+```ts
+import { A2AClient } from "@agent-native/core/a2a";
+
+const client = new A2AClient("https://analytics.example.com", "my-api-key");
+
+// Discover agent capabilities
+const card = await client.getAgentCard();
+console.log(card.skills);
+
+// Send a message and get a completed task
+const task = await client.send({
+  role: "user",
+  parts: [{ type: "text", text: "Show signups by source this month" }],
+});
+console.log(task.status.state); // "completed"
+// task.status.message is a Message object ({ role, parts }), not a string.
+// Pull text out of its parts:
+const reply = task.status.message?.parts
+  .filter((p) => p.type === "text")
+  .map((p) => p.text)
+  .join("");
+console.log(reply); // agent's response text
+
+// Stream responses for long-running work
+for await (const update of client.stream({
+  role: "user",
+  parts: [{ type: "text", text: "Generate a full quarterly report" }],
+})) {
+  console.log(update.status.state, update.status.message);
+}
+```
+
+## 方便帮手 {#convenience-helper}
+
+对于简单的文本输入/文本输出调用，请使用 `callAgent()`：
+
+```ts
+import { callAgent } from "@agent-native/core/a2a";
+
+// One-shot: send text, get text back
+const response = await callAgent(
+  "https://analytics.example.com",
+  "How many signups last week?",
+  { apiKey: process.env.ANALYTICS_API_KEY },
+);
+console.log(response); // "There were 1,247 signups last week..."
+```
+
+## 编程工作区调用 {#programmatic-invoke}
+
+对于代理本机工作区，在代码或 a 时更喜欢 `agentNative` 帮助器
+无头应用程序需要发现同级应用程序并通过 ID、名称或调用它们
+URL。它使用与
+`agent-native agents` 和 `agent-native invoke` CLI 命令。
+
+```ts
+import { agentNative } from "@agent-native/core/agent-native";
+
+const agents = await agentNative.listAgents();
+
+const result = await agentNative.invoke(
+  "analytics",
+  "Summarize signups by source this month.",
+  { userEmail: "steve@example.com" },
+);
+
+console.log(`Called ${result.target.name}: ${result.responseText}`);
+```
+
+将此用于可组合的迷你应用程序：调度或协调器应用程序发现
+工作空间同级，然后调用拥有提供程序的专业应用程序，
+数据集或工作流程。在生产代理本机应用程序中，在每个中设置 `A2A_SECRET`
+应用程序环境并传递呼叫者身份（`userEmail`），因此出站呼叫
+签名为 JWT 不记名代币。仅将 `apiKeyEnv` 用于旧版外部对等点
+需要静态不记名令牌。使用本地actions而不是自己调用。
+
+## 任务生命周期 {#task-lifecycle}
+
+每条消息都会创建一个在以下状态之间移动的任务：
+
+`submitted` → `working` → `completed` | `failed` | `canceled` | `input-required`
+
+`input-required` 是非终端：处理程序正在等待来自调用者的更多信息，一旦输入到达，任务就可以移回 `working`。
+
+| 状态             | 含义                           |
+| ---------------- | ------------------------------ |
+| `submitted`      | 任务已创建，已排队等待处理     |
+| `working`        | Handler正在处理消息            |
+| `completed`      | 处理程序成功完成               |
+| `failed`         | 处理程序抛出错误               |
+| `canceled`       | 任务已通过tasks/cancel取消     |
+| `input-required` | 处理程序需要调用者提供更多信息 |
+
+任务保留在 `a2a_tasks` SQL 表中，稍后可以通过 `tasks/get` 检索。
+
+## 安全 {#security}
+
+在每个调用或接收 A2A 流量的生产应用上设置 `A2A_SECRET`。代理本地呼叫者使用此秘密签署 JWT 不记名令牌，以便接收者可以在代理循环开始之前验证呼叫者身份。
+
+对于仍然使用共享静态令牌的外部对等点，请将配置中的 `apiKeyEnv` 设置为包含预期持有者令牌的环境变量的名称：
+
+```ts
+// Config
+mountA2A(app, {
+  // ...
+  apiKeyEnv: "A2A_API_KEY", // reads process.env.A2A_API_KEY
+});
+
+// Client calls with the matching key
+const client = new A2AClient(url, process.env.A2A_API_KEY);
+```
+
+代理卡端点始终是公共的（无需身份验证），以便其他代理可以发现功能。 `/_agent-native/a2a` JSON-RPC 端点接受由 `A2A_SECRET` 签名的 JWT 不记名令牌，并且在配置时还接受旧版 `apiKeyEnv` 令牌。本地开发时，auth可以省略；在托管生产运行时中，缺少 A2A 身份验证会返回 503，而不是未经身份验证运行。
+
+### 身份验证策略边界 {#auth-policy}
+
+承载验证在代理循环看到消息之前在请求边界（JSON-RPC 处理程序中）运行。 `packages/core/src/a2a/auth-policy.ts` 中的共享助手决定部署需要什么：
+
+- `isA2AProductionRuntime()` 在 Netlify、AWS Lambda、Cloudflare Pages/Workers、Vercel、Render、Fly 和 Cloud Run 上返回 `true` — 即使 `NODE_ENV` 不是 `"production"`。一些无服务器提供商不会一致地设置 `NODE_ENV`，因此该策略也会读取特定于提供商的标志。
+- 当 `A2A_SECRET` 设置时，`hasConfiguredA2ASecret()` 返回 `true`。
+- `shouldAdvertiseJwtA2AAuth()`是代理卡用来决定是否发布`jwtBearer`安全方案的依据。
+
+生产策略是严格的：在任何生产运行时中，除非配置了 `A2A_SECRET`（返回 503），否则异步 `_process-task` 路由拒绝调度，并且 JSON-RPC 端点拒绝未经身份验证的调用。开发回退（警告一次，允许）仅在未设置生产标志时触发。
+
+此边界很重要，因为代理循环接受来自远程调用者的自由格式输入。将不记名检查放入循环内，或依靠工具来强制执行它，将使提示注入或有问题的处理程序绕过身份验证。将其保持在 HTTP 边界意味着令牌故障会在任何 LLM 调用之前短路。
+
+JWT 验证（`server.ts` 中的 `verifyA2AToken`）接受使用全局 `A2A_SECRET` 或通过令牌的 `org_domain` 声明从 SQL 查找的组织范围秘密签名的令牌，并在存在时强制执行令牌自己的 `aud`/`iss` 声明。
+
+## 继续 {#continuations}
+
+当代理调用未立即返回的远程 A2A 对等点时，框架会轮询 `tasks/get` 直到任务解决。这是通过 `A2AClient.sendAndWait` 连接的，这是 `callAgent()` 帮助程序使用的默认模式。
+
+```ts
+// Default: async + poll (safe on serverless hosts)
+const reply = await callAgent(url, "Generate the quarterly report", {
+  userEmail: session.email,
+});
+
+// Single-shot blocking POST (avoid on Netlify/Vercel for slow handlers)
+const reply2 = await callAgent(url, "Quick lookup", { async: false });
+```
+
+对于由消息传递集成（Slack、电子邮件）触发的入站延续，框架会将延续保留在 SQL 中并在带外进行处理：
+
+- 当集成处理程序将其移交给远程代理时，一行将写入 `a2a_continuations` 表。
+- 自触发的 `POST /_agent-native/integrations/process-a2a-continuation` 声明该行，在远程代理上调用 `tasks/get`，并将回复传递给集成适配器或重新安排。
+- 如果远程任务仍在工作，则会重新计划并重新分派该行。投票预算**受约 20 分钟远程工作** (`MAX_REMOTE_WORK_MS`) 和 **30 次调度尝试** (`MAX_ATTEMPTS`) 的限制；在任一限制之后，继续都会失败并出现明显错误，并且用户会收到“代理未及时响应”回复。
+- 循环清理器 (`claimDueA2AContinuations`) 重新声明上一个函数执行终止时剩余的所有连续行。即使调用应用程序在轮询中崩溃，下一次扫描也会恢复工作。
+
+在`packages/core/src/integrations/a2a-continuation-processor.ts`中定义。相同的重试作业模式用于集成 Webhook 任务 (`pending-tasks-retry-job.ts`)，这是一个上限为 3 次尝试的独特队列 - 与上面的连续轮询预算分开。
+
+## 工作区A2A {#workspace-a2a}
+
+在部署到单个 Netlify 站点的多应用工作区中（请参阅 [multi-app workspace](/docs/multi-app-workspace)），`apps/<id>/` 下的每个应用都会自动注册为 A2A 对等点：
+
+- 共享的 `A2A_SECRET` 在构建时安装到每个应用程序的环境中。
+- 跨应用调用是同源的 - `https://workspace.example.com/apps/analytics` 调用 `https://workspace.example.com/apps/mail` - 因此没有 DNS、CORS 或每对 JWT 设置。
+- 使用共享密钥签名的出站呼叫携带呼叫者的电子邮件（`sub`）和组织域（如果存在）。接收方的 JWT 验证程序按顺序接受来自 SQL 的共享秘密或组织范围秘密。
+- 代理发现会遍历工作区注册表，而不是依赖操作员手动连接每个对等点。请参阅 `packages/core/src/server/agent-discovery.ts` 中的 `discoverAgents` 和 `packages/core/src/org/handlers.ts` 中的组织刷新路径。
+
+外部 A2A — 呼叫工作区之外的代理 — 仍然使用不记名令牌模型 (`apiKeyEnv` + `A2AClient(url, apiKey)`)。工作区A2A位于顶部；外部对等点没有任何变化。
+
+## 无服务器陷阱 {#serverless}
+
+**永远不要依赖“一劳永逸”的 `Promise` 超过响应的寿命。**无服务器函数（Netlify、Vercel、AWS Lambda、Cloud Run）会在响应正文刷新时冻结 - 有时甚至在未等待的 `fetch(...)` 的 TCP 握手完成之前。在 Node 上本地工作的模式将默默地放弃生产中的工作。
+
+A2A 异步调度和 [integration webhook queue](/docs/messaging) 使用的框架模式是：
+
+1. 接受请求，保留SQL需要发生的事情，立即返回200。
+2. 将 `POST` 自触发到单独的框架路由（`/_agent-native/a2a/_process-task` 或 `/_agent-native/integrations/process-task`），以便实际工作在**新函数执行**中运行，并具有自己的完整超时。
+3. 使用绑定到行 ID 的 HMAC 令牌来验证 self-fire，并使用 `A2A_SECRET` 签名。
+4. 重复的重试作业会清除所有已声明但未完成的行，因此崩溃的函数不会使工作陷入困境。
+
+当您编写自己的 A2A 处理程序或集成适配器时，请遵循相同的形状。不要将工作附加到 `return` 之后的独立承诺中。如果您必须从无服务器处理程序中自行启动，请在返回之前启动提取，并给它一个微小的启动时间（框架使用较短的超时），以便 Lambda 式运行时不会在出站请求离开进程之前冻结。 `integration-webhooks`技能是规范参考。
+
+## 代理提及 {#agent-mentions}
+
+您可以在聊天编辑器中直接提及客服人员 `@`。连接代理使用 A2A：当您提及连接代理时，服务器会对该代理进行 A2A 调用，并将响应编织到您的对话上下文中。
+
+自定义工作区代理有所不同：它们在当前应用/运行时本地运行，而不是通过 A2A 运行。
+
+请参阅 [Agent Mentions](/docs/agent-mentions)，详细了解提及的工作原理、如何添加代理以及如何创建自定义提及提供程序。
+
+## 消息传递集成 {#messaging-integrations}
+
+还可以通过 Slack、电子邮件、Telegram 和 WhatsApp 等外部消息平台联系客服人员。用户在这些平台上发送消息，代理在同一线程中使用与网络聊天相同的工具和 actions 进行响应。
+
+有关每个平台的设置详细信息，请参阅 [Messaging](/docs/messaging)。
+
+## 示例：跨代理查询 {#example}
+
+邮件代理需要分析数据。分析代理通过 A2A 公开“运行查询”技能：
+
+```ts
+// In the mail agent's actions/get-analytics.ts
+import { defineAction } from "@agent-native/core/action";
+import { callAgent } from "@agent-native/core/a2a";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Ask the analytics agent a question.",
+  schema: z.object({ question: z.string() }),
+  async run({ question }) {
+    const response = await callAgent(
+      "https://analytics.example.com",
+      question,
+      { apiKey: process.env.ANALYTICS_API_KEY },
+    );
+    return { answer: response };
+  },
+});
+```
+
+分析代理接收消息，通过其处理程序运行查询，并返回结果。邮件操作获取文本响应。没有共享数据库，没有直接的 API 调用——只有代理到代理的通信。

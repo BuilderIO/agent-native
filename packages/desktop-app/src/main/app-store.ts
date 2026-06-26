@@ -1,25 +1,27 @@
-import { app, safeStorage } from "electron";
-import { randomUUID } from "node:crypto";
 import fs from "fs";
+import { randomUUID } from "node:crypto";
 import path from "path";
+
 import {
   DESKTOP_DEFAULT_APPS,
   TEMPLATE_APPS,
+  sortDesktopApps,
   type AppConfig,
   type FrameSettings,
 } from "@shared/app-registry";
-import type {
-  CodeAgentProviderCredentialKey,
-  CodeAgentProviderSettings,
-  CodeAgentProviderSettingsUpdate,
-  CodeAgentProviderStatus,
-} from "@shared/ipc-channels";
 import {
   normalizeDesktopShortcutAccelerator,
   type DesktopShortcutBehavior,
   type DesktopShortcutBinding,
   type DesktopShortcutUpsertRequest,
 } from "@shared/desktop-shortcuts";
+import type {
+  CodeAgentProviderCredentialKey,
+  CodeAgentProviderSettings,
+  CodeAgentProviderSettingsUpdate,
+  CodeAgentProviderStatus,
+} from "@shared/ipc-channels";
+import { app, safeStorage } from "electron";
 
 const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
@@ -645,6 +647,13 @@ export function loadApps(): AppConfig[] {
         }
       }
     }
+
+    const orderedApps = sortDesktopApps(apps);
+    if (orderedApps.some((app, index) => app !== apps[index])) {
+      apps = orderedApps;
+      migrated = true;
+    }
+
     if (migrated) saveApps(apps);
     return apps;
   } catch {

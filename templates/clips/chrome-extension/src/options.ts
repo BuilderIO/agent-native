@@ -1,3 +1,7 @@
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("options");
+
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 
 type ExtensionSettings = {
@@ -116,6 +120,9 @@ async function init(): Promise<void> {
         await saveSettings(settings);
         setStatus("Settings saved.");
       } catch (err) {
+        captureExtensionError(err, {
+          tags: { surface: "options", action: "save-settings" },
+        });
         setStatus(
           err instanceof Error ? err.message : "Could not save settings.",
           "error",
@@ -132,6 +139,9 @@ async function init(): Promise<void> {
 }
 
 void init().catch((err) => {
+  captureExtensionError(err, {
+    tags: { surface: "options", action: "init" },
+  });
   setStatus(
     err instanceof Error ? err.message : "Could not load settings.",
     "error",

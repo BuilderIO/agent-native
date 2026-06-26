@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef } from "react";
+
 import type { AgentMessage, AgentChatEvent } from "../agent/types.js";
-import { formatChatErrorText } from "./error-format.js";
 import { agentNativePath } from "./api-path.js";
+import { formatChatErrorText } from "./error-format.js";
 
 export interface ProductionAgentMessage {
   id: string;

@@ -2,6 +2,7 @@
  * Shared helpers for actions in this package.
  */
 import { and, eq } from "drizzle-orm";
+
 import { getSchedulingContext } from "../server/context.js";
 
 export function currentUserEmail(): string {

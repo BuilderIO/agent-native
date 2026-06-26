@@ -31,7 +31,7 @@
 
 .agent-conversation__scroll-bottom {
   position: absolute;
-  right: 18px;
+  inset-inline-end: 18px;
   bottom: 92px;
   z-index: 2;
   display: flex;
@@ -115,12 +115,12 @@
 
 .agent-conversation-markdown ul,
 .agent-conversation-markdown ol {
-  padding-left: 20px;
+  padding-inline-start: 20px;
 }
 
 .agent-conversation-markdown li {
   margin: 3px 0;
-  padding-left: 2px;
+  padding-inline-start: 2px;
 }
 
 .agent-conversation-markdown li > p {
@@ -248,7 +248,7 @@
 }
 
 .agent-conversation-tool__summary {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-size: 11px;
 }
 
@@ -410,7 +410,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: auto;
+  margin-inline-start: auto;
   color: hsl(var(--muted-foreground));
   text-decoration: none;
 }
@@ -496,7 +496,7 @@
 .agent-markdown ul,
 .agent-markdown ol {
   margin: 0.5em 0;
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
 }
 
 .agent-markdown li {
@@ -576,8 +576,8 @@
 }
 
 .agent-markdown blockquote {
-  border-left: 2px solid hsl(var(--border, 0 0% 20%));
-  padding-left: 0.75em;
+  border-inline-start: 2px solid hsl(var(--border, 0 0% 20%));
+  padding-inline-start: 0.75em;
   margin: 0.5em 0;
   opacity: 0.8;
 }
@@ -592,7 +592,7 @@
 .agent-markdown td {
   border: 1px solid hsl(var(--border, 0 0% 20%));
   padding: 0.35em 0.65em;
-  text-align: left;
+  text-align: start;
 }
 
 .agent-markdown th {
@@ -608,7 +608,7 @@
   display: inline-block;
   width: 0.42em;
   height: 1em;
-  margin-left: 0.12em;
+  margin-inline-start: 0.12em;
   border-radius: 999px;
   background: currentColor;
   opacity: 0.35;

@@ -1,0 +1,303 @@
+---
+title: "資産"
+description: "エージェントネイティブのデジタル アセット マネージャーと、ブランド一貫性のあるメディア向けのクロスエージェント生成サービス。"
+---
+
+# 資産
+
+Assets は、ブランドと一貫したメディアを作成および管理するためのエージェントネイティブのワークスペースです。アップロードと生成された結果をライブラリとフォルダーに整理し、チームがブログのヒーロー、図、ランディング ページ、製品ショット、ビデオ、ロゴの例を収集し、エージェント チャットを通じて生成をルーティングできるため、すべてのアセットをレビューして調整できます。
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>ローンチブランド</h1><span class='wf-pill accent'>ブログ hero</span><span class='wf-pill'>製品画像</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>ブランドメディアを作成</strong><div class='wf-box'>承認済みロゴと製品リファレンスを使ったホームページ hero 案 3 つ。</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Web エクスポート</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>ヒーローA</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>参照セット</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>ロゴ安全</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+}
+```
+
+アプリを開くと、選択したライブラリ、プロンプト、参照、生成された候補が 1 つのワークスペースに残ります。エージェントは、UI が使用するのと同じ actions を通じて、すべてのアセットを参照、検索、生成、調整、エクスポートできます。
+
+```an-diagram title="生成、レビュー、再利用" summary="参照とプロンプトにより、セッションの生成と選択が行われます。選択したアセットはライブラリに配置され、ピッカーまたは A2A を介して他のアプリに流出します。"
+{
+  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">ロゴ、製品画像、スタイル</small></div><div class=\"diagram-node\">プロンプト<br><small class=\"diagram-muted\">チャットまたは Generate コントロール</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">生成セッション</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">選択済みでブランド一貫性のある assets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / MCP アプリ</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">スライド · デザイン · コンテンツ</small></div></div></div>",
+  "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
+}
+```
+
+## いつ選択するか
+
+- **チームには、1 回限りの一般的なメディア プロンプトではなく、再利用可能なビジュアル ディレクションが必要です**。承認されたロゴ、製品ショット、スタイル例を収集して、何世代にもわたってブランドを維持できるようにします。
+- **実行ごとのプロンプト、モデル、参照、リネージの完全な監査ログを使用して、生成されたメディアをレビューして調整したいと考えています**。
+- **他のアプリにはアセット ピッカーまたはジェネレーターが必要です** — スライド、デザイン、コンテンツ、ブログ エディター、またはサイト ビルダーは、ピッカーを埋め込んだり、A2A 経由でアセットを呼び出したりできます。
+- **コーディング エージェントからブランド メディアを利用できるようにしたい** — Codex、Claude コード、Claude、または ChatGPT は、チャットを離れることなくアセットを生成して選択できます。
+
+## はじめに
+
+ライブデモ: [assets.agent-native.com](https://assets.agent-native.com)。
+
+1. **ライブラリを作成します。** ブランド、キャンペーン、製品、またはコンテンツ ストリームを追加します
+   管理したい
+2. **参照をアップロードします。** 承認されたロゴ、製品の写真、スタイルの例を追加します。
+   既存のビデオにより、エージェントは具体的な資料を基に作業を行うことができます。
+3. **チャットまたはライブラリから生成します。** ヒーロー画像、図、製品を要求します
+   ショット、またはビデオのバリアント。アセットには、プロンプト、参照、モデル、ステータスが保存されます。
+   レビュー用のリネージュ。
+4. **アセットを別の場所で使用します。** エクスポートをコピーし、ピッカーを別の場所に埋め込みます
+   アプリを使用するか、別のエージェントが A2A 経由でアセットを呼び出すようにします。
+
+## 便利なプロンプト
+
+- 「Acme 製品リファレンスを使用して 3 つのブログ ヒーロー オプションを生成します。」
+- 「ローンチ キャンペーン スタイルで正方形のソーシャル イメージを作成します。」
+- 「オンボーディングの再設計のために承認されたアセットをすべて検索します。」
+- 「このアップロードした図をよりわかりやすい製品説明画像に変換します。」
+- 「ビデオ ストーリーボードを作成し、最適なフレーム セットをこのライブラリに保存します。」
+
+## それを使って何ができるか
+
+- **アセット ライブラリを作成します。** 参照画像、ビデオ、標準ロゴ、スタイル ノート、パレット、フォルダー、および生成された出力をブランド、キャンペーン、製品、またはカテゴリごとにグループ化します。
+- **チャットを通じて生成します。** ホーム コンポーザーとライブラリの生成コントロールは、`sendToAgentChat()` を使用してエージェントにプロンプトを送信するため、ユーザーはバリアントを検査し、フィードバックを提供し、反復することができます。
+- **画像とビデオを生成します。** 有効にすると、Builder 管理の画像生成が利用可能になり、Gemini はビデオ生成と手動画像フォールバックを強化します。
+- **参照をアップロードして説明します。** ライブラリ UI またはプロンプトのコンポーザー添付ボタンから画像やビデオを追加し、タイトル、説明、代替テキスト、プロンプト、モデル、メディア タイプ、ステータス、役割、フォルダー、またはコレクションで検索します。
+- **生成監査ログを保存します。** 実行するたびに、プロンプト、モデル、アスペクト比、参照、ソース アセット、系統、生成されたアセット、ステータス、エラー、タイムスタンプが記録され、後で設計をレビューできるようになります。
+- **ロゴの精度を維持します。** エージェントはプレースホルダー領域を生成でき、サーバーは画像モデルに依存して再描画するのではなく、アップロードされた標準ロゴを最終画像に合成します。
+- **ピッカーとして埋め込みます。** 他のアプリは `/picker` を iframe し、`@agent-native/embedding` からの `chooseAsset` イベントをリッスンして、アセットをブログエディター、サイト ビルダー、スライド デッキ、カスタム アプリ用のアセット ピッカー/ジェネレーターに変えることができます。ピッカーは、既存のイメージ専用ホストのレガシー `chooseImage` エイリアスも生成します。
+- **アプリベースのスキルとしてインストールします。** `agent-native.app-skill.json` マニフェストはアセット スキルと MCP コネクタ メタデータをエクスポートするため、マーケットプレイスはアプリ、その手順、ピッカーを一緒にインストールできます。
+- **他のエージェントにサービスを提供します。** スライド、デザイン、コンテンツ、メール、ディスパッチは、A2A を介してアセットを呼び出し、ライブラリの一覧表示、バッチの生成、ビデオの作成、アセットの調整、エクスポートの取得、埋め込みが許可されているインライン プレビューのレンダリングを行うことができます。
+
+## コーディング エージェントからの使用
+
+Codex、Claude コード、Claude、または ChatGPT から離れることなく、ブランド メディアを生成して選択します。
+
+1. **一度インストールします。** これにより、スキルの手順が追加され、ホストされている MCP コネクタが一緒に登録されます。
+
+   ```bash
+   npx @agent-native/core@latest skills アセットを追加 # エイリアス: image-世代
+   ```
+
+   デフォルトのクライアントは `codex` です。その他の場合は、`--client claude-code` または `--client all` を追加してください。
+   Vercel/open を通じてポータブル スキルの説明のみが必要な場合
+   Skills CLI、使用:
+
+   ```bash
+   npx skills@最新の追加 BuilderIO/agent-native --skill アセット
+   ```
+
+   Vercel/open Skills CLI は命令ファイルのみをインストールします。そうではありません
+   MCP コネクタのセットアップを実行します。必要な場合は、上記の Agent Native CLI パスを使用してください。
+   コマンド 1 つでセットアップできます。
+
+2. **画像を要求します。** エージェントのチャット: 「Acme 製品のショットから 3 つのブログ ヒーロー オプションを生成します。」エージェントはピッカーを開き、再生成、再調整 (プロンプト、アスペクト、カウント) して選択できる候補画像を表示します。
+3. **Pick.** インライン ホスト (ChatGPT、Claude.ai、Claude デスクトップ メイン チャット) では、ピッカーがチャット内で直接表示されます。候補をクリックすると、選択肢が自動的に表示されます。 CLI/リンク専用ホスト (Codex、Claude コード、Claude デスクトップの「コード」タブ) では、**「アセットで開く →」** リンクが表示されます。それを開いて、ブラウザで選択し、コピーした引き継ぎ概要をチャットに貼り付けます。または、単に「画像 A を使用する」と言うだけです。
+
+   ```テキスト
+   この選択内容をチャットに貼り付けて、エージェントが使用できるようにします。
+
+   次のステップで選択したアセットの画像: <label>
+   メディア URL: <url>
+   この選択したアセットを現在のアーティファクトまたはデザインで使用します。
+
+   選択されたアセット コンテキスト:
+   { "selectedAsset": { "assetId": "...", "url": "...", "mediaType": "image", ... } }
+   ```
+
+4. **コードに適用します。** 選択したメディア URL および `assetId` がエージェントに返され、エージェントは作成するコード (`<img>` src、ダウンロード) で URL を直接使用するか、`export-asset` を呼び出します。
+
+## 開発者向け
+
+このドキュメントの残りの部分は、アセット テンプレートをフォークまたは拡張する人を対象としています。
+
+### 足場
+
+```bash
+npx @agent-native/core@latest create my-assets --standalone --template assets
+```
+
+### データモデル
+
+すべてのデータは、Drizzle ORM を介して SQL に存在します (バイナリ メディアはオブジェクト ストレージ、または開発中のローカル ファイル アップロード フォールバックに存在します)。スキーマ: `templates/assets/server/db/schema.ts`。ライブラリは標準の `ownableColumns` と一致するフレームワーク共有テーブルを保持しているため、ユーザーごと/組織ごとの共有モデルに組み込まれます。
+
+注: SQL テーブル名には、アプリが Images と呼ばれていたときのレガシー `image_*` プレフィックスが保持されています。動画やその他のメディアも取り上げています。
+
+| テーブル                         | 内容                                                                                                                                                                                                       |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image_libraries`                | ライブラリ — ブランド、キャンペーン、製品、またはカテゴリーごとにグループ化された最上位のコンテナー。 `custom_instructions`、`style_brief`、正規ロゴとカバーアセット参照、およびアーカイブ状態を保持します |
+| `image_library_shares`           | フレームワークは、ライブラリごとにプリンシパル (ユーザーまたは組織) をロール (閲覧者、編集者、管理者) にマッピングするテーブルを共有します                                                                 |
+| `image_collections`              | ライブラリ内のスタイル/カテゴリのグループ化 — `style_brief`、`prompt_template`、デフォルトのアスペクト比と画像サイズ                                                                                       |
+| `asset_folders`                  | ライブラリ内のネスト可能なフォルダー (階層の場合は `parent_id`)                                                                                                                                            |
+| `image_generation_presets`       | 保存された生成レシピ — メディア タイプ、プロンプト テンプレート、アスペクト比、モデル、テキスト/参照ポリシー                                                                                               |
+| `image_generation_sessions`      | 概要、ステータス、アクティブなアセット、フィードバックの概要を含む反復的な生成と選択セッション                                                                                                             |
+| `image_generation_session_items` | セッション内の候補アセット。それぞれに役割とメモが付いています。                                                                                                                                           |
+| `image_assets`                   | アセット レコード — メディア タイプ、役割、ステータス、タイトル/説明/代替テキスト、プロンプト、モデル、寸法、MIME タイプ、オブジェクト/サムネイル キー、系統                                               |
+| `image_generation_runs`          | 生成監査ログ — プロンプト、コンパイルされたプロンプト、モデル、参照、ステータス、エラー、およびそれをトリガーした `source` (`chat` / `ui` / `a2a`)                                                         |
+
+```an-schema title="資産データモデル" summary="Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
+{
+  "entities": [
+    { "id": "library", "name": "image_libraries", "note": "最上位の所有可能なコンテナ", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "custom_instructions", "type": "text", "nullable": true },
+      { "name": "style_brief", "type": "text", "nullable": true },
+      { "name": "logo_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true },
+      { "name": "archived", "type": "boolean" }
+    ] },
+    { "id": "library_shares", "name": "image_library_shares", "note": "フレームワーク共有テーブル", "fields": [
+      { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
+      { "name": "role", "type": "text", "note": "viewer / editor / admin" }
+    ] },
+    { "id": "collections", "name": "image_collections", "note": "Style/category グループ化", "fields": [
+      { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
+      { "name": "style_brief", "type": "text", "nullable": true },
+      { "name": "prompt_template", "type": "text", "nullable": true }
+    ] },
+    { "id": "folders", "name": "asset_folders", "note": "ネスト可能なフォルダー", "fields": [
+      { "name": "library_id", "type": "id", "fk": "image_libraries.id" },
+      { "name": "parent_id", "type": "id", "fk": "asset_folders.id", "nullable": true }
+    ] },
+    { "id": "presets", "name": "image_generation_presets", "note": "保存された生成レシピ", "fields": [
+      { "name": "media_type", "type": "text" },
+      { "name": "prompt_template", "type": "text" },
+      { "name": "model", "type": "text" }
+    ] },
+    { "id": "sessions", "name": "image_generation_sessions", "note": "反復的な生成と選択", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "status", "type": "text" },
+      { "name": "active_asset_id", "type": "id", "fk": "image_assets.id", "nullable": true }
+    ] },
+    { "id": "session_items", "name": "image_generation_session_items", "note": "セッション内の候補アセット", "fields": [
+      { "name": "session_id", "type": "id", "fk": "image_generation_sessions.id" },
+      { "name": "asset_id", "type": "id", "fk": "image_assets.id" },
+      { "name": "role", "type": "text" }
+    ] },
+    { "id": "assets", "name": "image_assets", "note": "資産記録", "fields": [
+      { "name": "id", "type": "id", "pk": true },
+      { "name": "media_type", "type": "text", "note": "image / video" },
+      { "name": "status", "type": "text" },
+      { "name": "prompt", "type": "text", "nullable": true },
+      { "name": "object_key", "type": "text", "nullable": true }
+    ] },
+    { "id": "runs", "name": "image_generation_runs", "note": "監査ログの生成", "fields": [
+      { "name": "model", "type": "text" },
+      { "name": "status", "type": "text" },
+      { "name": "source", "type": "text", "note": "chat / ui / a2a" }
+    ] }
+  ],
+  "relations": [
+    { "from": "library", "to": "collections", "kind": "1-n" },
+    { "from": "library", "to": "folders", "kind": "1-n" },
+    { "from": "library", "to": "assets", "kind": "1-n" },
+    { "from": "sessions", "to": "session_items", "kind": "1-n" },
+    { "from": "library", "to": "library_shares", "kind": "1-n" }
+  ]
+}
+```
+
+### カスタマイズ
+
+Assets は、完全なクローン作成可能なテンプレートです。いくつかの実践的な拡張アイデア:
+
+- 「SKU で製品参照ショットを選択できるように、製品カタログ コネクタを追加します。」
+- 「生成されたアセットがマーケティングに使用可能とマークされる前に、厳格な承認キューを追加します。」
+- 「失敗した世代や評価の低い世代をモデルごとにフィルタリングするブランド レビュー ダッシュボードを追加します。」
+- 「ワークスペース全体のデフォルトのアセット ライブラリを作成し、それを通じてスライド画像の生成をルーティングします。」
+- 「最新のプロバイダーのドキュメントを確認した後、イメージ生成インターフェイスの背後に新しいプロバイダーを追加します。」
+
+エージェントは、必要に応じて、ルート、コンポーネント、actions、skills、および SQL をサポートするモデルを編集します。完全なクローン、カスタマイズ、デプロイのフローについては [Templates](/docs/cloneable-saas) を、アプリ間の生成については [A2A Protocol](/docs/a2a-protocol) を参照してください。
+
+### ピッカーを埋め込む
+
+人間が内部のアセットを選択または生成する場合は、ピッカー ルートを使用します
+another product. Image is the default media type; pass `mediaType=video` when
+ビデオの閲覧/選択を希望します:
+
+```tsx
+import { EmbeddedApp } from "@agent-native/embedding";
+
+<EmbeddedApp
+  url="https://assets.agent-native.com/picker?mediaType=image"
+  onMessage={(name, payload) => {
+    if (name === "chooseAsset") {
+      insertAsset((payload as { url: string }).url);
+    }
+  }}
+/>;
+```
+
+外部 MCP ホストは、これを構築する代わりに `open-asset-picker` を呼び出す必要があります
+iframe を手動で作成します。このアクションは、ブラウザーのフォールバック リンクと MCP アプリのメタデータを返します
+インライン ホストの場合。ユーザーがアセットを選択すると、ピッカーは `chooseAsset` を出力します。
+画像アセットの従来の `chooseImage` エイリアス、および MCP アプリ モデルの更新
+ホストがサポートするコンテキスト。ホストが
+MCP アプリをインラインでレンダリングする代わりに、通常のブラウザ タブでアセットを選択します
+ハンドオフ概要をコピーし、コピー可能なコンテキスト ブロックを表示します。その概要を貼り付けてください
+チャットに戻ると、外部エージェントが選択したメディア URL を使用できるようになります。
+アセットのメタデータ。
+
+Codex、Claude コード、および Claude デスクトップ コードはリンクアウト ホストとして扱う必要があります
+。 MCP アプリをインラインでレンダリングしたり、リモート CDN マークダウンをレンダリングしたりすることはできません
+画像はチャット記録に確実に表示されない可能性があります。エージェントは
+信頼できる情報源としてのアセット リンク。
+コード エディター チャット、選択した `previewUrl`/`downloadUrl` をローカルにダウンロードします
+イメージ ファイルを作成し、その絶対ローカル パスを埋め込みます。
+
+フローの生成と選択の場合は、`prompt` を使用して `open-asset-picker` を呼び出します。
+`autoGenerate: true`、および `count: 3` (1 ～ 6 までカスタマイズ可能)。ピッカーが開きます
+候補画像を使用して、ユーザーが数、アスペクト比、またはサイズを調整できるようにします
+最終アセット URL を選択する前に生成プリセットを実行します。
+
+別のエージェントがアセットを作成、検索、またはエクスポートする必要がある場合は、A2A を使用します
+人間ピッカー UI。
+
+### 開発者: アプリ スキルを配布します
+
+アセット アプリ スキルのアプリ ID は `assets` で、ホストされているのは MCP URL です
+`https://assets.agent-native.com/_agent-native/mcp`.
+
+```bash
+# 最も簡単なホスト型インストール: エクスポートされたスキル手順と MCP コネクタ。
+npx @agent-native/core@latest skills add assets
+
+# Vercel/open スキル CLI インストール: エクスポートされた手順のみ。MCP 構成はありません。
+npx skills@latest add BuilderIO/agent-native --skill assets
+
+# ホスト型インストール: URL のみの MCP コネクタ、スキル ファイルに共有シークレットなし。
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+
+# ローカルで編集可能な起動。
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+
+# クロード コード マーケットプレイスと Vercel Labs スキル アダプターを含むマーケットプレイス パッケージ。
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# オープン スキル CLI を使用して、ローカルにエクスポートされたアセット バンドルをインストールします。
+npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
+
+# 生成された Claude Code マーケットプレイス アダプターからインストールします。
+claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
+claude plugin install agent-native-assets@agent-native-apps
+```
+
+エクスポートされたスキルは、人間参加型のピッカーの使用をエージェントに教えます
+選択、無人画像/ビデオ生成用の直接 actions、およびブラウザ
+インライン MCP アプリが利用できない場合のリンク。
+
+Claude マーケットプレイス アダプターには `.claude-plugin/marketplace.json` が含まれています
+カタログと `skills/assets/SKILL.md` プラスを備えた `agent-native-assets` プラグイン
+ホストされている `.mcp.json`。インタラクティブな Claude コードでも、同じフローが利用可能です
+`/plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace` として
+`/plugin install agent-native-assets@agent-native-apps`、`/reload-plugins`、および
+MCP 認証の場合は `/mcp`。
+
+`npx skills@latest` を使用して生のマーケットプレイス バンドルからインストールする場合は、
+ホストされた MCP コネクタにより、これらの命令でライブ アセット アプリを呼び出すことができます。
+
+```bash
+npx @agent-native/core@latest app-skill ensure --manifest ./dist/assets-skill/agent-native.app-skill.json --yes
+```
+
+## 次は何ですか
+
+- [**Templates**](/docs/cloneable-saas) — クローンして独自のモデル
+- [**Embedding SDK**](/docs/embedding-sdk) — iframe ピッカーとサイドカー パターン
+- [**A2A Protocol**](/docs/a2a-protocol) — 他のアプリがアセットを呼び出す方法
+- [**File Uploads**](/docs/file-uploads) — ストレージと認証されたアセットの提供
+- [**Sharing & Privacy**](/docs/sharing) — ライブラリレベルのアクセス制御

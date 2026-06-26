@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Awareness } from "y-protocols/awareness";
+
 import { AGENT_CLIENT_ID } from "./agent-identity.js";
 import type { CollabUser } from "./client.js";
 

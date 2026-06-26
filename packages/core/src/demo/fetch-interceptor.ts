@@ -1,3 +1,4 @@
+import { agentNativePath } from "../client/api-path.js";
 /**
  * Client-side demo-mode redaction.
  *
@@ -27,7 +28,6 @@
  *   - Any error during interception falls back to the original response.
  */
 import { redactDemoData } from "./redact.js";
-import { agentNativePath } from "../client/api-path.js";
 
 const STATUS_PATH = agentNativePath("/_agent-native/demo/status");
 const SKIP_SUBSTRINGS = [

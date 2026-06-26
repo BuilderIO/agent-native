@@ -1,0 +1,114 @@
+---
+title: "模板"
+description: "分叉一个可用的 SaaS 产品并使其成为您的产品 - 包括代理。"
+---
+
+# 模板
+
+想要发布您自己的人工智能分析工具吗？邮件客户端？表格生成器？选择一个模板，您只需几分钟即可获得一个可运行的 SaaS — 代理、数据库、身份验证和部署管道已连接完毕。
+
+大多数“模板”都会为您提供一个空白的脚手架和一个很长的 TODO 列表。代理本机翻转了这一点。每一个都是**完整的 SaaS 级产品** - 在第一天就已经可以运行，已经可以发货，并且完全由您来定制、品牌化和部署。将它们视为可克隆的 SaaS，而不是入门工具包：您正在分叉成品，而不是盯着样板文件。
+
+## 可用模板 {#catalog}
+
+每一个都是您今天可以使用的真实应用程序，以及您自己版本的启动板。
+
+| 模板                                      | 它是什么                                                                                            |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| [**Chat**](/docs/template-chat)           | 最小的聊天优先应用程序，具有持久线程、actions、身份验证以及通往自定义 UI 或您自己的后端的干净路径。 |
+| [**Mail**](/docs/template-mail)           | 特工本地超人。收件箱、标签、人工智能分类、键盘优先、通过代理起草和发送。                            |
+| [**Calendar**](/docs/template-calendar)   | 本地代理 Google Calendar。活动、同步、公共预订链接、代理驱动的调度。                                |
+| [**Content**](/docs/template-content)     | MDX 的开源黑曜石。本地Markdown/MDX、Tiptap编辑器、Notion同步、实时多用户协作。                      |
+| [**Brain**](/docs/template-brain)         | 干净的公司聊天由引用的机构记忆、批准的来源、审查门和引文支持。                                      |
+| [**Assets**](/docs/template-assets)       | 用于品牌库、上传、参考和品牌图像/视频生成的数字资产管理器。                                         |
+| [**Slides**](/docs/template-slides)       | 代理原生 Google 幻灯片。基于React的套牌由代理直接生成和编辑。                                       |
+| [**Video**](/docs/template-videos)        | Remotion 上的程序化动态图形和产品演示视频。                                                         |
+| [**Analytics**](/docs/template-analytics) | 代理本机振幅/混合面板。连接数据源、提示图表、固定到仪表板。                                         |
+| [**Clips**](/docs/template-clips)         | 异步屏幕+摄像头录制，包含转录、章节和 AI 摘要。                                                     |
+| [**Design**](/docs/template-design)       | Agent 原生 HTML 原型工作室，用于交互式 Alpine/Tailwind 设计。                                       |
+| [**Forms**](/docs/template-forms)         | 代理原生 Typeform。构建、共享、收集提交内容并将其路由到 Slack、表格、webhooks 或 Discord。          |
+| [**Plan**](/docs/template-plan)           | 带有图表、线框图和注释的视觉计划和公关概述。                                                        |
+| [**Dispatch**](/docs/template-dispatch)   | 工作区控制平面：共享秘密、可重用集成、Slack/Telegram、计划作业。                                    |
+
+不需要域模板？当您想要一个用户可以立即交谈的基本应用程序时，请使用 [Chat](/docs/template-chat)，或者使用 [Pure-Agent Apps](/docs/pure-agent-apps) 首先开始操作。
+
+查看 [Templates](/templates) 下的完整目录，或直接跳到其中一个 - 例如，如果您想要一款工作区风格的应用，[Dispatch](/docs/template-dispatch) 是一个很好的起点。
+
+## 开箱即用的东西 {#what-you-get}
+
+每个模板都附带通常需要数月才能构建的部件：
+
+- **工作代理** — 已经连接到应用程序，已经能够在您的数据上获取 actions，已经能够了解您正在查看的内容。请参阅 [Messaging the agent](/docs/messaging) 了解其工作原理。
+- **Auth** — 登录、会话、组织、多租户隔离。已经完成了。
+- **数据库** — 每个模板都有其架构、查询和迁移准备就绪。带上您自己的 SQL 数据库（Postgres、SQLite、Turso、D1）——框架会进行调整。
+- **实时 UI** — 屏幕与代理的操作保持同步。在聊天中点击“草稿电子邮件”，草稿立即出现在您的收件箱中。
+- **部署就绪** — 推送到 Netlify、Vercel、Cloudflare、AWS 或运行 Node.js 的任何其他地方。没有供应商锁定。
+- **品牌挂钩** - 名称、颜色、徽标、文案都很容易更改。
+
+这不是理论上的主张。该框架的作者在邮件模板上运行他的实际收件箱，在日历模板上运行他的实际日历，在分析模板上运行他的实际分析。模板是日常驱动软件。
+
+## 你做什么 {#what-you-do}
+
+从“我想要自己的 SaaS”到“我拥有自己的 SaaS”的路径很短：
+
+```an-diagram title="分叉并定制" summary="选择一个成品，对其进行品牌化，用简单的英语对其进行改进，然后将其发送到您自己的域。"
+{
+  "html": "<div class=\"diagram-fork\"><div class=\"diagram-card\"><span class=\"diagram-pill\">1</span><strong>Pick</strong><small class=\"diagram-muted\">a complete template</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2</span><strong>Brand</strong><small class=\"diagram-muted\">名称、颜色、Logo、文案</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">3</span><strong>Customize</strong><small class=\"diagram-muted\">ask the agent &#8635;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">4</span><strong>Ship</strong><small class=\"diagram-muted\">your own domain</small></div></div>",
+  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px}.diagram-fork .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+1. **选择一个模板。**使用 CLI 选择器，或浏览文档并选择一个开始。
+2. **打造品牌。**更改名称、颜色、徽标和文案。大多数模板都将其公开在单个配置文件中。
+3. **自定义它。** 要求代理添加您需要的列，更改收件箱分组的方式，连接到您的内部 API，添加新视图。代理编辑代码；您查看差异。
+4. **发货。**运行部署命令。您现在在自己的域中拥有自己的生产 SaaS。
+
+步骤 2-4 通常需要几天而不是几个月的时间。第 3 步是开放式的 - 通过与代理交谈，用简单的英语来说，您的分叉 SaaS 会随着时间的推移而发展。
+
+## 为什么这是实用的 {#why}
+
+传统的代码库分叉模型会大规模崩溃：每个用户维护自己的收件箱听起来像是一场维护噩梦。两个框架决策使其发挥作用：
+
+1. **代理进行维护。**您无需编写代码来添加列或连接新的集成 - 您可以询问代理。所以“你自己的分叉收件箱”是一个功能，而不是一个负担。
+2. **每用户自定义，无需每用户代码。** Skills、内存、指令、连接的 MCP 服务器和子代理都位于 SQL 中。每个用户都有自己的定制层；共享代码库同时托管所有这些内容。
+
+结果：Claude - 每个用户的代码级灵活性，以及正常的 SaaS 部署经济性。
+
+```an-diagram title="为什么每用户分叉规模" summary="有两个想法使分叉和定制模型保持实用：代理进行维护，每个用户的定制位于 SQL 中，而不是每个用户的代码中。"
+{
+  "html": "<div class=\"diagram-why\"><div class=\"diagram-panel\" data-rough><strong>分享d codebase</strong><small class=\"diagram-muted\">一个应用，一次部署</small><div class=\"diagram-pill accent\">agent does the maintenance</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>SQL 中的用户层</strong><small class=\"diagram-muted\">skills · 记忆 · 指令 · MCP · 子代理</small><div class=\"diagram-pill ok\">no per-user code</div></div></div>",
+  "css": ".diagram-why{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-why .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 18px;min-width:240px;flex:1}.diagram-why .diagram-arrow{font-size:24px;line-height:1}"
+}
+```
+
+## 不想分叉？ {#hosted}
+
+你不必这样做。每个模板还可以作为 `agent-native.com` 上的托管应用程序使用 - `mail.agent-native.com`、`calendar.agent-native.com` 等。免费或付费使用托管版本；仅当您想要更改托管版本未公开的内容时才进行分叉。
+
+## 尝试一下技巧 {#try-with-a-skill}
+
+还没有准备好搭建脚手架吗？您可以使用单个命令将代理本机超级功能添加到已使用的编码代理中 - 无需应用程序。请参阅 [Skills Guide](/docs/skills-guide#app-backed-skills)。
+
+## 在此基础上构建
+
+- [**Getting Started**](/docs/getting-started) - 创建一个最小的聊天应用程序或无头代理
+- [**Messaging the agent**](/docs/messaging) - 用户（和您）如何与每个模板附带的代理对话
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — 将多个模板捆绑到一个共享身份验证、品牌和代理的工作区
+- [**Dispatch**](/docs/template-dispatch) — 工作区控制平面模板
+- [**Creating Templates**](/docs/creating-templates) — 创作并发布您自己的模板
+
+### 对于开发者 {#dev-details}
+
+如果您现在正在搭建脚手架，则 CLI 命令为：
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+您将获得一个多选选择器。选择一个应用程序（独立）或多个应用程序（工作区 - 应用程序共享身份验证、品牌、代理配置和数据库）。每个挑选的模板都与您需要的每个文件一起构建到 `apps/<name>/` 中。对于仅限操作的应用程序而不是模板 UI，请使用 `npx @agent-native/core@latest create my-agent --headless`。
+
+填写`.env`（主要是`ANTHROPIC_API_KEY`和`DATABASE_URL`）、`pnpm install`、`pnpm dev`，就可以了。没有“TODO：实现登录”，没有占位符路由。
+
+部署目标：任何 Nitro 兼容主机（Node、Cloudflare、Netlify、Vercel、Deno、Lambda、Bun）和任何 Drizzle 兼容 SQL 数据库（SQLite、Postgres、Turso、D1、Supabase、Neon）。对于工作区，`npx @agent-native/core@latest deploy` 一次构建每个应用程序并将它们发送到单个源。参见[Deployment](/docs/deployment)。
+
+要创作和发布您自己的模板，请参阅 [Creating Templates](/docs/creating-templates)。

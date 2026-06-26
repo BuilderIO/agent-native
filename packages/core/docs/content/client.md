@@ -129,6 +129,21 @@ and `submit` for those.
 
 `useAgentChatContext()` returns `{ items, set, remove, clear, refresh }`.
 
+## openAgentSettings(section?) {#openagentsettings}
+
+Use `openAgentSettings()` when an app settings page or setup card should open
+the agent sidebar's Settings tab. Pass a section id such as `"llm"`, `"secrets"`,
+`"automations"`, `"voice"`, or `"limits"` to open a specific section.
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client";
+
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+Prefer this helper over dispatching `agent-panel:open-settings` directly.
+
 ```tsx
 import { useAgentChatContext } from "@agent-native/core/client";
 

@@ -17,8 +17,9 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
+
+import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
-import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
   normalizeWorkspaceAppAudience,
@@ -28,11 +29,11 @@ import {
   type WorkspaceAppRouteAccess,
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
+import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
 } from "./immutable-assets.js";
-import { AGENT_CHAT_PROCESS_RUN_PATH } from "../agent/durable-background.js";
 
 export type WorkspaceDeployPreset = "cloudflare_pages" | "netlify" | "vercel";
 
@@ -696,24 +697,30 @@ function isDurableBackgroundDeployEnabled(): boolean {
 /**
  * Emit a SECOND Netlify function for `app` whose name ends in `-background`,
  * re-exporting the SAME `main.mjs` handler bundle. Netlify invokes any function
- * whose deployed name ends in `-background` asynchronously (202 immediately, up
- * to 15-min budget), which is exactly what the durable-background chat
- * dispatch (`fireInternalDispatch` → AGENT_CHAT_PROCESS_RUN_PATH) needs.
+ * with `config.background: true` asynchronously (202 immediately, up to 15-min
+ * budget), which is exactly what the durable-background chat dispatch
+ * (`fireInternalDispatch` → the function's default url) needs.
  *
- * The function is given a `config.path` of the chat process-run route so
- * Netlify routes that POST to this async function instead of the synchronous
- * `<app>-server` function. It shares the same bundle (`includedFiles: ["**"]`)
- * so `A2A_SECRET`, the DB URL, and the rest of the env/bundle are present.
+ * DOC-CORRECT DEFAULT-URL APPROACH (mirrors the single-template emit in
+ * deploy/build.ts): the function declares NO custom `config.path`, so it keeps
+ * its DEFAULT url `/.netlify/functions/<app>-agent-background`. The `<app>-server`
+ * function's catch-all already excludes `/.netlify/*`, so that default-url
+ * namespace is NEVER shadowed by the synchronous function — no overlapping
+ * `config.path` and no catch-all patch are needed. The foreground dispatches to
+ * that default url (`resolveAgentChatProcessRunDispatchPath` resolves the per-app
+ * name from `AGENT_NATIVE_WORKSPACE_APP_ID`); `fireInternalDispatch` strips the
+ * app base path for `/.netlify/*` targets so the request reaches the host-root
+ * function url. The entry then REWRITES the incoming pathname to the
+ * base-path-prefixed `_process-run` route before delegating to the Nitro router.
  *
- * ⚠️ REAL-DEPLOY VERIFICATION REQUIRED. The exact Netlify routing/precedence
- * between this `-background` function's `config.path` and the synchronous
- * `<app>-server` function's broader `config.path` (which also matches
- * `/_agent-native/*` for the dispatch app, or `/<app>/*` otherwise) cannot be
- * verified in this environment. It is emitted additively and only under the
- * flag; if Netlify resolves the overlap to the wrong function, the dispatch
- * would land on the synchronous function (no 15-min budget) — the run would
- * still work via the existing 40s soft-timeout path, just without the durable
- * win. See packages/core/docs/design/durable-agent-runs.md.
+ * It shares the same bundle (`includedFiles: ["**"]`) so `A2A_SECRET`, the DB
+ * URL, and the rest of the env/bundle are present. A prior attempt gave the
+ * function a custom `config.path` (the framework route) that overlapped the
+ * synchronous `<app>-server` catch-all; that path was not honored as a route in
+ * prod (probe → 404). The default url is the doc-correct fix.
+ *
+ * Safety net: if the dispatch fast-fails the foreground degrades to an inline
+ * 40s synchronous run (see production-agent.ts).
  */
 function emitNetlifyBackgroundFunction(
   workspaceRoot: string,
@@ -721,7 +728,9 @@ function emitNetlifyBackgroundFunction(
   srcServerDir: string,
   workspaceApps: WorkspaceAppManifestEntry[],
 ): void {
-  // Name MUST end in `-background` for Netlify async invocation.
+  // Name MUST end in `-background` (Netlify async convention + the runtime guard
+  // reads the -background Lambda-name suffix as a fallback). It is reached at its
+  // DEFAULT url /.netlify/functions/<app>-agent-background.
   const backgroundName = `${app}-agent-background`;
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
@@ -733,14 +742,20 @@ function emitNetlifyBackgroundFunction(
     workspaceApps,
     app,
   );
-  // Only the chat process-run route needs the async function. Keeping the path
-  // narrow avoids stealing any other traffic from the synchronous function.
-  // The dispatch URL is app-base-path-prefixed (same as the agent-teams
-  // processor dispatch), so the route Netlify must map to this async function
-  // is `/<app>/_agent-native/agent-chat/_process-run`.
+  // The Nitro router for this app expects the base-path-prefixed framework route.
+  // The function is reached at its default url, so the entry rewrites the
+  // incoming pathname to `/<app>/_agent-native/agent-chat/_process-run`.
   const processRunPath = `${basePath}${AGENT_CHAT_PROCESS_RUN_PATH}`;
-  const pathConfig = [processRunPath];
-  const server = `const basePath = ${JSON.stringify(basePath)};
+  const server = `// Mark this isolate as the durable background runtime BEFORE the handler bundle
+// is imported, so isInBackgroundFunctionRuntime() reliably returns true in this
+// function (the deployed Lambda name is not guaranteed to end in -background). A
+// globalThis flag (NOT process.env) avoids the no-env-mutation guard and carries
+// no cross-request state.
+globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+
+const basePath = ${JSON.stringify(basePath)};
+// The base-path-prefixed framework route the Nitro router dispatches to.
+const PROCESS_RUN_PATH = ${JSON.stringify(processRunPath)};
 
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
@@ -767,16 +782,33 @@ setBasePathEnv();
 
 let cachedHandler;
 
-export default async function handler(...args) {
+// Reached at the DEFAULT url /.netlify/functions/${backgroundName}; REWRITE the
+// incoming pathname to the base-path-prefixed _process-run route so the Nitro
+// router runs the plugin. Method, ALL headers (the HMAC Authorization: Bearer
+// MUST survive) and the body are preserved.
+export default async function handler(request) {
   setBasePathEnv();
   cachedHandler ??= (await import("./main.mjs")).default;
-  return cachedHandler(...args);
+  const url = new URL(request.url);
+  url.pathname = PROCESS_RUN_PATH;
+  const method = request.method || "POST";
+  const hasBody = method !== "GET" && method !== "HEAD";
+  const body = hasBody ? await request.text() : undefined;
+  const rewritten = new Request(url.toString(), {
+    method,
+    headers: request.headers,
+    body,
+  });
+  return cachedHandler(rewritten);
 }
 
 export const config = {
   name: ${JSON.stringify(`${app} agent background handler`)},
   generator: "agent-native workspace deploy",
-  path: ${JSON.stringify(pathConfig)},
+  // background: true → async invoke (202, 15-min budget). NO custom path: the
+  // function keeps its default url /.netlify/functions/${backgroundName}, which
+  // the <app>-server catch-all never shadows (it excludes /.netlify/*).
+  background: true,
   nodeBundler: "none",
   includedFiles: ["**"],
   preferStatic: false,
@@ -788,9 +820,10 @@ export const config = {
   fs.writeFileSync(path.join(dest, `${backgroundName}.mjs`), server);
   console.log(
     `[workspace-deploy] Emitted durable-background function "${backgroundName}" ` +
-      `for app "${app}" (path ${processRunPath}). ` +
-      `REQUIRES real-deploy verification of Netlify async routing — see ` +
-      `docs/design/durable-agent-runs.md.`,
+      `for app "${app}" with config { background:true } and NO custom path — ` +
+      `reachable at its default url /.netlify/functions/${backgroundName} ` +
+      `(rewrites to ${processRunPath}). REQUIRES real-deploy verification of ` +
+      `Netlify async (202) invocation — see docs/design/durable-agent-runs.md.`,
   );
 }
 

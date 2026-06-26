@@ -1,4 +1,5 @@
 import { useMetricsQuery } from "@/lib/query-metrics";
+
 import { ENRICHED_PROPERTY_MAP } from "./types";
 
 const DYNAMIC_EVENTS_SQL = `SELECT

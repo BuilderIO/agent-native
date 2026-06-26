@@ -1,0 +1,436 @@
+---
+title: "Code Agent-Native UI"
+description: "Créez et personnalisez les surfaces de code Agent-Native avec le package UI partagé, le pont hôte de bureau et le magasin d'exécution CLI."
+---
+
+# Code Agent-Native UI
+
+> **À qui s'adresse-t-il :** les auteurs hôtes créent ou personnalisent un espace de travail de codage
+> surface (CLI, bureau ou modèle de navigateur) sur le package Code UI partagé.
+
+## Quel document de codage je veux ? {#which-doc}
+
+| Vous voulez…                                                                             | Utiliser                               |
+| ---------------------------------------------------------------------------------------- | -------------------------------------- |
+| Afficher un **espace de travail de codage de style Claude-Code/Codex** UI\*\*            | **Agent-Native Code UI** (cette page)  |
+| Exécuter Claude Code / Codex / Pi **en tant qu'agent**, avec leur propre boucle + outils | [Harness Agents](/docs/harness-agents) |
+| Échangez le backend qui exécute l'**outil `run-code`** de l'agent                        | [Adapters](/docs/sandbox-adapters)     |
+| Encapsuler un outil CLI (`gh`, `ffmpeg`) pour que l'agent appelle                        | [Adapters](/docs/sandbox-adapters)     |
+
+Agent-Native Code est la surface de codage Agent-Native : un espace de travail local de style Claude Code/Codex pour les sessions de codage, les commandes slash, les migrations, les audits, les transcriptions, les contrôles d'exécution et les suivis. Une simple commande `npx @agent-native/core@latest` ouvre cet espace de travail ; `npx @agent-native/core@latest code` est la sous-commande explicite pour la même expérience.
+
+Il y a trois couches :
+
+- **CLI** : les `npx @agent-native/core@latest` et `npx @agent-native/core@latest code` démarrent, reprennent, inspectent et arrêtent les analyses.
+- **Bureau** : l'onglet Code de la barre latérale gauche ajoute le lancement natif du terminal, les vues Web des applications et les liens profonds du bureau tout en utilisant le même modèle d'exécution.
+- **UI partagé** : `@agent-native/code-agents-ui` restitue la surface React réutilisable.
+
+```an-diagram title="Trois couches sur un seul magasin" summary="CLI, Desktop et l'interface utilisateur partagée sont des surfaces différentes sur le même magasin d'exécution et le même exécuteur sauvegardés sur des fichiers ; les hôtes l'adaptent via le contrat CodeAgentsHost."
+{
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">démarrer · reprendre · statut · arrêter</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">terminal natif · webviews · liens profonds</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Partagerd UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Store d’exécution sur fichiers + exécuteur<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
+  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px;align-items:center}.diagram-layers .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-layers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-layers .diagram-arrow{font-size:22px;line-height:1}.diagram-layers .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+La division actuelle converge intentionnellement : la barre latérale de l'agent standard et les équipes d'agents s'exécutent sur le cycle de vie principal de `run-manager`, tandis que le code Agent-Native utilise des sessions locales de longue durée soutenues par le magasin d'exécution de code basé sur des fichiers et le vocabulaire partagé du contrôleur d'exécution en arrière-plan.
+
+Le UI partagé est piloté par l'hôte. Il ne sait pas s'il s'exécute dans Electron, dans un modèle de navigateur ou dans un futur shell hébergé. Les hôtes fournissent une implémentation `CodeAgentsHost`.
+
+```ts
+import { CodeAgentsApp, type CodeAgentsHost } from "@agent-native/code-agents-ui";
+import "@agent-native/code-agents-ui/styles.css";
+
+const host: CodeAgentsHost = {
+  listRuns: (goalId) => listRunsSomehow(goalId),
+  listCodePacks: () => listCodePacksSomehow(),
+  createRun: (request) => createRunSomehow(request),
+  subscribeTranscript: (request, callback) =>
+    subscribeToTranscriptSomehow(request, callback),
+  readTranscript: (request) => readTranscriptSomehow(request),
+  appendFollowUp: (request) => appendFollowUpSomehow(request),
+  updateRun: (request) => updateRunSomehow(request),
+  retryRun: (request) => retryRunSomehow(request),
+  rerunRun: (request) => rerunRunSomehow(request),
+  controlRun: (goalId, runId, command, permissionMode) =>
+    controlRunSomehow({ goalId, runId, command, permissionMode }),
+};
+
+export function CodeSurface() {
+  return <CodeAgentsApp apps={[]} host={host} />;
+}
+```
+
+Les hôtes peuvent mélanger les sources d’exécution dans la même liste. Sessions de code Agent-Native locales
+peut apparaître à côté des équipes d'agents ou d'autres adaptateurs exécutés en arrière-plan à condition que chacun
+l'entrée est normalisée à `CodeAgentRun`. Lorsqu'un hôte fournit `sourceLabel`,
+`source`, ou `kind`, le hub affiche une petite étiquette source telle que "Code local"
+ou « Équipes d'agents » dans la liste d'exécution et l'en-tête de session sélectionnée. Omettez ces champs
+pour une surface monosource ; l'état vide et la disposition de base restent inchangés.
+
+## Hôte de bureau
+
+Desktop utilise le UI partagé mais conserve des fonctionnalités privilégiées dans Electron :
+
+- ouvrir un terminal natif
+- rendu de surfaces facultatives basées sur une application avec `AppWebview`
+- gestion des liens `agentnative://open?...`
+- suivi des processus d'exécution locaux
+- enregistrement du pilotage par rapport aux suivis en file d'attente pour les exécutions actives
+- réessayer et réexécuter les sessions de code natif, y compris `/migrate` et `/audit`
+- arrêter un processus qu'il a démarré
+
+Cette séparation est importante. Le UI peut être réutilisé par des modèles, mais le contrôle de processus natif doit rester dans Desktop ou CLI.
+
+## Codex CLI Authentification {#codex-cli-auth}
+
+Le code Agent-Native peut utiliser une connexion locale Codex CLI au lieu d'une clé OpenAI API.
+Installez le Codex CLI sur votre `PATH`, connectez-vous une fois, puis redémarrez Desktop ou le
+Coder UI s'il était déjà ouvert :
+
+```bash
+npm install -g @openai/codex@latest
+codex login
+codex login status
+```
+
+Desktop et CLI lisent `codex login status` et exécutent `codex exec`, ils
+réutilisez n'importe quel abonnement ChatGPT ou clé API authentifiant votre Codex CLI installé
+rapports. Ceci est distinct du package `@ai-sdk/harness-codex` utilisé par
+[Harness Agents](/docs/harness-agents) ; l'adaptateur de faisceau peut copier local
+Codex CLI s'authentifie dans un bac à sable approuvé uniquement lorsque `codexCliAuth: true` est
+explicitement activé.
+
+## Hôte du navigateur
+
+L'ancien modèle `code` masqué a été supprimé. Pour créer une surface de code hébergée par un navigateur, créez une application normale et montez le package UI partagé avec une implémentation hôte :
+
+```bash
+npx @agent-native/core@latest create my-code-ui --template chat
+cd my-code-ui
+pnpm add @agent-native/code-agents-ui
+pnpm install
+pnpm dev
+```
+
+Votre hôte peut encapsuler le magasin d'exécution local via actions normal. Ce sont
+actions appartenant à l'hôte que vous définiriez vous-même – ils ne sont pas livrés avec un framework
+actions — mappage de chaque méthode `CodeAgentsHost` sur le magasin d'exécution, par exemple :
+
+- une action "liste des exécutions" soutenant `listRuns`
+- une action "lister les packs de codes" soutenant `listCodePacks`
+- une action "créer une exécution" soutenant `createRun`
+- une action "lire la transcription" soutenant `readTranscript`
+- une action "ajouter un suivi" soutenant `appendFollowUp`
+- une action "exécuter la mise à jour" soutenant `updateRun`
+- une action « exécution de contrôle » soutenant `controlRun`
+
+Chacun appelle `@agent-native/core/code-agents`, ce qui expose la même chose
+magasin d'exécution sauvegardé sur fichier et exécuteur utilisé par le CLI.
+
+## Contrôles d'exécution CLI
+
+Le CLI de niveau supérieur se comporte comme le code Claude ou Codex :
+
+```bash
+npx @agent-native/core@latest
+npx @agent-native/core@latest "fix the failing auth tests"
+npx @agent-native/core@latest code
+```
+
+Utilisez `npx @agent-native/core@latest code` lorsque vous souhaitez l'espace de noms explicite. Barre oblique intégrée
+les objectifs et les commandes du projet peuvent être exécutés dans l'espace de travail interactif ou directement
+depuis le shell :
+
+```bash
+npx @agent-native/core@latest code /migrate ./legacy-app --emit ./migration-dossier
+npx @agent-native/core@latest code /audit --url https://example.com
+npx @agent-native/core@latest code /release-check
+```
+
+Ici, `/migrate` et `/audit` sont des objectifs intégrés (les objectifs intégrés sont
+`task`, `migrate` et `audit`). `/release-check` est présenté à titre d'exemple de
+commande de projet — définie dans `.agents/commands/`, pas un objectif intégré. Projet
+les commandes proviennent de `.agents/commands/*.md` ; le projet skills vient de
+`.agents/skills/*/SKILL.md`. Les commandes de contrôle opèrent sur le même parcours
+enregistre ce que l'onglet Desktop Code et le UI partagé affichent :
+
+```bash
+npx @agent-native/core@latest code list
+npx @agent-native/core@latest code status --last
+npx @agent-native/core@latest code attach --last
+npx @agent-native/core@latest code logs --last
+npx @agent-native/core@latest code resume --last
+npx @agent-native/core@latest code stop --last
+npx @agent-native/core@latest code ui
+```
+
+`resume` ajoute le contexte et continue une exécution, `status` signale la dernière exécution
+état, `stop` demande au contrôleur actif d'arrêter le travail et `ui` ouvre le local
+Surface de code. Il s’agit de contrôles d’exécution et non d’un chemin d’implémentation distinct. Si un
+La commande à haut risque est suspendue pour approbation, `approve --last` exécute celle-ci en attente
+commande, puis vous renvoie pour reprendre la session.
+
+Les modes d'exécution rendent la politique de modification explicite par session :
+
+| Mode                 | Drapeau CLI | Comportement                                                                                                                                                                     |
+| -------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mode forfait**     | `--plan`    | Inspectez, planifiez et expliquez sans écrire de fichiers ni exécuter de mutations.                                                                                              |
+| **Mode automatique** | `--auto`    | Modifiez les fichiers, exécutez des vérifications et mettez en pause uniquement les opérations véritablement destructrices sur les fichiers, git, la publication ou les données. |
+
+Le mode Auto est le mode par défaut pour les sessions de code Agent-Native locales. Utiliser le mode Plan pour
+évaluation, architecture, révision ou toute tâche pour laquelle vous souhaitez une proposition avant
+modifications.
+
+Pour les listes multi-surfaces, les tableaux de bord ou les volets de surveillance, préférez le partage
+Exportations exécutées en arrière-plan depuis `@agent-native/core/code-agents` lors de la lecture du code
+exécuter les fichiers directement. Ils normalisent les sessions de code locales dans le même vocabulaire
+utilisé par le travail en arrière-plan hébergé : identifiant d'exécution, statut, cwd, saisie des besoins,
+nécessite une approbation, des événements de transcription et la racine de l'artefact.
+
+Les équipes d'agents hébergées sont également exposées à partir de la route de discussion de l'agent pour le navigateur
+Hôtes nécessitant une liste compatible avec le hub de code sans importations directes du serveur :
+`GET /_agent-native/agent-chat/runs/list?goalId=agent-team` revient
+`{ status: "ok", goalId, runs }`, où chaque exécution inclut `kind`,
+`source`, `sourceLabel`, `status`, `title`, horodatages et métadonnées des tâches.
+`GET /_agent-native/agent-chat/runs/:id/background-events` renvoie le
+Événements de transcription en arrière-plan partagés pour une exécution d'équipes d'agents.
+
+Les hôtes basés sur un adaptateur peuvent également attacher des métadonnées sources :
+
+```ts
+{
+  id: run.id,
+  goalId: "task",
+  title: run.title,
+  source: "agent-teams",
+  sourceLabel: "Agent Teams",
+  kind: "background-run",
+  status: run.status,
+  createdAt: run.createdAt,
+  updatedAt: run.updatedAt,
+}
+```
+
+## Exécuter le magasin
+
+Les exécutions de codes Agent-Native locales sont stockées dans :
+
+```text
+~/.agent-native/code-agents
+```
+
+Définissez `AGENT_NATIVE_CODE_AGENTS_HOME` pour isoler un magasin de modèles ou d'exécutions de tests.
+
+```bash
+AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
+```
+
+## Contrat d'hôte
+
+`CodeAgentsHost` est intentionnellement petit :
+
+| Méthode                                               | Objectif                                                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `listRuns(goalId?)`                                   | Répertorier les sessions pour l'objectif sélectionné                                              |
+| `listCodePacks?()`                                    | Liste `.agents/commands` et `.agents/skills`                                                      |
+| `createRun(request)`                                  | Démarrer une nouvelle exécution                                                                   |
+| `subscribeTranscript?(request, callback)`             | Pousser les mises à jour de la transcription vers la conversation partagée                        |
+| `readTranscript(request)`                             | Événements de transcription d'interrogation comme solution de secours en matière de compatibilité |
+| `appendFollowUp(request)`                             | Ajouter un suivi, soit en dirigeant le travail actif, soit en file d'attente                      |
+| `updateRun(request)`                                  | Mettre à jour le mode ou exécuter les métadonnées                                                 |
+| `retryRun?(request)`                                  | Réessayez l'exécution sélectionnée sur place                                                      |
+| `rerunRun?(request)`                                  | Démarrer une nouvelle exécution à partir d'une invite précédente                                  |
+| `controlRun(goalId, runId, command, permissionMode?)` | Reprendre, approuver, actualiser ou arrêter                                                       |
+| `openTerminal?(request)`                              | Hook de terminal natif facultatif                                                                 |
+
+Les hôtes du navigateur devraient renvoyer une erreur `openTerminal` gracieuse au lieu d'essayer d'émuler le lancement du terminal natif.
+
+## Compositeur partagé
+
+Le code Agent-Native utilise le même `AgentComposerFrame` + `PromptComposer` /
+Pile `TiptapComposer` exportée depuis `@agent-native/core/client/composer` en tant que
+barre latérale de l'agent Framework. Ne créez pas de fichier séparé
+zone de texte, sélecteur d'outil de codage, sélecteur de téléchargement, bouton vocal, sélecteur de modèle ou Entrée pour soumettre
+implémentation pour les surfaces de type Code. Si un hôte a besoin d'un contrôle supplémentaire, passez
+via les points d'extension partagés du compositeur, donc la barre latérale, le code UI et
+Le chat cérébral conserve le même modèle d'interaction et le même champ visuel.
+
+La route Ask de Brain utilise `AgentChatSurface`, qui est déjà soutenue par le
+compositeur de barre latérale standard. Le code utilise `PromptComposer` directement car l'hôte
+est propriétaire de la création des analyses, des transcriptions et de la livraison de suivi.
+
+## Outils de codage partagés
+
+L'agent de développement de la barre latérale et le code Agent-Native utilisent tous deux le même minimum
+profil d'outil de codage : `bash`, `read`, `edit` et `write`. `bash` est la valeur par défaut
+pour répertorier/rechercher des fichiers, exécuter des tests et appeler des projets CLI ; `read`
+affiche les tranches de fichier numérotées par ligne ; `edit` applique des remplacements de texte exacts ; et
+`write` est réservé aux nouveaux fichiers ou aux réécritures complètes intentionnelles. Alias plus anciens
+tels que `shell`, `read-file`, `write-file`, `list-files` et `search-files`
+sont uniquement compatibles et ne font pas partie de la surface annoncée par défaut.
+
+Le UI spécifique au code appartient au compositeur, et non à l'intérieur d'un champ de discussion fourchu. Le
+Le code partagé UI peut ajouter des emplacements pour :
+
+- Commandes du mode Auto/Plan.
+- Le cwd sélectionné, le sélecteur de projet et les métadonnées d'exécution.
+- Performances réservées aux hôtes, telles que l'ouverture d'un terminal.
+
+Tout le reste reste dans le compositeur partagé : pièces jointes, références, barre oblique et
+insertion de compétences, gestion de texte collé, dictée vocale, brouillons, clavier
+raccourcis et sémantique de soumission.
+
+La transcription destinée à l'utilisateur doit rester conversationnelle. Les hôtes de code normalisent le brut
+événements de transcription/statut/outil dans le moteur de rendu de conversation partagé : assistant
+le texte fusionne en un seul tour, le bruit du cycle de vie du signal faible reste en dehors du bruit principal
+l'activité des surfaces et des outils s'affiche sous forme de résumés intégrés compacts avec des détails
+disponible en cas de besoin.
+
+## Commandes barre oblique
+
+Agent-Native Code traite la migration comme une fonctionnalité et non comme une catégorie d'application distincte. `/migrate` peut être un objectif intégré, une commande de projet ou un pack d'instructions personnalisé au-dessus du même contrat hôte.
+
+### Migration vers Agent-Native avec `/migrate` {#migrate}
+
+`/migrate` est l'objectif intégré pour déplacer une application existante, URL ou un produit décrit vers Agent-Native. Il s'agit d'un objectif slash dans l'espace de travail Code - pas d'un modèle distinct à échafauder ni d'un produit unique - il partage donc le même magasin de session, la même transcription, les mêmes contrôles d'exécution et le même hub de bureau que toutes les autres sessions Code, et vous pouvez le reprendre, l'attacher, l'inspecter et l'arrêter de la même manière.
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus dashboard"
+npx @agent-native/core@latest code /migrate --describe "A Rails admin app with reports and CSV imports" --emit
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
+```
+
+Les chemins des sources locales sont en lecture seule ; la sortie générée doit vivre en dehors de l’arborescence source. Utilisez `--emit <dir>` pour rédiger un dossier de migration portable (`AGENTS.md`, `MIGRATION_PLAYBOOK.md`, évaluation et un inventaire `ir.json` lorsqu'il est disponible) et transmettez-le à un autre agent de codage au lieu d'ouvrir la surface d'exécution interne. `/migrate` réutilise le système d'informations d'identification normal du framework : il n'existe pas de magasin de clés spécifique à la migration. Le package `@agent-native/migrate` expose un moteur réutilisable (`createMigrationRun`, `discoverMigration`, `planMigration`, adaptateurs source/cible) pour les flux de travail personnalisés.
+
+Les commandes spécifiques au projet se trouvent dans :
+
+```text
+.agents/commands/*.md
+```
+
+Utilisez-les pour les flux de travail d'équipe tels que les vérifications de versions, les variantes de migration, les mises à niveau du framework ou les audits.
+
+Projet skills en direct :
+
+```text
+.agents/skills/*/SKILL.md
+```
+
+Lorsque l'hôte implémente `listCodePacks`, le UI partagé affiche les commandes du projet et le skills dans le rail. Les lignes de commande insèrent `/<command>`, et les lignes de compétences insèrent une invite ciblée « Utiliser la compétence <skill>… » afin que le rail reste exploitable. Les objectifs slash intégrés `/migrate` et `/audit` restent réservés aux contrôles de code globaux Agent-Native, tout comme les noms de contrôle d'exécution tels que `status` et `resume` – ce sont des sous-commandes invoquées sans barre oblique (`npx @agent-native/core@latest code status`, `npx @agent-native/core@latest code resume`), et non des objectifs slash.
+
+Ne créez pas de registre de commandes slash distinct pour un nouvel hôte Code. Projet
+les commandes et skills sont découvertes à partir de `.agents/commands/*.md` et
+`.agents/skills/*/SKILL.md` ; le UI devrait restituer ces packs et insérer des invites
+via le compositeur partagé.
+
+## Gestionnaire d'exécution de l'agent en arrière-plan
+
+Le travail de l'agent de codage en arrière-plan doit réutiliser la même base de gestionnaire d'exécution que celle
+reste de Agent-Native :
+
+- Utilisez le magasin/exécuteur d'exécution de code pour les sessions de code locales.
+- Utiliser l'adaptateur/fondation partagé exécuté en arrière-plan lorsqu'une surface doit être répertoriée,
+  inspectez ou reliez les sessions de code locales avec d'autres travaux en arrière-plan.
+- Utilisez le noyau `run-manager` pour les exécutions d'agents hébergés afin de diffuser, d'abandonner, de battre,
+  La possibilité de reprise, les délais d'attente temporaires et le nettoyage bloqué se comportent de manière cohérente.
+- Utilisez `agent-teams` / `spawnTask()` lorsque le UI délègue du travail à un
+  sous-agent en arrière-plan d'une discussion d'application normale.
+
+N'ajoutez pas d'agent d'exécution d'arrière-plan parallèle simplement parce qu'une nouvelle surface a besoin d'un
+mise en page différente. Construisez un adaptateur hôte ou un emplacement UI au-dessus du partage
+fondation run-manager à la place.
+
+## Suivi
+
+Les suivis des exécutions actives prennent en charge deux modes de diffusion :
+
+- Appuyer sur Entrée ou cliquer sur Envoyer enregistre une invite de direction immédiate que le
+  Le coureur actif s'applique au prochain point de continuation sûr.
+- Appuyer sur Cmd+Entrée sur macOS ou Ctrl+Entrée ailleurs met en file d'attente l'invite à exécuter
+  après la fin du tour en cours.
+
+Les exécutions inactives conservent le comportement compatible : le suivi est ajouté et l'exécution reprend immédiatement.
+
+Cela donne à Code la même forme de messagerie bidirectionnelle destinée à l'utilisateur que les équipes d'agents :
+l'utilisateur peut continuer à parler du travail actif, mais l'exécution ne consomme que cela
+message à un point de continuation sûr. Si un coureur ne peut pas diriger immédiatement, il
+doit conserver le suivi en tant que travail en file d'attente plutôt que de l'abandonner ou de le précipiter.
+
+## Envoi à distance
+
+Le bureau peut exposer le programme d'exécution de l'agent de code local à un relais de répartition déployé afin qu'un
+Le chat par téléphone ou Telegram peut démarrer, surveiller et poursuivre les sessions pendant que
+l'ordinateur est réveillé.
+
+La connexion est sortante uniquement depuis Desktop :
+
+1. Le bureau s'associe à Dispatch et stocke un jeton d'appareil localement.
+2. Interrogations longues sur ordinateur `/_agent-native/integrations/remote/poll`.
+3. Les sessions mobiles et Telegram `/code` mettent les commandes en file d'attente dans la base de données de relais.
+4. Le bureau revendique les commandes, gère le magasin d'exécution local et publie les résultats et
+   transcrire les événements dans Dispatch.
+5. Mobile lit les `hosts`, `runs` et `transcript` à partir de Dispatch ; ça ne parle jamais
+   directement sur le bureau.
+
+```an-diagram title="Le Dispatch distant est uniquement sortant" summary="Le mobile ne parle jamais directement au bureau. Desktop interroge longuement Dispatch, revendique les commandes, pilote le magasin d'exécution local et reflète les résultats."
+{
+  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>Application mobile / Telegram<br><small class=\"diagram-muted\">/code · séances</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Relais Dispatch<br><small class=\"diagram-muted\">hôtes · exécutions · transcription</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">long-polls · revendique · pilote le store d’exécution</small></div></div>",
+  "css": ".diagram-remote{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-remote .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+Les points de terminaison canoniques du relais distant sont :
+
+```an-api title="Le bureau revendique le travail en file d'attente"
+{
+  "method": "POST",
+  "path": "/_agent-native/integrations/remote/poll",
+  "summary": "Le bureau interroge longuement le relais pour réclamer les commandes mises en file d'attente",
+  "description": "Outbound-only from a paired Desktop host. Desktop authenticates with its device token and claims work that mobile or Telegram enqueued.",
+  "auth": "Desktop device token",
+  "responses": [
+    { "status": "200", "description": "Claimed commands for this host (may be empty after the long-poll window)." }
+  ]
+}
+```
+
+| Méthode    | Itinéraire                                               | Appelant          | Objectif                                                 |
+| ---------- | -------------------------------------------------------- | ----------------- | -------------------------------------------------------- |
+| `POST`     | `/_agent-native/integrations/remote/register`            | Session de bureau | Associez un hôte de bureau et renvoyez un jeton une fois |
+| `GET`      | `/_agent-native/integrations/remote/hosts`               | Mobile/session    | Liste des hôtes associés                                 |
+| `DELETE`   | `/_agent-native/integrations/remote/devices/:id`         | Mobile/session    | Révoquer un hôte associé                                 |
+| `POST`     | `/_agent-native/integrations/remote/devices/:id/revoke`  | Mobile/session    | Révoquer un hôte associé                                 |
+| `POST/GET` | `/_agent-native/integrations/remote/poll`                | Jeton de bureau   | Réclamation du travail                                   |
+| `POST`     | `/_agent-native/integrations/remote/result`              | Jeton de bureau   | Travail terminé ou échoué                                |
+| `POST`     | `/_agent-native/integrations/remote/run-events`          | Jeton de bureau   | Événements de transcription miroir                       |
+| `GET`      | `/_agent-native/integrations/remote/runs`                | Mobile/session    | Liste des sessions                                       |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id`            | Mobile/session    | Lire le résumé de la session                             |
+| `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | Mobile/session    | Lire la transcription en miroir                          |
+| `POST`     | `/_agent-native/integrations/remote/push/register`       | Mobile/session    | Enregistrer l'Expo/jeton push mobile                     |
+
+Telegram utilise le même relais via Dispatch. Les commandes prises en charge sont :
+
+```text
+/code <prompt>
+/code list
+/code status <run>
+/code continue <run> <text>
+/code approve <id>
+/code deny <id>
+/code stop <run>
+```
+
+## Style
+
+Importez la feuille de style du package :
+
+```ts
+import "@agent-native/code-agents-ui/styles.css";
+```
+
+La feuille de style utilise les mêmes propriétés personnalisées HSL de style shadcn que les modèles et le shell du bureau. Préférez changer les jetons ou les petits remplacements de classe dans l'application hôte avant de créer le UI partagé.
+
+## Limites
+
+Le modèle de navigateur est d'abord local. Il peut démarrer et reprendre les exécutions pendant que son serveur Node local est actif. Pour le cycle de vie des processus natifs, le lancement du terminal et les vues Web des applications, utilisez Desktop.

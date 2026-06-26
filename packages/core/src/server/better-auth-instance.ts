@@ -9,33 +9,10 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+
 import { betterAuth, type BetterAuthOptions } from "better-auth";
-import { jwt } from "better-auth/plugins/jwt";
 import { bearer } from "better-auth/plugins/bearer";
-import { sendEmail, isEmailConfigured } from "./email.js";
-import {
-  renderResetPasswordEmail,
-  renderVerifySignupEmail,
-} from "./email-templates.js";
-import { getAppProductionUrl } from "./app-url.js";
-import { getDbExec, isPostgres } from "../db/client.js";
-import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
-import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
-import { saveOAuthTokens } from "../oauth-tokens/store.js";
-import { flushTracking, identify, track } from "../tracking/index.js";
-import { signupAttributionFromCookieHeader } from "./attribution.js";
-import { TEMPLATES } from "../cli/templates-meta.js";
-import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
-import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
-import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
-import {
-  getDialect,
-  getDatabaseUrl,
-  getDatabaseAuthToken,
-  pgPoolOptions,
-  neonPoolMax,
-  attachNeonPoolErrorLogger,
-} from "../db/client.js";
+import { jwt } from "better-auth/plugins/jwt";
 import {
   pgTable,
   text as pgText,
@@ -47,6 +24,36 @@ import {
   text as sqliteText,
   integer as sqliteInteger,
 } from "drizzle-orm/sqlite-core";
+
+import { TEMPLATES } from "../cli/templates-meta.js";
+import { getDbExec, isPostgres } from "../db/client.js";
+import {
+  getDialect,
+  getDatabaseUrl,
+  getDatabaseAuthToken,
+  closePgliteClients,
+  getPgliteClient,
+  isPgliteUrl,
+  loadPgliteDrizzle,
+  pgPoolOptions,
+  neonPoolMax,
+  attachNeonPoolErrorLogger,
+} from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
+import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
+import { autoJoinDomainMatchingOrgs } from "../org/auto-join-domain.js";
+import { flushTracking, identify, track } from "../tracking/index.js";
+import { getAppProductionUrl } from "./app-url.js";
+import { signupAttributionFromCookieHeader } from "./attribution.js";
+import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
+import {
+  renderResetPasswordEmail,
+  renderVerifySignupEmail,
+} from "./email-templates.js";
+import { sendEmail, isEmailConfigured } from "./email.js";
+import { resolveGoogleSignInCredentials } from "./google-oauth-credentials.js";
 
 async function flushSignupTracking(): Promise<void> {
   try {
@@ -392,6 +399,7 @@ export interface BetterAuthInstance {
         name: string;
         callbackURL?: string;
       };
+      headers?: Headers;
     }) => Promise<any>;
     signOut: (opts: { headers: Headers }) => Promise<any>;
   };
@@ -686,29 +694,62 @@ async function mirrorGoogleAccountToOAuthTokens(account: {
 
 async function ensureBetterAuthTables(): Promise<void> {
   const db = getDbExec();
-  const statements = isPostgres()
-    ? [
-        `CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL DEFAULT FALSE, image TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "session" (id TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, token TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-        `CREATE TABLE IF NOT EXISTS "account" (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at TIMESTAMPTZ, refresh_token_expires_at TIMESTAMPTZ, scope TEXT, password TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
-      ]
-    : [
-        `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
-        `CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at INTEGER, refresh_token_expires_at INTEGER, scope TEXT, password TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS verification (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
-        `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
-      ];
 
-  for (const sql of statements) await db.execute(sql);
+  // PG guard: probe information_schema first (no lock) for each table; run
+  // DDL only when missing, bounded by a transaction-scoped lock_timeout.
+  // Probe names are UNQUOTED (what information_schema.tables.table_name stores);
+  // createSql keeps the QUOTED "user"/"session"/… form required by Postgres.
+  if (isPostgres()) {
+    const pgTables: Array<[name: string, createSql: string]> = [
+      [
+        "user",
+        `CREATE TABLE IF NOT EXISTS "user" (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified BOOLEAN NOT NULL DEFAULT FALSE, image TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "session",
+        `CREATE TABLE IF NOT EXISTS "session" (id TEXT PRIMARY KEY, expires_at TIMESTAMPTZ NOT NULL, token TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
+      ],
+      [
+        "account",
+        `CREATE TABLE IF NOT EXISTS "account" (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at TIMESTAMPTZ, refresh_token_expires_at TIMESTAMPTZ, scope TEXT, password TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "verification",
+        `CREATE TABLE IF NOT EXISTS "verification" (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "organization",
+        `CREATE TABLE IF NOT EXISTS "organization" (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "member",
+        `CREATE TABLE IF NOT EXISTS "member" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "invitation",
+        `CREATE TABLE IF NOT EXISTS "invitation" (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at TIMESTAMPTZ NOT NULL, inviter_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, updated_at TIMESTAMPTZ NOT NULL)`,
+      ],
+      [
+        "jwks",
+        `CREATE TABLE IF NOT EXISTS "jwks" (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, expires_at TIMESTAMPTZ)`,
+      ],
+    ];
+    for (const [name, sql] of pgTables) await ensureTableExists(name, sql);
+    return;
+  }
+
+  // SQLite (local dev): no lock problem — keep the original behaviour.
+  const sqliteStatements = [
+    `CREATE TABLE IF NOT EXISTS user (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, email_verified INTEGER NOT NULL DEFAULT 0, image TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS session (id TEXT PRIMARY KEY, expires_at INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, ip_address TEXT, user_agent TEXT, user_id TEXT NOT NULL, active_organization_id TEXT)`,
+    `CREATE TABLE IF NOT EXISTS account (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, provider_id TEXT NOT NULL, user_id TEXT NOT NULL, access_token TEXT, refresh_token TEXT, id_token TEXT, access_token_expires_at INTEGER, refresh_token_expires_at INTEGER, scope TEXT, password TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS verification (id TEXT PRIMARY KEY, identifier TEXT NOT NULL, value TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS organization (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT NOT NULL UNIQUE, logo TEXT, metadata TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS member (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS invitation (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT, status TEXT NOT NULL DEFAULT 'pending', expires_at INTEGER NOT NULL, inviter_id TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS jwks (id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER)`,
+  ];
+  for (const sql of sqliteStatements) await db.execute(sql);
 }
 
 /**
@@ -804,6 +845,7 @@ export async function resetBetterAuth(): Promise<void> {
     }
     _neonAuthPool = undefined;
   }
+  await closePgliteClients();
 }
 
 // ---------------------------------------------------------------------------
@@ -1107,6 +1149,17 @@ async function buildDatabaseConfig(
   if (dialect === "postgres") {
     const url = getDatabaseUrl();
     const { isNeonUrl } = await import("../db/create-get-db.js");
+
+    if (isPgliteUrl(url)) {
+      const { drizzle } = await loadPgliteDrizzle();
+      const client = await getPgliteClient(url);
+      const db = drizzle({ client, schema: pgAuthSchema });
+      const { drizzleAdapter } = await import("better-auth/adapters/drizzle");
+      return drizzleAdapter(db, {
+        provider: "pg",
+        schema: pgAuthSchema,
+      });
+    }
 
     // Neon via @neondatabase/serverless (WebSockets over HTTPS). postgres-js
     // opens a raw TCP connection on port 5432 which frequently times out on

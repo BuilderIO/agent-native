@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
 import type {
   ContentDatabaseResponse,
   ContentDatabaseSourceFieldPropertyResponse,
 } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
 import { applySourceFieldPropertyToDatabaseResponse } from "./use-content-database";
 
 const createdAt = "2026-06-15T12:00:00.000Z";

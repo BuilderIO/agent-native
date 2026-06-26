@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 function readPropertiesSource() {
@@ -16,7 +17,9 @@ describe("document property layout", () => {
     );
     expect(source).toContain("propertyNameInputRef.current?.focus()");
     expect(source).toContain("propertyNameInputRef.current?.select()");
-    expect(source).toContain('aria-label="Property name"');
+    expect(source).toContain(
+      'aria-label={t("editor.properties.propertyName")}',
+    );
   });
 
   it("focuses and selects scalar property values when a cell editor opens", () => {
@@ -27,9 +30,7 @@ describe("document property layout", () => {
     );
     expect(source).toContain("scalarValueInputRef.current?.focus()");
     expect(source).toContain("scalarValueInputRef.current?.select()");
-    expect(source).toContain(
-      "aria-label={`Edit ${property.definition.name} value`}",
-    );
+    expect(source).toContain('aria-label={t("editor.properties.editValue", {');
   });
 
   it("lets Escape cancel scalar property value editing", () => {
@@ -49,7 +50,7 @@ describe("document property layout", () => {
     expect(source).toContain("dateValueInputRef.current?.focus()");
     expect(source).toContain("dateValueInputRef.current?.select()");
     expect(source).toContain(
-      "aria-label={`Edit ${property.definition.name} start date`}",
+      'aria-label={t("editor.properties.editStartDate", {',
     );
   });
 
@@ -62,7 +63,7 @@ describe("document property layout", () => {
     expect(source).toContain("optionSearchInputRef.current?.focus()");
     expect(source).toContain("optionSearchInputRef.current?.select()");
     expect(source).toContain(
-      "aria-label={`Search ${property.definition.name} options`}",
+      'aria-label={t("editor.properties.searchPropertyOptions", {',
     );
   });
 
@@ -79,11 +80,13 @@ describe("document property layout", () => {
     const source = readPropertiesSource();
 
     expect(source).toContain(
-      "const addPropertyNameInputRef = useRef<HTMLInputElement>",
+      "const addPropertySearchInputRef = useRef<HTMLInputElement>",
     );
-    expect(source).toContain("addPropertyNameInputRef.current?.focus()");
-    expect(source).toContain("addPropertyNameInputRef.current?.select()");
-    expect(source).toContain('aria-label="New property name"');
+    expect(source).toContain("addPropertySearchInputRef.current?.focus()");
+    expect(source).toContain("addPropertySearchInputRef.current?.select()");
+    expect(source).toContain(
+      'aria-label={t("editor.properties.searchPropertyTypes")}',
+    );
     expect(source).toContain("const firstFilteredPropertyType");
     expect(source).toContain("void add(firstFilteredPropertyType)");
   });

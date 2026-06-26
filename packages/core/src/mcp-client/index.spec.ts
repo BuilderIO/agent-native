@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+
+import type { ActionEntry } from "../agent/production-agent.js";
 import {
   isMcpActionResult,
   mcpToolsToActionEntries,
   syncMcpActionEntries,
 } from "./index.js";
 import { McpClientManager } from "./manager.js";
-import type { ActionEntry } from "../agent/production-agent.js";
 
 // Reuse the stdio/client fakes from manager.spec.ts so the ActionEntry
 // wrapper can exercise a real McpClientManager end-to-end.

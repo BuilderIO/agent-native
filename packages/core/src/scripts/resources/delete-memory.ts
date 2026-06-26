@@ -4,13 +4,13 @@
  * Delete a memory entry and remove it from the index.
  */
 
-import { parseArgs, fail } from "../utils.js";
 import {
   resourcePut,
   resourceGetByPath,
   resourceDeleteByPath,
 } from "../../resources/store.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { parseArgs, fail } from "../utils.js";
 
 export default async function deleteMemoryScript(
   args: string[],

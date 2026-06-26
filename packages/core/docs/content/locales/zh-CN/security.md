@@ -1,0 +1,330 @@
+---
+title: "安全"
+description: "代理原生应用的安全模型：输入验证、SQL 注入预防、XSS、数据范围、机密管理和身份验证模式。"
+---
+
+# 安全
+
+代理本机应用程序默认设计为安全的。该框架提供多层自动保护 - 您可以获得 SQL 级数据隔离、参数化查询、输入验证和开箱即用的身份验证。
+
+## 你免费得到什么，以及你拥有什么 {#what-you-own}
+
+```an-diagram title="层层防守" summary="该框架拥有大部分威胁面；您拥有两件事——标记表以确定范围和验证外部输入。"
+{
+  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">由框架拥有</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">由你掌控</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
+  "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+}
+```
+
+当您构建标准模式时，框架已经为您处理了大部分威胁面：
+
+- **数据隔离** — 代理 SQL 被重写，因此它只能看到当前用户（和活动组织）的行。参见[Data Scoping](#data-scoping)。
+- **SQL 注入** — `db-query`/`db-exec` 和 Drizzle 始终进行参数化。参见[SQL Injection Prevention](#sql-injection)。
+- **XSS** — React 自动转义、TipTap 和 `react-markdown` 消毒。参见[XSS Prevention](#xss)。
+- **Auth & CSRF** — 每个 `defineAction` 都受到身份验证保护； cookie 是 `httpOnly` + `SameSite=lax`。参见[Authentication](#auth)。
+- **秘密加密** — 凭证和保管库静态加密。参见[Secrets Management](#secrets)。
+
+这留下了一个你实际上必须考虑的小表面：
+
+- **A。标记您的表以进行范围界定。**通过 [`ownableColumns()`](#data-scoping) 添加 `owner_email`（以及用于团队数据的 `org_id`），并通过 [access guards](#access-guards) 路由 Drizzle 读/写。
+- **B。验证并路由外部输入。** 为每个操作指定一个 Zod [`schema:`](#input-validation)，并通过 [SSRF guard](#ssrf) 发送用户/代理 URL 的任何服务器端获取。
+
+正确设置这两个，其余的都是默认值。 [Production Checklist](#production-checklist) 是发货前的一页确认。
+
+## 设计安全 {#secure-by-design}
+
+当您使用标准模式时，框架架构可以防止常见漏洞：
+
+| 漏洞         | 框架保护                                                     |
+| ------------ | ------------------------------------------------------------ |
+| SQL注入      | `db-query`/`db-exec` 和 Drizzle ORM 中的参数化查询           |
+| XSS          | React 自动转义 JSX； TipTap 清理富文本                       |
+| 数据泄露     | 通过临时视图进行 SQL 级别范围界定（`owner_email`、`org_id`） |
+| 绕过身份验证 | Auth Guard 自动保护所有 `defineAction` 端点                  |
+| 输入注入     | `defineAction` 中的 Zod 架构验证                             |
+| CSRF         | `SameSite=lax` + `httpOnly` cookie                           |
+| 秘密曝光     | `.env` gitignored;静态加密的凭证和保管库 (AES-256-GCM)       |
+| SSRF         | `ssrfSafeFetch` 阻止内部/元数据目标 + 重定向重新绑定         |
+
+## 输入验证 {#input-validation}
+
+将 `defineAction` 与 Zod `schema:` 一起用于每个操作。该框架会在代码运行之前自动验证输入：
+
+```ts
+import { z } from "zod";
+import { defineAction } from "@agent-native/core/action";
+
+export default defineAction({
+  description: "Create a note",
+  schema: z.object({
+    title: z.string().min(1).max(200).describe("Note title"),
+    content: z.string().optional().describe("Note body"),
+  }),
+  run: async (args) => {
+    // args is guaranteed valid — invalid input never reaches here
+  },
+});
+```
+
+无效输入返回明确的错误消息（HTTP 为 400，代理呼叫为结构化错误）。旧版 `parameters:` 格式不提供运行时验证。
+
+## SQL 预防注入 {#sql-injection}
+
+框架的 `db-query` 和 `db-exec` 工具使用参数化查询。用户输入作为参数传递，从未插入到 SQL 字符串中：
+
+```ts
+// SAFE — parameterized query (framework default)
+await exec({ sql: "INSERT INTO notes (title) VALUES (?)", args: [title] });
+
+// SAFE — Drizzle ORM (always generates parameterized queries)
+await db.insert(notes).values({ title, ownerEmail: email });
+
+// DANGEROUS — string concatenation (never do this)
+await exec(`INSERT INTO notes (title) VALUES ('${title}')`);
+```
+
+```an-callout
+{
+  "tone": "risk",
+  "body": "切勿通过字符串连接或模板文字构建 SQL。将用户输入作为 `args` 传递到 `exec` / `db-query`，或使用 Drizzle - 两者都始终参数化。 `pnpm guards` 检查在 CI 时捕获无范围和串联的查询。"
+}
+```
+
+## XSS预防 {#xss}
+
+React 自动转义所有 JSX 表达式。附加指南：
+
+- 切勿将 `dangerouslySetInnerHTML` 与用户控制的内容一起使用
+- 切勿使用 `innerHTML`、`eval()` 或 `document.write()`
+- 对于富文本编辑，请使用 TipTap（框架依赖项）——它通过其架构进行清理
+- 对于渲染 markdown，请使用 `react-markdown` — 它安全地转换为 React 元素
+
+## 服务器端获取（SSRF） {#ssrf}
+
+用户或代理控制的 URL 的任何服务器端 `fetch` 都必须经过框架 SSRF 防护，或者它可以指向云元数据（`169.254.169.254`）、`localhost` 或内部服务：
+
+```ts
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+
+const res = await ssrfSafeFetch(userProvidedUrl, {}, { maxRedirects: 3 });
+```
+
+`ssrfSafeFetch` 阻止私有/内部目标，在连接时重新检查解析的 IP（DNS 重新绑定），并重新验证每个重定向跃点，以便公共 URL 无法重定向到私有网络。扩展 iframe 代理、`upload-image` 和设计令牌导入器都通过它进行路由。对于仅飞行前检查，请使用 `isBlockedExtensionUrlWithDns(url)` 和 `redirect: "manual"`。
+
+## 数据范围 {#data-scoping}
+
+在生产中，框架自动将代理 SQL 查询限制为当前用户的数据。这是在 SQL 级别强制执行的——代理无法绕过它。本节是范围界定管道的规范参考； [Authentication](/docs/authentication) 和 [Multi-Tenancy](/docs/multi-tenancy) 文档链接位于此处，了解相关机制。
+
+### 范围管道 {#scoping-pipeline}
+
+从经过身份验证的会话到代理运行的 SQL 的流量范围：
+
+```
+session.orgId → AGENT_ORG_ID → SQL row scoping
+```
+
+```an-diagram title="范围界定管道" summary="代理 SQL 从不直接接触基表 - 它读取范围为当前标识的临时视图，因此裸表名称只能返回拥有的行。"
+{
+  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">已登录会话<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">代理 SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
+  "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+登录会话携带 `email` 和（当组织处于活动状态时）`orgId`。该框架从该会话建立请求上下文，将活动组织暴露给代理 SQL 作为 `AGENT_ORG_ID`，并重写每个查询，以便它只能看到当前身份拥有的行。无论查询来自 UI、操作还是代理，都适用相同的路径 - 代理无法读取用户不是其成员的组织的数据。
+
+### 每用户范围 (`owner_email`)
+
+每个包含用户特定数据的表**必须**有一个 `owner_email` 文本列。使用驼峰命名法 Drizzle 属性名称 — `accessFilter` 读取为 `resourceTable.ownerEmail`：
+
+```ts
+import {
+  table,
+  text,
+  integer,
+  ownableColumns,
+} from "@agent-native/core/db/schema";
+
+// Minimal: just the owner column
+export const notes = table("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content"),
+  ownerEmail: text("owner_email").notNull(), // REQUIRED — camelCase property
+});
+
+// Or use ownableColumns() to add owner_email + org_id + visibility in one call
+export const notes = table("notes", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  content: text("content"),
+  ...ownableColumns(),
+});
+```
+
+该框架创建临时 SQL 视图来自动过滤查询：
+
+```sql
+CREATE TEMPORARY VIEW "notes" AS
+  SELECT * FROM main."notes"
+  WHERE "owner_email" = 'alice@example.com';
+```
+
+当该列尚不存在时，INSERT 语句会自动注入 `owner_email`。
+
+`db-query` / `db-exec` 工具拒绝模式限定的表引用（`public.<table>`、`main.<table>`）——限定名称解析为基表，并会绕过上面的临时视图。代理使用裸表名称；范围会自动应用。
+
+### 每个组织范围界定 (`org_id`)
+
+对于团队共享数据的多用户应用，请添加 `org_id` 列。当两列都存在时，查询的范围为：`WHERE owner_email = ? AND org_id = ?`。
+
+`ownableColumns()` 架构助手在一次调用中添加了 `owner_email`、`org_id` 和 `visibility`，因此新的租户感知表默认会获得完整的作用域契约：
+
+```ts
+import { table, text, ownableColumns } from "@agent-native/core/db/schema";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(), // adds owner_email + org_id + visibility
+});
+```
+
+```an-schema title="What ownableColumns() adds" summary="这三列使表具有租户意识且可共享。"
+{
+  "entities": [
+    {
+      "id": "ownable",
+      "name": "ownable resource",
+      "note": "Any table that spreads ...ownableColumns()",
+      "fields": [
+        { "name": "owner_email", "type": "text", "nullable": false, "note": "Creator. Auto-filled by write actions; auto-injected on INSERT." },
+        { "name": "org_id", "type": "text", "nullable": true, "note": "所有者在创建时的活动组织。推动组织可见性检查。" },
+        { "name": "visibility", "type": "enum", "nullable": false, "note": "私人|组织| public — 粗略默认值，默认为私有。" }
+      ]
+    }
+  ]
+}
+```
+
+### actions中的访问守卫 {#access-guards}
+
+原始代理 SQL 的范围受上述临时视图的限制。直接查询 Drizzle 的操作代码应通过框架的访问帮助程序，以便读取和写入保持在当前身份范围内：
+
+- **`accessFilter`** — 返回 `WHERE` 谓词，该谓词将查询限制为当前用户/组织可能看到的行。在列表/读取查询中使用它。
+- **`resolveAccess`** — 解析当前请求的有效访问范围（所有者、组织、共享）。
+- **`assertAccess`** — 保护写入或单记录读取，如果当前标识无法作用于目标行，则抛出异常。
+
+使用 `ownableColumns()` 构建的表需要这些范围内的读取和写入；自定义 Nitro 路由必须在查询可拥有数据之前建立请求上下文。 `guard-no-unscoped-queries` 检查（通过 `pnpm guards` 运行）在 CI 时强制执行此操作。完整帮手API见`sharing`技能。
+
+### 验证
+
+```bash
+pnpm action db-check-scoping           # 检查所有表都有owner_email
+pnpm action db-check-scoping --require-org  # 还需要 org_id
+```
+
+## 秘密管理 {#secrets}
+
+| 秘密类型                     | 存储位置                                           |
+| ---------------------------- | -------------------------------------------------- |
+| 部署级密钥（每个应用一个）   | `.env` 文件（gitignored，仅服务器端）              |
+| 每用户/每组织 API 密钥       | `saveCredential` / `resolveCredential`（静态加密） |
+| 注册机密（侧边栏保管库）     | `app_secrets`保管库（静态加密）                    |
+| OAuth 代币（Google、GitHub） | `oauth_tokens` 通过 `saveOAuthTokens()` 存储       |
+| 会话令牌                     | 自动（Better Auth 可以处理此问题）                 |
+
+每用户/每组织凭证和保管库使用 AES-256-GCM 进行静态加密，并由 `SECRETS_ENCRYPTION_KEY` 加密（回退到 `BETTER_AUTH_SECRET`）；如果没有一个，生产就无法开始。要就地加密任何预先存在的明文凭证行，请运行 `pnpm action db-migrate-encrypt-credentials`（幂等、非破坏性）。
+
+切勿将机密存储在 `settings`、`application_state`、源代码或操作响应中。使用上面的凭证/保险库 API - 它们处理加密和每用户范围。
+
+## 身份验证 {#auth}
+
+身份验证是自动的。有关完整设置，请参阅 [Authentication](/docs/authentication) 文档。
+
+**安全要点：**
+
+- `defineAction` 端点由身份验证防护自动保护
+- 自定义`/api/`路由必须调用`getSession(event)`并检查结果
+- 状态更改操作应使用 POST（actions 的默认值）
+- `SameSite=lax` + `httpOnly` cookie 可阻止大多数 CSRF 攻击
+
+## A2A身份验证 {#a2a-identity}
+
+当应用通过 A2A 协议相互调用时，它们会使用使用共享密钥签名的 JWT 令牌来验证身份：
+
+```bash
+A2A_SECRET=your-shared-secret-at-least-32-chars
+```
+
+1. 应用程序A签署包含`sub: "steve@example.com"`的JWT
+2. 应用程序 B 使用相同的密钥验证 JWT 签名
+3. 应用程序 B 将经过验证的 `sub` 声明读取到请求上下文中
+4. 数据范围适用 - 应用程序 B 仅显示 Steve 的数据
+
+如果生产中没有 `A2A_SECRET`，每个 A2A 端点和 `/_agent-native/integrations/process-task` 自触发端点都会返回 **503**。在每个调用或接收 A2A 流量的应用程序上设置它。 （对于本地开发，框架仍然允许未经身份验证的调用。）
+
+## 入站Webhooks {#webhooks}
+
+入站 webhook 处理程序（Resend、SendGrid、Slack、Telegram、WhatsApp、Recall.ai、Deepgram、Zoom、Google Docs Pub/Sub）默认在生产中拒绝伪造请求：当缺少相应的签名秘密环境变量时，处理程序返回 401，而不是接受和分派。
+
+这以前是“警告并接受”的立场 - 设置您可能会丢失的秘密，或者选择仅针对本地开发人员使用 `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` 恢复旧行为。请参阅 [Messaging](/docs/messaging#env-vars) 了解每个集成签名秘密变量。
+
+## 生产清单 {#production-checklist}
+
+### 身份验证和秘密
+
+- [ ] `BETTER_AUTH_SECRET` 设置为随机 32+ 字符字符串 (`openssl rand -hex 32`)，除非这是从 `A2A_SECRET` 派生的托管工作区部署
+- [ ] `OAUTH_STATE_SECRET` 设置为单独的随机 32+ 字符字符串（不要重复使用 `BETTER_AUTH_SECRET`） - 请参阅 [OAuth State Signing](#oauth-state)
+- [ ] 在调用或接收 A2A 流量的每个应用程序上设置 `A2A_SECRET` — 请参阅 [A2A Identity Verification](#a2a-identity)
+- [ ] `SECRETS_ENCRYPTION_KEY` 设置（或依赖 `BETTER_AUTH_SECRET` 后备） - 请参阅 [Secrets Management](#secrets)
+- [ ] `AUTH_SKIP_EMAIL_VERIFICATION` 在生产中**未**设置（或仅在 QA 预览部署中设置）
+
+### Webhook 秘密（为您使用的集成设置秘密）
+
+- [ ] 为每个启用的入站集成设置签名密钥 - 有关每个集成列表，请参阅 [Inbound Webhooks](#webhooks) 和 [Messaging](/docs/messaging#env-vars)
+- [ ] `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` 未在产品中设置
+
+### 架构
+
+- [ ] 每个面向用户的表都有 `owner_email`，多用户表也有 `org_id` — 请参阅 [Data Scoping](#data-scoping)
+- [ ] Ownable-table 读/写通过 [access guards](#access-guards)
+- [ ] 所有 actions 都使用 `defineAction` 和 Zod `schema:` — 参见 [Input Validation](#input-validation)
+- [ ] 用户/代理 URL 的服务器端获取通过 `ssrfSafeFetch` — 请参阅 [SSRF](#ssrf)
+- [ ] 没有包含用户内容的 `dangerouslySetInnerHTML`（或通过 DOMPurify 运行输出）
+- [ ] 没有字符串连接 SQL
+- [ ] `pnpm guards` 干净（`guard-no-unscoped-queries`、`guard-no-env-credentials`、`guard-no-env-mutation`、`guard-no-localhost-fallback`、`guard-no-unscoped-credentials`、`guard-no-drizzle-push`）
+- [ ] 使用两个用户帐户进行测试以验证数据隔离
+
+### 其他强化
+
+- [ ] `AGENT_NATIVE_DEBUG_ERRORS` 在真实产品中**未**设置（仅在调试预览中）
+- [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` **未**设置，除非您的组织实际上共享工作区密钥 - 请参阅 [Cross-User Tooling Secrets](#tooling-secrets)
+- [] 在多租户部署中，**用户自带 `ANTHROPIC_API_KEY`** - 框架拒绝回退到部署级别环境变量
+
+---
+
+以下部分介绍了您只能在特定部署中使用的利基环境标志。大多数应用程序从不接触它们。
+
+## OAuth 状态签名 {#oauth-state}
+
+OAuth 流（Google、Atlassian、Zoom）使用专用的 HMAC 密钥签署其状态信封：
+
+```bash
+OAUTH_STATE_SECRET=$(openssl rand -hex 32)
+```
+
+这曾经退回到 `GOOGLE_CLIENT_SECRET`（与 Google 共享的凭证）——Google 秘密的泄露会让攻击者伪造 OAuth 状态信封。专用密钥独立于任何第三方秘密。如果 `OAUTH_STATE_SECRET` 未设置，则框架回退到 `BETTER_AUTH_SECRET`；托管工作区部署还可以从已经需要的 `A2A_SECRET` 派生专用 OAuth 密钥。如果这些服务器机密均不可用，OAuth 流程将在生产中失败。
+
+`redirect_uri` 查询参数也会根据白名单（同源 + 框架 `/_agent-native/...` 路径）进行验证。模板中的自定义 OAuth 流应在签署状态之前使用框架的 `isAllowedOAuthRedirectUri()` 帮助程序。
+
+## 跨用户工具秘密 {#tooling-secrets}
+
+默认情况下，引用 `${keys.NAME}` 的工具和自动化会解析每个用户的机密。在此版本中，工作区范围回退默认情况下处于关闭状态 - 恶意组织成员可能会植入工作区 `OPENAI_API_KEY` 并获取其他成员的 API 调用。
+
+如果您的组织真正共享工作区范围的密钥（例如单个公司 Stripe 密钥），请选择恢复旧行为：
+
+```bash
+AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
+```
+
+无论此标志如何，工作空间范围的秘密写入仍然需要组织所有者/管理员角色。

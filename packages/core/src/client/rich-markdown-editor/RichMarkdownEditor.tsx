@@ -1,3 +1,6 @@
+import type { Awareness } from "y-protocols/awareness";
+import type { Doc as YDoc } from "yjs";
+
 /**
  * Back-compat surface for the shared rich markdown editor.
  *
@@ -21,8 +24,6 @@ import {
   SharedRichEditor,
   type SharedRichEditorProps,
 } from "./SharedRichEditor.js";
-import type { Doc as YDoc } from "yjs";
-import type { Awareness } from "y-protocols/awareness";
 
 export type {
   RichMarkdownDialect,

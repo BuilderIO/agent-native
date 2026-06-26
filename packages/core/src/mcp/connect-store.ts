@@ -17,8 +17,15 @@
  * (shared prod DB rule).
  */
 
-import { getDbExec, isConnectionError, intType } from "../db/client.js";
 import { randomBytes, randomUUID } from "node:crypto";
+
+import {
+  getDbExec,
+  isConnectionError,
+  intType,
+  isPostgres,
+} from "../db/client.js";
+import { ensureTableExists, ensureColumnExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -58,7 +65,7 @@ async function ensureTable(): Promise<void> {
       const client = getDbExec();
       // Additive only. Never DROP / ALTER — this DB is shared across every
       // deploy context (preview/branch/prod) for hosted templates.
-      await client.execute(`
+      const createTokensSql = `
         CREATE TABLE IF NOT EXISTS mcp_connect_tokens (
           id TEXT PRIMARY KEY,
           jti TEXT UNIQUE NOT NULL,
@@ -72,7 +79,50 @@ async function ensureTable(): Promise<void> {
           last_used_at ${intType()},
           revoked_at ${intType()}
         )
-      `);
+      `;
+      const createDeviceCodesSql = `
+        CREATE TABLE IF NOT EXISTS mcp_device_codes (
+          device_code TEXT PRIMARY KEY,
+          user_code TEXT NOT NULL,
+          owner_email TEXT,
+          org_id TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          token_jti TEXT,
+          created_at ${intType()},
+          expires_at ${intType()},
+          consumed_at ${intType()}
+        )
+      `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema first (no lock) and only issue
+        // DDL when the table/column is actually missing, wrapped in a
+        // transaction-scoped lock_timeout so a contended lock fails fast.
+        await ensureTableExists("mcp_connect_tokens", createTokensSql);
+        // Additive columns for org service tokens — added after initial
+        // deployment; ensureColumnExists probes before ALTERing.
+        await ensureColumnExists(
+          "mcp_connect_tokens",
+          "kind",
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'personal'`,
+        );
+        await ensureColumnExists(
+          "mcp_connect_tokens",
+          "service_name",
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS service_name TEXT`,
+        );
+        await ensureColumnExists(
+          "mcp_connect_tokens",
+          "created_by",
+          `ALTER TABLE mcp_connect_tokens ADD COLUMN IF NOT EXISTS created_by TEXT`,
+        );
+        await ensureTableExists("mcp_device_codes", createDeviceCodesSql);
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
+      // create-then-additive-alter behaviour.
+      await client.execute(createTokensSql);
       // Additive columns for org service tokens (deployments that created the
       // table before these columns existed; fresh DBs get them via the CREATE
       // TABLE above). kind='personal' (default) preserves the original
@@ -106,19 +156,7 @@ async function ensureTable(): Promise<void> {
           }
         }
       }
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS mcp_device_codes (
-          device_code TEXT PRIMARY KEY,
-          user_code TEXT NOT NULL,
-          owner_email TEXT,
-          org_id TEXT,
-          status TEXT NOT NULL DEFAULT 'pending',
-          token_jti TEXT,
-          created_at ${intType()},
-          expires_at ${intType()},
-          consumed_at ${intType()}
-        )
-      `);
+      await client.execute(createDeviceCodesSql);
     })().catch((err) => {
       // Don't cache a rejected init. A transient DB blip should let the next
       // connect/mint/revoke call retry rather than wedging the process.

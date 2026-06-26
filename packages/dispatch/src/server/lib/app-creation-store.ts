@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { getSetting, putSetting } from "@agent-native/core/settings";
-import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
+
+import { getDbExec } from "@agent-native/core/db";
 import {
   getBuilderBranchProjectId,
   getRequestContext,
@@ -12,14 +12,16 @@ import {
   resolveBuilderCredentials,
   runBuilderAgent,
 } from "@agent-native/core/server";
-import { getDbExec } from "@agent-native/core/db";
+import { getSetting, putSetting } from "@agent-native/core/settings";
+import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
+
+import { identityKeyForIncoming } from "./dispatch-integrations.js";
 import {
   currentOrgId,
   currentOwnerEmail,
   recordAudit,
   resolveLinkedOwner,
 } from "./dispatch-store.js";
-import { identityKeyForIncoming } from "./dispatch-integrations.js";
 import { createRequest, listSecrets } from "./vault-store.js";
 import {
   grantWorkspaceResourcesToApp,

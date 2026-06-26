@@ -1,13 +1,15 @@
-import { useMemo, useRef, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconScissors } from "@tabler/icons-react";
+import { useMemo, useRef, useState } from "react";
+
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { formatMs, isExcluded, type EditsJson } from "@/lib/timestamp-mapping";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { formatMs, isExcluded, type EditsJson } from "@/lib/timestamp-mapping";
+import { cn } from "@/lib/utils";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -50,6 +52,7 @@ export function TranscriptEditor({
   onTrimRange,
   className,
 }: TranscriptEditorProps) {
+  const t = useT();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null);
 
@@ -120,14 +123,16 @@ export function TranscriptEditor({
     <div className={cn("flex flex-col h-full min-h-0", className)}>
       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2 text-xs text-muted-foreground">
         <div>
-          Transcript{" "}
+          {t("transcriptEditor.transcript")}{" "}
           {selection ? (
             <span className="text-foreground">
-              · selection {formatMs(selection.startMs)} →{" "}
-              {formatMs(selection.endMs)}
+              {t("transcriptEditor.selectionRange", {
+                start: formatMs(selection.startMs),
+                end: formatMs(selection.endMs),
+              })}
             </span>
           ) : (
-            <span>· select text to trim</span>
+            <span>{t("transcriptEditor.selectTextToTrim")}</span>
           )}
         </div>
         {selection ? (
@@ -144,7 +149,7 @@ export function TranscriptEditor({
             }}
           >
             <IconScissors className="mr-1 h-3.5 w-3.5" />
-            Cut selection
+            {t("transcriptEditor.cutSelection")}
           </Button>
         ) : null}
       </div>
@@ -158,7 +163,7 @@ export function TranscriptEditor({
       >
         {segments.length === 0 ? (
           <div className="text-muted-foreground text-sm">
-            No transcript yet.
+            {t("transcriptEditor.noTranscript")}
           </div>
         ) : (
           rendered

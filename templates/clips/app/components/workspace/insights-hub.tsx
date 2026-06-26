@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { appBasePath, useActionQuery, useT } from "@agent-native/core/client";
 import { IconChartLine, IconDownload, IconUsers } from "@tabler/icons-react";
-import { appBasePath, useActionQuery } from "@agent-native/core/client";
+import { useMemo, useState } from "react";
+
+import { PageHeader } from "@/components/library/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -12,10 +13,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
 import { EngagementChart } from "./engagement-chart";
-import { TopVideosTable } from "./top-videos-table";
 import { TopCreatorsTable } from "./top-creators-table";
-import { PageHeader } from "@/components/library/page-header";
+import { TopVideosTable } from "./top-videos-table";
 
 interface InsightsResponse {
   organizationId: string | null;
@@ -46,6 +48,7 @@ interface InsightsResponse {
 }
 
 export function InsightsHub() {
+  const t = useT();
   const [days, setDays] = useState("30");
   const { data, isLoading } = useActionQuery<InsightsResponse>(
     "get-organization-insights",
@@ -69,47 +72,51 @@ export function InsightsHub() {
     <>
       <PageHeader>
         <h1 className="text-base font-semibold tracking-tight truncate">
-          Insights
+          {t("insightsHub.title")}
         </h1>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ms-auto flex items-center gap-2">
           <Select value={days} onValueChange={setDays}>
             <SelectTrigger className="h-8 w-36">
-              <SelectValue placeholder="Period" />
+              <SelectValue placeholder={t("insightsHub.period")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="7">Last 7 days</SelectItem>
-              <SelectItem value="14">Last 14 days</SelectItem>
-              <SelectItem value="30">Last 30 days</SelectItem>
-              <SelectItem value="90">Last 90 days</SelectItem>
+              <SelectItem value="7">{t("insightsHub.last7Days")}</SelectItem>
+              <SelectItem value="14">{t("insightsHub.last14Days")}</SelectItem>
+              <SelectItem value="30">{t("insightsHub.last30Days")}</SelectItem>
+              <SelectItem value="90">{t("insightsHub.last90Days")}</SelectItem>
             </SelectContent>
           </Select>
           <Button variant="outline" size="sm" className="h-8" asChild>
             <a href={csvUrl} download>
-              <IconDownload className="size-4 mr-1.5" />
-              Export CSV
+              <IconDownload className="size-4 me-1.5" />
+              {t("insightsHub.exportCsv")}
             </a>
           </Button>
         </div>
       </PageHeader>
       <div className="p-6 max-w-6xl mx-auto space-y-6">
         <p className="text-sm text-muted-foreground">
-          Engagement across your organization over the last {days} days.
+          {t("insightsHub.description", { days })}
         </p>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard label="Views" value={totals.views} loading={isLoading} />
           <StatCard
-            label="Reactions"
+            label={t("insightsHub.views")}
+            value={totals.views}
+            loading={isLoading}
+          />
+          <StatCard
+            label={t("insightsHub.reactions")}
             value={totals.reactions}
             loading={isLoading}
           />
           <StatCard
-            label="Comments"
+            label={t("insightsHub.comments")}
             value={totals.comments}
             loading={isLoading}
           />
           <StatCard
-            label="Recordings"
+            label={t("insightsHub.recordings")}
             value={totals.recordings}
             loading={isLoading}
           />
@@ -119,7 +126,7 @@ export function InsightsHub() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <IconChartLine className="size-4 text-primary" />
-              Engagement trend
+              {t("insightsHub.engagementTrend")}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -134,31 +141,39 @@ export function InsightsHub() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Top videos</CardTitle>
+              <CardTitle className="text-base">
+                {t("insightsHub.topVideos")}
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="views">
                 <TabsList>
-                  <TabsTrigger value="views">Views</TabsTrigger>
-                  <TabsTrigger value="reactions">Reactions</TabsTrigger>
-                  <TabsTrigger value="comments">Comments</TabsTrigger>
+                  <TabsTrigger value="views">
+                    {t("insightsHub.views")}
+                  </TabsTrigger>
+                  <TabsTrigger value="reactions">
+                    {t("insightsHub.reactions")}
+                  </TabsTrigger>
+                  <TabsTrigger value="comments">
+                    {t("insightsHub.comments")}
+                  </TabsTrigger>
                 </TabsList>
                 <TabsContent value="views" className="pt-3">
                   <TopVideosTable
                     rows={data?.topVideos.byViews ?? []}
-                    metricLabel="Views"
+                    metricLabel={t("insightsHub.views")}
                   />
                 </TabsContent>
                 <TabsContent value="reactions" className="pt-3">
                   <TopVideosTable
                     rows={data?.topVideos.byReactions ?? []}
-                    metricLabel="Reactions"
+                    metricLabel={t("insightsHub.reactions")}
                   />
                 </TabsContent>
                 <TabsContent value="comments" className="pt-3">
                   <TopVideosTable
                     rows={data?.topVideos.byComments ?? []}
-                    metricLabel="Comments"
+                    metricLabel={t("insightsHub.comments")}
                   />
                 </TabsContent>
               </Tabs>
@@ -169,7 +184,7 @@ export function InsightsHub() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <IconUsers className="size-4 text-primary" />
-                Top creators
+                {t("insightsHub.topCreators")}
               </CardTitle>
             </CardHeader>
             <CardContent>

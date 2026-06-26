@@ -1,0 +1,33 @@
+---
+title: "Migrando para Agent-Native (/migrate)"
+description: "A migração é uma meta integrada de /migração no espaço de trabalho do Código Agent-Native, e não um aplicativo separado. Consulte o código Agent-Native UI para obter o guia completo."
+---
+
+# Migrando para Agent-Native (/migrate)
+
+A migração **não é um produto ou modelo separado** — é o produto integrado
+Objetivo `/migrate` dentro do espaço de trabalho [Agent-Native Code](/docs/code-agents-ui).
+Ele é executado como uma sessão normal de código que você pode retomar, anexar, inspecionar e interromper.
+
+```an-diagram title="/migrate é uma sessão de código, não um aplicativo separado" summary="Um caminho, URL, ou descrição entra; a execução compartilha o mesmo armazenamento, transcrição e controles que qualquer outra sessão de código e pode emitir um dossiê portátil."
+{
+  "html": "<div class=\"diagram-migrate\"><div class=\"diagram-col\"><div class=\"diagram-pill\">./local-app</div><div class=\"diagram-pill\">https://example.com</div><div class=\"diagram-pill\">--describe \\\"...\\\"</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">/migrate goal</span><small class=\"diagram-muted\">mesmo store · transcrição · controles de execução</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\" data-rough>App migrado</div><div class=\"diagram-pill ok\">--emit dossier</div></div></div>",
+  "css": ".diagram-migrate{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-migrate .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-migrate .diagram-arrow{font-size:22px;line-height:1}.diagram-migrate .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus dashboard"
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
+```
+
+O guia completo — formas de entrada (caminho / URL / descrição), dossiês `--emit`,
+Modo Planejar versus Modo Automático, controles de execução, credenciais, links diretos para desktop e
+Exportações de pacotes `@agent-native/migrate` — residem em
+[Agent-Native Code UI → Migrating to Agent-Native](/docs/code-agents-ui#migrate).
+
+> [!NOTE]
+> O aplicativo de detalhes `migration` oculto herdado foi removido. Use o código
+> espaço de trabalho, a guia Desktop Code ou um dossiê emitido conforme suportado
+> superfícies.

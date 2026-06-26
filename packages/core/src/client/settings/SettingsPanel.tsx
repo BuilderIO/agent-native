@@ -1,12 +1,3 @@
-import { agentNativePath } from "../api-path.js";
-import React, {
-  Suspense,
-  lazy,
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-} from "react";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import {
   IconChevronDown,
@@ -32,29 +23,39 @@ import {
   IconUserCircle,
   IconApps,
 } from "@tabler/icons-react";
-import { SettingsSection } from "./SettingsSection.js";
-import {
-  type BuilderConnectFlow,
-  useBuilderConnectFlow,
-  useBuilderStatus,
-} from "./useBuilderStatus.js";
-import { BuilderBMark } from "../builder-mark.js";
-import { AgentsSection } from "./AgentsSection.js";
-import { UsageSection } from "./UsageSection.js";
-import { SecretsSection } from "./SecretsSection.js";
-import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
-import { DemoModeSection } from "./DemoModeSection.js";
-import { AutomationsSection } from "./AutomationsSection.js";
+import React, {
+  Suspense,
+  lazy,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
+
 import { PROVIDER_ENV_PLACEHOLDERS } from "../../agent/engine/provider-env-vars.js";
+import { saveAgentEngineApiKey } from "../agent-engine-key.js";
+import { agentNativePath } from "../api-path.js";
+import { BuilderBMark } from "../builder-mark.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { useSession } from "../use-session.js";
-import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { callAction } from "../use-action.js";
-import { saveAgentEngineApiKey } from "../agent-engine-key.js";
+import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
+import { useSession } from "../use-session.js";
+import { AgentsSection } from "./AgentsSection.js";
+import { AutomationsSection } from "./AutomationsSection.js";
+import { DemoModeSection } from "./DemoModeSection.js";
+import { SecretsSection } from "./SecretsSection.js";
+import { SettingsSection } from "./SettingsSection.js";
+import { UsageSection } from "./UsageSection.js";
+import {
+  type BuilderConnectFlow,
+  useBuilderConnectFlow,
+  useBuilderStatus,
+} from "./useBuilderStatus.js";
+import { VoiceTranscriptionSection } from "./VoiceTranscriptionSection.js";
 
 const IntegrationsPanel = lazy(() =>
   import("../integrations/IntegrationsPanel.js").then((m) => ({
@@ -116,7 +117,7 @@ function SettingsSelect({
       </div>
       <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
         <SelectPrimitive.Trigger
-          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-left text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
+          className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
           aria-label={label}
           style={CONTROL_STYLE}
         >
@@ -141,7 +142,7 @@ function SettingsSelect({
                   className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
                   style={CONTROL_STYLE}
                 >
-                  <span className="absolute left-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
+                  <span className="absolute start-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
                     <SelectPrimitive.ItemIndicator>
                       <IconCheck size={14} />
                     </SelectPrimitive.ItemIndicator>
@@ -406,7 +407,7 @@ function UseBuilderCard({
       type="button"
       onClick={() => builderFlow.start({ trackingSource, trackingFlow })}
       disabled={builderFlow.connecting}
-      className={`block w-full rounded-md border border-border px-3 py-3 text-left no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70`}
+      className={`block w-full rounded-md border border-border px-3 py-3 text-start no-underline bg-gradient-to-br from-teal-500/10 via-transparent to-transparent hover:border-foreground/30 transition-colors disabled:cursor-wait disabled:opacity-70`}
     >
       <div className="flex items-start gap-2.5">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-foreground text-background">
@@ -980,7 +981,7 @@ function LLMSectionInner({
                       <TooltipTrigger asChild>
                         <button
                           onClick={handleDisconnect}
-                          className="ml-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
+                          className="ms-auto rounded border border-border px-2.5 py-1 text-[10px] font-medium text-muted-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
                         >
                           Disconnect
                         </button>
@@ -1955,9 +1956,7 @@ function CapabilityStatusRow({
         />
         {label}
       </span>
-      <span className="min-w-0 truncate text-right text-foreground">
-        {value}
-      </span>
+      <span className="min-w-0 truncate text-end text-foreground">{value}</span>
     </div>
   );
 }
@@ -2370,7 +2369,7 @@ export function SettingsPanel({
             trackingFlow="database"
           />
           <ManualSetupCard
-            hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, or any Postgres/SQLite database."
+            hint="Set DATABASE_URL in your .env to connect Neon, Supabase, Turso, any Postgres/SQLite database, or local PGlite with pglite:./data/pglite."
             docsUrl="https://www.builder.io/c/docs/agent-native-database"
             dim={connected}
           />

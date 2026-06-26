@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
+import { useState } from "react";
+import { toast } from "sonner";
+
 import { Button } from "@/components/ui/button";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   useDocumentSyncStatus,
   useResolveDocumentSyncConflict,
 } from "@/hooks/use-notion";
-import { useLocalStorage } from "@/hooks/use-local-storage";
-import { toast } from "sonner";
 
 interface NotionConflictBannerProps {
   documentId: string;
@@ -17,6 +19,7 @@ export function NotionConflictBanner({
   documentId,
   canEdit = true,
 }: NotionConflictBannerProps) {
+  const t = useT();
   // Share autoSync state (and React Query cache) with DocumentToolbar.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const { data: syncStatus } = useDocumentSyncStatus(
@@ -34,11 +37,15 @@ export function NotionConflictBanner({
       await resolveConflict.mutateAsync({ direction: dir });
       toast.success(
         dir === "pull"
-          ? "Resolved — pulled from Notion."
-          : "Resolved — pushed local version.",
+          ? t("editor.notionConflictResolvedPulled")
+          : t("editor.notionConflictResolvedPushed"),
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Resolve failed.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editor.notionConflictResolveFailed"),
+      );
     } finally {
       setDirection(null);
     }
@@ -54,7 +61,7 @@ export function NotionConflictBanner({
           className="shrink-0 text-amber-600 dark:text-amber-400"
         />
         <span className="text-xs text-amber-900 dark:text-amber-100 mr-auto">
-          Notion sync conflict — both sides changed
+          {t("editor.notionConflictBothSidesChanged")}
         </span>
         <Button
           size="sm"
@@ -66,7 +73,7 @@ export function NotionConflictBanner({
           {direction === "pull" ? (
             <IconLoader2 size={12} className="mr-1 animate-spin" />
           ) : null}
-          Use Notion
+          {t("editor.notionConflictUseNotion")}
         </Button>
         <Button
           size="sm"
@@ -78,7 +85,7 @@ export function NotionConflictBanner({
           {direction === "push" ? (
             <IconLoader2 size={12} className="mr-1 animate-spin" />
           ) : null}
-          Use local
+          {t("editor.notionConflictUseLocal")}
         </Button>
       </div>
     </div>

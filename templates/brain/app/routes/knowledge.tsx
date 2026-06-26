@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
-import { useSearchParams } from "react-router";
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconBook,
   IconCheck,
@@ -9,16 +11,19 @@ import {
   IconTable,
   IconX,
 } from "@tabler/icons-react";
-import {
-  type KnowledgeResponse,
-  type KnowledgeRow,
-  formatPercent,
-  statusLabel,
-} from "@/lib/brain";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
+
 import {
   type CanonicalPreviewData,
   CanonicalPreviewSheet,
 } from "@/components/brain/CanonicalPreviewSheet";
+import {
+  EmptyActionState,
+  LoadingRows,
+  PageHeader,
+  StatusBadge,
+} from "@/components/brain/Surface";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,11 +44,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
-  EmptyActionState,
-  LoadingRows,
-  PageHeader,
-  StatusBadge,
-} from "@/components/brain/Surface";
+  type KnowledgeResponse,
+  type KnowledgeRow,
+  formatPercent,
+  statusLabel,
+} from "@/lib/brain";
 
 const statusOptions = [
   "all",
@@ -68,6 +73,7 @@ const typeOptions = [
 ];
 
 export default function KnowledgeRoute() {
+  const t = useT();
   const [params, setParams] = useSearchParams();
   const query = params.get("q") ?? "";
   const status = params.get("status") ?? "all";
@@ -148,13 +154,15 @@ export default function KnowledgeRoute() {
   return (
     <div className="min-h-full bg-background">
       <PageHeader
-        eyebrow="Knowledge"
-        title="Cited company knowledge"
-        description="Browse approved, stale, and review-bound memories with the source and confidence signal visible."
+        eyebrow={t("navigation.knowledge")}
+        title={t("knowledge.title")}
+        description={t("knowledge.description")}
         actions={
           <Badge variant="outline" className="gap-2">
             <IconTable className="size-4" />
-            {filteredRows.length} rows
+            {t("knowledge.rows", {
+              count: filteredRows.length.toLocaleString(),
+            })}
           </Badge>
         }
       />
@@ -163,12 +171,12 @@ export default function KnowledgeRoute() {
         <Card>
           <CardContent className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center">
             <div className="relative min-w-0 flex-1">
-              <IconSearch className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <IconSearch className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event) => updateParam("q", event.target.value)}
-                placeholder="Search memories, topics, source names..."
-                className="pl-9"
+                placeholder={t("knowledge.searchPlaceholder")}
+                className="ps-9"
               />
             </div>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -177,7 +185,7 @@ export default function KnowledgeRoute() {
                 onValueChange={(value) => updateParam("status", value)}
               >
                 <SelectTrigger className="w-full sm:w-44">
-                  <SelectValue placeholder="Status" />
+                  <SelectValue placeholder={t("searchPage.status")} />
                 </SelectTrigger>
                 <SelectContent>
                   {statusOptions.map((option) => (
@@ -192,12 +200,12 @@ export default function KnowledgeRoute() {
                 onValueChange={(value) => updateParam("type", value)}
               >
                 <SelectTrigger className="w-full sm:w-40">
-                  <SelectValue placeholder="Source type" />
+                  <SelectValue placeholder={t("sources.sourceType")} />
                 </SelectTrigger>
                 <SelectContent>
                   {typeOptions.map((option) => (
                     <SelectItem key={option} value={option}>
-                      {option === "all" ? "All types" : option}
+                      {option === "all" ? t("searchPage.allTypes") : option}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -213,12 +221,16 @@ export default function KnowledgeRoute() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Knowledge</TableHead>
-                  <TableHead>Source</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Company context</TableHead>
-                  <TableHead className="text-right">Confidence</TableHead>
-                  <TableHead className="text-right">Cites</TableHead>
+                  <TableHead>{t("navigation.knowledge")}</TableHead>
+                  <TableHead>{t("searchPage.source")}</TableHead>
+                  <TableHead>{t("searchPage.status")}</TableHead>
+                  <TableHead>{t("knowledge.companyContext")}</TableHead>
+                  <TableHead className="text-end">
+                    {t("searchPage.confidence")}
+                  </TableHead>
+                  <TableHead className="text-end">
+                    {t("knowledge.cites")}
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -233,21 +245,23 @@ export default function KnowledgeRoute() {
                           ) : null}
                         </div>
                         <p className="mt-1 line-clamp-2 max-w-3xl text-sm leading-6 text-muted-foreground">
-                          {row.summary ?? row.body ?? "No summary yet."}
+                          {row.summary ?? row.body ?? t("knowledge.noSummary")}
                         </p>
                         {row.owner ? (
                           <p className="mt-2 text-xs text-muted-foreground">
-                            Owner: {row.owner}
+                            {t("knowledge.owner", { owner: row.owner })}
                           </p>
                         ) : null}
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="text-sm">
-                        {row.sourceName ?? row.sourceId ?? "Source"}
+                        {row.sourceName ??
+                          row.sourceId ??
+                          t("searchPage.source")}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {row.sourceType ?? "source"}
+                        {row.sourceType ?? t("knowledge.source")}
                       </div>
                     </TableCell>
                     <TableCell>
@@ -262,12 +276,12 @@ export default function KnowledgeRoute() {
                         onPreview={() => void openCanonicalPreview(row)}
                       />
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       {typeof row.confidence === "number"
                         ? formatPercent(row.confidence)
-                        : "n/a"}
+                        : t("knowledge.notApplicable")}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-end">
                       {row.citations ?? 0}
                     </TableCell>
                   </TableRow>
@@ -279,39 +293,38 @@ export default function KnowledgeRoute() {
           <EmptyActionState
             title={
               hasActiveFilters
-                ? "No knowledge matches these filters"
-                : "No company knowledge yet"
+                ? t("searchPage.noMatchesTitle")
+                : t("knowledge.emptyTitle")
             }
             detail={
               hasActiveFilters
-                ? "Clear the search or filters to broaden the knowledge set."
-                : "Connect a source or approve review proposals to build company knowledge."
+                ? t("knowledge.emptyFilteredDetail")
+                : t("knowledge.emptyDetail")
             }
           />
         )}
 
         {setCanonical.isError || previewCanonical.isError ? (
           <EmptyActionState
-            title="Company context update failed"
+            title={t("knowledge.updateFailedTitle")}
             detail={
               setCanonical.error?.message ??
               previewCanonical.error?.message ??
-              "Brain could not update the workspace context resource."
+              t("knowledge.updateFailedDetail")
             }
           />
         ) : null}
 
         {knowledgeQuery.isError ? (
           <EmptyActionState
-            title="Waiting on search-knowledge"
-            detail="Brain could not load reviewed company knowledge yet."
+            title={t("knowledge.waitingOnSearch")}
+            detail={t("knowledge.waitingOnSearchDetail")}
           />
         ) : null}
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <IconFilter className="size-4" />
-          View state is mirrored to application-state as query, status, and
-          source type filters.
+          {t("knowledge.viewStateMirrored")}
         </div>
       </div>
       <CanonicalPreviewSheet
@@ -323,8 +336,8 @@ export default function KnowledgeRoute() {
         error={previewCanonical.error?.message ?? null}
         primaryLabel={
           previewOperation === "publish"
-            ? "Publish company context"
-            : "Unpublish company context"
+            ? t("knowledge.publishCompanyContext")
+            : t("knowledge.unpublishCompanyContext")
         }
         primaryDisabled={!previewRow || setCanonical.isPending}
         onPrimaryAction={() => void confirmCanonicalChange()}
@@ -342,6 +355,7 @@ function CanonicalControl({
   pending: boolean;
   onPreview: () => void;
 }) {
+  const t = useT();
   const isPublished = Boolean(row.publishedResourcePath);
   const canPublish = row.status === "published";
 
@@ -349,7 +363,7 @@ function CanonicalControl({
     return (
       <Badge variant="outline" className="gap-1.5 text-muted-foreground">
         <IconX className="size-3" />
-        Not eligible
+        {t("knowledge.notEligible")}
       </Badge>
     );
   }
@@ -362,8 +376,8 @@ function CanonicalControl({
       onClick={onPreview}
       title={
         isPublished
-          ? row.publishedResourcePath || "Published to company context"
-          : "Publish this knowledge to context/company-brain"
+          ? row.publishedResourcePath || t("knowledge.publishedToContext")
+          : t("knowledge.publishToContextTitle")
       }
     >
       {isPublished ? (
@@ -371,7 +385,7 @@ function CanonicalControl({
       ) : (
         <IconBook className="size-4" />
       )}
-      {isPublished ? "Published" : "Publish"}
+      {isPublished ? t("knowledge.published") : t("knowledge.publish")}
     </Button>
   );
 }

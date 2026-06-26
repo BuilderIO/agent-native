@@ -1,9 +1,9 @@
-import * as React from "react";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import * as React from "react";
 import { DayPicker } from "react-day-picker";
 
-import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 export type CalendarProps = React.ComponentProps<typeof DayPicker>;
 
@@ -25,11 +25,11 @@ function Calendar({
         nav: "flex items-center gap-1",
         button_previous: cn(
           buttonVariants({ variant: "outline" }),
-          "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 absolute left-1 top-1 z-10",
+          "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 absolute start-1 top-1 z-10",
         ),
         button_next: cn(
           buttonVariants({ variant: "outline" }),
-          "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 absolute right-1 top-1 z-10",
+          "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 absolute end-1 top-1 z-10",
         ),
         month_grid: "w-full border-collapse",
         weekdays: "flex",
@@ -47,8 +47,8 @@ function Calendar({
         outside: "text-muted-foreground opacity-50",
         disabled: "text-muted-foreground opacity-50",
         hidden: "invisible",
-        range_start: "rounded-l-md",
-        range_end: "rounded-r-md",
+        range_start: "rounded-s-md",
+        range_end: "rounded-e-md",
         range_middle:
           "aria-selected:bg-accent aria-selected:text-accent-foreground",
         ...classNames,
@@ -56,9 +56,9 @@ function Calendar({
       components={{
         Chevron: (props) => {
           if (props.orientation === "left") {
-            return <IconChevronLeft className="h-4 w-4" />;
+            return <IconChevronLeft className="h-4 w-4 rtl:-scale-x-100" />;
           }
-          return <IconChevronRight className="h-4 w-4" />;
+          return <IconChevronRight className="h-4 w-4 rtl:-scale-x-100" />;
         },
       }}
       {...props}

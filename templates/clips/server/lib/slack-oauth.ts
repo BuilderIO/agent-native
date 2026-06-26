@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, or } from "drizzle-orm";
-import { getQuery, type H3Event } from "h3";
+
+import { writeAppState } from "@agent-native/core/application-state";
+import {
+  deleteAppSecret,
+  readAppSecret,
+  writeAppSecret,
+  type SecretScope,
+} from "@agent-native/core/secrets";
 import {
   encodeOAuthState,
   getSession,
@@ -12,17 +18,15 @@ import {
   type OAuthStatePayload,
 } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
-import {
-  deleteAppSecret,
-  readAppSecret,
-  writeAppSecret,
-  type SecretScope,
-} from "@agent-native/core/secrets";
-import { writeAppState } from "@agent-native/core/application-state";
+import { and, desc, eq, or } from "drizzle-orm";
+import { getQuery, type H3Event } from "h3";
+
 import { getDb, schema } from "../db/index.js";
 import {
   getActiveOrganizationId,
   getOrganizationRoleForEmail,
+  ownerEmailMatches,
+  sameOwnerEmail,
 } from "./recordings.js";
 import type { SlackLinkSharedPayload } from "./slack-unfurls.js";
 
@@ -386,12 +390,13 @@ export async function listVisibleSlackInstallations(options: {
   userEmail: string;
   orgId?: string | null;
 }): Promise<SlackInstallationListItem[]> {
+  const ownerWhere = ownerEmailMatches(
+    schema.slackInstallations.ownerEmail,
+    options.userEmail,
+  );
   const scopeWhere = options.orgId
-    ? or(
-        eq(schema.slackInstallations.orgId, options.orgId),
-        eq(schema.slackInstallations.ownerEmail, options.userEmail),
-      )
-    : eq(schema.slackInstallations.ownerEmail, options.userEmail);
+    ? or(eq(schema.slackInstallations.orgId, options.orgId), ownerWhere)
+    : ownerWhere;
 
   return getDb()
     .select({
@@ -482,7 +487,7 @@ export async function disconnectSlackInstallation(options: {
     .limit(1);
   if (!row) return null;
 
-  const canDisconnectOwn = row.ownerEmail === options.userEmail;
+  const canDisconnectOwn = sameOwnerEmail(row.ownerEmail, options.userEmail);
   let canDisconnectOrg = false;
   if (row.orgId) {
     const role = await getOrganizationRoleForEmail(

@@ -1,9 +1,10 @@
 import { defineEventHandler, createError } from "h3";
+
+import { credentialKeys } from "../../lib/credential-keys";
 import {
   getCredentialContextFromEvent,
   hasCredential,
 } from "../../lib/credentials";
-import { credentialKeys } from "../../lib/credential-keys";
 import { getGitHubAccessToken } from "../../lib/github-oauth";
 
 export default defineEventHandler(async (event) => {

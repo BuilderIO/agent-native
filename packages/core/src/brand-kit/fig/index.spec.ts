@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   MAX_FIG_THUMBNAIL_BYTES,
   figThumbnailDataUrl,

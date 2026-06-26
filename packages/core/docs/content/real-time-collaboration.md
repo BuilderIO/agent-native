@@ -121,8 +121,12 @@ Prevents Vite from re-bundling TipTap in incompatible ways during dev:
 
 ```ts
 // vite.config.ts
+import { reactRouter } from "@react-router/dev/vite";
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
 export default defineConfig({
-  plugins: [reactRouter()],
+  plugins: [reactRouter(), agentNative()],
   optimizeDeps: {
     include: [
       "yjs",

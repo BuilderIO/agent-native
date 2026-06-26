@@ -22,6 +22,11 @@ sharing, local-file workflows, or your own app. Add `--update-instructions` to
 append an idempotent managed block to `AGENTS.md` and/or `CLAUDE.md` for
 instruction-style skills.
 
+On first run, `npx` itself may be quiet while it downloads the package before
+this CLI can print anything. For unattended installs, pass explicit flags such
+as `--skill`, `--client`, `--scope`, and `--no-connect` to skip prompts and
+leave MCP authentication for a later `connect` command.
+
 Skill content comes from `BuilderIO/skills@main` at install/list time for plain
 skill installs. Explicit app-backed installs such as `visual-plan`,
 `visual-recap`, and `content` delegate to `@agent-native/core` so mode

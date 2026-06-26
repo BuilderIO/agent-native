@@ -1,33 +1,43 @@
+import nodePath from "node:path";
+
 import {
-  runWithRequestContext,
-  getRequestOrgId,
-  getRequestUserEmail,
-  getRequestRunContext,
-  ensureRequestRunContext,
-} from "./request-context.js";
-import { getSetting, putSetting } from "../settings/store.js";
-import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
-import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
+  createError,
+  defineEventHandler,
+  setResponseStatus,
+  setResponseHeader,
+  getMethod,
+  getQuery,
+  getHeader,
+  type H3Event,
+} from "h3";
+
 import {
-  normalizeDatabaseToolsMode,
-  type DatabaseToolsMode,
-  type DatabaseToolsOption,
-} from "../scripts/db/tool-mode.js";
+  appendA2AArtifactLinks,
+  buildA2ARecoverableArtifactMessage,
+  type A2AArtifactResponseOptions,
+  type A2AToolResultSummary,
+} from "../a2a/artifact-response.js";
 import {
-  getH3App,
-  markDefaultPluginProvided,
-  trackPluginInit,
-} from "./framework-request-handler.js";
+  hasConfiguredA2ASecret,
+  isA2AProductionRuntime,
+} from "../a2a/auth-policy.js";
+import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
+import { updateTaskStatusMessage } from "../a2a/task-store.js";
+import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
+import type { ActionHttpConfig } from "../action.js";
 import {
-  createProductionAgentHandler,
-  actionsToEngineTools,
-  getActiveRunForThreadAsync,
-  abortRun,
-  subscribeToRun,
-  type ActionEntry,
-} from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
-import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+  canUpdateAgentAppModelDefaultSettings,
+  normalizeAgentAppModelDefaultAppId,
+  readAgentAppModelDefaultSettings,
+  resetAgentAppModelDefaultSettings,
+  writeAgentAppModelDefaultSettings,
+} from "../agent/app-model-defaults.js";
+import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
+import {
+  AGENT_CHAT_PROCESS_RUN_PATH,
+  extractProcessRunId,
+  prepareProcessRunRequest,
+} from "../agent/durable-background.js";
 import {
   resolveEngine,
   createAnthropicEngine,
@@ -39,41 +49,20 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
+import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
-  canUpdateAgentAppModelDefaultSettings,
-  normalizeAgentAppModelDefaultAppId,
-  readAgentAppModelDefaultSettings,
-  resetAgentAppModelDefaultSettings,
-  writeAgentAppModelDefaultSettings,
-} from "../agent/app-model-defaults.js";
-import { DEFAULT_ANTHROPIC_MODEL } from "../agent/default-model.js";
-import type {
-  AgentChatAttachment,
-  AgentChatEvent,
-  AgentChatReference,
-  ActionTool,
-  MentionProvider,
-} from "../agent/types.js";
-import { attachToolSearch } from "../agent/tool-search.js";
-import type { ActionHttpConfig } from "../action.js";
-import {
-  McpClientManager,
-  loadMcpConfig,
-  autoDetectMcpConfig,
-  mcpToolsToActionEntries,
-  syncMcpActionEntries,
-  mountMcpServersRoutes,
-  mountMcpHubRoutes,
-  buildMergedConfig,
-  startMcpConfigRefresh,
-  areBuiltinMcpCapabilitiesSupported,
-  setBuiltinMcpCapabilityEnabled,
-  getHubStatus,
-  isHubServeEnabled,
-  type BuiltinMcpCapabilityId,
-} from "../mcp-client/index.js";
-import { discoverAgents } from "./agent-discovery.js";
-import { loadSchemaPromptBlock } from "./schema-prompt.js";
+  createProductionAgentHandler,
+  actionsToEngineTools,
+  getActiveRunForThreadAsync,
+  abortRun,
+  subscribeToRun,
+  type ActionEntry,
+} from "../agent/production-agent.js";
+import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
+import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
+import type { AgentRunSummary } from "../agent/run-store.js";
+import { readBackgroundRunClaim } from "../agent/run-store.js";
+import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
 import {
   buildAssistantMessage,
   buildUserMessage,
@@ -83,18 +72,14 @@ import {
   normalizeThreadRepository,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
-import {
-  createError,
-  defineEventHandler,
-  setResponseStatus,
-  setResponseHeader,
-  getMethod,
-  getQuery,
-  getHeader,
-  type H3Event,
-} from "h3";
-import { getSession } from "./auth.js";
-import { getOrigin } from "./google-oauth.js";
+import { attachToolSearch } from "../agent/tool-search.js";
+import type {
+  AgentChatAttachment,
+  AgentChatEvent,
+  AgentChatReference,
+  ActionTool,
+  MentionProvider,
+} from "../agent/types.js";
 import {
   createThread,
   forkThread,
@@ -117,8 +102,34 @@ import {
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
-import type { AgentRunSummary } from "../agent/run-store.js";
-import { callerOwnsRun, callerOwnsThread } from "../agent/run-ownership.js";
+import { dataWidgetResultSchema } from "../data-widgets/index.js";
+import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
+import {
+  verifyInternalToken,
+  extractBearerToken,
+} from "../integrations/internal-token.js";
+import {
+  McpClientManager,
+  loadMcpConfig,
+  autoDetectMcpConfig,
+  mcpToolsToActionEntries,
+  syncMcpActionEntries,
+  mountMcpServersRoutes,
+  mountMcpHubRoutes,
+  buildMergedConfig,
+  startMcpConfigRefresh,
+  areBuiltinMcpCapabilitiesSupported,
+  setBuiltinMcpCapabilityEnabled,
+  getHubStatus,
+  isHubServeEnabled,
+  type BuiltinMcpCapabilityId,
+} from "../mcp-client/index.js";
+import { setProgressPreListHook } from "../progress/store.js";
+import {
+  getFrontmatterValue,
+  getSkillNameFromPath,
+  parseFrontmatter,
+} from "../resources/metadata.js";
 import {
   resourceList,
   resourceListAccessible,
@@ -129,46 +140,40 @@ import {
   WORKSPACE_OWNER,
 } from "../resources/store.js";
 import {
-  getFrontmatterValue,
-  getSkillNameFromPath,
-  parseFrontmatter,
-} from "../resources/metadata.js";
-import nodePath from "node:path";
-import { readBody } from "./h3-helpers.js";
+  normalizeDatabaseToolsMode,
+  type DatabaseToolsMode,
+  type DatabaseToolsOption,
+} from "../scripts/db/tool-mode.js";
+import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
+import { getSetting, putSetting } from "../settings/store.js";
+import { discoverAgents } from "./agent-discovery.js";
+import {
+  resolveAgentRunOwnerContext,
+  runWithAgentRunContext,
+  seedBackgroundAgentRunOwnerContext,
+  type AgentRunOwnerContext,
+} from "./agent-run-context.js";
 import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   getCurrentDelegationDepth,
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
-import { setProgressPreListHook } from "../progress/store.js";
-import {
-  verifyInternalToken,
-  extractBearerToken,
-} from "../integrations/internal-token.js";
-import {
-  hasConfiguredA2ASecret,
-  isA2AProductionRuntime,
-} from "../a2a/auth-policy.js";
-import {
-  AGENT_CHAT_PROCESS_RUN_PATH,
-  prepareProcessRunRequest,
-} from "../agent/durable-background.js";
+import { withConfiguredAppBasePath } from "./app-base-path.js";
+import { getSession } from "./auth.js";
 import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "./builder-browser.js";
+import { captureError } from "./capture-error.js";
 import { captureCliOutput } from "./cli-capture.js";
-import { withConfiguredAppBasePath } from "./app-base-path.js";
 import {
-  appendA2AArtifactLinks,
-  buildA2ARecoverableArtifactMessage,
-  type A2AArtifactResponseOptions,
-  type A2AToolResultSummary,
-} from "../a2a/artifact-response.js";
-import { updateTaskStatusMessage } from "../a2a/task-store.js";
-import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
-import { buildRuntimeContextPrompt } from "../agent/runtime-context.js";
+  getH3App,
+  markDefaultPluginProvided,
+  trackPluginInit,
+} from "./framework-request-handler.js";
+import { getOrigin } from "./google-oauth.js";
+import { readBody } from "./h3-helpers.js";
 import {
   buildFrameworkCore,
   buildFrameworkCoreCompact,
@@ -176,8 +181,14 @@ import {
   getModelFamilyOverlay,
   type PromptExamples,
 } from "./prompts/index.js";
-import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
-import { dataWidgetResultSchema } from "../data-widgets/index.js";
+import {
+  runWithRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+  getRequestRunContext,
+  ensureRequestRunContext,
+} from "./request-context.js";
+import { loadSchemaPromptBlock } from "./schema-prompt.js";
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -867,12 +878,49 @@ export function assembleA2AFinalResponse(
   toolResults: readonly A2AToolResultSummary[],
   options: A2AArtifactResponseOptions & { event?: any } = {},
 ): { responseText: string; finalText: string } {
-  const responseText = collectFinalResponseTextFromAgentEvents(events);
+  const terminalError = getA2ATerminalErrorEvent(events);
+  const responseText = collectFinalResponseTextFromAgentEvents(events, {
+    fallbackToPreToolText: !terminalError,
+  });
   const finalText = appendA2AArtifactLinks(responseText, [...toolResults], {
     baseUrl: options.baseUrl ?? resolveArtifactBaseUrl(options.event),
     includeReferencedArtifacts: true,
   });
+  if (terminalError && !finalText.trim()) {
+    throw new Error(formatA2ATerminalError(terminalError));
+  }
   return { responseText, finalText };
+}
+
+function getA2ATerminalErrorEvent(
+  events: readonly AgentChatEvent[],
+): Extract<AgentChatEvent, { type: "error" }> | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (event.type === "clear") continue;
+    if (event.type === "done") return null;
+    if (event.type === "error") return event;
+    if (event.type === "auto_continue") {
+      return {
+        type: "error",
+        error: `Agent stopped before finishing (${event.reason}).`,
+        errorCode: event.reason,
+        recoverable: true,
+      };
+    }
+  }
+  return null;
+}
+
+function formatA2ATerminalError(
+  event: Extract<AgentChatEvent, { type: "error" }>,
+): string {
+  const parts = [
+    event.error || "Agent failed before producing a final response.",
+    event.errorCode ? `code: ${event.errorCode}` : "",
+    event.details ? `details: ${event.details}` : "",
+  ].filter(Boolean);
+  return parts.join("\n");
 }
 
 /**
@@ -3032,21 +3080,31 @@ function buildFrameworkPrompts(
     ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
     : "source-code handoffs and app-created artifacts such as documents, designs, slides, or videos";
   const planModeBlockedTools = extensionToolsEnabled
-    ? "`create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
+    ? "`render-inline-extension`, `create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
     : "`connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data";
   const extensionConnectBuilderGuard = extensionToolsEnabled
-    ? "If the request matches the Extensions section above, use `create-extension` or `update-extension` instead — do NOT route it to `connect-builder`."
+    ? "If the request matches the Extensions section above, use `render-inline-extension`, `create-extension`, `show-extension-inline`, or `update-extension` instead — do NOT route it to `connect-builder`."
     : "Because extension tools are disabled, do NOT invent an extension workflow. Only use `connect-builder` when the request genuinely requires changing the host app's source code.";
   const extensionInstructionsFull = extensionToolsEnabled
-    ? `### Extensions (Mini-Apps) — Use \`create-extension\` for extensions / widgets / dashboards
+    ? `### Generative UI and Extensions (Mini-Apps)
 
-In Act mode, if the user asks you to create, build, or make an **extension**, **widget**, **dashboard**, **calculator**, **mini-app**, or any small self-contained interactive utility — call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is **NOT** a code change and does **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps stored in the database — no source files are touched, no PR is opened, no build is required. The extension appears in the Extensions view and can be edited later via \`update-extension\`.
+In Act mode, if the user asks for generated interactive UI in chat, choose the smallest extension action that matches the lifetime:
+
+- For a **one-time inline UI** that answers the current chat turn (knobs, controls, pickers, calculators, temporary dashboards, visualizers), call \`render-inline-extension\` immediately with a self-contained Alpine.js HTML body. It renders inside the transcript and is not saved.
+- For a **reusable or saved UI** (an extension/widget/dashboard/calculator/mini-app the user can reopen from Extensions), call \`create-extension\` with a self-contained Alpine.js HTML body. It saves to the Extensions view and also renders inline in chat.
+- To **reuse an existing saved extension inline**, call \`show-extension-inline\` with its id, or a search string when the id is unknown.
+
+These are **NOT** source-code changes and do **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps — no source files are touched, no PR is opened, no build is required. Saved extensions can be edited later via \`update-extension\`.
+
+If the app exposes native actions or instructions for dashboards, reports, analyses, charts, documents, decks, or other domain artifacts, use those app-native actions first. Choose an extension only when the user explicitly asks for an extension/custom mini-app, or when the app's native artifact format cannot faithfully express the requested interaction.
 
 Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
 
+Generated UI content can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
+
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
 
-In Act mode, when in doubt — if the request mentions creating an extension, widget, dashboard, calculator, or asks for a new small interactive utility — choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
+In Act mode, when in doubt — if the request asks for a new small interactive utility and does not need reuse, choose \`render-inline-extension\`; if it mentions saving/reuse or asks for an extension/widget/dashboard/calculator/mini-app, choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
 
 Note: "extension" is the user-facing primitive (the sandboxed Alpine.js mini-app). Don't confuse it with the LLM concept of "tools" (function calls) — those are how you invoke ANY action, including \`create-extension\` itself.
 
@@ -3059,22 +3117,28 @@ Route by what the request changes, not how it is phrased. Extensions render in t
 <routing>
 | The request is for…                                              | Path                          |
 | ---------------------------------------------------------------- | ----------------------------- |
+| A one-off interactive answer inside chat (controls, picker, calculator, temporary visualizer) | \`render-inline-extension\` — inline only |
 | A new self-contained surface (widget, dashboard, calculator, viewer, list, tracker) | \`create-extension\` — ships instantly, no PR |
+| Loading a saved extension inside chat | \`show-extension-inline\` |
 | Editing an existing extension (fix, restyle, rename, add behavior) | \`update-extension\`           |
 | The host app's own chrome (nav bar, sidebar, layout, routes, shipped components, existing styles, business logic) | \`connect-builder\` — a real source-code change |
-| Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`create-extension\` (prefer the instant path) |
+| Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`render-inline-extension\` for chat-only, \`create-extension\` for reusable |
 </routing>
 
-Worked examples: "a widget showing unread emails grouped by sender", "a dashboard summarizing my pipeline", "a tracker for my newsletter subscriptions" → \`create-extension\`. "Add an Unread tab to the left navigation", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
+Worked examples: "a widget showing unread emails grouped by sender", "a tracker for my newsletter subscriptions", "a custom kanban board with drag-and-drop rules the app does not have" → \`create-extension\`. "Add an Unread tab to the left navigation", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
     : `### Extensions Disabled
 
 Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow. For requests that would otherwise be handled as an extension/widget/dashboard/calculator mini-app, explain that this app has disabled extension tools and use the app's available actions instead.`;
   const extensionInstructionsCompact = extensionToolsEnabled
-    ? `### Extensions (Mini-Apps) — Use \`create-extension\`
+    ? `### Generative UI and Extensions (Mini-Apps)
 
-In Act mode, if the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — extensions are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-extension\`.
+In Act mode, if the user asks for generated interactive UI in chat, call \`render-inline-extension\` for one-time inline controls/knobs/calculators/visualizers that do not need saving. If the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app** that should be reusable or saved, call \`create-extension\` with a self-contained Alpine.js HTML body. To load a saved extension inline, call \`show-extension-inline\`. These are NOT code changes — extensions are sandboxed mini-apps. Do not preface with "let me build…" — just call the right extension action.
+
+Use app-native artifact actions first when they exist for dashboards, reports, analyses, charts, documents, decks, or similar domain artifacts. Pick \`create-extension\` only for explicit extension/custom mini-app requests or for behavior the native artifact format cannot support.
 
 Keep the first \`create-extension\` call compact and working. If the request is complex, create the v1 first and then refine with focused \`update-extension\` edits.
+
+Generated UI can read chat inputs from slotContext/window.onSlotContext, see/update app state through appFetch/appAction, use extensionData, record passive current values through agentNative.ui.output(value, opts?), and send visible results through agentNative.chat.send(...) or sendToAgentChat(...). ui.output writes \`inline-ui:<extensionId>:output\` in application state; when the user asks to use the current slider/selection/value, read \`readAppState("inline-ui:<id>:output")\`. Transient extensionData is browser-local only, so do not rely on it for values the agent or app must observe. Use semantic Tailwind theme classes.
 
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
 
@@ -3082,7 +3146,7 @@ For existing extensions, use \`get-extension\` or \`update-extension\` directly 
 
 ### Extensions vs. Code Changes — Pick the Right Path
 
-If the user wants a **new self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Use \`connect-builder\` only when the request **modifies the host app's existing chrome** (nav bar, sidebar, current components, layout, styles, routes). Extensions cannot change the host nav or restyle existing components.`
+If the user wants a **one-off interactive answer in chat**, use \`render-inline-extension\`. If they want a **new reusable self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Use \`connect-builder\` only when the request **modifies the host app's existing chrome** (nav bar, sidebar, current components, layout, styles, routes). Extensions cannot change the host nav or restyle existing components.`
     : `### Extensions Disabled
 
 Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow.`;
@@ -4978,45 +5042,13 @@ export function createAgentChatPlugin(
         });
       }
 
-      type OwnerContext = {
-        owner: string;
-        anonymous: boolean;
-        name?: string;
-      };
-      const OWNER_CONTEXT_KEY = "__agentNativeOwnerContext";
-
       // Resolve owner from the H3 event's session, with an optional
       // template-provided anonymous owner for public read-only surfaces.
-      const resolveOwnerContext = async (event: any): Promise<OwnerContext> => {
-        const eventContext = event?.context as
-          | (Record<string, unknown> & { [OWNER_CONTEXT_KEY]?: OwnerContext })
-          | undefined;
-        if (eventContext?.[OWNER_CONTEXT_KEY]) {
-          return eventContext[OWNER_CONTEXT_KEY];
-        }
-
-        const session = await getSession(event);
-        if (session?.email) {
-          const resolved = {
-            owner: session.email,
-            anonymous: false,
-            name: session.name,
-          };
-          if (eventContext) eventContext[OWNER_CONTEXT_KEY] = resolved;
-          return resolved;
-        }
-
-        const anonymousOwner = await options?.anonymousOwner?.(event);
-        if (anonymousOwner) {
-          const resolved = { owner: anonymousOwner, anonymous: true };
-          if (eventContext) eventContext[OWNER_CONTEXT_KEY] = resolved;
-          return resolved;
-        }
-
-        const { createError } = await import("h3");
-        throw createError({
-          statusCode: 401,
-          statusMessage: "Unauthenticated",
+      const resolveOwnerContext = async (
+        event: any,
+      ): Promise<AgentRunOwnerContext> => {
+        return resolveAgentRunOwnerContext(event, {
+          anonymousOwner: options?.anonymousOwner,
         });
       };
 
@@ -6657,6 +6689,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             refPath?: string;
             refId?: string;
             section?: string;
+            slotKey?: string;
+            slotLabel?: string;
+            metadata?: Record<string, unknown>;
+            clearsSlots?: string[];
+            relatedReferences?: unknown[];
           }
 
           const matchesQuery = (item: MentionItemResponse) =>
@@ -6793,6 +6830,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                         refPath: item.refPath,
                         refId: item.refId,
                         section: provider.label,
+                        slotKey: item.slotKey,
+                        slotLabel: item.slotLabel,
+                        metadata: item.metadata,
+                        clearsSlots: item.clearsSlots,
+                        relatedReferences: item.relatedReferences,
                       })),
                     );
                   } catch (e) {
@@ -7165,6 +7207,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 lastProgressAt: null,
               };
             }
+            // The durable worker writes its pre-claim progression to a separate
+            // `worker_stage` column that the foreground inline-recovery's
+            // `setup_timings` write never overwrites — so the worker's last
+            // reached stage (where it stalled before claiming) survives even
+            // after the foreground takes over `diag_stage`. Best-effort.
+            const workerClaim = run.runId
+              ? await readBackgroundRunClaim(run.runId).catch(() => null)
+              : null;
 
             return {
               active: true,
@@ -7174,6 +7224,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               status: run.status,
               heartbeatAt: run.heartbeatAt,
               lastProgressAt: run.lastProgressAt,
+              // Durable-background diagnostics: how the run was dispatched and
+              // the last reached `_process-run` worker stage (JSON
+              // `{stage,detail?,at}`). Surfaced here so a silent background
+              // worker death is diagnosable from the client WITHOUT the
+              // unreadable Netlify background-function logs — read
+              // `/runs/active?threadId=...` and inspect `diagStage`.
+              dispatchMode: run.dispatchMode ?? null,
+              diagStage: run.diagStage ?? null,
+              workerStage: workerClaim?.workerStage ?? null,
               // Server clock so the client computes "stuck" elapsed time
               // server-relative, immune to client clock skew.
               serverNow: Date.now(),
@@ -7706,54 +7765,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // the background worker), so both go through identical context + handler
       // selection.
       const invokeAgentChatHandler = async (event: any) => {
-        // Resolve per-request auth context
+        // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
-        const owner = ownerContext.owner;
 
-        // Resolve org ID: explicit callback > session.orgId from Better Auth
-        // > implicit org membership. Better Auth leaves session.orgId null
-        // until the user explicitly switches orgs, so a fresh signup with
-        // implicit membership (e.g. domain-matched org) would otherwise see
-        // no org-scoped credentials. getOrgContext() does the same DB lookup
-        // the /builder/status endpoint uses to decide "Connected".
-        let resolvedOrgId: string | undefined;
-        if (options?.resolveOrgId) {
-          resolvedOrgId = (await options.resolveOrgId(event)) ?? undefined;
-        } else {
-          try {
-            const session = await getSession(event);
-            resolvedOrgId = session?.orgId ?? undefined;
-          } catch {
-            // Session not available
-          }
-          if (!resolvedOrgId) {
-            try {
-              const { getOrgContext } = await import("../org/context.js");
-              const ctx = await getOrgContext(event);
-              resolvedOrgId = ctx.orgId ?? undefined;
-            } catch {
-              // org_members table may not exist yet on first boot
-            }
-          }
-        }
-
-        // Propagate the caller's IANA timezone from `x-user-timezone` so that
-        // tool calls made by the agent (e.g. log-meal with no explicit date)
-        // resolve "today" in the user's local timezone instead of server UTC.
-        const tzRaw = getHeader(event, "x-user-timezone");
-        const timezone =
-          typeof tzRaw === "string" &&
-          tzRaw.trim().length > 0 &&
-          tzRaw.trim().length < 64
-            ? tzRaw.trim()
-            : undefined;
-
-        return runWithRequestContext(
+        return runWithAgentRunContext(
           {
-            userEmail: owner,
-            userName: ownerContext.name,
-            orgId: resolvedOrgId,
-            timezone,
+            event,
+            ownerContext,
+            resolveOrgId: options?.resolveOrgId,
+            isBackgroundWorker: Boolean(
+              (event as any).context?.__agentChatBackgroundBody,
+            ),
           },
           () => {
             // App-rendered chat can't host direct code edits — HMR/full
@@ -7791,6 +7813,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
+          // DIAGNOSTIC: load the run-store diagnostic recorder. Each stage we
+          // reach is written onto the run row (diag_stage) so a silent failure
+          // INSIDE the Netlify background function — whose logs we cannot read —
+          // is still diagnosable from the client via /runs/active. Best-effort:
+          // the import + every record call is wrapped so diagnostics can never
+          // break the worker path.
+          const diag = await import("../agent/run-store.js")
+            .then((m) => ({
+              record: m.recordRunDiagnostic,
+              stages: m.RUN_DIAG_STAGE,
+            }))
+            .catch(() => null);
+
           // Consume the body ONCE (h3 v2's web Request stream is single-use).
           let processBody: any;
           try {
@@ -7798,6 +7833,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           } catch {
             setResponseStatus(event, 400);
             return { error: "Invalid request body" };
+          }
+
+          // Record "the route handler was entered" against the run BEFORE auth
+          // runs. This is the proof the bg-fn invocation actually reached Nitro
+          // (vs. dying at the function entry / never being invoked). The runId
+          // is parsed without authenticating so we can attach it even on a
+          // subsequent auth failure.
+          const diagRunId = extractProcessRunId(processBody);
+          if (diag && diagRunId) {
+            await diag
+              .record(diagRunId, diag.stages.routeEntered)
+              .catch(() => {});
           }
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the
@@ -7808,8 +7855,34 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             getHeader(event, "authorization"),
           );
           if (!prepared.ok) {
+            // DIAGNOSTIC: record the auth/validation failure ONTO the run
+            // before returning the error status. Without this, a 401 (e.g.
+            // A2A_SECRET missing/mismatched in the bg-fn env, or the path not
+            // bypassing session auth) inside the unreadable bg function would
+            // leave the run to time out with NO clue. The detail carries the
+            // status + whether A2A_SECRET is even present in this isolate.
+            if (diag && prepared.runId) {
+              const a2aPresent = Boolean(
+                process.env.A2A_SECRET && process.env.A2A_SECRET.length > 0,
+              );
+              await diag
+                .record(
+                  prepared.runId,
+                  diag.stages.authFailed,
+                  `status=${prepared.status} error=${prepared.error} a2aSecretPresent=${a2aPresent}`,
+                )
+                .catch(() => {});
+            }
             setResponseStatus(event, prepared.status);
             return { error: prepared.error };
+          }
+
+          // DIAGNOSTIC: auth + body validation passed. Reaching here proves the
+          // request was authenticated and we are about to invoke the worker.
+          if (diag) {
+            await diag
+              .record(prepared.runId, diag.stages.authPassed)
+              .catch(() => {});
           }
 
           // Stash the verified+augmented body for the handler — the body stream
@@ -7817,10 +7890,40 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           (event as any).context = (event as any).context ?? {};
           (event as any).context.__agentChatBackgroundBody = prepared.body;
 
+          // Durable owner context: this self-dispatch is cookieless (HMAC-only).
+          // Resolve the owner from the persisted run row, never the request body,
+          // then invoke the normal handler. The shared agent-run context helper
+          // expands that owner into the same user/org AsyncLocalStorage context the
+          // foreground request uses, so credential and data scoping stay aligned.
+          await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
+
           try {
             return await invokeAgentChatHandler(event);
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
+            captureError(err, {
+              route: AGENT_CHAT_PROCESS_RUN_PATH,
+              method: getMethod(event),
+              userAgent: getHeader(event, "user-agent"),
+              tags: {
+                source: "agent-chat-bg-worker",
+                phase: "process-run",
+              },
+              extra: {
+                runId: prepared.runId,
+              },
+            });
+            // DIAGNOSTIC: the worker invocation threw at the route boundary —
+            // record the message so the failure cause is readable client-side.
+            if (diag) {
+              await diag
+                .record(
+                  prepared.runId,
+                  diag.stages.routeThrew,
+                  err instanceof Error ? err.message : String(err),
+                )
+                .catch(() => {});
+            }
             setResponseStatus(event, 500);
             return { error: "process-run failed" };
           }

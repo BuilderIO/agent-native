@@ -11,8 +11,8 @@
  *   5. ask-agent is excluded from the connector tier.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as jose from "jose";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ---------------------------------------------------------------------------
 // Mocks (same pattern as server.spec.ts)

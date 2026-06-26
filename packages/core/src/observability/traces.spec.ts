@@ -1,4 +1,5 @@
 import { afterEach, describe, it, expect } from "vitest";
+
 import { instrumentAgentLoop, redactSensitiveFields } from "./traces.js";
 import {
   type AgentSpan,

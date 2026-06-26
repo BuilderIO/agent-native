@@ -22,16 +22,16 @@ import type {
   BookingLimits,
   PeriodType,
 } from "../shared/index.js";
+import { expandSlotForConflictCheck } from "./buffers.js";
+import { hasConflict, mergeBusy } from "./conflicts.js";
+import { exceedsLimits, type BookingCounts } from "./limits.js";
+import { evaluateAvailabilityForDate, type ScheduleInput } from "./rules.js";
 import {
   addMinutes,
   getDayOfWeek,
   zonedTimeToUtc,
   localDatesInRange,
 } from "./time.js";
-import { evaluateAvailabilityForDate, type ScheduleInput } from "./rules.js";
-import { hasConflict, mergeBusy } from "./conflicts.js";
-import { exceedsLimits, type BookingCounts } from "./limits.js";
-import { expandSlotForConflictCheck } from "./buffers.js";
 
 export interface ComputeSlotsInput {
   /** Event type duration, minutes */

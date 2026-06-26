@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { bookingOgImageResponseHeaders } from "./booking-og-response";
 
 describe("booking OG response headers", () => {

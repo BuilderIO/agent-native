@@ -1,6 +1,7 @@
-import type { CalendarEvent } from "../../shared/api.js";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { isBlockedToolUrl } from "@agent-native/core/tools/url-safety";
+
+import type { CalendarEvent } from "../../shared/api.js";
 
 /** Convert a webcal:// URL to https:// */
 function normalizeUrl(url: string): string {

@@ -3,9 +3,11 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { pathToFileURL } from "url";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runWorkspaceDeploy } from "./workspace-deploy.js";
+
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
+import { runWorkspaceDeploy } from "./workspace-deploy.js";
 
 let tmpDir: string;
 let previousAppBasePath: string | undefined;
@@ -1181,7 +1183,7 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
   });
 
-  it("emits a per-app -background function BY DEFAULT (flag unset) — base-path-scoped process-run route", async () => {
+  it("emits a per-app -background function BY DEFAULT (flag unset) at its DEFAULT url (no custom path)", async () => {
     // Default-on: the flag is unset (deleted in beforeEach) and the 15-min
     // `-background` function MUST still be emitted so the worker gets the real
     // long budget instead of overshooting the ~60s synchronous wall.
@@ -1196,7 +1198,8 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
 
     for (const app of ["dispatch", "starter"]) {
       const dest = backgroundFuncDir(app);
-      // Name MUST end in -background for Netlify async invocation.
+      // Name MUST end in -background for Netlify async invocation + the runtime
+      // guard. It is reached at its default url /.netlify/functions/<name>.
       expect(path.basename(dest).endsWith("-background")).toBe(true);
       // Shares the SAME built handler bundle (re-exports ./main.mjs); the
       // original Nitro entry is dropped.
@@ -1208,9 +1211,28 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         "utf8",
       );
       expect(entry).toContain('await import("./main.mjs")');
-      // The async function only claims the base-path-prefixed process-run POST.
+      // background: true → async invoke (202, 15-min budget).
+      expect(entry).toContain("background: true");
+      // DOC-CORRECT FIX: NO custom config.path key. The function keeps its
+      // default url /.netlify/functions/<app>-agent-background (a custom path
+      // would remove the default url; the overlapping framework-route path 404'd
+      // in prod). The entry REWRITES the incoming pathname to the
+      // base-path-prefixed _process-run route before delegating to the Nitro
+      // router. (Assert on the config key at line start, not the word "path" in
+      // comments/`url.pathname`.)
+      expect(entry).not.toMatch(/^\s*path:/m);
       expect(entry).toContain(
-        JSON.stringify([`/${app}/_agent-native/agent-chat/_process-run`]),
+        `const PROCESS_RUN_PATH = ${JSON.stringify(
+          `/${app}/_agent-native/agent-chat/_process-run`,
+        )}`,
+      );
+      expect(entry).toContain("url.pathname = PROCESS_RUN_PATH");
+      // The HMAC Authorization header + body must survive the rewrite.
+      expect(entry).toContain("await request.text()");
+      expect(entry).toContain("headers: request.headers");
+      // Marks the durable background runtime so the worker takes the 13-min budget.
+      expect(entry).toContain(
+        "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
       );
       expect(entry).toContain('includedFiles: ["**"]');
     }

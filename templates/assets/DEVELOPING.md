@@ -4,7 +4,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 
 ## Framework Basics
 
-**Client-side-first rendering:** This app uses React Router v7 framework mode with `ssr: true`, but all app content renders **client-side only**. The server renders only the HTML shell (meta tags, styles, scripts) plus a loading spinner. This is enforced by the `ClientOnly` wrapper in `root.tsx` — never remove it. Browser APIs (`window`, `localStorage`, `new Date()`) are safe to use anywhere in app code because components never run on the server.
+**Client-side-first rendering:** This app uses React Router v8 framework mode with `ssr: true`, but all app content renders **client-side only**. The server renders only the HTML shell (meta tags, styles, scripts) plus a loading spinner. This is enforced by the `ClientOnly` wrapper in `root.tsx` — never remove it. Browser APIs (`window`, `localStorage`, `new Date()`) are safe to use anywhere in app code because components never run on the server.
 
 **Do NOT fetch data server-side** in route loaders unless the page genuinely needs SEO/OG content. The standard pattern is: SSR renders the shell, client hydrates, and React reads/writes normal app data through actions with `useActionQuery` / `useActionMutation`.
 
@@ -106,8 +106,8 @@ Real credential values belong only in local `.env` files, deployment configurati
 
 ## Tech Stack
 
-- **Framework:** @agent-native/core + React Router v7 (framework mode)
-- **Frontend:** React 18, Vite, TailwindCSS, shadcn/ui
+- **Framework:** @agent-native/core + React Router v8 (framework mode)
+- **Frontend:** React 19, Vite, TailwindCSS, shadcn/ui
 - **Routing:** File-based via `flatRoutes()` — SSR shell + client rendering
 - **Backend:** Nitro (via @agent-native/core) — file-based API routing, server plugins, deploy-anywhere presets
 - **State:** SQL-backed (SSE for real-time updates)

@@ -8,11 +8,12 @@
  * route handlers (which read from the same in-memory Map).
  */
 
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
 import {
   createOnboardingPlugin,
   registerOnboardingStep,
 } from "@agent-native/core/onboarding";
-import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+
 import { s3FileUploadProvider } from "../lib/s3-upload-provider.js";
 import { hasRequestVideoStorage } from "../lib/video-storage.js";
 

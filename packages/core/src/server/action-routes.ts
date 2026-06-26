@@ -1,10 +1,3 @@
-/**
- * Auto-mount actions as HTTP endpoints under /_agent-native/actions/:name.
- *
- * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
- * defineAction to expose as GET. Use `http: false` to mark as agent-only.
- */
-import { getH3App } from "./framework-request-handler.js";
 import {
   defineEventHandler,
   setResponseStatus,
@@ -13,21 +6,29 @@ import {
   getQuery,
   getHeader,
 } from "h3";
-import type { ActionEntry } from "../agent/production-agent.js";
+
 import { isAgentActionStopError } from "../action.js";
+import type { ActionEntry } from "../agent/production-agent.js";
 import { readBody } from "../server/h3-helpers.js";
-import { runWithRequestContext } from "./request-context.js";
-import { notifyActionChange } from "./action-change.js";
-import {
-  getAllowedCorsOrigin as resolveAllowedCorsOrigin,
-  readCorsAllowedOrigins,
-} from "./cors-origins.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { notifyActionChange } from "./action-change.js";
+import {
+  getAllowedCorsOrigin as resolveAllowedCorsOrigin,
+  readCorsAllowedOrigins,
+} from "./cors-origins.js";
+/**
+ * Auto-mount actions as HTTP endpoints under /_agent-native/actions/:name.
+ *
+ * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
+ * defineAction to expose as GET. Use `http: false` to mark as agent-only.
+ */
+import { getH3App } from "./framework-request-handler.js";
+import { runWithRequestContext } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 
@@ -355,12 +356,16 @@ export function mountActionRoutes(
                 }
               }
 
-              // If the action returned a string, try to parse as JSON for a clean response
+              // If the action returned a string, try to parse as JSON for a
+              // clean response. Plain strings still need to go over the HTTP
+              // action transport as JSON, otherwise H3 sends text/plain and the
+              // browser action client rejects the successful 2xx response.
               if (typeof result === "string") {
                 try {
                   return JSON.parse(result);
                 } catch {
-                  return result;
+                  setResponseHeader(event, "Content-Type", "application/json");
+                  return JSON.stringify(result);
                 }
               }
 

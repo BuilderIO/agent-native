@@ -1,4 +1,4 @@
-import { useNavigate } from "react-router";
+import { CommandMenu, useT } from "@agent-native/core/client";
 import {
   IconInbox,
   IconStar,
@@ -21,10 +21,12 @@ import {
   IconAlarm,
   IconCheck,
 } from "@tabler/icons-react";
-import { CommandMenu } from "@agent-native/core/client";
 import { useTheme } from "next-themes";
+import { useNavigate } from "react-router";
+
 import { useSettings, useUpdateSettings } from "@/hooks/use-emails";
 import { getResolvedTheme } from "@/lib/theme";
+
 import changelog from "../../../CHANGELOG.md?raw";
 
 interface CommandPaletteProps {
@@ -42,31 +44,36 @@ interface CommandPaletteProps {
 
 const navCommands = [
   {
-    label: "Go to Inbox",
+    labelKey: "commandPalette.goToInbox",
     icon: IconInbox,
     route: "/inbox",
     shortcut: "G I",
   },
   {
-    label: "Go to Starred",
+    labelKey: "commandPalette.goToStarred",
     icon: IconStar,
     route: "/starred",
     shortcut: "G S",
   },
-  { label: "Go to Sent", icon: IconSend, route: "/sent", shortcut: "G T" },
   {
-    label: "Go to Drafts",
+    labelKey: "commandPalette.goToSent",
+    icon: IconSend,
+    route: "/sent",
+    shortcut: "G T",
+  },
+  {
+    labelKey: "commandPalette.goToDrafts",
     icon: IconFileText,
     route: "/drafts",
     shortcut: "G D",
   },
   {
-    label: "Go to Archive",
+    labelKey: "commandPalette.goToArchive",
     icon: IconArchive,
     route: "/archive",
     shortcut: "G A",
   },
-  { label: "Go to Trash", icon: IconTrash, route: "/trash" },
+  { labelKey: "commandPalette.goToTrash", icon: IconTrash, route: "/trash" },
 ];
 
 export function CommandPalette({
@@ -80,6 +87,7 @@ export function CommandPalette({
   onMuteThread,
   hasEmail,
 }: CommandPaletteProps) {
+  const t = useT();
   const navigate = useNavigate();
   const { resolvedTheme, setTheme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
@@ -91,23 +99,23 @@ export function CommandPalette({
     <CommandMenu
       open={open}
       onOpenChange={onOpenChange}
-      placeholder="Type a command or ask AI..."
+      placeholder={t("commandPalette.placeholder")}
       changelog={changelog}
       changelogKey="mail"
     >
-      <CommandMenu.Group heading="Actions">
+      <CommandMenu.Group heading={t("commandPalette.actions")}>
         <CommandMenu.Item
           onSelect={onCompose}
           keywords={["compose", "new", "write"]}
         >
           <IconPencil className="h-4 w-4" />
-          Compose new email
+          {t("commandPalette.compose")}
           <CommandMenu.Shortcut>C</CommandMenu.Shortcut>
         </CommandMenu.Item>
         {onReply && (
           <CommandMenu.Item onSelect={onReply} keywords={["reply", "respond"]}>
-            <IconCornerUpLeft className="h-4 w-4" />
-            Reply to thread
+            <IconCornerUpLeft className="h-4 w-4 rtl:-scale-x-100" />
+            {t("commandPalette.reply")}
             <CommandMenu.Shortcut>R</CommandMenu.Shortcut>
           </CommandMenu.Item>
         )}
@@ -117,7 +125,7 @@ export function CommandPalette({
             keywords={["snooze", "later", "remind"]}
           >
             <IconAlarm className="h-4 w-4" />
-            Snooze email
+            {t("commandPalette.snooze")}
             <CommandMenu.Shortcut>H</CommandMenu.Shortcut>
           </CommandMenu.Item>
         )}
@@ -126,7 +134,7 @@ export function CommandPalette({
           keywords={["search", "find"]}
         >
           <IconSearch className="h-4 w-4" />
-          Search emails
+          {t("commandPalette.search")}
           <CommandMenu.Shortcut>/</CommandMenu.Shortcut>
         </CommandMenu.Item>
         <CommandMenu.Item
@@ -134,12 +142,12 @@ export function CommandPalette({
           keywords={["refresh", "reload"]}
         >
           <IconRefresh className="h-4 w-4" />
-          Refresh inbox
+          {t("commandPalette.refresh")}
         </CommandMenu.Item>
         {onSpam && (
           <CommandMenu.Item onSelect={onSpam} keywords={["spam", "junk"]}>
             <IconShieldExclamation className="h-4 w-4" />
-            Report spam
+            {t("commandPalette.reportSpam")}
           </CommandMenu.Item>
         )}
         {onBlockSender && (
@@ -148,7 +156,7 @@ export function CommandPalette({
             keywords={["block", "spam"]}
           >
             <IconBan className="h-4 w-4" />
-            Report spam & block sender
+            {t("commandPalette.reportSpamBlock")}
           </CommandMenu.Item>
         )}
         {onMuteThread && (
@@ -157,22 +165,22 @@ export function CommandPalette({
             keywords={["mute", "silence"]}
           >
             <IconBellOff className="h-4 w-4" />
-            Mute thread
+            {t("commandPalette.muteThread")}
           </CommandMenu.Item>
         )}
       </CommandMenu.Group>
 
       <CommandMenu.Separator />
 
-      <CommandMenu.Group heading="Navigate">
+      <CommandMenu.Group heading={t("commandPalette.navigate")}>
         {navCommands.map((cmd) => (
           <CommandMenu.Item
             key={cmd.route}
             onSelect={() => navigate(cmd.route)}
-            keywords={[cmd.label.toLowerCase()]}
+            keywords={[t(cmd.labelKey).toLowerCase()]}
           >
             <cmd.icon className="h-4 w-4" />
-            {cmd.label}
+            {t(cmd.labelKey)}
             {cmd.shortcut && (
               <CommandMenu.Shortcut>{cmd.shortcut}</CommandMenu.Shortcut>
             )}
@@ -182,13 +190,13 @@ export function CommandPalette({
 
       <CommandMenu.Separator />
 
-      <CommandMenu.Group heading="Privacy">
+      <CommandMenu.Group heading={t("commandPalette.privacy")}>
         <CommandMenu.Item
           onSelect={() => updateSettings.mutate({ imagePolicy: "show" })}
           keywords={["images", "show"]}
         >
           <IconPhoto className="h-4 w-4" />
-          Images: Show all
+          {t("commandPalette.imagesShowAll")}
           {imagePolicy === "show" && (
             <CommandMenu.Shortcut>
               <IconCheck className="h-4 w-4" />
@@ -202,7 +210,7 @@ export function CommandPalette({
           keywords={["images", "trackers", "privacy"]}
         >
           <IconEye className="h-4 w-4" />
-          Images: Block known trackers
+          {t("commandPalette.imagesBlockTrackers")}
           {imagePolicy === "block-trackers" && (
             <CommandMenu.Shortcut>
               <IconCheck className="h-4 w-4" />
@@ -214,7 +222,7 @@ export function CommandPalette({
           keywords={["images", "block", "privacy"]}
         >
           <IconPhotoOff className="h-4 w-4" />
-          Images: Block all remote images
+          {t("commandPalette.imagesBlockAll")}
           {imagePolicy === "block-all" && (
             <CommandMenu.Shortcut>
               <IconCheck className="h-4 w-4" />
@@ -225,7 +233,7 @@ export function CommandPalette({
 
       <CommandMenu.Separator />
 
-      <CommandMenu.Group heading="Appearance">
+      <CommandMenu.Group heading={t("commandPalette.appearance")}>
         <CommandMenu.Item
           onSelect={() =>
             setTheme(
@@ -239,7 +247,9 @@ export function CommandPalette({
           ) : (
             <IconMoon className="h-4 w-4" />
           )}
-          Toggle {isDark ? "light" : "dark"} mode
+          {isDark
+            ? t("commandPalette.toggleLight")
+            : t("commandPalette.toggleDark")}
         </CommandMenu.Item>
       </CommandMenu.Group>
     </CommandMenu>

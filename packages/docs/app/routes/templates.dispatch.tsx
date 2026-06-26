@@ -1,7 +1,9 @@
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
 import { TemplateDocsLink } from "../components/template-docs";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -96,6 +98,7 @@ function CliCopy() {
 }
 
 export default function DispatchTemplate() {
+  const t = useT();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -118,7 +121,7 @@ export default function DispatchTemplate() {
             >
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            All Templates
+            {t("templateLanding.dispatch.s006")}
           </Link>
         </div>
 
@@ -133,13 +136,11 @@ export default function DispatchTemplate() {
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              Your agent's home base
+              {t("templateLanding.dispatch.s007")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Talk to your agent from Slack, Telegram, or any messenger and it
-              routes to your other apps. Jobs, memory, approvals, and A2A
-              delegation — all in one place.
+              {t("templateLanding.dispatch.s008")}
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -155,7 +156,7 @@ export default function DispatchTemplate() {
                   })
                 }
               >
-                Try It
+                {t("templateLanding.dispatch.s009")}
                 <svg
                   width="16"
                   height="16"
@@ -179,7 +180,7 @@ export default function DispatchTemplate() {
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
-              alt="Dispatch template screenshot"
+              alt={t("templateLanding.dispatch.s001")}
               className="w-full object-cover object-top"
             />
           </div>
@@ -190,10 +191,10 @@ export default function DispatchTemplate() {
       <section className="border-t border-[var(--docs-border)] py-16">
         <div className="mx-auto grid max-w-3xl gap-px overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--docs-border)] sm:grid-cols-4">
           {[
-            { number: "Slack", label: "+ Telegram" },
-            { number: "A2A", label: "Inter-agent" },
-            { number: "∞", label: "Memory" },
-            { number: "Cron", label: "Recurring jobs" },
+            { number: "Slack", label: t("templateLanding.dispatch.s002") },
+            { number: "A2A", label: t("templateLanding.dispatch.s003") },
+            { number: "∞", label: t("templateLanding.dispatch.s004") },
+            { number: "Cron", label: t("templateLanding.dispatch.s005") },
           ].map((stat) => (
             <div key={stat.label} className="bg-[var(--bg)] p-6 text-center">
               <div className="mb-1 text-2xl font-bold text-[var(--docs-accent)]">
@@ -210,11 +211,10 @@ export default function DispatchTemplate() {
       {/* Core capabilities */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          What you can do
+          {t("templateLanding.dispatch.s010")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          Dispatch is the messenger-facing front door for your whole
-          agent-native stack.
+          {t("templateLanding.dispatch.s011")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -234,8 +234,7 @@ export default function DispatchTemplate() {
             </div>
             <h3 className="mb-1 text-sm font-semibold">Slack &amp; Telegram</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Bidirectional messaging with thread context, Block Kit replies,
-              and inline approvals. Talk from anywhere.
+              {t("templateLanding.dispatch.s012")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -256,8 +255,7 @@ export default function DispatchTemplate() {
             </div>
             <h3 className="mb-1 text-sm font-semibold">A2A Delegation</h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Dispatch routes work to your other agent-native apps via the A2A
-              protocol. Mail, slides, design — all reachable from one chat.
+              {t("templateLanding.dispatch.s013")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -276,10 +274,11 @@ export default function DispatchTemplate() {
                 <polyline points="12 6 12 12 16 14" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Recurring Jobs</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.dispatch.s014")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Schedule the agent to run on a cron — daily standups, weekly
-              digests, hourly checks. Results land in your messenger.
+              {t("templateLanding.dispatch.s015")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
@@ -298,10 +297,11 @@ export default function DispatchTemplate() {
                 <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
               </svg>
             </div>
-            <h3 className="mb-1 text-sm font-semibold">Approvals</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.dispatch.s016")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Gate sensitive actions behind a one-tap approval in Slack.
-              Configure per action: send email, post update, run automation.
+              {t("templateLanding.dispatch.s017")}
             </p>
           </div>
         </div>
@@ -312,11 +312,10 @@ export default function DispatchTemplate() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Persistent Agent Memory
+              {t("templateLanding.dispatch.s018")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Dispatch remembers context across conversations, threads, and
-              channels. Tell it your preferences once — it carries them forward.
+              {t("templateLanding.dispatch.s019")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -333,7 +332,7 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Auto-captured learnings from every conversation
+                {t("templateLanding.dispatch.s020")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -349,7 +348,7 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Per-user, per-org, and global memory scopes
+                {t("templateLanding.dispatch.s021")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -365,15 +364,16 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Inspect and edit what the agent remembers
+                {t("templateLanding.dispatch.s022")}
               </li>
             </ul>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
-            <h3 className="mb-2 text-base font-semibold">Cross-App Routing</h3>
+            <h3 className="mb-2 text-base font-semibold">
+              {t("templateLanding.dispatch.s023")}
+            </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Dispatch is the hub. Connect your other agent-native apps and
-              every request gets routed to the agent that can do the job.
+              {t("templateLanding.dispatch.s024")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -390,7 +390,7 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Send a deck to the design team" → Slides agent
+                {t("templateLanding.dispatch.s025")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -406,7 +406,7 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Reply to the latest sales email" → Mail agent
+                {t("templateLanding.dispatch.s026")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -422,7 +422,7 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Summarize this quarter's events" → Analytics agent
+                {t("templateLanding.dispatch.s027")}
               </li>
             </ul>
           </div>
@@ -434,12 +434,10 @@ export default function DispatchTemplate() {
         <div className="grid gap-8 lg:grid-cols-2 lg:items-center">
           <div>
             <h2 className="mb-3 text-2xl font-bold tracking-tight">
-              Talk to your agent from anywhere
+              {t("templateLanding.dispatch.s028")}
             </h2>
             <p className="mb-6 text-base text-[var(--fg-secondary)]">
-              DM your agent on Slack at 7 AM, follow up from Telegram on the
-              train, get a Block Kit reply with an "Open thread" button to jump
-              into the full conversation.
+              {t("templateLanding.dispatch.s029")}
             </p>
             <ul className="m-0 list-none space-y-3 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -456,7 +454,7 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "What's on my calendar tomorrow?"
+                {t("templateLanding.dispatch.s030")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -472,7 +470,7 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Create a deck for the Monday all-hands"
+                {t("templateLanding.dispatch.s031")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -488,7 +486,7 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Run my morning standup at 9 AM each weekday"
+                {t("templateLanding.dispatch.s032")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -504,7 +502,7 @@ export default function DispatchTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                "Tell me when the deploy finishes"
+                {t("templateLanding.dispatch.s033")}
               </li>
             </ul>
           </div>
@@ -545,7 +543,7 @@ export default function DispatchTemplate() {
       {/* Comparison table */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          How it compares
+          {t("templateLanding.dispatch.s034")}
         </h2>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
@@ -556,7 +554,7 @@ export default function DispatchTemplate() {
                   Slack Bots
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Closed AI Assistants
+                  {t("templateLanding.dispatch.s035")}
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Dispatch
@@ -566,50 +564,70 @@ export default function DispatchTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Cross-app routing
+                  {t("templateLanding.dispatch.s036")}
                 </td>
-                <td className="px-5 py-3">Per-bot</td>
-                <td className="px-5 py-3">Single product</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.dispatch.s037")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.dispatch.s038")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
                   A2A to any agent-native app
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Memory
+                  {t("templateLanding.dispatch.s004")}
                 </td>
                 <td className="px-5 py-3">None</td>
-                <td className="px-5 py-3">Vendor-defined</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.dispatch.s039")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Persistent, scoped, inspectable
+                  {t("templateLanding.dispatch.s040")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Recurring jobs
+                  {t("templateLanding.dispatch.s005")}
                 </td>
-                <td className="px-5 py-3">Custom code</td>
-                <td className="px-5 py-3">Limited</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.dispatch.s041")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.dispatch.s042")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
                   Cron + agent loop
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Customization
+                  {t("templateLanding.dispatch.s043")}
                 </td>
-                <td className="px-5 py-3">SDK plumbing</td>
-                <td className="px-5 py-3">Closed</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Full source code</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.dispatch.s044")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.dispatch.s045")}
+                </td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.dispatch.s046")}
+                </td>
               </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Pricing
+                  {t("templateLanding.dispatch.s047")}
                 </td>
-                <td className="px-5 py-3">Per-app fees</td>
-                <td className="px-5 py-3">$20+/mo per seat</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.dispatch.s048")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.dispatch.s049")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Free &amp; open source
+                  {t("templateLanding.dispatch.s050")}
                 </td>
               </tr>
             </tbody>
@@ -620,11 +638,10 @@ export default function DispatchTemplate() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Get started in minutes
+          {t("templateLanding.dispatch.s051")}
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template, connect Slack or Telegram, and put your agent in
-          every conversation.
+          {t("templateLanding.dispatch.s052")}
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
@@ -632,14 +649,14 @@ export default function DispatchTemplate() {
             location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the docs
+            {t("templateLanding.dispatch.s053")}
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            View all templates
+            {t("templateLanding.dispatch.s054")}
           </Link>
         </div>
       </section>

@@ -195,6 +195,43 @@ describe("uploadRecapImage — success on first try (fake fetch)", () => {
     expect(calls[0].method).toBe("POST");
     expect(calls[0].url).toContain("/_agent-native/recap-image");
   });
+
+  it("returns and preflights the cache-busted image URL when a cache key is supplied", async () => {
+    const pngPath = path.join(tmpDir, "test.png");
+    fs.writeFileSync(pngPath, Buffer.from([137, 80, 78, 71]));
+
+    const { fetchFn } = makeFakeFetch([
+      {
+        urlPattern: "/_agent-native/recap-image",
+        method: "POST",
+        response: () =>
+          jsonResp({
+            imageUrl:
+              "https://plan.agent-native.com/_agent-native/recap-image/" +
+              `${"a".repeat(64)}.png`,
+          }),
+      },
+    ]);
+    const waitedOn: string[] = [];
+
+    const result = await uploadRecapImage({
+      appUrl: "https://plan.agent-native.com",
+      token: "tok-test",
+      pngPath,
+      cacheKey: "28162728843-1",
+      fetchFn,
+      waitFn: async ({ imageUrl }) => {
+        waitedOn.push(imageUrl);
+        return true;
+      },
+    });
+
+    expect(result).toBe(
+      "https://plan.agent-native.com/_agent-native/recap-image/" +
+        `${"a".repeat(64)}.png?v=28162728843-1`,
+    );
+    expect(waitedOn).toEqual([result]);
+  });
 });
 
 describe("uploadRecapImage — upload failure returns null and logs stderr", () => {

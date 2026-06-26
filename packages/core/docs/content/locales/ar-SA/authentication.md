@@ -1,0 +1,332 @@
+---
+title: "المصادقة"
+description: "تكامل أفضل للمصادقة مع البريد الإلكتروني/كلمة المرور ومقدمي الخدمات الاجتماعية والمؤسسات وبيانات اعتماد حامل MCP."
+---
+
+# المصادقة
+
+تستخدم التطبيقات الأصلية للوكيل [Better Auth](https://better-auth.com) للمصادقة من خلال تصميم الحساب أولاً. يقوم المستخدمون بإنشاء حساب عند الزيارة الأولى ويحصلون على هوية حقيقية من اليوم الأول.
+
+## نظرة عامة {#overview}
+
+يتم تكوين المصادقة تلقائيًا عبر `autoMountAuth(app)` في البرنامج الإضافي لخادم المصادقة. هناك ثلاثة أوضاع:
+
+- **الافتراضي:** مصادقة أفضل باستخدام البريد الإلكتروني/كلمة المرور + مقدمي خدمات التواصل الاجتماعي. تظهر صفحة الإعداد عند الزيارة الأولى.
+- **جهاز التحكم عن بعد MCP OAuth:** معيار OAuth 2.1 لمضيفي MCP مثل Claude Code وموصلات ChatGPT.
+- **مخصص:** قم بإحضار المصادقة الخاصة بك عبر رد الاتصال `getSession`.
+
+```an-diagram title="ثلاث طرق في جلسة واحدة" summary="يقوم كل زوار المستعرض وعملاء MCP الآليين والموفرين المخصصين بالتوصل إلى نفس AuthSession الذي يقرأه النطاق النهائي."
+{
+  "html": "<div class=\"auth-modes\"><div class=\"diagram-col\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">تقصير</span><strong>مصادقة أفضل</strong><small class=\"diagram-muted\">email/password &middot; جوجل &middot; جيثب</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">جهاز التحكم عن بعد MCP OAuth</span><strong>OAuth 2.1 + MCP</strong><small class=\"diagram-muted\">موصلات Claude Code، ChatGPT</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">مخصص</span><strong>رد اتصال getSession</strong><small class=\"diagram-muted\">موظف &middot; مصادقة0 &middot; Firebase</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">AuthSession</span><small class=\"diagram-muted\">بريد إلكتروني &middot; orgId &middot; orgRole</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">سياق الطلب &amp; نطاق البيانات</div></div>",
+  "css": ".auth-modes{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.auth-modes .diagram-col{display:flex;flex-direction:column;gap:10px}.auth-modes .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.auth-modes .diagram-arrow{font-size:22px;line-height:1}.auth-modes .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+تدفق المتصفح هو نفس تدفق المصادقة الأفضل في كل مكان - لا يوجد **تجاوز مصادقة التطوير**، ولا يعود `getSession()` أبدًا إلى حارس `local@localhost`. ما يتغير بين البيئات هو احتكاك الاشتراك، وليس جدار تسجيل الدخول:
+
+| البيئة                  | سلوك التحميل الأول                                                                     | التحقق من البريد الإلكتروني                                |
+| ----------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| **التطوير المحلي**      | إنشاء حساب مطور سريعًا تلقائيًا وتسجيل دخولك (بدون جدار تسجيل الدخول)                  | يتم تخطيه افتراضيًا (وفي حالة عدم وجود مزود بريد إلكتروني) |
+| **سؤال وجواب / معاينة** | اشتراك عادي، ولكن يمكن تخطي عملية التحقق حتى لا ينتظر المختبرون وصول البريد الإلكتروني | التخطي باستخدام `AUTH_SKIP_EMAIL_VERIFICATION=1`           |
+| **الإنتاج**             | تسجيل/تسجيل مصادقة أفضل عادي                                                           | مطلوب (عند تكوين موفر البريد الإلكتروني)                   |
+
+تقوم بعض الأعلام بضبط هذا؛ التفاصيل الكاملة موجودة في جدول [Environment Variables](#environment-variables):
+
+- `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — استخدم صفحة التسجيل العادية في حساب التطوير المحلي بدلاً من حساب التطوير التلقائي.
+- `AUTH_DISABLED=true` - تخطي تسجيل الدخول/الاشتراك بالكامل وتشغيل كل طلب كمستخدم مشترك واحد (التطوير المحلي / المعاينات / العروض التوضيحية فقط، لا يتم الإنتاج مطلقًا مع مستخدمين حقيقيين).
+- `AUTH_MODE=local` - يؤثر فقط على هوية CLI/الوكيل (التي يعمل بها مستخدم التطوير `pnpm action`)؛ إنه **ليس** تجاوزًا لتسجيل الدخول إلى المتصفح.
+
+```an-callout
+{
+  "tone": "warning",
+  "body": "`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone."
+}
+```
+
+## مصادقة أفضل (افتراضي) {#better-auth}
+
+بشكل افتراضي، تقوم Better Auth بتشغيل المصادقة. ويقدم:
+
+- تسجيل البريد الإلكتروني/كلمة المرور وتسجيل الدخول
+- مقدمو الخدمات الاجتماعية (Google، وGitHub، وأكثر من 35 آخرين)
+- المؤسسات ذات الأدوار والدعوات
+- رموز JWT للوصول إلى API وA2A
+- دعم الرمز المميز للعملاء الآليين
+
+تم تثبيت مسارات المصادقة الأفضل على `/_agent-native/auth/ba/*`. يوفر إطار العمل أيضًا نقاط نهاية متوافقة مع الإصدارات السابقة:
+
+- `GET /_agent-native/auth/session` — احصل على الجلسة الحالية
+- `POST /_agent-native/auth/login` — تسجيل الدخول بالبريد الإلكتروني/كلمة المرور
+- `POST /_agent-native/auth/register` — إنشاء حساب
+- `POST /_agent-native/auth/logout` — تسجيل الخروج
+
+## مجالات ملفات تعريف الارتباط {#cookie-realms}
+
+يتبع مجال ملف تعريف الارتباط للجلسة شكل النشر، لذا فإن التطبيقات التي تشترك في
+تسجيل الدخول إلى قاعدة البيانات/مشاركة الأصل والتطبيقات التي لا تظل معزولة:
+
+| شكل النشر                                      | مجال ملفات تعريف الارتباط                                                                                                    |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| تطبيق مستقل                                    | معزولة لكل تطبيق بواسطة سبيكة (`APP_NAME`، أو اسم الحزمة في المطور المحلي)؛ بادئة `an` مستقرة في الإنتاج                     |
+| وضع مساحة العمل (`AGENT_NATIVE_WORKSPACE=1`)   | عالم مشترك واحد - تشترك تطبيقات مساحة العمل في الأصل وقاعدة البيانات                                                         |
+| النطاقات الفرعية المخصصة لقاعدة البيانات نفسها | اشتراك في ملفات تعريف الارتباط المشتركة مع `COOKIE_DOMAIN`                                                                   |
+| استضافة الطرف الأول (`*.agent-native.com`)     | مساحة اسم معزولة لكل تطبيق (لكل تطبيق قاعدة بيانات مصادقة خاصة به)؛ يتم تجاهل `COOKIE_DOMAIN=.agent-native.com` بشكل افتراضي |
+
+يحتوي كل من التطبيقات المستضافة من الطرف الأول على قاعدة بيانات مصادقة خاصة به، لذا فإن تسجيل الدخول عبر التطبيقات
+يمر عبر [Cross-App SSO](/docs/cross-app-sso) بدلاً من ملف تعريف الارتباط المشترك.
+يجب أن توفر عمليات النشر هذه `APP_NAME` أو تطبيق مشتق URL (`APP_URL`, `URL`,
+`DEPLOY_PRIME_URL`، أو `DEPLOY_URL`)؛ وإلا فسيفشل بدء التشغيل بدلاً من السقوط
+الرجوع إلى اسم `an_session` المشترك. لمشاركة قاعدة بيانات مصادقة واحدة عن قصد
+عبر النطاقات الفرعية، قم بتعيين `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` جنبًا إلى جنب مع
+`COOKIE_DOMAIN`.
+
+## حسابات ضمان الجودة {#qa-accounts}
+
+تتخطى عمليات التطوير والاختبارات المحلية التحقق من البريد الإلكتروني للتسجيل بشكل افتراضي، لذا
+إنشاء حسابات بريد إلكتروني/كلمات مرور حقيقية دون انتظار البريد الوارد. للقوة
+التحقق محليًا أثناء اختبار هذا التدفق، قم بتعيين `AUTH_SKIP_EMAIL_VERIFICATION=0`.
+
+بالنسبة لبيئات ضمان الجودة المستضافة حيث يحتاج المختبرون إلى حسابات حقيقية ولكن لا ينبغي عليهم الانتظار
+عند تسليم البريد الإلكتروني، قم بتعيين:
+
+```bash
+AUTH_SKIP_EMAIL_VERIFICATION=1
+```
+
+عند تعيين هذه العلامة، لا يتطلب الاشتراك بالبريد الإلكتروني/كلمة المرور بريدًا إلكترونيًا
+لم يتم إرسال التحقق والبريد الإلكتروني للتحقق من الاشتراك. استخدمه فقط من أجل ضمان الجودة
+أو معاينة البيئات، وتسمية حسابات الاختبار بعنوان `+qa`
+(`name+qa@example.com`) حتى يسهل التعرف عليها.
+
+## مقدمو الخدمات الاجتماعية {#social-providers}
+
+قم بتعيين متغيرات البيئة لتمكين تسجيل الدخول الاجتماعي. تكتشفها المصادقة الأفضل تلقائيًا:
+
+```bash
+# Google OAuth
+GOOGLE_SIGN_IN_CLIENT_ID=your-low-scope-sign-in-client-id
+GOOGLE_SIGN_IN_CLIENT_SECRET=your-low-scope-sign-in-client-secret
+
+# احتياطي متوافق مع الإصدارات السابقة وبيانات اعتماد الموفر OAuth للقوالب
+# التي تتصل بـ Google واجهات برمجة التطبيقات مثل Gmail أو Calendar.
+GOOGLE_CLIENT_ID=your-client-id
+GOOGLE_CLIENT_SECRET=your-client-secret
+
+# GitHub OAuth
+GITHUB_CLIENT_ID=your-client-id
+GITHUB_CLIENT_SECRET=your-client-secret
+```
+
+تعرض النماذج التي تستخدم `createGoogleAuthPlugin()` صفحة "تسجيل الدخول باستخدام Google". يعالج رد الاتصال Google OAuth الارتباط العميق للجوال للتطبيقات الأصلية تلقائيًا.
+
+يُفضل `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` للوضع العادي
+تسجيل الدخول للتطبيق. يجب أن يطلب هذا العميل نطاقات الهوية فقط. احتفظ
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` لعمليات تكامل المنتجات التي تحتاج إلى
+نطاقات Google API، أو كبديل قديم عندما لا يتم تقسيم النشر
+حتى الآن. يجب أن تستخدم تطبيقات البريد والتقويم عملاء المزودين الخاصين بها OAuth لذلك
+لا تؤثر شاشات الموافقة واسعة النطاق على تسجيل الدخول العام إلى التطبيق.
+
+### توقيع الحالة OAuth {#oauth-state-secret}
+
+قم بتعيين `OAUTH_STATE_SECRET` على قيمة عشوائية تزيد عن 32 حرفًا في الإنتاج، بحيث تكون مظاريف الحالة OAuth (Google وAtlassian وZoom) موقعة بـ HMAC بمفتاح مخصص مستقل عن أي سر لجهة خارجية. راجع [Security — OAuth State Signing](/docs/security#oauth-state) للاطلاع على المتطلبات الكاملة ونموذج التهديد.
+
+## المنظمات {#organizations}
+
+يوفر إطار العمل نظامًا تنظيميًا مدمجًا. هذه هي وحدة `org/` الخاصة بإطار العمل - والمدعومة بجداول `organizations` و`org_members` - وليست مكونًا إضافيًا لمؤسسة Better Auth، والذي لم يتم تسجيله عمدًا. يدعم كل تطبيق:
+
+- إنشاء المنظمات
+- دعوة الأعضاء بأدوار (`owner`، `admin`، `member`)
+- تبديل المؤسسة النشطة
+- تحديد نطاق البيانات لكل مؤسسة عبر أعمدة `org_id`
+
+يتم تعقب المؤسسة النشطة في الجلسة باسم `session.orgId`، ويؤدي تبديل المؤسسات إلى تغيير البيانات التي يراها المستخدم والوكيل. يحدث تحديد نطاق البيانات نفسه في أسفل المكدس - راجع [Security & Data Scoping](/docs/security#data-scoping) للتعرف على خط أنابيب `session.orgId → AGENT_ORG_ID → SQL` الكامل ووحدات حماية الوصول. تغطي مستندات [Multi-Tenancy](/docs/multi-tenancy) سطح إدارة المؤسسة.
+
+## رموز حامل MCP الثابتة {#access-tokens}
+
+`ACCESS_TOKEN` و`ACCESS_TOKENS` ليسا بمثابة مصادقة للمتصفح ولا يجعلان التطبيق خاصًا. وتظل فقط بمثابة بيانات اعتماد حامل ثابتة لعملاء MCP/connect الذين لا يمكنهم استخدام تدفق OAuth.
+
+```bash
+# رمز مميز واحد
+ACCESS_TOKEN=my-secret-token
+
+# رموز مميزة متعددة
+ACCESS_TOKENS=token1,token2,token3
+```
+
+لا يؤدي تكوين هذه المتغيرات أبدًا إلى عرض صفحة تسجيل دخول مميزة للزائرين. يظل تسجيل الدخول عبر الويب على Better Auth أو موفر `getSession` المخصص لديك.
+
+## جهاز التحكم عن بعد MCP OAuth {#remote-mcp-oauth}
+
+يمكن أن تعمل نقطة نهاية MCP لكل تطبيق كمورد MCP قياسي محمي. يمكن تكوين العملاء القادرين على OAuth باستخدام MCP URL البعيد فقط:
+
+```text
+https://mail.agent-native.com/_agent-native/mcp
+```
+
+تقوم طلبات MCP غير المصادق عليها بإرجاع تحدي `WWW-Authenticate` الذي يشير إلى `/.well-known/oauth-protected-resource`. يكتشف العميل بعد ذلك بيانات تعريف OAuth الخاصة بالتطبيق، ويسجل عميلًا عامًا ديناميكيًا، ويفتح صفحة ترخيص التطبيق، ويتبادل رمز التفويض مع PKCE للوصول إلى الرموز المميزة وتحديثها.
+
+```an-diagram title="البعيد MCP OAuth المصافحة" summary="يبدأ تشغيل العميل القادر على OAuth من مجرد التحدي MCP URL - والاكتشاف والتسجيل الديناميكي، ثم تبادل التعليمات البرمجية PKCE."
+{
+  "html": "<div class=\"mcp-flow\"><div class=\"diagram-node\">1 &middot; طلب MCP<br><small class=\"diagram-muted\">لا رمز</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node warn\">2 &middot; تحدي 401<br><small class=\"diagram-muted\">WWW-Authenticate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">3 &middot; اكتشف البيانات الوصفية<br><small class=\"diagram-muted\">.well-known</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">4 &middot; تسجيل العميل<br><small class=\"diagram-muted\">ديناميكية، عامة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">5 &middot; تفويض + MCP<br><small class=\"diagram-muted\">تبادل الكود</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">6 &middot; الوصول + التحديث<br><small class=\"diagram-muted\">audience-bound</small></div></div>",
+  "css": ".mcp-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.mcp-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:8px 12px}.mcp-flow .diagram-arrow{font-size:20px;line-height:1}"
+}
+```
+
+يتم توقيع رموز الوصول باستخدام `A2A_SECRET` عند تعيينها، وإلا مع `BETTER_AUTH_SECRET`. وهي تحمل هوية المستخدم/المؤسسة الموقعة ونطاقات `mcp:read` و/أو `mcp:write` و/أو `mcp:apps`، وهي مرتبطة بالجمهور بمورد MCP الدقيق URL. يتم تخزين رموز التحديث فقط كتجزئة ويتم تدويرها عند كل تحديث. يتم تشغيل استدعاءات الأدوات وقراءات موارد تطبيقات MCP داخل نفس سياق الطلب مثل المستخدم الذي قام بتسجيل الدخول؛ لا يتلقى إطار iframe لتطبيق MCP المضمن رموز OAuth الأولية أبدًا.
+
+يكتب `npx @agent-native/core@latest connect <url> --client claude-code` إدخال URL فقط MCP لهذا التدفق القياسي. بالنسبة للعملاء الذين لا يمكنهم تنفيذ MCP OAuth عن بعد، استخدم صفحة الاتصال أو البديل `npx @agent-native/core@latest connect --token <token>` لكتابة إدخال صريح للرمز المميز للحامل.
+
+## إحضار المصادقة الخاصة بك {#byoa}
+
+قم بتمرير رد اتصال `getSession` مخصص لاستخدام أي موفر مصادقة (Clerk، Auth0، Firebase، وما إلى ذلك):
+
+```ts
+// server/plugins/auth.ts
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  getSession: async (event) => {
+    // Your custom auth logic here
+    const session = await myAuthProvider.verify(event);
+    if (!session) return null;
+    return { email: session.email };
+  },
+  publicPaths: ["/api/webhooks"],
+});
+```
+
+## تطبيقات مساحة العمل العامة {#public-workspace-apps}
+
+تعتبر تطبيقات مساحة العمل داخلية بشكل افتراضي. للسماح للزائرين المجهولين بتحميل ملف عام
+الموقع مع الاحتفاظ بصفحات الإدارة خلف المصادقة، قم بإعلان الوصول إلى المسار
+`apps/<id>/package.json`:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public",
+      "protectedPaths": ["/admin"]
+    }
+  }
+}
+```
+
+بالنسبة للشكل المعكوس، احتفظ بالجمهور الداخلي الافتراضي واعرضه فقط
+صفحات عامة محددة:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "publicPaths": ["/", "/share"]
+    }
+  }
+}
+```
+
+يستخدم `publicPaths` و`protectedPaths` مطابقة البادئات، لذا فإن `"/admin"` أيضًا
+يغطي `"/admin/users"`. تفتح هذه الإعدادات التنقل في الصفحة فقط. الإطار
+لا تزال المسارات (`/_agent-native/*`) ومسارات API المخصصة (`/api/*`) بحاجة إلى مصادقة
+ما لم يضيف التطبيق هذه البادئات بشكل صريح إلى
+`createAuthPlugin({ publicPaths: [...] })`.
+
+## الجلسة API {#session-api}
+
+كائن الجلسة الذي تم إرجاعه بواسطة `getSession(event)` له هذا الشكل:
+
+```ts
+interface AuthSession {
+  email: string; // User's email (primary identifier)
+  userId?: string; // Better Auth user ID
+  token?: string; // Session token
+  name?: string; // Display name from the auth provider, when available
+  image?: string; // Profile image from the auth provider, when available
+  orgId?: string; // Active organization ID
+  orgRole?: string; // Role in active org (owner/admin/member)
+}
+```
+
+على العميل، استخدم الخطاف `useSession()`:
+
+```ts
+import { useSession } from "@agent-native/core/client";
+
+function MyComponent() {
+  const { session, isLoading } = useSession();
+  if (isLoading) return <p>Loading...</p>;
+  if (!session) return <p>Not signed in</p>;
+  return <p>Hello, {session.email}</p>;
+}
+```
+
+## تسجيل الدخول باستخدام Return URL {#sign-in-return-url}
+
+النماذج التي تحتوي على **صفحات عامة** (مشاركة الروابط والتضمينات وصفحات التسويق) غالبًا ما تحتاج إلى CTA داخل الصفحة والذي يطلب من المشاهدين المجهولين تسجيل الدخول وإعادتهم إلى الصفحة التي كانوا فيها. يوفر إطار العمل نقطة دخول واحدة لهذا:
+
+```
+/_agent-native/sign-in?return=<same-origin-path>
+```
+
+عندما يصل عارض مجهول إلى URL، يتم عرض صفحة تسجيل الدخول الخاصة بإطار العمل. بعد تسجيل الدخول بنجاح (أي تدفق — الرمز المميز أو البريد الإلكتروني/كلمة المرور أو Google OAuth)، يتم تحويل العارض إلى `return`.
+
+تم التحقق من صحة المعلمة `return` باعتبارها **مسارًا من نفس الأصل**. مراجع مسار الشبكة (`//evil.com/...`)، وURLs المطلقة، ومخططات `data:` / `javascript:`، وأحرف التحكم المضمنة كلها تعود إلى `/`. تتم إعادة إنشاء المسار الذي تم التحقق من صحته من المحلل اللغوي URL، ولم يتم تكراره مرة أخرى من الإدخال.
+
+**من مكون React:**
+
+```tsx
+import { Button } from "@/components/ui/button";
+
+function SignInCta() {
+  const onClick = () => {
+    const ret = window.location.pathname + window.location.search;
+    window.location.href =
+      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+  };
+  return <Button onClick={onClick}>Sign in</Button>;
+}
+```
+
+### المسارات الخاصة ذات الإشارات المرجعية
+
+عندما ينتقل مستخدم مجهول مباشرة إلى مسار خاص مثل `/dashboard`، فإن إطار العمل يخدم بالفعل صفحة تسجيل الدخول في URL - بعد تسجيل الدخول الناجح، تتم إعادة تحميل الصفحة ويصل المستخدم إلى `/dashboard`. لا حاجة إلى معالجة خاصة؛ يعمل هذا مع الرمز المميز والبريد الإلكتروني/كلمة المرور و**و**Google OAuth.
+
+### خلف الكواليس: Google OAuth
+
+يربط كلا التدفقين (نقطة الدخول `/_agent-native/sign-in` الصريحة وحالة المسار ذي الإشارة المرجعية) الإرجاع URL خلال حالة OAuth. الولاية موقعة بـ HMAC، لذا لا يمكن تزويرها أثناء النقل. في رد الاتصال، تتم إعادة التحقق من صحة الإرجاع URL باعتباره نفس الأصل قبل إعادة التوجيه - لذلك لا يزال من غير الممكن تحويل مفتاح التوقيع المسرب إلى أوراكل إعادة توجيه مفتوحة.
+
+إذا كان القالب الخاص بك يلتف حول `/_agent-native/google/auth-url` مباشرةً (على سبيل المثال، تقوم قوالب البريد والتقويم بذلك لتوسيع النطاقات)، فاقبل استعلام `?return=<path>` وأعد توجيهه عبر نموذج كائن الخيارات `encodeOAuthState`:
+
+```ts
+const returnUrl = getQuery(event).return;
+const state = encodeOAuthState({
+  redirectUri,
+  desktop,
+  returnUrl: typeof returnUrl === "string" ? returnUrl : undefined,
+});
+```
+
+يقوم مسار `/_agent-native/google/auth-url` الافتراضي بذلك تلقائيًا - ولا يتم التجاوز إلا إذا كان القالب الخاص بك يحتاج إلى معالجة OAuth مخصصة.
+
+## متغيرات البيئة {#environment-variables}
+
+| متغير                                   | الغرض                                                                                                                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `BETTER_AUTH_SECRET`                    | مفتاح التوقيع لمصادقة أفضل (يتم إنشاؤه تلقائيًا إذا لم يتم تعيينه)                                                                                                       |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | قم بالتعيين على `1` في بيئات ضمان الجودة/المعاينة للسماح بمتابعة عمليات الاشتراك في البريد الإلكتروني/كلمة المرور دون التحقق؛ يتم تخطي التطوير/الاختبار المحلي افتراضيًا |
+| `AUTH_DISABLED`                         | اضبط على `true` أو `1` لتخطي تسجيل الدخول/الاشتراك؛ يتم تشغيل جميع الطلبات كمستخدم واحد مشترك (للتطوير/المعاينة المحلية فقط - وليس للإنتاج مع مستخدمين حقيقيين)          |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | اضبط على `1` لتعطيل تسجيل الدخول التلقائي للمضيف المحلي في قاعدة بيانات جديدة للمطورين                                                                                   |
+| `AUTH_MODE`                             | يحل `local` هوية CLI/الوكيل فقط (الذي يعمل عليه مستخدم التطوير `pnpm action`)؛ لا تقم أبدًا بتجاوز تسجيل الدخول إلى المتصفح                                              |
+| `COOKIE_DOMAIN`                         | الاشتراك في ملفات تعريف الارتباط للجلسة المشتركة عبر النطاقات الفرعية لقاعدة البيانات نفسها (راجع [Cookie Realms](#cookie-realms))                                       |
+| `AGENT_NATIVE_WORKSPACE`                | يتم تشغيل `1` في وضع مساحة العمل — نطاق جلسة مشتركة واحدة عبر تطبيقات مساحة العمل                                                                                        |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | قم بالتعيين باستخدام `COOKIE_DOMAIN` لمشاركة قاعدة بيانات مصادقة واحدة عبر النطاقات الفرعية للطرف الأول                                                                  |
+| `OAUTH_STATE_SECRET`                    | مفتاح HMAC مخصص لمظاريف حالة OAuth (راجع [Security — OAuth State Signing](/docs/security#oauth-state))                                                                   |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | معرف عميل Google OAuth المفضل لتسجيل الدخول إلى التطبيق                                                                                                                  |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | سر Google OAuth المفضل منخفض النطاق لتسجيل الدخول إلى التطبيق                                                                                                            |
+| `GOOGLE_CLIENT_ID`                      | الإجراء الاحتياطي القديم لتسجيل الدخول إلى Google، ومعرف العميل OAuth للموفر لعمليات تكامل Google API                                                                    |
+| `GOOGLE_CLIENT_SECRET`                  | الإجراء الاحتياطي القديم لتسجيل الدخول إلى Google، وسر الموفر OAuth لعمليات تكامل Google API                                                                             |
+| `GITHUB_CLIENT_ID`                      | تمكين GitHub OAuth                                                                                                                                                       |
+| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth سر                                                                                                                                                          |
+| `ACCESS_TOKEN`                          | الحامل الاحتياطي الثابت لعملاء MCP/connect؛ ليست مصادقة المتصفح                                                                                                          |
+| `ACCESS_TOKENS`                         | احتياطيات حامل ثابت مفصولة بفواصل لعملاء MCP/connect؛ ليست مصادقة المتصفح                                                                                                |
+| `A2A_SECRET`                            | السر المشترك للتحقق من هوية A2A عبر التطبيقات الموقعة بواسطة JWT، وتوقيع رمز الوصول MCP OAuth، عند وجوده،                                                                |

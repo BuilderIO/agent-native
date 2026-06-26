@@ -25,6 +25,8 @@ const Views = [
   "archive",
   "trash",
   "record",
+  "bug-report",
+  "bug-report-done",
   "recording",
   "meetings",
   "meeting",

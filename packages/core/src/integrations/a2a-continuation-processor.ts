@@ -1,14 +1,12 @@
-import { A2AClient, signA2AToken } from "../a2a/client.js";
 import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
+import { A2AClient, signA2AToken } from "../a2a/client.js";
 import type { Task } from "../a2a/types.js";
-import { withConfiguredAppBasePath } from "../server/app-base-path.js";
-import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
-import { signInternalToken } from "./internal-token.js";
-import type { PlatformAdapter } from "./types.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import {
   claimA2AContinuation,
   claimA2AContinuationDelivery,
@@ -19,6 +17,8 @@ import {
   rescheduleA2AContinuation,
   type A2AContinuation,
 } from "./a2a-continuations-store.js";
+import { signInternalToken } from "./internal-token.js";
+import type { PlatformAdapter } from "./types.js";
 
 const PROCESSOR_PATH = `${FRAMEWORK_ROUTE_PREFIX}/integrations/process-a2a-continuation`;
 const TERMINAL_STATES = new Set(["completed", "failed", "canceled"]);

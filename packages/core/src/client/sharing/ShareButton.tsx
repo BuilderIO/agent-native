@@ -1,17 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
-import type {
-  KeyboardEvent as ReactKeyboardEvent,
-  UIEvent as ReactUIEvent,
-} from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
   IconBuilding,
@@ -25,17 +12,31 @@ import {
   IconSearchOff,
   IconShare3,
 } from "@tabler/icons-react";
-import * as Select from "@radix-ui/react-select";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type {
+  KeyboardEvent as ReactKeyboardEvent,
+  UIEvent as ReactUIEvent,
+} from "react";
+
+import { agentNativePath } from "../api-path.js";
+import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
   PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { writeClipboardText } from "../clipboard.js";
 import { useActionQuery, useActionMutation } from "../use-action.js";
 import { cn } from "../utils.js";
-import { agentNativePath } from "../api-path.js";
 
 export interface ShareButtonProps {
   resourceType: string;
@@ -1028,7 +1029,7 @@ function AdvancedAccessPopover({
             disabled={!canManage || control.pending}
             onClick={onToggle}
             className={cn(
-              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-background px-3 py-2.5 text-left transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
+              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-background px-3 py-2.5 text-start transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
               control.checked && "border-border bg-accent/35 text-foreground",
             )}
           >
@@ -1181,7 +1182,7 @@ function MemberAutocomplete({
             aria-hidden
             size={15}
             strokeWidth={1.8}
-            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
           />
           <input
             ref={inputRef}
@@ -1209,14 +1210,14 @@ function MemberAutocomplete({
             }}
             onKeyDown={handleKeyDown}
             autoComplete="off"
-            className="h-9 w-full min-w-0 rounded-md border border-input bg-background pl-8 pr-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+            className="h-9 w-full min-w-0 rounded-md border border-input bg-background ps-8 pe-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
           />
           {search.isLoading ? (
             <IconLoader2
               aria-hidden
               size={15}
               strokeWidth={1.8}
-              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground"
+              className="pointer-events-none absolute end-2.5 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground"
             />
           ) : null}
         </div>
@@ -1377,7 +1378,7 @@ function CopyLinkField({
 const selectContentClass =
   "z-[2100] min-w-[12rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0";
 const selectItemClass =
-  "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 pl-8 pr-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
+  "relative flex w-full cursor-pointer select-none items-start gap-2 rounded-sm py-2 ps-8 pe-3 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
 
 interface ShadSelectItemProps {
   value: string;
@@ -1394,7 +1395,7 @@ function SelectItems({ items }: { items: ShadSelectItemProps[] }) {
           value={it.value}
           className={selectItemClass}
         >
-          <span className="absolute left-2 top-2 flex h-4 w-4 items-center justify-center">
+          <span className="absolute start-2 top-2 flex h-4 w-4 items-center justify-center">
             <Select.ItemIndicator>
               <IconCheck size={14} />
             </Select.ItemIndicator>
@@ -1485,7 +1486,7 @@ function VisibilitySelect(props: {
       <Select.Trigger
         className={cn(
           BUTTON_BASE,
-          "h-7 px-1 -ml-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
+          "h-7 px-1 -ms-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
         )}
         aria-label="General access"
       >

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { scrubberPositionFromClientX } from "./scrubber-position";
 
 describe("scrubberPositionFromClientX", () => {

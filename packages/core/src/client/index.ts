@@ -1,5 +1,5 @@
-import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 import { stripAuthRedirectParamFromUrl } from "./auth-redirect-url.js";
+import { installRouteChunkRecovery } from "./route-chunk-recovery.js";
 
 installRouteChunkRecovery();
 stripAuthRedirectParamFromUrl();
@@ -11,7 +11,9 @@ export {
   appendAgentChatContextToMessage,
   clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
+  insertAgentComposerReference,
   listAgentChatContext,
+  normalizeAgentComposerReference,
   refreshAgentChatContext,
   removeAgentChatContextItem,
   sendToAgentChat,
@@ -27,6 +29,9 @@ export {
   type AgentChatContextSetOptions,
   type AgentChatContextState,
   type AgentChatMessage,
+  type AgentComposerReference,
+  type AgentComposerReferenceInsertOptions,
+  type AgentComposerReferenceInsertPayload,
 } from "./agent-chat.js";
 export {
   saveAgentEngineApiKey,
@@ -170,6 +175,33 @@ export {
   type AgentDynamicSuggestionsOption,
 } from "./dynamic-suggestions.js";
 export { cn } from "./utils.js";
+export {
+  AgentNativeI18nProvider,
+  LanguagePicker,
+  getLocaleInitScript,
+  localeDirection,
+  normalizeLocaleCode,
+  normalizeLocalePreference,
+  normalizeLocalizationPreference,
+  resolveLocaleFromCandidates,
+  resolveLocaleFromPreference,
+  useFormatters,
+  useLocale,
+  useT,
+  DEFAULT_LOCALE,
+  LOCALE_HYDRATION_GLOBAL,
+  LOCALE_METADATA,
+  LOCALE_STORAGE_KEY,
+  SUPPORTED_LOCALES,
+  type AgentNativeI18nCatalog,
+  type AgentNativeI18nProviderProps,
+  type LocaleCode,
+  type LocaleHydrationPayload,
+  type LocaleMessages,
+  type LocaleMetadata,
+  type LocalePreference,
+  type LocalizationPreference,
+} from "./i18n.js";
 export {
   // Shared editor core (Phase 1): the ONE configurable surface both the plan
   // and content editors build on.
@@ -541,6 +573,7 @@ export {
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
   type ActionChatUIConfig,
 } from "../action-ui.js";
 export {
@@ -644,12 +677,21 @@ export {
   trackEvent,
   trackSessionStatus,
   configureTracking,
+  maybeStartSessionReplay,
+  startSessionReplay,
+  stopSessionReplay,
+  getAnalyticsAnonymousId,
+  getAnalyticsSessionId,
   getFirstTouchAttribution,
   setSentryUser,
   captureError,
   captureClientException,
   type ClientCaptureContext,
+  type ConfigureTrackingOptions,
   type FirstTouchAttribution,
+  type SessionReplayOptions,
+  type SessionReplayStartResult,
+  type SessionReplayUrlMatcher,
 } from "./analytics.js";
 export { track } from "./track.js";
 export {
@@ -708,6 +750,7 @@ export {
   CommandMenu,
   useCommandMenuShortcut,
   openAgentSidebar,
+  openAgentSettings,
   submitToAgent,
   type CommandMenuProps,
   type CommandMenuDoc,

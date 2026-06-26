@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatThread } from "@agent-native/core/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getRequestContextMock = vi.hoisted(() => vi.fn());
 const getThreadMock = vi.hoisted(() => vi.fn());
@@ -9,8 +9,8 @@ vi.mock("@agent-native/core/server", () => ({
   getThread: getThreadMock,
 }));
 
-import { loadThreadLinkPreview } from "./thread-link-preview";
 import { extractThreadPreviewImageUrl } from "../../lib/thread-link-preview";
+import { loadThreadLinkPreview } from "./thread-link-preview";
 
 function threadDataWithResult(toolName: string, result: unknown) {
   return JSON.stringify({

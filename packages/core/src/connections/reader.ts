@@ -1,10 +1,4 @@
 import {
-  getWorkspaceConnectionProvider,
-  type WorkspaceConnectionCapability,
-  type WorkspaceConnectionCredentialKey,
-  type WorkspaceConnectionProviderId,
-} from "./catalog.js";
-import {
   resolveWorkspaceConnectionCredentialsForApp,
   type ResolveWorkspaceConnectionCredentialsForAppOptions,
   type WorkspaceConnectionCredentialRef,
@@ -17,6 +11,12 @@ import {
   type ResolvedWorkspaceConnectionForApp,
   type ResolveWorkspaceConnectionForAppOptions,
 } from "../workspace-connections/store.js";
+import {
+  getWorkspaceConnectionProvider,
+  type WorkspaceConnectionCapability,
+  type WorkspaceConnectionCredentialKey,
+  type WorkspaceConnectionProviderId,
+} from "./catalog.js";
 
 export type ProviderReaderOperation = "search" | "get" | "listRecent";
 

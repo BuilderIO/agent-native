@@ -1,11 +1,3 @@
-import {
-  defineEventHandler,
-  getRouterParam,
-  setResponseStatus,
-  createEventStream,
-} from "h3";
-import { and, eq, desc } from "drizzle-orm";
-import { getDb, schema } from "../db";
 import { readBody } from "@agent-native/core/server";
 import {
   accessFilter,
@@ -13,12 +5,21 @@ import {
   assertAccess,
   ForbiddenError,
 } from "@agent-native/core/sharing";
+import { and, eq, desc } from "drizzle-orm";
+import {
+  defineEventHandler,
+  getRouterParam,
+  setResponseStatus,
+  createEventStream,
+} from "h3";
+
 import { ASPECT_RATIO_VALUES } from "../../shared/aspect-ratios.js";
+import { getDb, schema } from "../db";
+import { createDeckVersionSnapshot } from "../lib/deck-versions.js";
 import {
   resolveSlidesRequestAuthContext,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
-import { createDeckVersionSnapshot } from "../lib/deck-versions.js";
 
 // --- SSE for change notifications ---
 type SSEPush = (data: string) => void;

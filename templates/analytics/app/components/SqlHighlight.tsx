@@ -1,4 +1,5 @@
-import { type ReactNode } from "react";
+import { forwardRef, type HTMLAttributes, type ReactNode } from "react";
+
 import { cn } from "@/lib/utils";
 
 const KEYWORDS = new Set([
@@ -266,36 +267,35 @@ const TOKEN_CLASS: Record<TokenType, string> = {
   plain: "",
 };
 
-interface SqlHighlightProps {
+interface SqlHighlightProps extends HTMLAttributes<HTMLPreElement> {
   sql: string;
-  className?: string;
   preClassName?: string;
 }
 
-export function SqlHighlight({
-  sql,
-  className,
-  preClassName,
-}: SqlHighlightProps) {
-  const tokens = tokenize(sql);
-  const nodes: ReactNode[] = tokens.map((tok, idx) => {
-    const cls = TOKEN_CLASS[tok.type];
-    if (!cls) return tok.value;
+export const SqlHighlight = forwardRef<HTMLPreElement, SqlHighlightProps>(
+  function SqlHighlight({ sql, className, preClassName, ...props }, ref) {
+    const tokens = tokenize(sql);
+    const nodes: ReactNode[] = tokens.map((tok, idx) => {
+      const cls = TOKEN_CLASS[tok.type];
+      if (!cls) return tok.value;
+      return (
+        <span key={idx} className={cls}>
+          {tok.value}
+        </span>
+      );
+    });
     return (
-      <span key={idx} className={cls}>
-        {tok.value}
-      </span>
+      <pre
+        ref={ref}
+        {...props}
+        className={cn(
+          "font-mono text-xs leading-5 whitespace-pre-wrap break-words",
+          preClassName,
+          className,
+        )}
+      >
+        <code>{nodes}</code>
+      </pre>
     );
-  });
-  return (
-    <pre
-      className={cn(
-        "font-mono text-xs leading-5 whitespace-pre-wrap break-words",
-        preClassName,
-        className,
-      )}
-    >
-      <code>{nodes}</code>
-    </pre>
-  );
-}
+  },
+);

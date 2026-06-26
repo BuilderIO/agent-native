@@ -21,11 +21,10 @@ import { pathToFileURL } from "node:url";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { insertEvalResult } from "../observability/store.js";
 import type { EvalResult as ObservabilityEvalResult } from "../observability/types.js";
-
-import { DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
-import { clamp01 } from "./scorer.js";
 import type { AgentRunner } from "./agent-runner.js";
 import { createAgentRunner } from "./agent-runner.js";
+import { DEFAULT_EVAL_THRESHOLD } from "./define-eval.js";
+import { clamp01 } from "./scorer.js";
 import type {
   AgentRunOutput,
   Eval,

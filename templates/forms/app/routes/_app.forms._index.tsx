@@ -1,13 +1,12 @@
+import messages from "@/i18n/en-US";
 import { FormsListPage } from "@/pages/FormsListPage";
 
 export function meta() {
-  const description =
-    "Open Source AI form builder for creating, publishing, editing, and analyzing forms and responses from a chat-first workspace.";
+  const description = messages.routeDescriptions.formsIndex;
 
   return [
     {
-      title:
-        "Agent-Native Forms - Open Source AI form builder and response analytics",
+      title: messages.routeTitles.formsIndex,
     },
     {
       name: "description",

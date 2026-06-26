@@ -1,5 +1,6 @@
+import { useActionQuery, useT } from "@agent-native/core/client";
 import { useTheme } from "next-themes";
-import { useActionQuery } from "@agent-native/core/client";
+import { Link } from "react-router";
 
 export function meta() {
   return [{ title: "{{APP_TITLE}}" }];
@@ -7,6 +8,7 @@ export function meta() {
 
 export default function IndexPage() {
   const { resolvedTheme, setTheme } = useTheme();
+  const t = useT();
   const isDark = resolvedTheme === "dark";
   const { data } = useActionQuery("hello", { name: "{{APP_TITLE}}" });
 
@@ -15,10 +17,10 @@ export default function IndexPage() {
       <div className="max-w-md w-full space-y-8 text-center">
         <div className="space-y-3">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-            Your app is running
+            {t("home.title")}
           </h1>
           <p className="text-[14px] text-muted-foreground leading-relaxed">
-            Start building by editing{" "}
+            {t("home.intro")}{" "}
             <code className="text-[13px] bg-muted px-1.5 py-0.5 rounded font-mono">
               app/routes/_index.tsx
             </code>
@@ -29,10 +31,10 @@ export default function IndexPage() {
 
         <div className="rounded-lg border border-border/50 px-4 py-3 text-left">
           <p className="text-[13px] font-medium text-foreground">
-            Action-backed data
+            {t("home.actionCardTitle")}
           </p>
           <p className="text-[12px] text-muted-foreground mt-0.5">
-            {data?.message ?? "Loading action result..."}
+            {data?.message ?? t("home.loadingAction")}
           </p>
         </div>
 
@@ -44,21 +46,34 @@ export default function IndexPage() {
             className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"
           >
             <p className="text-[13px] font-medium text-foreground">
-              Documentation
+              {t("home.docsTitle")}
             </p>
             <p className="text-[12px] text-muted-foreground mt-0.5">
-              Learn the framework
+              {t("home.docsDescription")}
             </p>
           </a>
           <button
             onClick={() => setTheme(isDark ? "light" : "dark")}
             className="rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors text-left"
           >
-            <p className="text-[13px] font-medium text-foreground">Theme</p>
+            <p className="text-[13px] font-medium text-foreground">
+              {t("home.themeTitle")}
+            </p>
             <p className="text-[12px] text-muted-foreground mt-0.5">
-              Toggle dark / light
+              {t("home.themeDescription")}
             </p>
           </button>
+          <Link
+            to="/settings"
+            className="group rounded-lg border border-border/50 px-4 py-3 hover:bg-accent/50 transition-colors"
+          >
+            <p className="text-[13px] font-medium text-foreground">
+              {t("home.settingsTitle")}
+            </p>
+            <p className="text-[12px] text-muted-foreground mt-0.5">
+              {t("home.settingsDescription")}
+            </p>
+          </Link>
         </div>
       </div>
     </div>

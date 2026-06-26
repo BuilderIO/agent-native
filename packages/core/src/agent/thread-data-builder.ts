@@ -1,5 +1,3 @@
-import type { AgentChatAttachment, RunEvent } from "./types.js";
-import type { EngineMessage } from "./engine/types.js";
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
   normalizeCodeAgentTranscript,
@@ -9,6 +7,8 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import type { EngineMessage } from "./engine/types.js";
+import type { AgentChatAttachment, RunEvent } from "./types.js";
 
 interface ContentPart {
   type: string;
@@ -482,7 +482,26 @@ function normalizeAssistantToolCallIds(message: any): any {
  */
 export function normalizeThreadRepository(repo: any): any {
   const normalized = repo && typeof repo === "object" ? { ...repo } : {};
-  const sourceMessages = Array.isArray(repo?.messages) ? repo.messages : [];
+  const sourceMessages: any[] = Array.isArray(repo?.messages)
+    ? repo.messages
+    : [];
+  const firstIndexById = new Map<string, number>();
+  const lastEntryById = new Map<string, any>();
+  sourceMessages.forEach((entry, index) => {
+    const id = messageId(getStoredMessage(entry));
+    if (!id) return;
+    if (!firstIndexById.has(id)) firstIndexById.set(id, index);
+    lastEntryById.set(id, entry);
+  });
+  const uniqueSourceMessages = sourceMessages
+    .filter((entry, index) => {
+      const id = messageId(getStoredMessage(entry));
+      return id && firstIndexById.get(id) === index;
+    })
+    .map((entry) => {
+      const id = messageId(getStoredMessage(entry));
+      return (id && lastEntryById.get(id)) || entry;
+    });
   const messages: Array<{
     message: any;
     parentId: string | null;
@@ -491,7 +510,7 @@ export function normalizeThreadRepository(repo: any): any {
   const seenIds = new Set<string>();
   let previousId: string | null = null;
 
-  for (const entry of sourceMessages) {
+  for (const entry of uniqueSourceMessages) {
     const message = getStoredMessage(entry);
     const id = messageId(message);
     if (!id) continue;

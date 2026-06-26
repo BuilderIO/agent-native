@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PlatformAdapter } from "./types.js";
+
 import type { PendingTask } from "./pending-tasks-store.js";
+import type { PlatformAdapter } from "./types.js";
 
 const getThreadMappingMock = vi.hoisted(() => vi.fn());
 const saveThreadMappingMock = vi.hoisted(() => vi.fn());

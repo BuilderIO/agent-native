@@ -169,17 +169,24 @@ fn apply_launch_at_login(app: &AppHandle, enabled: bool) -> Result<(), String> {
     let current = manager
         .is_enabled()
         .map_err(|e| format!("read launch-at-login: {e}"))?;
-    if current == enabled {
-        return Ok(());
-    }
     if enabled {
+        // `is_enabled()` only means a LaunchAgent with this label exists. It
+        // may still point at an old dev binary or be missing our `--autostart`
+        // argument, so rewrite enabled entries instead of trusting the plist.
+        if current {
+            manager
+                .disable()
+                .map_err(|e| format!("refresh launch-at-login: disable stale entry: {e}"))?;
+        }
         manager
             .enable()
             .map_err(|e| format!("enable launch-at-login: {e}"))
-    } else {
+    } else if current {
         manager
             .disable()
             .map_err(|e| format!("disable launch-at-login: {e}"))
+    } else {
+        Ok(())
     }
 }
 

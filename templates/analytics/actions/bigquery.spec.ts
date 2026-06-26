@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
 import { isAgentActionStopError } from "@agent-native/core";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const runQuery = vi.fn();
 

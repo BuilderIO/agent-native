@@ -1,5 +1,3 @@
-// @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -7,6 +5,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { toastMock } = vi.hoisted(() => ({
   toastMock: vi.fn(),
@@ -30,6 +30,28 @@ vi.mock("@agent-native/core/client", () => ({
       .join(" "),
   agentNativePath: (path: string) => `/agent${path}`,
   appBasePath: () => "/slides",
+  useT: () => (key: string) =>
+    (
+      ({
+        "editorExport.downloadGoogleSlides": "Download for Google Slides",
+        "editorExport.downloadHtml": "Download as HTML",
+        "editorExport.duplicateDeck": "Duplicate deck",
+        "editorExport.export": "Export",
+        "editorExport.exportAndDuplicate": "Export and duplicate",
+        "editorExport.exportPdf": "Export PDF",
+        "editorExport.exportPptx": "Export as PPTX",
+        "editorExport.googleSlidesDownloaded": "Downloaded for Google Slides",
+        "editorExport.googleSlidesImportHint":
+          "Import the downloaded PPTX into Google Slides.",
+        "editorExport.pptxFailed": "PPTX export failed",
+        "editorExport.htmlFailed": "HTML export failed",
+        "editorExport.exportFailed": "Export failed",
+        "editorExport.exportPptxError": "Could not export PPTX.",
+        "editorExport.exportGoogleSlidesError":
+          "Could not export Google Slides.",
+        "editorExport.exportHtmlError": "Could not export HTML.",
+      }) as Record<string, string>
+    )[key] ?? key,
 }));
 
 vi.mock("@/hooks/use-toast", () => ({

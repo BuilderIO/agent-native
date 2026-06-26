@@ -1,0 +1,122 @@
+---
+title: "Téléchargements de fichiers"
+description: "Configurer le stockage de téléchargement de fichiers : solution de secours SQL pour le développement, Builder.io ou fournisseurs personnalisés pour la production."
+---
+
+# Téléchargements de fichiers
+
+Le framework fournit une abstraction de téléchargement de fichiers qui achemine les téléchargements via un fournisseur configurable. Les modèles appellent `uploadFile()` et récupèrent un URL : le backend de stockage est échangeable sans modifier le code de l'application.
+
+## Comment ça marche {#how-it-works}
+
+Les requêtes de téléchargement sont envoyées à `POST /_agent-native/file-upload`, qui les envoie au fournisseur actif. Vous pouvez vérifier quel fournisseur est configuré sur `GET /_agent-native/file-upload/status`.
+
+L'ordre de résolution du fournisseur est :
+
+1. **Fournisseurs enregistrés par l'utilisateur** : fournisseurs personnalisés enregistrés via `registerFileUploadProvider()`
+2. **Fournisseur Builder.io** — intégré, s'active automatiquement lorsque Builder.io est connecté
+3. **secours SQL** — stocke les fichiers en base64 dans la base de données (bien pour le développement, pas pour la production)
+
+```an-diagram title="Ordre de résolution du fournisseur" summary="uploadFile() sélectionne le premier fournisseur configuré dans l'ordre. La solution de secours SQL existe toujours, donc les téléchargements fonctionnent sans configuration."
+{
+  "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">Enregistré par l’utilisateur<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">automatique une fois connecté — servi par CDN</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">secours SQL<br><small class=\"diagram-muted\">base64 en BD — dev seulement</small></div></div></div></div>",
+  "css": ".diagram-upload{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-upload .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-upload .diagram-step{display:flex;align-items:center;gap:8px}.diagram-upload .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+```an-api title="Le point de terminaison de téléchargement" method="POST" path="/_agent-native/file-upload"
+{
+  "method": "POST",
+  "path": "/_agent-native/file-upload",
+  "summary": "Téléchargez un fichier via le fournisseur actif et récupérez un URL public.",
+  "description": "Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.",
+  "request": { "contentType": "multipart/form-data" },
+  "responses": [
+    { "status": "200", "description": "{ url, id?, provider } — the public URL and which provider handled it." }
+  ]
+}
+```
+
+## Par défaut : Retour SQL {#sql-fallback}
+
+Lorsqu'aucun fournisseur n'est configuré, les fichiers sont stockés sous forme de données base64 dans la base de données SQL via le système de ressources. Cela fonctionne immédiatement pour le développement local, mais n'est pas recommandé pour la production : les fichiers volumineux gonflent la base de données et il n'y a pas de CDN.
+
+Un avertissement unique est enregistré lorsque la solution de secours est utilisée.
+
+## Hébergement Builder.io {#builder-hosting}
+
+Lorsque votre application est connectée à Builder.io, les téléchargements de fichiers sont automatiquement acheminés vers l'hébergement d'actifs de Builder. Les fichiers sont servis à partir d'un CDN sans aucune configuration nécessaire. Il s'agit de la configuration de production recommandée.
+
+## Fournisseurs personnalisés {#custom-providers}
+
+Enregistrez un fournisseur personnalisé dans un plugin de serveur pour utiliser n'importe quel backend de stockage (S3, Cloudflare R2, GCS, etc.) :
+
+```ts
+// server/plugins/file-upload.ts
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+
+export default defineNitroPlugin(() => {
+  registerFileUploadProvider({
+    id: "s3",
+    name: "Amazon S3",
+    isConfigured: () => !!process.env.S3_BUCKET,
+    upload: async ({ data, filename, mimeType }) => {
+      const key = `uploads/${Date.now()}-${filename}`;
+      await s3Client.putObject({
+        Bucket: process.env.S3_BUCKET!,
+        Key: key,
+        Body: data,
+        ContentType: mimeType,
+      });
+      return {
+        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
+        provider: "s3",
+      };
+    },
+  });
+});
+```
+
+## Télécharger API {#upload-api}
+
+L'interface `FileUploadProvider` :
+
+```ts
+interface FileUploadProvider {
+  id: string; // Unique id, e.g. "s3"
+  name: string; // Human-readable name
+  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  upload: (input: FileUploadInput) => Promise<FileUploadResult>;
+}
+
+interface FileUploadInput {
+  data: Uint8Array | Buffer; // File contents
+  filename?: string; // Original filename
+  mimeType?: string; // MIME type, e.g. "image/png"
+  ownerEmail?: string; // For per-user scoping in fallback
+}
+
+interface FileUploadResult {
+  url: string; // Public URL for the uploaded file
+  id?: string; // Provider-specific id
+  provider: string; // Which provider handled it
+}
+```
+
+Utilisez `uploadFile()` à partir de `@agent-native/core/file-upload` dans actions ou le code serveur :
+
+```ts
+import { uploadFile } from "@agent-native/core/file-upload";
+
+const result = await uploadFile({
+  data: fileBuffer,
+  filename: "photo.jpg",
+  mimeType: "image/jpeg",
+});
+
+if (result) {
+  // Provider handled it — result.url is the public URL
+} else {
+  // No provider configured — handle secours SQL yourself, or skip
+}
+```

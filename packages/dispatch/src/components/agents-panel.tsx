@@ -1,6 +1,7 @@
+import { agentNativePath } from "@agent-native/core/client";
+import { IconExternalLink, IconTrash } from "@tabler/icons-react";
 import { useRef, useState, type FormEvent } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,8 +13,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { IconExternalLink, IconTrash } from "@tabler/icons-react";
-import { agentNativePath } from "@agent-native/core/client";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 export interface ConnectedAgent {
   id: string;

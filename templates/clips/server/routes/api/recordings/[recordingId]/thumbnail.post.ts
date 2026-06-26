@@ -8,6 +8,10 @@
  * Body: raw JPEG (or PNG) bytes. Content-Type: image/jpeg | image/png.
  */
 
+import { writeAppState } from "@agent-native/core/application-state";
+import { uploadFile } from "@agent-native/core/file-upload";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
 import {
   defineEventHandler,
   getRouterParam,
@@ -17,13 +21,13 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../../../../db/index.js";
-import { getEventOwnerContext } from "../../../../lib/recordings.js";
-import { runWithRequestContext } from "@agent-native/core/server";
-import { writeAppState } from "@agent-native/core/application-state";
-import { uploadFile } from "@agent-native/core/file-upload";
+
 import { parseEdits } from "../../../../../app/lib/timestamp-mapping.js";
+import { getDb, schema } from "../../../../db/index.js";
+import {
+  getEventOwnerContext,
+  ownerEmailMatches,
+} from "../../../../lib/recordings.js";
 
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 
@@ -84,7 +88,7 @@ export default defineEventHandler(async (event: H3Event) => {
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
 

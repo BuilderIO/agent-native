@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { flushSync } from "react-dom";
-import { Link, useLocation, useNavigate } from "react-router";
+import {
+  agentNativePath,
+  appBasePath,
+  callAction,
+  captureClientException,
+  useT,
+} from "@agent-native/core/client";
+import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
+import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -13,13 +19,11 @@ import {
   IconVideo,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  agentNativePath,
-  appBasePath,
-  callAction,
-  captureClientException,
-} from "@agent-native/core/client";
-import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { Link, useLocation, useNavigate } from "react-router";
+
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import {
   fetchVideoStorageStatus,
@@ -27,25 +31,11 @@ import {
   VIDEO_STORAGE_STATUS_KEY,
   type VideoStorageStatus,
 } from "@/hooks/use-video-storage-status";
-import { Skeleton } from "@/components/ui/skeleton";
-import {
-  captureVideoThumbnailBlob,
-  uploadRecordingThumbnail,
-} from "@/lib/thumbnail-capture";
+import enMessages from "@/i18n/en-US";
 import {
   createBrowserDiagnosticsCapture,
   type BrowserDiagnosticsCapture,
 } from "@/lib/browser-diagnostics-capture";
-import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
-import {
-  buildCaptureTitle,
-  defaultRecordingTitle,
-  inferWindowTitleFromDisplayStream,
-} from "@/lib/recording-title";
-import {
-  createCountdownAudioCue,
-  type CountdownAudioCue,
-} from "@/lib/countdown-audio-cue";
 import {
   COMPRESS_THRESHOLD_BYTES,
   COMPRESSION_ENABLED,
@@ -54,9 +44,22 @@ import {
   formatMb,
 } from "@/lib/compress";
 import {
+  createCountdownAudioCue,
+  type CountdownAudioCue,
+} from "@/lib/countdown-audio-cue";
+import {
   loadRecorderPreferences,
   saveRecorderPreferences,
 } from "@/lib/recorder-preferences";
+import {
+  buildCaptureTitle,
+  defaultRecordingTitle,
+  inferWindowTitleFromDisplayStream,
+} from "@/lib/recording-title";
+import {
+  captureVideoThumbnailBlob,
+  uploadRecordingThumbnail,
+} from "@/lib/thumbnail-capture";
 import { cn } from "@/lib/utils";
 
 // Client-side app-state writer (the server module pulls in Node's `events`
@@ -73,20 +76,22 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
     },
   );
 }
-import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
-import { CaptureInstallButton } from "@/components/capture-install-options";
+import {
+  bugReportTitle,
+  parseBugReportContext,
+  type BugReportContext,
+} from "@shared/bug-report";
 import { toast } from "sonner";
 
-import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
-import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
-import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
+import { CaptureInstallButton } from "@/components/capture-install-options";
 import { CameraBubble } from "@/components/recorder/camera-bubble";
-import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
+import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
 import {
   ConfettiCanvas,
   type ConfettiHandle,
 } from "@/components/recorder/confetti-canvas";
+import { CountdownOverlay } from "@/components/recorder/countdown-overlay";
+import { PreRecordPanel } from "@/components/recorder/pre-record-panel";
 import {
   RecorderEngine,
   NO_MIC_DEVICE_ID,
@@ -94,10 +99,13 @@ import {
   type RecorderFinalizeResult,
   type RecordingMode,
 } from "@/components/recorder/recorder-engine";
-import type { CameraBubbleSize } from "@/components/recorder/camera-bubble";
+import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
+import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 export function meta() {
-  return [{ title: "New recording — Clips" }];
+  return [{ title: enMessages.recordRoute.pageTitle }];
 }
 
 export function headers() {
@@ -161,6 +169,12 @@ function openUrlFromUserGesture(url: string): void {
   if (!opened) {
     window.location.href = url;
   }
+}
+
+function bugReportDonePath(recordingId: string, context: BugReportContext) {
+  const params = new URLSearchParams({ recordingId });
+  if (context.returnUrl) params.set("returnUrl", context.returnUrl);
+  return `/bug-report/done?${params.toString()}`;
 }
 
 function sendClipsExtensionMessage<T>(
@@ -415,13 +429,16 @@ function getDisplaySurfaceParam(value: string | null): DisplaySurface | null {
   return null;
 }
 
-function getRecordingErrorTitle(error: string): string {
-  if (isUploadSizeError(error)) return "Video is too large";
-  if (isUploadFailureError(error)) return "Upload failed";
+function getRecordingErrorTitle(
+  error: string,
+  t: ReturnType<typeof useT>,
+): string {
+  if (isUploadSizeError(error)) return t("recordRoute.videoTooLarge");
+  if (isUploadFailureError(error)) return t("recordRoute.uploadFailed");
   if (isScreenPermissionError(error)) return "Screen recording needs access";
   if (isCameraPermissionError(error)) return "Camera needs access";
   if (isMicrophonePermissionError(error)) return "Microphone needs access";
-  return "Couldn't start recording";
+  return t("recordRoute.couldNotStartRecording");
 }
 
 function isUploadSizeError(error: string): boolean {
@@ -590,6 +607,7 @@ function PreRecordPanelSkeleton() {
 }
 
 function DesktopRecorderCallout() {
+  const t = useT();
   return (
     <aside className="w-full rounded-2xl border border-border bg-card p-4 shadow-lg">
       <div className="flex items-start gap-3">
@@ -598,11 +616,10 @@ function DesktopRecorderCallout() {
         </div>
         <div className="min-w-0">
           <div className="text-sm font-medium text-foreground">
-            Better in the desktop app
+            {t("recordRoute.betterInDesktop")}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Menu-bar launch, global shortcuts, auto-updates, and smoother repeat
-            recordings.
+            {t("recordRoute.desktopAppDescription")}
           </p>
         </div>
       </div>
@@ -610,7 +627,7 @@ function DesktopRecorderCallout() {
         size="sm"
         className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
       >
-        Download desktop app
+        {t("recordRoute.downloadDesktopApp")}
       </CaptureInstallButton>
     </aside>
   );
@@ -633,6 +650,7 @@ function RecordingErrorCard({
   onDownloadRecording: () => void;
   onTryAgain: () => void;
 }) {
+  const t = useT();
   const uploadFailure = isUploadFailureError(error);
   const guidance = uploadFailure
     ? null
@@ -655,15 +673,15 @@ function RecordingErrorCard({
           <IconAlertTriangle className="h-5 w-5" />
         </div>
         <h2 className="text-lg font-semibold text-foreground">
-          {getRecordingErrorTitle(error)}
+          {getRecordingErrorTitle(error, t)}
         </h2>
         <p className="mt-2 break-words text-sm leading-relaxed text-muted-foreground">
           {friendlyMessage}
         </p>
         {showTechnicalDetails && (
-          <details className="mt-3 text-left text-xs text-muted-foreground">
+          <details className="mt-3 text-start text-xs text-muted-foreground">
             <summary className="cursor-pointer font-medium text-foreground">
-              Technical details
+              {t("recordRoute.technicalDetails")}
             </summary>
             <p className="mt-2 max-h-28 overflow-auto break-words rounded-lg border border-border bg-muted/40 p-2 leading-relaxed">
               {error}
@@ -673,9 +691,9 @@ function RecordingErrorCard({
       </div>
 
       {guidance && (
-        <div className="border-b border-border bg-muted/25 px-6 py-4 text-left">
+        <div className="border-b border-border bg-muted/25 px-6 py-4 text-start">
           <div className="text-xs font-medium text-foreground">
-            What to check
+            {t("recordRoute.whatToCheck")}
           </div>
           <p className="mt-1 break-words text-xs leading-relaxed text-muted-foreground">
             {guidance}
@@ -691,7 +709,7 @@ function RecordingErrorCard({
           <>
             <Button onClick={onDownloadRecording} className="w-full gap-2">
               <IconDownload className="h-4 w-4" />
-              Download recording
+              {t("recordRoute.downloadRecording")}
             </Button>
             <p className="text-xs leading-relaxed text-muted-foreground">
               Your recording is safe on this device. Download it now and upload
@@ -710,7 +728,7 @@ function RecordingErrorCard({
             className="w-full gap-2"
           >
             <IconExternalLink className="h-4 w-4" />
-            Open recorder in tab
+            {t("recordRoute.openRecorderInTab")}
           </Button>
         )}
         {permissionError &&
@@ -774,6 +792,7 @@ function RecordingErrorCard({
 }
 
 export default function RecordRoute() {
+  const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
   const [uiState, setUiState] = useState<UiState>("idle");
@@ -844,6 +863,10 @@ export default function RecordRoute() {
       developerLogsEnabled: developerLogs !== "0",
     };
   }, [location.search]);
+  const bugReportContext = useMemo(
+    () => parseBugReportContext(new URLSearchParams(location.search)),
+    [location.search],
+  );
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -861,6 +884,41 @@ export default function RecordRoute() {
 
   const liveTranscription = useLiveTranscription();
   const stopLiveTranscription = liveTranscription.stop;
+
+  const saveBugReportContext = useCallback(
+    async (recordingId: string) => {
+      if (!bugReportContext) return;
+      try {
+        await callAction(
+          "save-bug-report-context" as any,
+          {
+            recordingId,
+            projectId: bugReportContext.projectId,
+            title: bugReportContext.title,
+            description: bugReportContext.description,
+            severity: bugReportContext.severity,
+            sourceUrl: bugReportContext.sourceUrl,
+            pageTitle: bugReportContext.pageTitle,
+            appVersion: bugReportContext.appVersion,
+            environment: bugReportContext.environment,
+            reporterEmail: bugReportContext.reporterEmail,
+            reporterName: bugReportContext.reporterName,
+            reporterId: bugReportContext.reporterId,
+            metadata: bugReportContext.metadata ?? undefined,
+          } as any,
+        );
+      } catch (err) {
+        console.warn("[recorder] bug report context save failed:", err);
+      }
+    },
+    [bugReportContext],
+  );
+  const bugReportContextRef = useRef<BugReportContext | null>(null);
+  const saveBugReportContextRef = useRef(saveBugReportContext);
+  useEffect(() => {
+    bugReportContextRef.current = bugReportContext;
+    saveBugReportContextRef.current = saveBugReportContext;
+  }, [bugReportContext, saveBugReportContext]);
 
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
@@ -916,29 +974,37 @@ export default function RecordRoute() {
     }
   }, [previewStream]);
 
-  const showRecordingErrorToast = useCallback((message: string) => {
-    const pendingOpts = pendingStartOptsRef.current;
-    const uploadFailure = isUploadFailureError(message);
-    const guidance = uploadFailure
-      ? null
-      : permissionGuidance(message, pendingOpts ?? undefined);
-    const settingsUrl = uploadFailure
-      ? null
-      : permissionSettingsUrl(message, pendingOpts?.mode);
-    const friendlyMessage = friendlyRecordingErrorMessage(message);
-    toast.error(uploadFailure ? "Upload failed" : "Couldn't start recording", {
-      description: guidance ?? friendlyMessage,
-      duration: guidance ? 20_000 : 10_000,
-      action: settingsUrl
-        ? {
-            label: "Open settings",
-            onClick: () => {
-              openUrlFromUserGesture(settingsUrl);
-            },
-          }
-        : undefined,
-    });
-  }, []);
+  const showRecordingErrorToast = useCallback(
+    (message: string) => {
+      const pendingOpts = pendingStartOptsRef.current;
+      const uploadFailure = isUploadFailureError(message);
+      const guidance = uploadFailure
+        ? null
+        : permissionGuidance(message, pendingOpts ?? undefined);
+      const settingsUrl = uploadFailure
+        ? null
+        : permissionSettingsUrl(message, pendingOpts?.mode);
+      const friendlyMessage = friendlyRecordingErrorMessage(message);
+      toast.error(
+        uploadFailure
+          ? t("recordRoute.uploadFailed")
+          : t("recordRoute.couldNotStartRecording"),
+        {
+          description: guidance ?? friendlyMessage,
+          duration: guidance ? 20_000 : 10_000,
+          action: settingsUrl
+            ? {
+                label: t("recordRoute.openSettings"),
+                onClick: () => {
+                  openUrlFromUserGesture(settingsUrl);
+                },
+              }
+            : undefined,
+        },
+      );
+    },
+    [t],
+  );
 
   // -------------------------------------------------------------------------
   // Acquire media, create recording row, start countdown.
@@ -958,7 +1024,7 @@ export default function RecordRoute() {
         : null;
       if (blockedFeature) {
         openUrlFromUserGesture(directRecorderUrl(opts));
-        toast.info("Opened recorder in a new tab", {
+        toast.info(t("recordRoute.openedRecorderInNewTab"), {
           description: `Chrome is blocking ${blockedFeature} access in this embedded web client.`,
           duration: 8000,
         });
@@ -1103,24 +1169,28 @@ export default function RecordRoute() {
         markStorageConfigured(status);
         if (!status.configured) {
           throw new Error(
-            "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
+            "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
           );
         }
 
         // 2. Create the recording row server-side once permissions are granted.
+        const reportContext = bugReportContextRef.current;
+        const reportTitle = reportContext
+          ? `Bug report: ${bugReportTitle(reportContext)}`
+          : null;
         const res = await fetch(
           agentNativePath("/_agent-native/actions/create-recording"),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              title: captureTitle.title,
-              titleSource: captureTitle.titleSource,
+              title: reportTitle ?? captureTitle.title,
+              titleSource: reportTitle ? "context" : captureTitle.titleSource,
               sourceAppName: captureTitle.sourceAppName,
               sourceWindowTitle: captureTitle.sourceWindowTitle,
               hasCamera: opts.mode !== "screen",
               hasAudio: wantsMic,
-              visibility: "public",
+              visibility: reportContext ? "org" : "public",
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
             }),
@@ -1174,6 +1244,7 @@ export default function RecordRoute() {
           uploadUrl: uploadChunkUrl,
           abortUrl,
         });
+        await saveBugReportContextRef.current(info.id);
 
         setPreviewStream(ps);
         setCameraStream(cs);
@@ -1182,7 +1253,9 @@ export default function RecordRoute() {
         // doCancel() owns teardown if a cancel raced ahead — don't clobber it.
         if (isStale()) return;
         const message =
-          err instanceof Error ? err.message : "Could not start recording";
+          err instanceof Error
+            ? err.message
+            : t("recordRoute.couldNotStartRecording");
         const pickerDismissed = isDismissedCapturePicker(err, message);
         await liveTranscription.stopAndWait().catch(() => "");
         // If the recording row was created before the failure, trash it so it
@@ -1311,7 +1384,7 @@ export default function RecordRoute() {
         markStorageConfigured(status);
         if (!status.configured) {
           throw new Error(
-            "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
+            "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
           );
         }
 
@@ -1385,6 +1458,10 @@ export default function RecordRoute() {
           );
         }
         setUiState("uploading");
+        const reportContext = bugReportContextRef.current;
+        const reportTitle = reportContext
+          ? `Bug report: ${bugReportTitle(reportContext)}`
+          : null;
 
         const res = await fetch(
           agentNativePath("/_agent-native/actions/create-recording"),
@@ -1394,12 +1471,14 @@ export default function RecordRoute() {
             signal: abort.signal,
             body: JSON.stringify({
               title:
-                file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle(),
-              titleSource: "upload",
+                reportTitle ??
+                (file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle()),
+              titleSource: reportTitle ? "context" : "upload",
               hasCamera: false,
               hasAudio: true,
               width: meta.width,
               height: meta.height,
+              visibility: reportContext ? "org" : undefined,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
             }),
@@ -1433,6 +1512,7 @@ export default function RecordRoute() {
           throw new Error("create-recording did not return an id");
         }
         createdId = info.id;
+        await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
         const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
 
@@ -1469,9 +1549,11 @@ export default function RecordRoute() {
           if (!chunkRes.ok) {
             const text = await chunkRes.text().catch(() => "");
             const error = new Error(
-              `Upload failed at chunk ${i + 1}/${totalChunks}: ${
-                text || chunkRes.statusText
-              }`,
+              t("recordRoute.uploadFailedAtChunk", {
+                chunk: i + 1,
+                total: totalChunks,
+                message: text || chunkRes.statusText,
+              }),
             );
             (error as Error & { status?: number }).status = chunkRes.status;
             throw error;
@@ -1490,23 +1572,35 @@ export default function RecordRoute() {
           finalChunkResult?.waitingForStorage === true ||
           finalChunkResult?.status === "waiting_storage";
         if (waitingForStorage) {
-          toast.info("Video is ready to upload", {
-            description:
-              "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it.",
+          toast.info(t("recordRoute.videoReadyToUpload"), {
+            description: t("recordRoute.connectStorageToFinish"),
             duration: 12_000,
           });
         } else {
-          toast.success("Video uploaded");
+          toast.success(t("recordRoute.videoUploaded"));
         }
-        await writeAppState("navigate", {
-          view: "recording",
-          recordingId: createdId,
-        });
-        setTimeout(() => {
-          if (createdId) navigate(`/r/${createdId}`);
-        }, 50);
+        if (reportContext && createdId) {
+          const path = bugReportDonePath(createdId, reportContext);
+          await writeAppState("navigate", {
+            view: "bug-report-done",
+            recordingId: createdId,
+            path,
+          });
+          setTimeout(() => {
+            navigate(path);
+          }, 50);
+        } else {
+          await writeAppState("navigate", {
+            view: "recording",
+            recordingId: createdId,
+          });
+          setTimeout(() => {
+            if (createdId) navigate(`/r/${createdId}`);
+          }, 50);
+        }
       } catch (err) {
-        const message = err instanceof Error ? err.message : "Upload failed";
+        const message =
+          err instanceof Error ? err.message : t("recordRoute.uploadFailed");
         const aborted = err instanceof Error && err.name === "AbortError";
         const status =
           err instanceof Error
@@ -1526,7 +1620,9 @@ export default function RecordRoute() {
         setUiState("error");
         if (message !== "SESSION_EXPIRED") {
           toast.error(
-            isUploadSizeError(message) ? "Video is too large" : "Upload failed",
+            isUploadSizeError(message)
+              ? t("recordRoute.videoTooLarge")
+              : t("recordRoute.uploadFailed"),
             {
               description: createdId
                 ? "The clip was marked failed in your library. You can remove it from the card menu."
@@ -1575,13 +1671,12 @@ export default function RecordRoute() {
           result?.storageSetupRequired ||
           result?.status === "waiting_storage"
         ) {
-          toast.info("Storage needed to finish Loom import", {
-            description:
-              "Connect Builder.io or S3 storage on the next screen and Clips will retry the import.",
+          toast.info(t("recordRoute.storageNeededToFinishLoomImport"), {
+            description: t("recordRoute.connectStorageToRetryLoom"),
             duration: 12_000,
           });
         } else {
-          toast.success("Loom imported");
+          toast.success(t("recordRoute.loomImported"));
         }
         await writeAppState("navigate", {
           view: "recording",
@@ -1590,7 +1685,9 @@ export default function RecordRoute() {
         navigate(`/r/${recordingId}`);
       } catch (err) {
         throw new Error(
-          err instanceof Error ? err.message : "Could not import that Loom.",
+          err instanceof Error
+            ? err.message
+            : t("recordRoute.couldNotImportLoom"),
         );
       } finally {
         setLoomImporting(false);
@@ -1680,7 +1777,9 @@ export default function RecordRoute() {
       browserDiagnosticsRef.current?.dispose();
       browserDiagnosticsRef.current = null;
       const message =
-        err instanceof Error ? err.message : "Could not start recorder";
+        err instanceof Error
+          ? err.message
+          : t("recordRoute.couldNotStartRecorder");
       countdownAudioCueRef.current?.cleanup();
       countdownAudioCueRef.current = null;
       setError(message);
@@ -1703,13 +1802,26 @@ export default function RecordRoute() {
       setCompressionProgress(null);
       setUiState("complete");
       if (result.waitingForStorage) {
-        toast.info("Recording is ready to upload", {
-          description:
-            "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it.",
+        toast.info(t("recordRoute.recordingReadyToUpload"), {
+          description: t("recordRoute.connectStorageToFinish"),
           duration: 12_000,
         });
       } else {
-        toast.success("Recording saved");
+        toast.success(t("recordRoute.recordingSaved"));
+      }
+
+      const reportContext = bugReportContextRef.current;
+      if (reportContext) {
+        const path = bugReportDonePath(recordingId, reportContext);
+        await writeAppState("navigate", {
+          view: "bug-report-done",
+          recordingId,
+          path,
+        }).catch(() => {});
+        setTimeout(() => {
+          navigate(path);
+        }, 50);
+        return;
       }
 
       await writeAppState("navigate", {
@@ -1784,7 +1896,8 @@ export default function RecordRoute() {
       await saveBrowserDiagnostics(pending.id);
       await finishSavedRecording(pending.id, stopResult);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Upload failed";
+      const message =
+        err instanceof Error ? err.message : t("recordRoute.uploadFailed");
       // Distinguish user-initiated cancel from real failure. When the user
       // clicks Cancel mid-compression, engine.cancel() aborts the in-flight
       // compression pass; the still-pending engine.stop() above then throws
@@ -1813,7 +1926,7 @@ export default function RecordRoute() {
       }).catch(() => {});
       setError(message);
       setUiState("error");
-      toast.error("Upload failed", {
+      toast.error(t("recordRoute.uploadFailed"), {
         description: message,
         duration: 12_000,
       });
@@ -1838,7 +1951,8 @@ export default function RecordRoute() {
       if (err instanceof Error && err.name === "AbortError") {
         return;
       }
-      const message = err instanceof Error ? err.message : "Upload failed";
+      const message =
+        err instanceof Error ? err.message : t("recordRoute.uploadFailed");
       fetch(pending.abortUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1847,7 +1961,7 @@ export default function RecordRoute() {
       setCompressionProgress(null);
       setError(message);
       setUiState("error");
-      toast.error("Upload failed", {
+      toast.error(t("recordRoute.uploadFailed"), {
         description: message,
         duration: 12_000,
       });
@@ -1857,7 +1971,7 @@ export default function RecordRoute() {
   const downloadBufferedRecording = useCallback(() => {
     const download = engineRef.current?.getBufferedRecordingDownload();
     if (!download) {
-      toast.error("No local recording data is available to download.");
+      toast.error(t("recordRoute.noLocalRecordingData"));
       return;
     }
     const url = URL.createObjectURL(download.blob);
@@ -1869,7 +1983,7 @@ export default function RecordRoute() {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-    toast.success("Recording download started");
+    toast.success(t("recordRoute.recordingDownloadStarted"));
   }, []);
 
   const doCancel = useCallback(async () => {
@@ -2096,7 +2210,7 @@ export default function RecordRoute() {
       {showBackButton && (
         <button
           type="button"
-          aria-label="Back to library"
+          aria-label={t("recordRoute.backToLibrary")}
           onClick={async () => {
             // If we landed in `error` after partial media acquisition, the
             // engine may still hold live screen/camera tracks. doCancel()
@@ -2107,9 +2221,9 @@ export default function RecordRoute() {
             void doCancel();
             navigate("/library");
           }}
-          className="fixed left-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="fixed start-4 top-4 z-30 inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          <IconArrowLeft className="h-5 w-5" />
+          <IconArrowLeft className="h-5 w-5 rtl:-scale-x-100" />
         </button>
       )}
 
@@ -2120,7 +2234,7 @@ export default function RecordRoute() {
           <div className="mb-6 flex items-center gap-2 text-primary">
             <IconVideo className="h-6 w-6" />
             <span className="text-sm font-medium uppercase tracking-wide">
-              Clips recorder
+              {t("recordRoute.clipsRecorder")}
             </span>
           </div>
           <div className="relative w-full max-w-6xl">
@@ -2147,11 +2261,13 @@ export default function RecordRoute() {
               ) : (
                 <StorageSetupCard
                   onConfigured={() => markStorageConfigured()}
+                  connectSource="clips_record_storage_setup_card"
+                  connectFlow="record"
                 />
               )}
             </div>
             {!isDesktopApp && (
-              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:left-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
+              <div className="mx-auto mt-4 w-full max-w-md xl:absolute xl:start-[calc(50%+18rem)] xl:top-0 xl:mt-0 xl:w-72">
                 <DesktopRecorderCallout />
               </div>
             )}
@@ -2161,7 +2277,7 @@ export default function RecordRoute() {
 
       {uiState === "pickingSources" && (
         <div className="flex min-h-screen flex-col items-center justify-center gap-3 text-muted-foreground">
-          <div className="text-sm">Preparing sources…</div>
+          <div className="text-sm">{t("recordRoute.preparingSources")}</div>
           <div className="text-xs">
             {getPreparingSourcesCopy(
               recordingMode,
@@ -2204,7 +2320,7 @@ export default function RecordRoute() {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-30" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-white" />
               </span>
-              Recording your screen — switch to the window you want to capture
+              {t("recordRoute.recordingScreen")}
             </div>
             <div className="text-[11px] text-white/50">
               Press <kbd className="rounded bg-white/10 px-1.5 py-0.5">Esc</kbd>{" "}
@@ -2259,11 +2375,11 @@ export default function RecordRoute() {
                   : "…"}
               </div>
               <div className="text-[11px] text-white/50">
-                Large clips need a quick re-encode before upload.
+                {t("recordRoute.largeClipsNeedReencode")}
               </div>
             </>
           ) : (
-            <div className="text-sm">Saving your recording…</div>
+            <div className="text-sm">{t("recordRoute.savingRecording")}</div>
           )}
           <button
             onClick={doCancel}
@@ -2282,7 +2398,7 @@ export default function RecordRoute() {
               <div className="mb-2 flex items-center gap-2 text-primary">
                 <IconVideo className="h-6 w-6" />
                 <span className="text-sm font-medium uppercase tracking-wide">
-                  Clips recorder
+                  {t("recordRoute.clipsRecorder")}
                 </span>
               </div>
               <StorageSetupCard
@@ -2298,18 +2414,22 @@ export default function RecordRoute() {
                   }
                 }}
                 connectedDescription="Storage connected. Reopening recorder..."
+                connectSource="clips_record_storage_setup_card"
+                connectFlow="record"
               />
             </>
           ) : error === "SESSION_EXPIRED" ? (
             <div className="max-w-md rounded-xl border border-border bg-card p-6">
               <div className="mb-2 text-sm font-semibold text-foreground">
-                Session expired
+                {t("recordRoute.sessionExpired")}
               </div>
               <div className="text-sm text-muted-foreground">
-                Your login session has expired. Log in again to start recording.
+                {t("recordRoute.sessionExpiredDescription")}
               </div>
               <div className="mt-4 flex justify-center">
-                <Button onClick={() => window.location.reload()}>Log in</Button>
+                <Button onClick={() => window.location.reload()}>
+                  {t("recordRoute.logIn")}
+                </Button>
               </div>
             </div>
           ) : (

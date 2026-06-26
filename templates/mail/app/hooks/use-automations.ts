@@ -1,6 +1,7 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import type { AutomationRule, AutomationAction } from "@shared/types";
 import { appApiPath } from "@agent-native/core/client";
+import type { AutomationRule, AutomationAction } from "@shared/types";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
 import { TAB_ID } from "@/lib/tab-id";
 
 async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {

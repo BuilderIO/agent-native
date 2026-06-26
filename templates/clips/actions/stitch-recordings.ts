@@ -28,12 +28,17 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { and, eq, inArray } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail, nanoid } from "../server/lib/recordings.js";
 import { writeAppState } from "@agent-native/core/application-state";
+import { and, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
+
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
+import { getDb, schema } from "../server/db/index.js";
+import {
+  getCurrentOwnerEmail,
+  nanoid,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 export default defineAction({
@@ -94,7 +99,7 @@ export default defineAction({
       .where(
         and(
           inArray(schema.recordings.id, ids),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
     if (sources.length !== ids.length) {

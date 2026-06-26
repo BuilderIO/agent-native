@@ -1,3 +1,4 @@
+import { emit } from "@tauri-apps/api/event";
 import {
   useCallback,
   useEffect,
@@ -6,12 +7,12 @@ import {
   useState,
   type MutableRefObject,
 } from "react";
-import { emit } from "@tauri-apps/api/event";
-import { loadString, saveString } from "../lib/storage";
+
 import {
   isHardCapturePermissionError,
   MACOS_CAPTURE_PERMISSION_MESSAGE,
 } from "../lib/permissions";
+import { loadString, saveString } from "../lib/storage";
 
 const CAM_KEY = "clips:last-camera-id";
 const MIC_KEY = "clips:last-mic-id";

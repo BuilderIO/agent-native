@@ -2,11 +2,11 @@
  * test-agent-engine — sends a trivial prompt to verify the engine is working.
  */
 
-import type { ActionTool } from "../../agent/types.js";
 import {
   getAgentEngineEntry,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
+import type { ActionTool } from "../../agent/types.js";
 
 export const tool: ActionTool = {
   description:

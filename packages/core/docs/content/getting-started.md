@@ -5,9 +5,10 @@ description: "Create an agent app, understand instructions, skills, and actions,
 
 # Getting Started
 
-Agent-Native apps give an AI agent and your UI the same actions, data, and
-state. A basic agent is made from instructions that guide it, skills that teach
-repeatable behavior, and actions that let it do real work.
+Agent-Native apps give an AI agent and your UI the same
+[actions](/docs/actions), data, and state. A basic agent is made from
+instructions that guide it, skills that teach repeatable behavior, and actions
+that let it do real work.
 
 **Want a complete app to start from?** Clone one of our rich templates —
 [Chat](/docs/template-chat), [Mail](/docs/template-mail),

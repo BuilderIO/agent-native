@@ -1,0 +1,142 @@
+---
+title: "FAQ"
+description: "الأسئلة الشائعة حول Agent-Native - ما هو، ومن هو، وما الذي يمكنك إنشاؤه، وكيف يعمل."
+---
+
+# FAQ
+
+الأسئلة الشائعة حول الوكيل الأصلي، منظمة من "أنا أبحث فقط" إلى "أقوم بتوصيل المصادقة الآن."
+
+## الأساسيات {#general}
+
+### ما هو الوكيل الأصلي؟ {#what-is-agent-native}
+
+Agent-native هو إطار عمل لبناء التطبيقات حيث يكون وكيل الذكاء الاصطناعي وسطح المنتج المحيط به شريكين متساويين. يمكن أن يبدأ هذا السطح كعميل بلا رأس بإجراء مخصص واحد، أو ينمو ليصبح دردشة غنية، أو يصبح UI كاملاً. الثابت هو أن الوكلاء والبشر يتشاركون نفس actions وقاعدة البيانات والحالة. راجع [What Is Agent-Native?](/docs/what-is-agent-native) للحصول على الشرح الكامل.
+
+### لمن هذا؟ {#who-is-this-for}
+
+Agent-native مخصص للأشخاص الذين يريدون تطبيقًا حقيقيًا ووكيل AI للعمل من نفس البيانات وactions. المسارات الشائعة هي:
+
+- **استخدم تطبيقًا مستضافًا** إذا كنت تريد البريد أو التقويم أو النماذج أو الخطة أو أي قالب نهائي آخر بدون إعداد - ابدأ من [template gallery](/templates).
+- **ابدأ بالدردشة** إذا كنت تريد تطبيقًا أساسيًا يمكن للمستخدمين التحدث إليه على الفور، ثم قم بتوسيع نطاقه إلى actions والشاشات - ابدأ بـ [Getting Started](/docs/getting-started) أو [Chat](/docs/template-chat).
+- **ابدأ بـ primitive-first** إذا كنت تريد إجراءً واحدًا وحلقة وكيل تطبيق بدون رأس قبل الالتزام بـ UI - ابدأ بـ [Getting Started](/docs/getting-started).
+- **تفرع القالب وتخصيصه** إذا كنت تريد توصيل منتج SaaS الخاص بك بالمصادقة وقاعدة البيانات وUI والوكيل actions بالفعل - راجع [Templates](/docs/cloneable-saas).
+- **الإنشاء من الصفر** إذا كنت تريد أساسيات إطار العمل لمنتج جديد يستند إلى الوكيل - فابدأ بـ [Getting Started](/docs/getting-started).
+- **قم بتوصيل وكيل آخر أو أداة تعليمات برمجية أخرى** إذا كنت تريد أن يستخدم Claude أو ChatGPT أو Codex أو Cursor أو GitHub Copilot / VS Code تطبيقًا أصليًا للوكيل - راجع [External Agents](/docs/external-agents) و[Skills Guide](/docs/skills-guide).
+
+### كيف يختلف هذا عن إضافة الذكاء الاصطناعي إلى تطبيق موجود؟ {#how-is-this-different}
+
+تعمل معظم التطبيقات على تشغيل الذكاء الاصطناعي كفكرة لاحقة لا يمكنها في الواقع القيام بأشياء في التطبيق. في تطبيق الوكيل الأصلي، يكون الوكيل مواطنًا من الدرجة الأولى يشترك في نفس actions وقاعدة البيانات والحالة مثل UI، لذا يمكنه فعل أي شيء يمكن أن تفعله الأزرار - وتعديل التعليمات البرمجية الخاصة بالتطبيق. انظر [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+
+```an-diagram title="الذكاء الاصطناعي المثبت مقابل agent-native" summary="يعيش الشريط الجانبي للدردشة المثبت في عالمه الخاص. يشارك وكيل agent-native نفس الإجراءات وقاعدة البيانات والحالة مثل واجهة المستخدم."
+{
+  "html": "<div class=\"diagram-vs\"><div class=\"diagram-col\"><span class=\"diagram-pill warn\">ذكاء اصطناعي ملحق</span><div class=\"diagram-node\">الشريط الجانبي للدردشة</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>عالم AI منفصل<br><small class=\"diagram-muted\">لا يمكنه لمس التطبيق</small></div><div class=\"diagram-box diagram-muted\">App UI &amp; data</div></div><div class=\"diagram-divider\" aria-hidden=\"true\"></div><div class=\"diagram-col\"><span class=\"diagram-pill ok\">Agent-native</span><div class=\"diagram-row2\"><div class=\"diagram-node\">UI</div><div class=\"diagram-node\">Agent</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>shared actions, DB &amp; state</div></div></div>",
+  "css": ".diagram-vs{display:flex;align-items:stretch;gap:18px;flex-wrap:wrap}.diagram-vs .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:center;flex:1;min-width:200px}.diagram-vs .diagram-row2{display:flex;gap:8px}.diagram-vs .diagram-arrow{font-size:20px;line-height:1}.diagram-vs .diagram-divider{width:1px;align-self:stretch;background:currentColor;opacity:.15}"
+}
+```
+
+### هل هو مفتوح المصدر؟ {#is-this-open-source}
+
+نعم. الإطار وجميع القوالب مفتوحة المصدر. يمكنك تشغيل كل شيء محليًا، أو الاستضافة الذاتية، أو استخدام سحابة Builder.io للاستضافة المُدارة والتعاون وميزات الفريق.
+
+### كم تبلغ التكلفة؟ {#how-much}
+
+إطار العمل نفسه مجاني. التكاليف التي ستراها عمليًا:
+
+- **استخدام الذكاء الاصطناعي.** يمكنك إحضار مفتاح API الخاص بك (Anthropic، OpenAI، وما إلى ذلك) والدفع لموفر النموذج مباشرة. ليس هناك أي ترميز من جانبنا.
+- **الاستضافة.** أيًا كان ما يتقاضاه مضيفك. تعمل معظم القوالب بشكل جيد على المستويات المجانية (Netlify وVercel وCloudflare) لأحمال العمل الصغيرة.
+
+إذا كنت تفضل عدم إدارة أي من هذا، فإن الإصدار المستضاف على `agent-native.com` (الذي يديره Builder.io) يجمع الاستدلال والاستضافة في خطة لكل مقعد.
+
+### هل يمكنني استضافة هذا بنفسي؟ {#can-i-self-host}
+
+نعم. اختر أي مضيف يقوم بتشغيل Node - Netlify، وVercel، وCloudflare، وAWS، وDeno Deploy، والخادم الخاص بك - وأي قاعدة بيانات SQL (Postgres، SQLite، Turso، D1). تم تصميم الإطار ليكون محمولاً. انظر [Deployment](/docs/deployment).
+
+### ما هي نماذج الذكاء الاصطناعي التي يدعمها؟ {#what-models}
+
+Anthropic Claude وOpenAI (عائلة GPT-5) وGoogle Gemini وأي مزود يتحدث شكل OpenAI API (بما في ذلك النماذج المحلية عبر Ollama). يمكنك تكوين النموذج في الإعدادات؛ التبديل هو تغيير في التكوين، وليس إعادة كتابة التعليمات البرمجية. المسار الأكثر اختبارًا لإطار العمل هو Claude، لذا فهذه هي التوصية الافتراضية.
+
+### هل أحتاج إلى معرفة الذكاء الاصطناعي/تعلم الآلة؟ {#do-i-need-to-know-ai}
+
+لا. أنت لا تقوم بتدريب النماذج، أو الضبط الدقيق، أو التعامل مع التضمينات. أنت تنشئ تطبيق ويب عاديًا - وفي الإصدار المستضاف، بالكاد تنشئ أي شيء على الإطلاق. يعالج إطار العمل تكامل الوكيل: توجيه الرسائل، تشغيل actions، حالة المزامنة.
+
+### هل يمكنني ترحيل تطبيق موجود إلى الوكيل الأصلي؟ {#can-i-use-existing-code}
+
+يمكنك ذلك، ولكن الوكيل الأصلي يعمل بشكل أفضل عند إنشائه من الألف إلى الياء. يجب أن تكون البنية - قاعدة البيانات المشتركة، ومزامنة الاستقصاء، وactions، وحالة التطبيق - متكاملة طوال الوقت. البدء من القالب وتخصيصه هو المسار الموصى به. فكر في الأمر مثل التحول من سطح المكتب أولاً إلى الهاتف المحمول أولاً: يمكنك التعديل التحديثي، ولكن إنشاء المحتوى الأصلي هو الأفضل.
+
+## النماذج وما يمكنك إنشاؤه {#templates}
+
+### ما هي النماذج المتاحة؟ {#what-templates-are-available}
+
+يأتي إطار العمل مع قوالب جاهزة للإنتاج بما في ذلك [Chat](/docs/template-chat)، و[Mail](/docs/template-mail)، و[Calendar](/docs/template-calendar)، و[Forms](/docs/template-forms)، و[Plan](/docs/template-plan) (الخطط المرئية وملخصات العلاقات العامة)، و[Analytics](/docs/template-analytics)، و[Dispatch](/docs/template-dispatch)، والمزيد. كل منها عبارة عن تطبيق كامل مع UI والوكيل actions ومخطط قاعدة البيانات وتعليمات الذكاء الاصطناعي الجاهزة للاستخدام. راجع [Templates](/docs/cloneable-saas) للحصول على الكتالوج الكامل.
+
+### هل يمكنني تخصيص النماذج؟ {#can-i-customize-templates}
+
+هذا هو بيت القصيد. قم بتفرع القالب وتخصيصه عن طريق سؤال الوكيل. "إضافة حقل أولوية إلى النماذج." "الاتصال بمثيل Salesforce الخاص بنا." "قم بتغيير نظام الألوان ليتناسب مع علامتنا التجارية." يقوم الوكيل بتعديل الرمز، ويتطور تطبيقك بمرور الوقت.
+
+### هل يمكنني إنشاء شيء لا تغطيه النماذج؟ {#build-from-scratch}
+
+نعم. إذا كنت تريد تطبيقًا أساسيًا للدردشة، فقم بتشغيل `npx @agent-native/core@latest create my-chat-app --template chat`؛ يمكنك الحصول على سلاسل محادثات متينة، وactions، والمصادقة، وحالة وقت التشغيل المدعومة بـ SQL، ومساحة لإضافة شاشاتك الخاصة. إذا كنت تريد أصغر تطبيق للإجراء أولاً بدون UI، فقم بتشغيل `npx @agent-native/core@latest create my-agent --headless`. راجع [Getting Started](/docs/getting-started)، و[Pure-Agent Apps](/docs/pure-agent-apps)، و[Chat](/docs/template-chat).
+
+### هل يمكنني تجربته بدون تفرع القالب؟ {#try-with-a-skill}
+
+نعم - قم بتثبيت مهارة في وكيل الترميز الذي تستخدمه بالفعل بأمر واحد دون الحاجة إلى أي دعم. راجع [Skills Guide](/docs/skills-guide#app-backed-skills) للاطلاع على الإرشادات التفصيلية.
+
+## قدرات الوكيل {#agent-capabilities}
+
+### هل يستطيع الوكيل تعديل كود التطبيق حقًا؟ {#can-the-agent-modify-code}
+
+نعم، وهي ميزة. يمكن للوكيل تحرير المكونات والمسارات والأنماط وactions بأمان. أنت تطلب "إضافة مخطط تحليل جماعي" ويقوم الوكيل بإنشائه. أنت تطلب "الاتصال بحساب Stripe الخاص بنا" ويقوم الوكيل بكتابة عملية التكامل. كل شيء هو عبارة عن تعليمات برمجية عادية يتم تتبعها بواسطة Git، لذا من السهل التراجع عن التغييرات السيئة.
+
+### هل يمكن للمستخدمين التحدث إلى الوكيل من خارج التطبيق؟ {#external-channels}
+
+نعم. يعمل نفس الوكيل في UI على الويب الخاص بك، وفي Slack، وفي Telegram، عبر البريد الإلكتروني، ومن وكلاء آخرين (عبر [A2A](/docs/a2a-protocol)). إنه نفس الوكيل بنفس الذاكرة ونفس actions، تم الوصول إليه للتو من خلال قنوات مختلفة. انظر [Messaging the agent](/docs/messaging).
+
+### هل يمكن للوكلاء التحدث مع بعضهم البعض؟ {#can-agents-talk-to-each-other}
+
+نعم، عبر [A2A (Agent-to-Agent) protocol](/docs/a2a-protocol). يحصل كل تطبيق أصلي للوكيل تلقائيًا على نقطة نهاية A2A. من تطبيق البريد، يمكنك وضع علامة على وكيل التحليلات للاستعلام عن البيانات. يكتشف الوكيل ما هو الوكلاء الآخرون المتاحون، ويستدعيهم عبر البروتوكول، ويعرض النتائج في UI. ليست هناك حاجة إلى تكوين — يتم إنشاء بطاقة الوكيل تلقائيًا من actions الخاص بنموذجك.
+
+### ما الذي يمكن للوكيل رؤيته في التطبيق؟ {#what-can-the-agent-see}
+
+يعرف الوكيل دائمًا ما يشاهده المستخدم حاليًا. يكتب UI حالة التنقل إلى قاعدة البيانات عند كل تغيير للمسار - أي طريقة عرض مفتوحة، وأي عنصر محدد. يقرأ الوكيل هذا قبل اتخاذ الإجراء. إذا كان البريد الإلكتروني مفتوحًا، فسيعرف الوكيل أي بريد إلكتروني. إذا تم تحديد شريحة، يعرف الوكيل أي شريحة. انظر [Context Awareness](/docs/context-awareness).
+
+## أسئلة التطوير {#development}
+
+### ما هي أدوات ترميز الذكاء الاصطناعي التي تعمل مع الوكيل الأصلي؟ {#which-ai-tools-work}
+
+أي أداة ترميز تعمل بالذكاء الاصطناعي تقرأ تعليمات المشروع. يستخدم إطار العمل AGENTS.md كمعيار عالمي ويقوم تلقائيًا بإنشاء روابط رمزية لأدوات محددة:
+
+- **رمز Claude** — يقرأ CLAUDE.md (مرتبط بـ AGENTS.md بواسطة إعداد CLI)
+- **المؤشر** — يقرأ AGENTS.md مباشرة، أو `.cursorrules` (الموقع القديم للمؤشر) إذا كان موجودًا في مشروعك
+- **Windsurf** — يقرأ .windsurfrules (مرتبط بـ AGENTS.md بواسطة إعداد CLI)
+- **Codex وGemini وآخرون** — يعملون عبر لوحة الوكلاء المضمنة
+- **Builder.io** — وكيل مستضاف على السحابة مع إمكانية التحرير المرئي والتعاون
+
+### هل يمكنني استخدام قاعدة البيانات الخاصة بي؟ {#can-i-use-my-own-database}
+
+نعم. قم بتعيين `DATABASE_URL` وسيكتشفه الإطار تلقائيًا. تتضمن قواعد البيانات المدعومة SQLite، وPostgres (Neon، وSupabase، وplain)، وTurso (libSQL)، وCloudflare D1. كل SQL لا تعرف لهجة من خلال Drizzle ORM — نفس الرمز يعمل في كل مكان.
+
+### أين يمكنني النشر؟ {#where-can-i-deploy}
+
+في أي مكان. يعمل الخادم على Nitro، والذي يتم تجميعه لأي هدف نشر: Node.js، وCloudflare Workers/Pages، وNetlify، وVercel، وDeno Deploy، وAWS Lambda، وBun. يمكنك أيضًا استخدام استضافة Builder.io لعمليات النشر المُدارة. انظر [Deployment guide](/docs/deployment).
+
+## الهندسة المعمارية {#architecture}
+
+### لماذا SSE بالإضافة إلى الاقتراع بدلاً من WebSockets؟ {#why-polling-not-websockets}
+
+يوفر SSE نفس العملية لكتابة مسار فوري للمتصفح، ويظل استطلاع عداد الإصدار خفيف الوزن هو البديل لأنه يعمل في كل بيئة نشر - بما في ذلك بيئة بدون خادم وبيئة الحافة، حيث قد لا تكون المقابس الدائمة متاحة. انظر [Key Concepts — مزامنة مباشرة](/docs/key-concepts#polling-sync).
+
+```an-diagram title="SSE أولاً، إجراء الاقتراع الاحتياطي" summary="نفس العملية تكتب الدفق على الفور؛ يحافظ استطلاع الإصدار المضاد على تقارب عمليات الكتابة بدون خادم والحواف والعمليات المشتركة."
+{
+  "html": "<div class=\"diagram-transport\"><div class=\"diagram-box\" data-rough>كتابة في قاعدة البيانات</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">SSE<br><small class=\"diagram-muted\">/_agent-native/events &middot; instant</small></div><div class=\"diagram-node\">استقصاء<br><small class=\"diagram-muted\">/_agent-native/poll &middot; universal fallback</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>إعادة جلب المتصفح</div></div>",
+  "css": ".diagram-transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-transport .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-transport .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+### لماذا لا يستطيع UI الاتصال بـ LLM مباشرة؟ {#why-no-inline-llm-calls}
+
+الذكاء الاصطناعي غير حتمي، لذلك تحتاج إلى تدفق المحادثة لتقديم التعليقات والتكرار - وليس أزرار طلقة واحدة - ويمتلك الوكيل بالفعل قاعدة التعليمات البرمجية والتعليمات وskills والسجل الذي تفتقر إليه المكالمة المضمنة. إن توجيه كل شيء عبر الوكيل هو أيضًا ما يتيح تشغيل التطبيق من Slack أو Telegram أو وكيل آخر. انظر [Key Concepts — Agent chat bridge](/docs/key-concepts#agent-chat-bridge).
+
+### لماذا هذا إطار عمل وليس مكتبة؟ {#why-framework-not-library}
+
+تعمل قاعدة البيانات المشتركة والمزامنة المباشرة ونظام actions وحالة التطبيق فقط لأنها متصلة معًا من الألف إلى الياء — يتفاعل UI مع تغييرات الوكيل على الفور، ويتواصل الوكلاء، ويفهم الوكيل ما يبحث عنه المستخدم. مكتبة تمنحك قطعًا؛ هذه هي الهندسة المعمارية. انظر [Key Concepts](/docs/key-concepts).

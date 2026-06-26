@@ -1,0 +1,74 @@
+---
+title: "持久背景執行"
+description: "長時間的代理聊天回合可以在獨立的 15 分鐘 Netlify 背景函式中執行，而不是佔用同步請求，讓多步驟工作在伺服器端完成，不需要用戶端看守續跑。每個應用可自行選用；前景斷路器會讓聊天在背景 worker 未啟動時仍可繼續運作。"
+---
+
+# 持久背景執行
+
+> **適用對象：**部署 agent-native 應用、希望長時間多步驟代理回合在伺服器端完成的人，以及想了解 `AGENT_CHAT_DURABLE_BACKGROUND` 旗標和第二個 Netlify 函式用途的人。這是框架內建的選用功能，不需要撰寫任何應用程式碼。
+
+一般託管代理回合會在同步請求函式中執行，並受平台請求逾時限制（Netlify 免費方案約 10 秒，框架約 40 秒軟逾時，之後必須把控制權交回用戶端並「從上次中斷的地方繼續」）。這對快速回答沒有問題，但長時間的代理回合（許多工具呼叫、大量分析）會在多次由用戶端驅動的續跑之間來回跳轉。
+
+持久背景執行會把那個長回合移到**獨立的 Netlify 背景函式**，並提供 **15 分鐘**預算。該回合會在伺服器端的一次呼叫中執行完成；UI 只需要串流結果。
+
+## 兩個函式，不是一個 {#two-functions}
+
+已部署的應用正好有兩個伺服器函式，幾乎所有請求都會打到第一個。只有被分派的代理回合會在第二個函式上執行。
+
+```an-diagram title="server 處理所有事；只有被分派的代理回合在背景函式上執行" summary="同步 server 函式提供頁面、actions、API 和前景聊天 POST；它會用 HMAC 將長回合分派到有 15 分鐘預算的背景函式。"
+{
+  "html": "<div class=\"diagram-bg-runs\"><div class=\"diagram-panel\" data-rough><div class=\"diagram-pill\">server &middot; synchronous</div><div class=\"diagram-box\">頁面 / SSR</div><div class=\"diagram-box\">Actions</div><div class=\"diagram-box\">API + 框架路由</div><div class=\"diagram-box\">前景聊天 POST <small class=\"diagram-muted\">決定 + 分派</small></div><small class=\"diagram-muted\">約 10 秒逾時 &middot; 幾乎所有請求</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;<br><small>HMAC 202</small></div><div class=\"diagram-panel\" data-rough><div class=\"diagram-pill accent\">server-agent-background &middot; background:true</div><div class=\"diagram-box\">_process-run worker</div><div class=\"diagram-box\">代理回合：LLM + 工具呼叫</div><small class=\"diagram-ok\">15 分鐘預算 &middot; 僅限被分派的回合</small></div></div>",
+  "css": ".diagram-bg-runs{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap}.diagram-bg-runs .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px;flex:1;min-width:230px}.diagram-bg-runs .diagram-box{padding:8px 10px}.diagram-bg-runs .diagram-arrow{display:flex;flex-direction:column;justify-content:center;text-align:center;min-width:90px;font-size:20px}"
+}
+```
+
+應用或範本程式碼中**沒有任何需要標記的地方**。當函式的 `export const config` 含有 `background: true`（或函式名稱以 `-background` 結尾）時，Netlify 就會把它視為背景函式。啟用此功能時，框架的建置步驟會自動產生 `server-agent-background` 包裝器；應用作者不需要自行宣告。
+
+## 背景中會執行什麼，以及如何選擇 {#what-runs}
+
+只有長時間的代理聊天回合，也就是會重新進入代理迴圈的內部 `_process-run` 分派（LLM 呼叫 + 工具執行）。頁面、actions 和一般 API 呼叫一律在 `server` 上同步執行。
+
+前景聊天 POST 會**逐回合**決定。只有下列三個條件同時成立時，才會分派到背景函式：
+
+- `AGENT_CHAT_DURABLE_BACKGROUND` 為真值（`true` / `1` / `yes` / `on`），
+- 應用正在託管環境中執行（在平台上，而非本機開發），以及
+- 已設定 `A2A_SECRET`（分派是 HMAC 簽署的自我呼叫；沒有 secret 就無法簽署，因此該回合會留在線上同步執行）。
+
+若缺少任何條件，該回合就會和以前一樣在線上同步執行。這個旗標會在**建置時間**讀取（決定是否輸出背景函式），也會在**執行時間**讀取（決定是否分派），因此啟用後需要重新部署。
+
+## 生命週期與斷路器 {#lifecycle}
+
+Netlify async function 會在**排入**呼叫的瞬間回傳 `202`；這不代表 worker 已實際執行。因此前景不會盲目相信 `202`：分派後會短暫輪詢，確認 worker 是否真的**認領**該 run；若沒有認領，前景會在線上同步復原。
+
+```an-diagram title="前景一律回傳可運作的回合" summary="分派時，前景會等待一段寬限時間讓 worker 認領 run；若認領成功，前景會訂閱它；若未認領，前景會自行認領並在線上同步執行該回合。"
+{
+  "html": "<div class=\"diagram-bg-life\"><div class=\"diagram-box\" data-rough>前景 POST</div><div class=\"diagram-arrow diagram-muted\">&rarr;</div><div class=\"diagram-box\" data-rough>插入 run + HMAC 分派 &rarr; 202</div><div class=\"diagram-arrow diagram-muted\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Worker 是否在寬限時間內認領？</strong><small class=\"diagram-ok\">是 &rarr; 串流背景 worker（最多 15 分鐘）</small><small class=\"diagram-warn\">否 &rarr; 斷路器在線上同步復原該回合</small></div></div>",
+  "css": ".diagram-bg-life{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bg-life .diagram-arrow{font-size:20px}.diagram-bg-life .center{display:flex;flex-direction:column;gap:4px;padding:12px}"
+}
+```
+
+認領會透過 `dispatch_mode` 從 `background` 變成 `background-processing` 來觀察（只有 worker 的原子認領會這樣做）。寬限時間必須涵蓋 worker 冷啟動；較重的應用曾觀察到需要比原本 8 秒更久，因此目前是 **15 秒**（仍在前景約 40 秒軟逾時內）。如果 worker 從未認領，無論是故障或只是啟動太慢，都會在寬限時間後回退到線上同步執行，所以該回合仍會完成；代價是先等待寬限時間所增加的延遲。
+
+```an-callout
+{
+  "tone": "success",
+  "body": "無論哪種情況，前景都會回傳可運作的回合：worker 及時認領時使用背景 worker，否則使用線上同步回合。因此，即使 worker 失敗，持久背景執行也應該保留聊天正確性；但設定錯誤或認領過慢的 worker 可能會在同步復原接手前增加回退延遲（最多到寬限時間）。"
+}
+```
+
+## 成本與取捨 {#cost}
+
+Netlify 背景函式是**付費方案**功能（Personal / Pro，不含免費方案），並依運算時間計費（GB-hour）。因此多分鐘的代理回合會比短同步呼叫花費更多運算量；但它大致上**取代**了舊模式，也就是回合撞到約 40 秒限制後，用戶端重新送出多次續跑請求。這是把同一份工作合併到一次長呼叫中，不是純粹額外增加。
+
+```an-callout
+{
+  "tone": "info",
+  "body": "持久背景執行是每個應用可選用的功能，預設為關閉。使用 AGENT_CHAT_DURABLE_BACKGROUND=true（加上 A2A_SECRET）啟用並重新部署。若要驗證某個回合真的使用 worker，請檢查該 run 是否到達 dispatch_mode=background-processing，而不是回退到線上同步復原。"
+}
+```
+
+## 相關
+
+- [**持久恢復**](/docs/durable-resume) — 中斷的 run 如何恢復而不重複已完成的副作用（另一個永遠啟用的保護）。
+- [**部署**](/docs/deployment) — 應用及其函式如何建置並部署到平台。
+- [**A2A Protocol**](/docs/a2a-protocol) — `A2A_SECRET` 與持久 worker 重用的 HMAC 簽署自我分派。

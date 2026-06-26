@@ -2,7 +2,6 @@ import {
   executeExistingCodeAgentRun,
   executePendingCodeAgentApproval,
 } from "../cli/code-agent-executor.js";
-import type { AgentPromptAttachment } from "./prompt-attachments.js";
 import {
   appendCodeAgentTranscriptEvent,
   getCodeAgentRunRecord,
@@ -12,6 +11,7 @@ import {
   type CodeAgentFollowUpMode,
   type CodeAgentPermissionMode,
 } from "../cli/code-agent-runs.js";
+import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   getBackgroundAgentRun,
   listBackgroundAgentRuns,
@@ -21,7 +21,7 @@ import {
   type BackgroundAgentTranscriptEvent,
   type ListBackgroundAgentRunsOptions,
 } from "./background-run.js";
-import type { ReasoningEffort } from "../shared/reasoning-effort.js";
+import type { AgentPromptAttachment } from "./prompt-attachments.js";
 
 export type BackgroundAgentControlCommand =
   | "approve"

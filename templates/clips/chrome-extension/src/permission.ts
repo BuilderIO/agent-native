@@ -5,8 +5,17 @@
 // the grant for the whole chrome-extension:// origin — so the offscreen recorder
 // (mic) and the camera-bubble iframe both work afterward.
 
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("permission");
+
 const enableBtn = document.getElementById("enable") as HTMLButtonElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
+const successEl = document.getElementById("success-state") as HTMLDivElement;
+const successTitle = document.getElementById("success-title") as HTMLDivElement;
+const successCopy = document.getElementById(
+  "success-copy",
+) as HTMLParagraphElement;
 const rowMic = document.getElementById("row-mic") as HTMLDivElement;
 const rowCam = document.getElementById("row-cam") as HTMLDivElement;
 const checkMic = document.getElementById("check-mic") as HTMLSpanElement;
@@ -18,6 +27,25 @@ const DOT = "●";
 function setStatus(text: string, isError = false): void {
   statusEl.textContent = text;
   statusEl.classList.toggle("error", isError);
+}
+
+function showEnableButton(text: string, disabled: boolean): void {
+  enableBtn.hidden = false;
+  enableBtn.textContent = text;
+  enableBtn.disabled = disabled;
+  successEl.hidden = true;
+}
+
+function showSuccess(title: string): void {
+  enableBtn.hidden = true;
+  enableBtn.disabled = true;
+  successTitle.textContent = title;
+  successCopy.textContent =
+    "You can close this tab and start recording from the Clips icon.";
+  successEl.hidden = false;
+  setStatus(
+    "Chrome still asks you what to share before each recording starts.",
+  );
 }
 
 function markRow(kind: "mic" | "cam", granted: boolean): void {
@@ -47,7 +75,10 @@ async function requestOne(kind: "mic" | "cam"): Promise<boolean> {
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     for (const track of stream.getTracks()) track.stop();
     return true;
-  } catch {
+  } catch (err) {
+    captureExtensionError(err, {
+      tags: { surface: "permission", permission: kind },
+    });
     return false;
   }
 }
@@ -59,16 +90,9 @@ function finish(camOk: boolean, micOk: boolean): void {
   markRow("mic", micOk);
   markRow("cam", camOk);
   if (camOk || micOk) {
-    enableBtn.textContent = "All set — you can close this tab";
-    enableBtn.disabled = true;
-    setStatus(
-      camOk && micOk
-        ? "Camera and microphone are ready. Click the Clips icon to record."
-        : "Saved. Click the Clips icon to record.",
-    );
+    showSuccess(camOk && micOk ? "You're all done" : "Saved");
   } else {
-    enableBtn.disabled = false;
-    enableBtn.textContent = "Try again";
+    showEnableButton("Try again", false);
     setStatus(
       "Access was blocked. Click the camera icon in Chrome's address bar to allow it, then try again.",
       true,
@@ -77,7 +101,7 @@ function finish(camOk: boolean, micOk: boolean): void {
 }
 
 async function enable(): Promise<void> {
-  enableBtn.disabled = true;
+  showEnableButton(enableBtn.textContent ?? "Enable camera & microphone", true);
   setStatus("Waiting for Chrome's permission prompt…");
   // Request separately so a camera denial doesn't also block the microphone.
   const micOk = await requestOne("mic");
@@ -96,10 +120,6 @@ void (async () => {
   markRow("mic", mic === "granted");
   markRow("cam", cam === "granted");
   if (cam === "granted" && mic === "granted") {
-    enableBtn.textContent = "Already enabled — you can close this tab";
-    enableBtn.disabled = true;
-    setStatus(
-      "Camera and microphone are ready. Click the Clips icon to record.",
-    );
+    showSuccess("You're all done");
   }
 })();

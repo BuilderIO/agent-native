@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+
+import getPlanBlocks from "../actions/get-plan-blocks.js";
 import { planBlockSchema, type PlanContent } from "../shared/plan-content.js";
 import {
   EXAMPLE_BLOCKS,
@@ -8,7 +10,6 @@ import {
   type PriorityExampleBlockType,
 } from "./plan-block-examples.js";
 import { parsePlanMdxFolder } from "./plan-mdx.js";
-import getPlanBlocks from "../actions/get-plan-blocks.js";
 
 /* -------------------------------------------------------------------------- */
 /* Authoring-examples corpus.                                                 */

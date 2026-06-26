@@ -25,13 +25,13 @@
  * org-admin write-gate is verified to be active.
  */
 
-import { readAppSecret, readAppSecretMeta } from "./storage.js";
-import type { SecretScope } from "./register.js";
 import { resolveCredentialForScope } from "../credentials/index.js";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
+import type { SecretScope } from "./register.js";
+import { readAppSecret, readAppSecretMeta } from "./storage.js";
 
 const KEY_REFERENCE_REGEX = /\$\{keys\.([A-Za-z0-9_-]+)\}/g;
 

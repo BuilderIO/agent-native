@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { getComposerDraftKey } from "./draft-key.js";
 
 describe("getComposerDraftKey", () => {

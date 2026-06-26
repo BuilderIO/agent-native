@@ -1,7 +1,10 @@
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import type { FormField } from "@shared/types";
+import { IconStar, IconStarFilled } from "@tabler/icons-react";
+
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -9,11 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Slider } from "@/components/ui/slider";
-import { IconStar, IconStarFilled } from "@tabler/icons-react";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import type { FormField } from "@shared/types";
 
 interface FieldRendererProps {
   field: FormField;

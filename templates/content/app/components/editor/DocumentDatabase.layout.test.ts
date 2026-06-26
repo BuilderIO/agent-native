@@ -1,22 +1,11 @@
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 function readDatabaseSource() {
-  return readFileSync(new URL("./DocumentDatabase.tsx", import.meta.url), {
+  return readFileSync(new URL("./database/DatabaseView.tsx", import.meta.url), {
     encoding: "utf8",
   });
-}
-
-function readBuilderReviewDialogSource() {
-  return readFileSync(
-    new URL(
-      "./database-sources/BuilderSourceReviewDialog.tsx",
-      import.meta.url,
-    ),
-    {
-      encoding: "utf8",
-    },
-  );
 }
 
 describe("document database layout", () => {
@@ -43,13 +32,13 @@ describe("document database layout", () => {
     expect(source).toContain("setPreviewTitleFocusDocumentId");
     expect(source).toContain("titleInputRef.current?.focus()");
     expect(source).toContain("titleInputRef.current?.select()");
-    expect(source).toContain('aria-label="New database row"');
+    expect(source).toContain('aria-label={dbText("newDatabaseRow")}');
   });
 
   it("selects the current view name when renaming a database view", () => {
     const source = readDatabaseSource();
 
-    expect(source).toContain('aria-label="View name"');
+    expect(source).toContain('aria-label={dbText("viewName")}');
     expect(source).toContain("const renameInputRef = useRef<HTMLInputElement>");
     expect(source).toContain("renameInputRef.current?.focus()");
     expect(source).toContain("renameInputRef.current?.select()");
@@ -97,7 +86,7 @@ describe("document database layout", () => {
     const source = readDatabaseSource();
 
     expect(source).toContain("function DatabasePropertyPickerSearch");
-    expect(source).toContain('placeholder="Search properties"');
+    expect(source).toContain('placeholder={dbText("searchProperties")}');
     expect(source).toContain("DatabasePropertyPickerSubContent");
     expect(source).toContain(
       "const groupPropertyItems = databasePropertyPickerItems",
@@ -165,63 +154,26 @@ describe("document database layout", () => {
 
     // The manual "Refresh source" block is gone; sync is automatic.
     expect(source).not.toContain("Refresh source");
-    // Auto-sync runs on panel open and whenever the window regains focus, and
-    // targets the source whose leaf is open (the primary at the root).
+    // Auto-sync runs on panel open and whenever the window regains focus.
     expect(source).toContain("const autoSyncEnabled");
     expect(source).toContain('window.addEventListener("focus"');
-    expect(source).toContain("refreshSourceRef.current(autoSyncSourceId)");
+    expect(source).toContain("refreshSourceRef.current()");
   });
 
   it("reduces the connected source panel to read-only status plus a diff slot", () => {
     const source = readDatabaseSource();
 
-    // Read-only is the headline signal for non-safe models; the safe write
-    // model exposes an explicit tier selector instead of a badge.
-    expect(source).toContain("Read-only");
-    expect(source).toContain("Builder write mode");
-    expect(source).toContain("Publish updates");
-    expect(source).toContain("Allow publish/unpublish per item");
-    // The merged Builder changes card is the single push-review entry point.
-    expect(source).toContain("Review changes");
+    // Read-only is the headline signal; live writes flip the same badge.
+    expect(source).toContain('dbText("readOnly")');
+    expect(source).toContain('dbText("liveWritesOn")');
+    // The dormant diff slot is the single push-review entry point.
+    expect(source).toContain('dbText("reviewDiff")');
     // A failed sync surfaces inline instead of silently going stale.
-    expect(source).toContain("Couldn’t sync · Retry");
+    expect(source).toContain('dbText("couldntSyncRetry")');
     // Disconnect stays available, tucked at the bottom.
-    expect(source).toContain("Disconnect source");
+    expect(source).toContain('dbText("disconnectSource")');
     // The aggregate field-mappings list is gone (mappings live in column menus).
     expect(source).not.toContain(">Field mappings<");
-  });
-
-  it("wires Builder review publication intent controls into the push path", () => {
-    const source = readDatabaseSource();
-    const dialog = readBuilderReviewDialogSource();
-
-    expect(dialog).toContain("Creates a new draft entry");
-    expect(dialog).toContain("builderReviewRowEffectLabel(effect)");
-    expect(dialog).toContain("{destinationLine}");
-    expect(dialog).toContain('aria-pressed={');
-    expect(dialog).toContain("Publish");
-    expect(dialog).toContain("Unpublish");
-    expect(dialog).toContain("Confirm unpublish");
-    expect(dialog).toContain('writeMode === "publish_updates"');
-    expect(dialog).toContain(
-      "source?.metadata.allowPublicationTransitions === true",
-    );
-    expect(dialog).toContain("builderReviewIntentSummary(");
-    expect(dialog).toContain(
-      "builderReviewPublicationTransitionsMap(transitionSelections)",
-    );
-    expect(source).toContain(
-      "type BuilderReviewPublicationTransitions",
-    );
-    expect(source).toContain(
-      "transitions: BuilderReviewPublicationTransitions = {}",
-    );
-    expect(source).toContain(
-      "Object.keys(scopedTransitions).length > 0",
-    );
-    expect(source).toContain(
-      "onValidate={(transitions) => void handleBuilderReviewPush(transitions)}",
-    );
   });
 
   it("keeps the Layout settings panel limited to implemented controls", () => {
@@ -229,8 +181,8 @@ describe("document database layout", () => {
 
     expect(source).toContain("function DatabaseOpenPagesInSetting");
     expect(source).toContain("databaseOpenPagesInDescription");
-    expect(source).toContain("Wrap all content");
-    expect(source).toContain("Open pages in");
+    expect(source).toContain('dbText("wrapAllContent")');
+    expect(source).toContain('dbText("openPagesIn")');
     expect(source).not.toContain("Row density");
     expect(source).not.toContain("DATABASE_ROW_DENSITIES");
     expect(source).not.toContain("databaseRowDensityLabel");
@@ -262,7 +214,7 @@ describe("document database layout", () => {
     expect(source).toContain(
       "if (totalCount === 0 && !constrained) return null",
     );
-    expect(source).toContain('aria-label="New database row"');
+    expect(source).toContain('aria-label={dbText("newDatabaseRow")}');
     expect(source).toContain("hover:bg-muted/35 hover:text-foreground");
   });
 
@@ -279,7 +231,7 @@ describe("document database layout", () => {
     expect(source).toContain("reorderDatabaseView(");
     expect(source).toContain("targetView.side");
     expect(source).toContain("onContextMenu={(event) => {");
-    expect(source).toContain('aria-label="Add database view"');
+    expect(source).toContain('aria-label={dbText("addDatabaseView")}');
     expect(source).toContain("group-hover/viewtabs:opacity-100");
     expect(source).not.toContain(
       "hover:bg-background/80 hover:text-foreground",

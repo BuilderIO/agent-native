@@ -16,8 +16,8 @@ import {
   resolveObservationalMemoryConfig,
   type ObservationalMemoryConfig,
 } from "./config.js";
-import { listObservationalMemory } from "./store.js";
 import { countWindowTokens } from "./message-text.js";
+import { listObservationalMemory } from "./store.js";
 import type {
   ObservationalContext,
   ObservationalMemoryEntry,

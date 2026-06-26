@@ -51,6 +51,7 @@ vi.mock("../server/auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
 
+import { createNotificationToolEntries } from "./actions.js";
 import {
   notify,
   registerNotificationChannel,
@@ -58,7 +59,6 @@ import {
   listNotificationChannels,
   __resetNotificationChannels,
 } from "./registry.js";
-import { createNotificationToolEntries } from "./actions.js";
 import { createNotificationsHandler } from "./routes.js";
 
 function createEvent(path: string, method = "GET") {

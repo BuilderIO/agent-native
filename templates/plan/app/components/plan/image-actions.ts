@@ -25,7 +25,11 @@ export function imageDownloadName(src: string, alt: string): string {
 }
 
 /** Download the image to disk, falling back to opening it in a new tab. */
-export async function downloadImage(src: string, alt: string): Promise<void> {
+export async function downloadImage(
+  src: string,
+  alt: string,
+  messages: ImageActionMessages = defaultImageActionMessages,
+): Promise<void> {
   const filename = imageDownloadName(src, alt);
 
   try {
@@ -40,7 +44,7 @@ export async function downloadImage(src: string, alt: string): Promise<void> {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    toast.success("Image download started.");
+    toast.success(messages.downloadStarted);
   } catch {
     const anchor = document.createElement("a");
     anchor.href = src;
@@ -50,7 +54,7 @@ export async function downloadImage(src: string, alt: string): Promise<void> {
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
-    toast.info("Opened image in a new tab.");
+    toast.info(messages.openedNewTab);
   }
 }
 
@@ -76,7 +80,10 @@ async function blobToPng(blob: Blob): Promise<Blob> {
 }
 
 /** Copy the rendered image to the clipboard, falling back to copying its URL. */
-export async function copyImage(src: string): Promise<void> {
+export async function copyImage(
+  src: string,
+  messages: ImageActionMessages = defaultImageActionMessages,
+): Promise<void> {
   try {
     if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
       throw new Error("Image clipboard unavailable");
@@ -98,13 +105,28 @@ export async function copyImage(src: string): Promise<void> {
     await navigator.clipboard.write([
       new ClipboardItem({ [imageType]: imageBlob }),
     ]);
-    toast.success("Image copied.");
+    toast.success(messages.imageCopied);
   } catch {
     try {
       await navigator.clipboard.writeText(src);
-      toast.info("Copied image URL.");
+      toast.info(messages.copiedUrl);
     } catch {
-      toast.error("Could not copy image.");
+      toast.error(messages.copyFailed);
     }
   }
 }
+export type ImageActionMessages = {
+  downloadStarted: string;
+  openedNewTab: string;
+  imageCopied: string;
+  copiedUrl: string;
+  copyFailed: string;
+};
+
+const defaultImageActionMessages: ImageActionMessages = {
+  downloadStarted: "Image download started.",
+  openedNewTab: "Opened image in a new tab.",
+  imageCopied: "Image copied.",
+  copiedUrl: "Copied image URL.",
+  copyFailed: "Could not copy image.",
+};

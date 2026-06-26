@@ -1,35 +1,39 @@
-import { useState, useEffect } from "react";
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
-import { format, addDays, subDays, isSameDay } from "date-fns";
+import {
+  useActionQuery,
+  useActionMutation,
+  useT,
+} from "@agent-native/core/client";
+import type { Meal, Exercise } from "@shared/types";
 import {
   IconChevronLeft,
   IconChevronRight,
   IconToolsKitchen2,
   IconBarbell,
 } from "@tabler/icons-react";
-import { apiFetch } from "@/lib/api";
-import { formatLocalDate } from "@/lib/utils";
-import { DailyProgress } from "@/components/DailyProgress";
-import { MealCard } from "@/components/MealCard";
-import { ExerciseCard } from "@/components/ExerciseCard";
-import { AddMealDialog } from "@/components/AddMealDialog";
+import { format, addDays, subDays, isSameDay } from "date-fns";
+import { useState, useEffect } from "react";
+import { toast } from "sonner";
+
 import { AddExerciseDialog } from "@/components/AddExerciseDialog";
-import { WeightTracker } from "@/components/WeightTracker";
-import { VoiceDictation } from "@/components/VoiceDictation";
+import { AddMealDialog } from "@/components/AddMealDialog";
+import { DailyProgress } from "@/components/DailyProgress";
+import { ExerciseCard } from "@/components/ExerciseCard";
+import { MealCard } from "@/components/MealCard";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { VoiceDictation } from "@/components/VoiceDictation";
+import { WeightTracker } from "@/components/WeightTracker";
 import {
   getLogRowKey,
   isOptimisticLogRow,
   useOptimisticLogRows,
 } from "@/hooks/use-optimistic-log-rows";
-import { toast } from "sonner";
-import type { Meal, Exercise } from "@shared/types";
+import messages from "@/i18n/en-US";
+import { apiFetch } from "@/lib/api";
+import { formatLocalDate } from "@/lib/utils";
 
-const SEO_TITLE =
-  "Agent-Native Macros - Open Source AI calorie and macro tracker";
-const SEO_DESCRIPTION =
-  "Open Source AI macro tracker for logging meals, exercise, weight, calories, and nutrition by text or voice.";
+const SEO_TITLE = messages.seo.homeTitle;
+const SEO_DESCRIPTION = messages.seo.homeDescription;
 
 export function meta() {
   return [
@@ -47,6 +51,7 @@ export function meta() {
 }
 
 export default function IndexPage() {
+  const t = useT();
   const [date, setDate] = useState(new Date());
   const [editingMeal, setEditingMeal] = useState<Meal | null>(null);
   const [editMealDialogOpen, setEditMealDialogOpen] = useState(false);
@@ -81,16 +86,16 @@ export default function IndexPage() {
 
   const deleteMealMutation = useActionMutation("delete-meal", {
     onSuccess: () => {
-      toast.success("Meal deleted");
+      toast.success(t("meals.deleted"));
     },
-    onError: () => toast.error("Failed to delete meal"),
+    onError: () => toast.error(t("meals.deleteFailed")),
   });
 
   const deleteExerciseMutation = useActionMutation("delete-exercise", {
     onSuccess: () => {
-      toast.success("Exercise deleted");
+      toast.success(t("exercise.deleted"));
     },
-    onError: () => toast.error("Failed to delete exercise"),
+    onError: () => toast.error(t("exercise.deleteFailed")),
   });
 
   const mealTotals = meals.reduce(
@@ -127,12 +132,12 @@ export default function IndexPage() {
             className="h-11 w-11 sm:h-8 sm:w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-white/5"
             onClick={() => setDate(subDays(date, 1))}
           >
-            <IconChevronLeft className="h-5 w-5 sm:h-4 sm:w-4" />
+            <IconChevronLeft className="h-5 w-5 sm:h-4 sm:w-4 rtl:-scale-x-100" />
           </Button>
           <div className="min-w-[140px] sm:min-w-[160px] text-center px-3 sm:px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.06]">
             <span className="text-sm font-medium text-foreground">
               {isSameDay(date, new Date())
-                ? "Today"
+                ? t("entry.today")
                 : format(date, "EEE, MMM d")}
             </span>
           </div>
@@ -143,7 +148,7 @@ export default function IndexPage() {
             onClick={() => setDate(addDays(date, 1))}
             disabled={isSameDay(date, new Date())}
           >
-            <IconChevronRight className="h-5 w-5 sm:h-4 sm:w-4" />
+            <IconChevronRight className="h-5 w-5 sm:h-4 sm:w-4 rtl:-scale-x-100" />
           </Button>
         </div>
 
@@ -169,7 +174,7 @@ export default function IndexPage() {
           <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-100">
             <div className="flex items-center justify-between px-1">
               <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Meals
+                {t("meals.title")}
               </h2>
               {editingMeal ? (
                 <AddMealDialog
@@ -197,10 +202,10 @@ export default function IndexPage() {
                     <IconToolsKitchen2 className="h-5 w-5 text-emerald-500/50" />
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    No meals logged
+                    {t("meals.noneLogged")}
                   </p>
                   <p className="text-xs text-muted-foreground/50 mt-1">
-                    Add your first meal
+                    {t("meals.emptyDescription")}
                   </p>
                 </div>
               ) : (
@@ -230,7 +235,7 @@ export default function IndexPage() {
           <section className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-200">
             <div className="flex items-center justify-between px-1">
               <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                Exercise
+                {t("exercise.title")}
               </h2>
               {editingExercise ? (
                 <AddExerciseDialog
@@ -255,10 +260,10 @@ export default function IndexPage() {
                     <IconBarbell className="h-5 w-5 text-orange-500/50" />
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    No exercises logged
+                    {t("exercise.noneLogged")}
                   </p>
                   <p className="text-xs text-muted-foreground/50 mt-1">
-                    Log activity to burn
+                    {t("exercise.emptyDescription")}
                   </p>
                 </div>
               ) : (

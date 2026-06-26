@@ -6,10 +6,10 @@
     "moduleResolution": "bundler",
     "strict": true,
     "jsx": "react-jsx",
-    "baseUrl": ".",
     "paths": {
-      "@shared/*": ["shared/*"],
-      "@renderer/*": ["src/renderer/*"]
+      "*": ["./*"],
+      "@shared/*": ["./shared/*"],
+      "@renderer/*": ["./src/renderer/*"]
     },
     "lib": ["ESNext", "DOM"],
     "types": ["node"],

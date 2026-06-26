@@ -22,7 +22,6 @@
  * the shared `BlockView`.
  */
 
-import { useMemo, type ReactNode } from "react";
 import {
   BlockRegistry,
   BlockRegistryProvider,
@@ -32,6 +31,9 @@ import {
   type BlockRenderContext,
   type NestedBlock,
 } from "@agent-native/core/blocks";
+import { useT } from "@agent-native/core/client";
+import { useMemo, type ReactNode } from "react";
+
 import { renderMarkdownToHtml } from "./MarkdownRenderer";
 
 /* -------------------------------------------------------------------------- */
@@ -313,10 +315,13 @@ export function DocBlocksProvider({ children }: { children: ReactNode }) {
 
 /** A small inline error surface so a malformed block never blanks the page. */
 function DocBlockError({ alias, message }: { alias: string; message: string }) {
+  const t = useT();
   return (
     <div className="my-6 rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-4 text-sm text-[var(--fg-secondary)]">
-      <strong className="font-semibold text-[var(--fg)]">{alias} block</strong>:{" "}
-      {message}
+      <strong className="font-semibold text-[var(--fg)]">
+        {t("docBlocks.blockLabel", { alias })}
+      </strong>
+      : {message}
     </div>
   );
 }
@@ -345,11 +350,14 @@ export function DocBlock({
   index?: number;
 }) {
   const { registry, ctx } = useBlockRegistry();
+  const t = useT();
   const type = resolveDocBlockType(alias);
   const spec = type ? registry.get(type) : undefined;
 
   if (!spec) {
-    return <DocBlockError alias={alias} message="unknown block type" />;
+    return (
+      <DocBlockError alias={alias} message={t("docBlocks.unknownBlockType")} />
+    );
   }
 
   let data: unknown;

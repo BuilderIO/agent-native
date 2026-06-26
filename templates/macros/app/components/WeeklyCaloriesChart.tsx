@@ -1,3 +1,14 @@
+import { useT } from "@agent-native/core/client";
+import type { DailyCalories } from "@shared/types";
+import {
+  startOfWeek,
+  endOfWeek,
+  format,
+  parseISO,
+  isToday,
+  isBefore,
+  startOfDay,
+} from "date-fns";
 import {
   BarChart,
   Bar,
@@ -9,17 +20,8 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
+
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  startOfWeek,
-  endOfWeek,
-  format,
-  parseISO,
-  isToday,
-  isBefore,
-  startOfDay,
-} from "date-fns";
-import type { DailyCalories } from "@shared/types";
 
 interface WeeklyData {
   weekLabel: string;
@@ -115,7 +117,7 @@ function aggregateWeekly(
     });
 }
 
-function CustomTooltip({ active, payload }: any) {
+function CustomTooltip({ active, payload, t }: any) {
   if (!active || !payload?.[0]) return null;
   const data = payload[0].payload as WeeklyData;
   const projected = data.netCalories + data.projectedCalories;
@@ -130,27 +132,42 @@ function CustomTooltip({ active, payload }: any) {
         <span className="text-lg font-bold text-foreground">
           {data.netCalories.toLocaleString()}
         </span>
-        <span className="text-xs text-muted-foreground">net kcal</span>
+        <span className="text-xs text-muted-foreground">
+          {t("weekly.netKcal")}
+        </span>
       </div>
       {data.isCurrentWeek && data.projectedCalories > 0 && (
         <div className="flex items-baseline gap-1.5">
           <span className="text-sm font-semibold text-muted-foreground">
             ~{projected.toLocaleString()}
           </span>
-          <span className="text-xs text-muted-foreground">projected</span>
+          <span className="text-xs text-muted-foreground">
+            {t("weekly.projected")}
+          </span>
         </div>
       )}
       <div className="text-xs text-muted-foreground space-y-0.5">
-        <p>Eaten: {data.totalCalories.toLocaleString()} kcal</p>
-        <p>Burned: {data.burnedCalories.toLocaleString()} kcal</p>
-        <p>Goal: {data.weeklyGoal.toLocaleString()} kcal</p>
+        <p>
+          {t("weekly.eaten", { calories: data.totalCalories.toLocaleString() })}
+        </p>
+        <p>
+          {t("weekly.burned", {
+            calories: data.burnedCalories.toLocaleString(),
+          })}
+        </p>
+        <p>
+          {t("weekly.goal", { calories: data.weeklyGoal.toLocaleString() })}
+        </p>
         <p className={isOver ? "text-red-400" : "text-emerald-400"}>
-          {isOver ? "+" : ""}
-          {diff.toLocaleString()} vs goal
+          {t("weekly.vsGoal", {
+            sign: isOver ? "+" : "",
+            diff: diff.toLocaleString(),
+          })}
         </p>
         <p className="text-muted-foreground/60">
-          {data.daysTracked} day{data.daysTracked !== 1 ? "s" : ""} tracked
-          {data.isCurrentWeek && ` · ${data.completedDays} completed`}
+          {t("weekly.daysTracked", { count: data.daysTracked })}
+          {data.isCurrentWeek &&
+            ` · ${t("weekly.completed", { count: data.completedDays })}`}
         </p>
       </div>
     </div>
@@ -162,12 +179,13 @@ export function WeeklyCaloriesChart({
   isLoading,
   dailyGoal = 2000,
 }: WeeklyCaloriesChartProps) {
+  const t = useT();
   if (isLoading) return <Skeleton className="h-[300px] w-full rounded-xl" />;
   if (!history || history.length === 0)
     return (
       <div className="h-[300px] flex flex-col items-center justify-center text-muted-foreground rounded-xl border border-dashed border-border/50 bg-secondary/20">
-        <p className="text-sm">No data available yet</p>
-        <p className="text-xs mt-1">Start logging meals to see weekly trends</p>
+        <p className="text-sm">{t("weekly.noData")}</p>
+        <p className="text-xs mt-1">{t("weekly.noDataDescription")}</p>
       </div>
     );
 
@@ -179,7 +197,7 @@ export function WeeklyCaloriesChart({
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         {[
           {
-            label: "Avg / Week",
+            label: t("weekly.averagePerWeek"),
             value:
               weeklyData.length > 0
                 ? Math.round(
@@ -187,17 +205,17 @@ export function WeeklyCaloriesChart({
                       weeklyData.length,
                   ).toLocaleString()
                 : "0",
-            unit: "kcal",
+            unit: t("common.kcal"),
           },
           {
-            label: "Weekly Goal",
+            label: t("weekly.weeklyGoal"),
             value: weeklyGoal.toLocaleString(),
-            unit: "kcal",
+            unit: t("common.kcal"),
           },
           {
-            label: "Weeks",
+            label: t("weekly.weeks"),
             value: String(weeklyData.length),
-            unit: "tracked",
+            unit: t("weekly.tracked"),
           },
         ].map((s) => (
           <div key={s.label} className="p-3 rounded-lg bg-secondary/30">
@@ -242,7 +260,7 @@ export function WeeklyCaloriesChart({
             axisLine={false}
           />
           <Tooltip
-            content={<CustomTooltip />}
+            content={<CustomTooltip t={t} />}
             cursor={{ fill: "rgba(255,255,255,0.03)" }}
           />
           <ReferenceLine
@@ -251,7 +269,7 @@ export function WeeklyCaloriesChart({
             strokeDasharray="4 4"
             strokeOpacity={0.4}
             label={{
-              value: "Goal",
+              value: t("weekly.goalLabel"),
               position: "right",
               style: {
                 fontSize: "10px",

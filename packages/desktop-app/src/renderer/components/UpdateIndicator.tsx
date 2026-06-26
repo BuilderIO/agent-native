@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
 import { IconDownload, IconRefresh, IconLoader2 } from "@tabler/icons-react";
+import { useEffect, useState } from "react";
 
 /**
  * Subscribes to auto-update status from the main process. Returns the latest

@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  createH3SSRHandler,
-  DEFAULT_SSR_CACHE_HEADERS,
-  DEFAULT_SPECULATION_RULES_HEADER,
-} from "./ssr-handler.js";
+
 import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
@@ -14,6 +10,11 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
 import { getRequestUserEmail } from "./request-context.js";
+import {
+  createH3SSRHandler,
+  DEFAULT_SSR_CACHE_HEADERS,
+  DEFAULT_SPECULATION_RULES_HEADER,
+} from "./ssr-handler.js";
 
 const mocks = vi.hoisted(() => {
   const requestHandler = vi.fn(async (request: Request) => {

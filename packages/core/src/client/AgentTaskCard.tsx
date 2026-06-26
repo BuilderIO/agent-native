@@ -1,6 +1,3 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   IconLoader2,
   IconCheck,
@@ -10,8 +7,12 @@ import {
   IconPlayerStop,
   IconSubtask,
 } from "@tabler/icons-react";
-import { cn } from "./utils.js";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+
 import { agentNativePath } from "./api-path.js";
+import { cn } from "./utils.js";
 
 export interface AgentTaskCardProps {
   taskId: string;
@@ -185,7 +186,7 @@ export function AgentTaskCard({
       <button
         type="button"
         aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/45"
+        className="flex w-full items-center gap-2 px-3 py-2 text-start transition-colors hover:bg-muted/45"
         onClick={() => setExpanded(!expanded)}
       >
         <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-md border border-border/60 bg-background/70 px-1.5 text-[10px] font-medium text-muted-foreground">
@@ -212,6 +213,7 @@ export function AgentTaskCard({
           className={cn(
             "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150",
             expanded && "rotate-90",
+            "rtl:-scale-x-100",
           )}
         />
       </button>

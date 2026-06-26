@@ -1,3 +1,13 @@
+import {
+  IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
+  IconGripVertical,
+  IconListCheck,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react";
+import { nanoid } from "nanoid";
 /**
  * CustomFieldsEditor — add, remove, reorder, and configure custom form
  * fields shown on a booking page.
@@ -13,20 +23,13 @@
  * textarea, switch. Icons from `@tabler/icons-react`.
  */
 import { useState } from "react";
-import { nanoid } from "nanoid";
-import {
-  IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
-  IconGripVertical,
-  IconListCheck,
-  IconPlus,
-  IconTrash,
-} from "@tabler/icons-react";
+
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+
+import { useSchedulingT } from "../../i18n.js";
 
 export type CustomFieldType =
   | "text"
@@ -55,33 +58,37 @@ export interface CustomFieldsEditorProps {
   hideLabel?: boolean;
 }
 
-const TYPE_LABELS: Record<CustomFieldType, string> = {
-  text: "Short text",
-  email: "Email",
-  url: "URL",
-  tel: "Phone",
-  textarea: "Long text",
-  select: "Dropdown",
-  checkbox: "Checkbox",
+const TYPE_LABEL_KEYS: Record<
+  CustomFieldType,
+  Parameters<ReturnType<typeof useSchedulingT>>[0]
+> = {
+  text: "shortText",
+  email: "email",
+  url: "url",
+  tel: "phone",
+  textarea: "longText",
+  select: "dropdown",
+  checkbox: "checkbox",
 };
 
 const PRESETS: {
-  label: string;
+  labelKey: Parameters<ReturnType<typeof useSchedulingT>>[0];
   type: CustomFieldType;
   placeholder?: string;
+  placeholderKey?: Parameters<ReturnType<typeof useSchedulingT>>[0];
   pattern?: string;
-  patternError?: string;
+  patternErrorKey?: Parameters<ReturnType<typeof useSchedulingT>>[0];
 }[] = [
   {
-    label: "LinkedIn Profile",
+    labelKey: "linkedInProfile",
     type: "url",
     placeholder: "https://linkedin.com/in/yourname",
     pattern: "^https?://(www\\.)?linkedin\\.com/in/.+",
-    patternError: "Please enter a valid LinkedIn profile URL",
+    patternErrorKey: "linkedInUrlError",
   },
-  { label: "Company", type: "text", placeholder: "Your company name" },
-  { label: "Phone Number", type: "tel", placeholder: "+1 (555) 123-4567" },
-  { label: "Website", type: "url", placeholder: "https://example.com" },
+  { labelKey: "company", type: "text", placeholderKey: "companyPlaceholder" },
+  { labelKey: "phoneNumber", type: "tel", placeholder: "+1 (555) 123-4567" },
+  { labelKey: "website", type: "url", placeholder: "https://example.com" },
 ];
 
 function cls(...parts: (string | false | null | undefined)[]) {
@@ -89,6 +96,7 @@ function cls(...parts: (string | false | null | undefined)[]) {
 }
 
 export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
+  const t = useSchedulingT();
   const { fields, onChange, hideLabel } = props;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showPresets, setShowPresets] = useState(false);
@@ -98,7 +106,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
   ) {
     const field: CustomField = {
       id: nanoid(8),
-      label: partial?.label || "New Field",
+      label: partial?.label || t("newField"),
       type: partial?.type || "text",
       required: partial?.required ?? true,
       placeholder: partial?.placeholder,
@@ -136,7 +144,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
         <div className="flex items-center justify-between">
           <Label className="flex items-center gap-1.5">
             <IconListCheck className="h-4 w-4" />
-            Custom fields
+            {t("customFields")}
           </Label>
           <div className="flex items-center gap-1">
             <button
@@ -150,7 +158,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                   showPresets && "rotate-180",
                 )}
               />
-              Presets
+              {t("presets")}
             </button>
             <button
               type="button"
@@ -158,7 +166,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
               className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
             >
               <IconPlus className="h-3 w-3" />
-              Add
+              {t("add")}
             </button>
           </div>
         </div>
@@ -168,14 +176,26 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
           {PRESETS.map((preset) => (
             <button
-              key={preset.label}
+              key={preset.labelKey}
               type="button"
-              onClick={() => addField(preset)}
+              onClick={() =>
+                addField({
+                  label: t(preset.labelKey),
+                  type: preset.type,
+                  placeholder: preset.placeholderKey
+                    ? t(preset.placeholderKey)
+                    : preset.placeholder,
+                  pattern: preset.pattern,
+                  patternError: preset.patternErrorKey
+                    ? t(preset.patternErrorKey)
+                    : undefined,
+                })
+              }
               className="rounded-lg border border-border/60 px-3 py-2 text-left text-xs hover:border-primary/30 hover:bg-accent/60"
             >
-              <p className="font-medium">{preset.label}</p>
+              <p className="font-medium">{t(preset.labelKey)}</p>
               <p className="text-muted-foreground">
-                {TYPE_LABELS[preset.type]}
+                {t(TYPE_LABEL_KEYS[preset.type])}
               </p>
             </button>
           ))}
@@ -184,8 +204,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
 
       {fields.length === 0 && !showPresets && (
         <p className="text-xs text-muted-foreground">
-          Add custom fields to collect information from bookers — e.g. LinkedIn
-          profile, company name, phone number.
+          {t("customFieldsEmpty")}
         </p>
       )}
 
@@ -215,9 +234,11 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                     {field.label}
                   </span>
                   <span className="text-[11px] text-muted-foreground">
-                    {TYPE_LABELS[field.type]}
-                    {field.required ? " · Required" : " · Optional"}
-                    {field.pattern ? " · Pattern" : ""}
+                    {t(TYPE_LABEL_KEYS[field.type])}
+                    {field.required
+                      ? ` · ${t("required")}`
+                      : ` · ${t("optional")}`}
+                    {field.pattern ? ` · ${t("pattern")}` : ""}
                   </span>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -228,7 +249,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                       moveField(field.id, -1);
                     }}
                     className="p-0.5 text-muted-foreground/40 hover:text-foreground"
-                    title="Move up"
+                    title={t("moveUp")}
                   >
                     <IconChevronLeft className="h-3 w-3 rotate-90" />
                   </button>
@@ -239,7 +260,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                       moveField(field.id, 1);
                     }}
                     className="p-0.5 text-muted-foreground/40 hover:text-foreground"
-                    title="Move down"
+                    title={t("moveDown")}
                   >
                     <IconChevronRight className="h-3 w-3 rotate-90" />
                   </button>
@@ -250,7 +271,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                       removeField(field.id);
                     }}
                     className="p-0.5 text-muted-foreground/40 hover:text-destructive"
-                    title="Remove field"
+                    title={t("removeField")}
                   >
                     <IconTrash className="h-3 w-3" />
                   </button>
@@ -261,18 +282,18 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                 <div className="space-y-3 border-t border-border bg-muted/20 px-3 py-3">
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Label</Label>
+                      <Label className="text-xs">{t("label")}</Label>
                       <Input
                         value={field.label}
                         onChange={(e) =>
                           updateField(field.id, { label: e.target.value })
                         }
-                        placeholder="Field label"
+                        placeholder={t("fieldLabel")}
                         className="h-8 text-sm"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-xs">Type</Label>
+                      <Label className="text-xs">{t("type")}</Label>
                       <select
                         value={field.type}
                         onChange={(e) =>
@@ -283,13 +304,13 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                         className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
                       >
                         {(
-                          Object.entries(TYPE_LABELS) as [
+                          Object.entries(TYPE_LABEL_KEYS) as [
                             CustomFieldType,
-                            string,
+                            Parameters<ReturnType<typeof useSchedulingT>>[0],
                           ][]
-                        ).map(([value, label]) => (
+                        ).map(([value, labelKey]) => (
                           <option key={value} value={value}>
-                            {label}
+                            {t(labelKey)}
                           </option>
                         ))}
                       </select>
@@ -297,7 +318,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-xs">Placeholder</Label>
+                    <Label className="text-xs">{t("placeholder")}</Label>
                     <Input
                       value={field.placeholder || ""}
                       onChange={(e) =>
@@ -305,13 +326,13 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                           placeholder: e.target.value || undefined,
                         })
                       }
-                      placeholder="Placeholder text"
+                      placeholder={t("placeholderText")}
                       className="h-8 text-sm"
                     />
                   </div>
 
                   <div className="flex items-center justify-between">
-                    <Label className="text-xs">Required</Label>
+                    <Label className="text-xs">{t("required")}</Label>
                     <Switch
                       checked={field.required}
                       onCheckedChange={(checked) =>
@@ -323,9 +344,9 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                   {field.type === "select" && (
                     <div className="space-y-1.5">
                       <Label className="text-xs">
-                        Options{" "}
+                        {t("options")}{" "}
                         <span className="font-normal text-muted-foreground">
-                          (one per line)
+                          {t("onePerLine")}
                         </span>
                       </Label>
                       <Textarea
@@ -336,7 +357,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                             .filter((o) => o.trim());
                           updateField(field.id, { options });
                         }}
-                        placeholder={"Option 1\nOption 2\nOption 3"}
+                        placeholder={t("optionListPlaceholder")}
                         rows={3}
                         className="text-sm"
                       />
@@ -346,9 +367,9 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                   {field.type !== "checkbox" && field.type !== "select" && (
                     <div className="space-y-1.5">
                       <Label className="text-xs">
-                        Validation pattern{" "}
+                        {t("validationPattern")}{" "}
                         <span className="font-normal text-muted-foreground">
-                          (regex, optional)
+                          {t("regexOptional")}
                         </span>
                       </Label>
                       <Input
@@ -358,15 +379,15 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                             pattern: e.target.value || undefined,
                           })
                         }
-                        placeholder="e.g. ^https?://(www\.)?linkedin\.com/in/.+"
+                        placeholder={t("validationPatternPlaceholder")}
                         className="h-8 font-mono text-sm"
                       />
                       {field.pattern && (
                         <div className="space-y-1.5">
                           <Label className="text-xs">
-                            Error message{" "}
+                            {t("errorMessage")}{" "}
                             <span className="font-normal text-muted-foreground">
-                              (shown when pattern doesn't match)
+                              {t("errorMessageHint")}
                             </span>
                           </Label>
                           <Input
@@ -376,7 +397,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                                 patternError: e.target.value || undefined,
                               })
                             }
-                            placeholder="e.g. Please enter a valid LinkedIn URL"
+                            placeholder={t("validationErrorPlaceholder")}
                             className="h-8 text-sm"
                           />
                         </div>
@@ -403,7 +424,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
                 showPresets && "rotate-180",
               )}
             />
-            Presets
+            {t("presets")}
           </button>
           <button
             type="button"
@@ -411,7 +432,7 @@ export function CustomFieldsEditor(props: CustomFieldsEditorProps) {
             className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-accent/60 hover:text-foreground"
           >
             <IconPlus className="h-3 w-3" />
-            Add field
+            {t("addField")}
           </button>
         </div>
       )}

@@ -1,12 +1,14 @@
 import crypto from "node:crypto";
+
 import {
   deleteOAuthTokens,
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { assertAccess } from "@agent-native/core/sharing";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { assertAccess } from "@agent-native/core/sharing";
 import { createError, type H3Event } from "h3";
+
 import { canonicalizeNfm } from "../../shared/nfm.js";
 
 export const NOTION_PROVIDER = "notion";

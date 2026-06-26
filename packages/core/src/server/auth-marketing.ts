@@ -4,7 +4,14 @@ export interface AuthMarketingContent {
   description?: string;
   features?: string[];
   runLocalCommand?: string;
+  signupLocalModeNote?: {
+    text: string;
+    command: string;
+  };
 }
+
+const PLAN_LOCAL_FILES_COMMAND =
+  "npx @agent-native/core@latest skills add visual-plan --mode local-files --scope user";
 
 export interface ResolveBuiltInAuthMarketingOptions {
   requestHost?: string;
@@ -71,6 +78,11 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
       "Review PR recaps with diagrams, file maps, and annotated code",
       "Share links for async comments and product review",
     ],
+    runLocalCommand: PLAN_LOCAL_FILES_COMMAND,
+    signupLocalModeNote: {
+      text: "Prefer no account or self-hosting? Switch /visual-plan to local files only:",
+      command: PLAN_LOCAL_FILES_COMMAND,
+    },
   },
   design: {
     appName: "Agent-Native Design",
@@ -169,6 +181,9 @@ function cloneMarketing(marketing: AuthMarketingContent): AuthMarketingContent {
   return {
     ...marketing,
     features: marketing.features ? [...marketing.features] : undefined,
+    signupLocalModeNote: marketing.signupLocalModeNote
+      ? { ...marketing.signupLocalModeNote }
+      : undefined,
   };
 }
 

@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { askUserQuestion, useGuidedQuestionFlow } from "./guided-questions.js";
 
 // The agent's `ask-question` action writes the guided-questions payload to a

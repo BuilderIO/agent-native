@@ -6,23 +6,23 @@
  * loop) when matching events fire.
  */
 
-import { subscribe, unsubscribe } from "../event-bus/index.js";
-import type { EventMeta } from "../event-bus/types.js";
-import { resourceListAllOwners, resourcePut } from "../resources/store.js";
-import { runWithRequestContext } from "../server/request-context.js";
+import {
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+  resolveEngine,
+} from "../agent/engine/index.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import {
-  getStoredModelForEngine,
-  normalizeModelForEngine,
-  resolveEngine,
-} from "../agent/engine/index.js";
-import { createThread } from "../chat-threads/store.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { createThread } from "../chat-threads/store.js";
+import { subscribe, unsubscribe } from "../event-bus/index.js";
+import type { EventMeta } from "../event-bus/types.js";
+import { resourceListAllOwners, resourcePut } from "../resources/store.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import { evaluateCondition } from "./condition-evaluator.js";
 import type { TriggerFrontmatter } from "./types.js";
 

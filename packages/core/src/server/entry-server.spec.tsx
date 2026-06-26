@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
-import type { AppLoadContext, EntryContext } from "react-router";
+import type { EntryContext, RouterContextProvider } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { createDocumentRequestHandler } from "./entry-server.js";
 
 const mocks = vi.hoisted(() => {
@@ -51,7 +52,7 @@ describe("createDocumentRequestHandler", () => {
       207,
       headers,
       routerContext,
-      {} as AppLoadContext,
+      {} as RouterContextProvider,
     );
 
     expect(response.status).toBe(207);

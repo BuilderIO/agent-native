@@ -1,5 +1,6 @@
-import { useState } from "react";
 import { IconLoader2 } from "@tabler/icons-react";
+import { useState } from "react";
+
 import { useOrg, useAcceptInvitation, useJoinByDomain } from "./hooks.js";
 
 export interface InvitationBannerProps {

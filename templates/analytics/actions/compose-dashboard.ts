@@ -1,11 +1,18 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import {
+  hasCollabState,
+  applyText,
+  seedFromText,
+} from "@agent-native/core/collab";
+import {
   getRequestUserEmail,
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
 import { z } from "zod";
+
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
 import {
   buildFirstPartyDashboardFilters,
   buildPanel,
@@ -14,12 +21,6 @@ import {
   type MetricWindow,
   usesFirstPartyDashboardFilters,
 } from "../server/lib/first-party-metric-catalog";
-import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics.js";
-import {
-  hasCollabState,
-  applyText,
-  seedFromText,
-} from "@agent-native/core/collab";
 
 /**
  * Push the saved config through the collab layer so open dashboard editors get

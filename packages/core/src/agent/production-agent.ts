@@ -1,24 +1,80 @@
+import Ajv, { type ValidateFunction } from "ajv";
 import {
   defineEventHandler,
   setResponseHeader,
   setResponseStatus,
   getMethod,
 } from "h3";
-import Ajv, { type ValidateFunction } from "ajv";
+import type { EventHandler as H3EventHandler } from "h3";
+
+import { isAgentActionStopError } from "../action.js";
+import { readAppState } from "../application-state/script-helpers.js";
+import { isReadOnlyShellCommand } from "../coding-tools/index.js";
+import { isDemoModeEnabled } from "../demo/config.js";
+import { redactDemoData, redactDemoString } from "../demo/redact.js";
+import { extensionIdFromPathname } from "../extensions/path.js";
+import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
+import { isMcpActionResult } from "../mcp-client/app-result.js";
+import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
+import {
+  completeRun as completeProgressRun,
+  startRun as startProgressRun,
+  updateRunProgress,
+} from "../progress/registry.js";
+import {
+  getFrontmatterValue,
+  parseFrontmatter,
+} from "../resources/metadata.js";
 import {
   isDeployCredentialFallbackAllowed,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
-import type { EventHandler as H3EventHandler } from "h3";
-import type {
-  ActionTool,
-  AgentNativeJsonSchema,
-  AgentChatAttachment,
-  AgentChatRequest,
-  AgentChatEvent,
-  AgentChatReference,
-  AgentChatStructuredMessage,
-} from "./types.js";
+import { readBody } from "../server/h3-helpers.js";
+import {
+  getRequestRunContext,
+  ensureRequestRunContext,
+  getRequestContext,
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../server/request-context.js";
+import { fireInternalDispatch } from "../server/self-dispatch.js";
+import {
+  isReasoningEffort,
+  normalizeReasoningEffortForModel,
+  type ReasoningEffort,
+} from "../shared/reasoning-effort.js";
+import { applyContextDirectives } from "./context-xray/apply-directives.js";
+import { loadContextDirectives } from "./context-xray/directives-store.js";
+import {
+  buildManifest,
+  writeContextManifest,
+} from "./context-xray/manifest.js";
+import { computeProtectedSegmentIds } from "./context-xray/segments.js";
+import {
+  AGENT_CHAT_BACKGROUND_RUN_FIELD,
+  isAgentChatDurableBackgroundEnabled,
+  isInBackgroundFunctionRuntime,
+  resolveAgentChatProcessRunDispatchPath,
+} from "./durable-background.js";
+import {
+  LLM_MISSING_CREDENTIALS_ERROR_CODE,
+  LLM_MISSING_CREDENTIALS_MESSAGE,
+  userFacingLlmCredentialError,
+} from "./engine/credential-errors.js";
+import {
+  resolveEngine,
+  registerBuiltinEngines,
+  getStoredModelForEngine,
+  normalizeModelForEngine,
+} from "./engine/index.js";
+import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
+import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
+import {
+  backfillEngineMessagesToolResults,
+  stringifyToolUseInputForGateway,
+  unmatchedToolResultReplayText,
+} from "./engine/translate-anthropic.js";
 import type {
   AgentEngine,
   EngineTool,
@@ -28,32 +84,26 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
-import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
 import {
-  backfillEngineMessagesToolResults,
-  stringifyToolUseInputForGateway,
-  unmatchedToolResultReplayText,
-} from "./engine/translate-anthropic.js";
+  type AgentLoopSettings,
+  getDefaultMaxIterations,
+  MAX_AGENT_MAX_ITERATIONS,
+  MIN_AGENT_MAX_ITERATIONS,
+  normalizeMaxIterations,
+  readAgentLoopSettings,
+} from "./loop-settings.js";
 import {
-  resolveEngine,
-  registerBuiltinEngines,
-  getStoredModelForEngine,
-  normalizeModelForEngine,
-} from "./engine/index.js";
+  maybeCompactThread,
+  buildObservationalContext,
+  hasObservationalMemory,
+  serializeObservationalMemoryBlock,
+} from "./observational-memory/index.js";
 import {
-  LLM_MISSING_CREDENTIALS_ERROR_CODE,
-  LLM_MISSING_CREDENTIALS_MESSAGE,
-  userFacingLlmCredentialError,
-} from "./engine/credential-errors.js";
-import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
-import { readAppState } from "../application-state/script-helpers.js";
-import { isDemoModeEnabled } from "../demo/config.js";
-import { redactDemoData, redactDemoString } from "../demo/redact.js";
-import {
-  redactSensitiveFields,
-  sanitizeToolErrorText,
-  sanitizeToolErrorValue,
-} from "./tool-error-redaction.js";
+  ProcessorChain,
+  TripWire,
+  toolCallsFromContent,
+  type Processor,
+} from "./processors.js";
 import {
   startRun,
   subscribeToRun,
@@ -65,42 +115,6 @@ import {
 } from "./run-manager.js";
 import type { ActiveRun } from "./run-manager.js";
 import {
-  AGENT_CHAT_PROCESS_RUN_PATH,
-  AGENT_CHAT_BACKGROUND_RUN_FIELD,
-  isAgentChatDurableBackgroundEnabled,
-  isInBackgroundFunctionRuntime,
-} from "./durable-background.js";
-import { fireInternalDispatch } from "../server/self-dispatch.js";
-import { readBody } from "../server/h3-helpers.js";
-import { isReadOnlyShellCommand } from "../coding-tools/index.js";
-import {
-  getRequestRunContext,
-  ensureRequestRunContext,
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "../server/request-context.js";
-import {
-  getFrontmatterValue,
-  parseFrontmatter,
-} from "../resources/metadata.js";
-import { isMcpToolAllowedForRequest } from "../mcp-client/visibility.js";
-import { isMcpActionResult } from "../mcp-client/app-result.js";
-import {
-  createToolSearchEntry,
-  TOOL_SEARCH_ACTION_NAME,
-} from "./tool-search.js";
-import {
-  getDefaultMaxIterations,
-  normalizeMaxIterations,
-  readAgentLoopSettings,
-} from "./loop-settings.js";
-import {
-  isReasoningEffort,
-  normalizeReasoningEffortForModel,
-  type ReasoningEffort,
-} from "../shared/reasoning-effort.js";
-import { isAgentActionStopError } from "../action.js";
-import {
   writeLedgerEntry,
   readLedgerEntry,
   clearLedgerForThread,
@@ -109,43 +123,223 @@ import {
   updateRunHeartbeat,
   updateRunStatusIfRunning,
   claimBackgroundRun,
+  readBackgroundRunClaim,
+  recordRunDiagnostic,
+  RUN_DIAG_STAGE,
+  UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
 } from "./run-store.js";
 import {
   classifyToolCallJournal,
   findCompletedJournalEntry,
   type ToolCallJournal,
 } from "./tool-call-journal.js";
-import { preUploadAttachments } from "../file-upload/pre-upload-attachments.js";
-import { extensionIdFromPathname } from "../extensions/path.js";
-import { applyContextDirectives } from "./context-xray/apply-directives.js";
 import {
-  ProcessorChain,
-  TripWire,
-  toolCallsFromContent,
-  type Processor,
-} from "./processors.js";
+  redactSensitiveFields,
+  sanitizeToolErrorText,
+  sanitizeToolErrorValue,
+} from "./tool-error-redaction.js";
 import {
-  completeRun as completeProgressRun,
-  startRun as startProgressRun,
-  updateRunProgress,
-} from "../progress/registry.js";
-import { loadContextDirectives } from "./context-xray/directives-store.js";
-import {
-  buildManifest,
-  writeContextManifest,
-} from "./context-xray/manifest.js";
-import { computeProtectedSegmentIds } from "./context-xray/segments.js";
-import {
-  maybeCompactThread,
-  buildObservationalContext,
-  hasObservationalMemory,
-  serializeObservationalMemoryBlock,
-} from "./observational-memory/index.js";
+  createToolSearchEntry,
+  TOOL_SEARCH_ACTION_NAME,
+} from "./tool-search.js";
+import type {
+  ActionTool,
+  AgentNativeJsonSchema,
+  AgentChatAttachment,
+  AgentChatRequest,
+  AgentChatEvent,
+  AgentChatReference,
+  AgentChatStructuredMessage,
+} from "./types.js";
 
 // Register built-in engines on first import
 registerBuiltinEngines();
 
 export { PROVIDER_TO_ENV };
+
+/**
+ * Grace window + poll interval for the foreground circuit-breaker that confirms
+ * a background worker actually CLAIMED a 202-dispatched run before recovering
+ * inline. The grace must cover the worker's cold-start + per-request init before
+ * it reaches `claimBackgroundRun`: light apps win the claim in ~1-2s, but heavy
+ * apps (e.g. analytics) were observed in prod taking >8s, so an 8s grace made
+ * their worker lose the race every time and always fall back to inline (adding
+ * ~8s latency with no background budget). 15s covers the slow apps while staying
+ * well within the foreground's ~40s soft-timeout.
+ */
+export const BACKGROUND_CLAIM_GRACE_MS = 15_000;
+/**
+ * Safety margin subtracted from the unclaimed-reaper grace when deciding how
+ * long the foreground may keep waiting for a slow-but-live worker to claim. The
+ * foreground recovers the run inline this many ms BEFORE `reapUnclaimedBackgroundRun`
+ * would error an unclaimed row, so the foreground always wins the race to claim
+ * and the two never collide — see `resolveBackgroundDispatchOutcome`.
+ */
+export const BACKGROUND_REAPER_SAFETY_MARGIN_MS = 2_000;
+export const BACKGROUND_CLAIM_POLL_MS = 400;
+
+export type BackgroundDispatchOutcome =
+  | { action: "stream" }
+  | { action: "subscribe" }
+  | {
+      action: "inline";
+      reason: "dispatch-failed" | "worker-never-claimed" | "no-row";
+    };
+
+/**
+ * `diag_stage` is persisted as a JSON payload (`{ stage, detail?, at }`) by
+ * `recordRunDiagnostic`. Extract the bare stage name so it can be compared to
+ * `RUN_DIAG_STAGE` constants. Falls back to the raw value when it is not JSON
+ * (defensive — legacy rows or tests may store a bare stage).
+ */
+function parseRunDiagStage(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { stage?: unknown };
+    if (parsed && typeof parsed.stage === "string") return parsed.stage;
+  } catch {
+    // Not JSON — treat the raw value as the stage name.
+  }
+  return typeof raw === "string" ? raw : null;
+}
+
+/**
+ * Decide what the foreground should do after attempting a durable background
+ * dispatch. A Netlify async background function returns 202 the instant it
+ * ENQUEUES the invocation — that is NOT proof the worker executed. If the
+ * generated wrapper fails to import/hand off to the route, the worker never
+ * reaches `claimBackgroundRun` and the run is reaped as "worker never claimed".
+ *
+ * So after a successful dispatch we poll briefly for the worker to CLAIM the run:
+ *   - claimed within grace        → "stream"    (subscribe to the worker)
+ *   - dispatch failed OR no claim  → recover inline by atomically claiming the
+ *       run ourselves: if we win → "inline"; if a (delayed) worker already won
+ *       it → "subscribe" (never double-run).
+ *
+ * Pure except for the injected `readClaim`/`claim`/`now`/`sleep` deps, so each
+ * branch is unit-testable.
+ */
+export async function resolveBackgroundDispatchOutcome(opts: {
+  dispatched: boolean;
+  backgroundRowInserted: boolean;
+  runId: string;
+  graceMs: number;
+  /**
+   * The unclaimed-run reaper's grace (`UNCLAIMED_BACKGROUND_RUN_GRACE_MS`). When
+   * provided, the foreground may keep waiting PAST `graceMs` while the worker is
+   * provably alive and still in setup — but it recovers inline before the run has
+   * been unclaimed this long (minus the safety margin), so it always claims
+   * before the reaper can fire. Omit to disable the extension (behaves exactly
+   * like the base grace).
+   */
+  reaperGraceMs?: number;
+  /** Margin subtracted from `reaperGraceMs` (default `BACKGROUND_REAPER_SAFETY_MARGIN_MS`). */
+  reaperSafetyMarginMs?: number;
+  pollIntervalMs: number;
+  readClaim: (runId: string) => Promise<{
+    dispatchMode: string | null;
+    status: string | null;
+    diagStage?: string | null;
+    /** COALESCE(heartbeat_at, started_at) — the reaper's liveness basis. */
+    lastLivenessAt?: number | null;
+  } | null>;
+  claim: (runId: string) => Promise<boolean>;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<BackgroundDispatchOutcome> {
+  const now = opts.now ?? (() => Date.now());
+  const sleep =
+    opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+
+  // Pre-claim diag stages that prove the worker is ALIVE and executing: it
+  // reached the route, passed HMAC auth, and is grinding through handler setup
+  // (system prompt build / action loading) on its way to `claimBackgroundRun`.
+  // A dead handoff — the generated wrapper never reached the route — never
+  // records these, so it is NOT eligible for the extended grace.
+  const ALIVE_IN_SETUP: ReadonlySet<string> = new Set([
+    RUN_DIAG_STAGE.authPassed,
+    RUN_DIAG_STAGE.workerEntered,
+  ]);
+  // Pre-claim diag stages that prove the worker DIED before claiming — stop
+  // waiting and recover inline immediately instead of burning the rest of the
+  // grace on a worker that already failed.
+  const DIED_BEFORE_CLAIM: ReadonlySet<string> = new Set([
+    RUN_DIAG_STAGE.authFailed,
+    RUN_DIAG_STAGE.routeThrew,
+    RUN_DIAG_STAGE.workerThrew,
+  ]);
+
+  if (opts.dispatched) {
+    // One now() at entry + one per iteration (so callers/tests that model a
+    // stepping clock stay deterministic).
+    const startedAt = now();
+    const baseDeadline = startedAt + opts.graceMs;
+    const reaperGraceMs = opts.reaperGraceMs;
+    const reaperMargin =
+      opts.reaperSafetyMarginMs ?? BACKGROUND_REAPER_SAFETY_MARGIN_MS;
+    for (;;) {
+      const claim = await opts.readClaim(opts.runId).catch(() => null);
+      if (
+        claim &&
+        ((claim.dispatchMode && claim.dispatchMode !== "background") ||
+          (claim.status && claim.status !== "running"))
+      ) {
+        return { action: "stream" };
+      }
+      // `diag_stage` is stored as JSON ({stage, detail?, at}); compare on the
+      // bare stage name, not the raw payload.
+      const stage = parseRunDiagStage(claim?.diagStage);
+      // Worker recorded a pre-claim death — no point waiting out the grace.
+      if (stage && DIED_BEFORE_CLAIM.has(stage)) break;
+      const elapsedNow = now();
+      // The unclaimed-reaper errors any still-`background` row once it has been
+      // unclaimed for `reaperGraceMs`, measured from the row's OWN liveness
+      // (COALESCE(heartbeat_at, started_at)) — NOT from when we began polling.
+      // Recover inline just before that point so the foreground claims the run
+      // first; anchoring to the row's liveness makes this immune to dispatch
+      // latency between insertRun and the start of polling.
+      const reaperWillFireSoon =
+        reaperGraceMs != null &&
+        claim?.lastLivenessAt != null &&
+        elapsedNow - claim.lastLivenessAt >= reaperGraceMs - reaperMargin;
+      if (reaperWillFireSoon) break;
+      // ADAPTIVE GRACE: past the base window, keep polling ONLY while the worker
+      // is provably alive and still in setup (heavy cold start). A dead handoff
+      // never recorded an ALIVE_IN_SETUP stage, so it recovers inline at the base
+      // grace; the reaper-anchored break above bounds how long a live worker can
+      // extend. The extension is enabled only when a reaper grace was provided.
+      const aliveInSetup =
+        reaperGraceMs != null &&
+        claim?.status === "running" &&
+        !!stage &&
+        ALIVE_IN_SETUP.has(stage);
+      if (elapsedNow >= baseDeadline && !aliveInSetup) break;
+      await sleep(opts.pollIntervalMs);
+    }
+  }
+
+  // Dispatch fast-failed OR no worker claimed within grace → recover inline.
+  if (!opts.backgroundRowInserted) {
+    // No row to reconcile (insert failed / non-duplicate) — run a fresh inline
+    // turn; `startRun` inserts the row.
+    return { action: "inline", reason: "no-row" };
+  }
+  let claimedInline = false;
+  try {
+    claimedInline = await opts.claim(opts.runId);
+  } catch {
+    claimedInline = false;
+  }
+  if (claimedInline) {
+    return {
+      action: "inline",
+      reason: opts.dispatched ? "worker-never-claimed" : "dispatch-failed",
+    };
+  }
+  // The atomic claim was lost: a (delayed) background worker already owns the
+  // run — subscribe to it, never run a second copy.
+  return { action: "subscribe" };
+}
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
@@ -3239,23 +3433,40 @@ export async function runAgentLoop(opts: {
         | undefined;
       try {
         const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
+        const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
+        const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
+        const actionContext = {
+          send,
+          userEmail: actionUserEmail ?? undefined,
+          orgId: actionOrgId,
+          caller: "tool" as const,
+          attachments: opts.attachments,
+          signal,
+          // Audit attribution: the action name + the agent thread/turn that
+          // triggered this call, so a mutation can be traced to its run.
+          actionName: toolCall.name,
+          ...(opts.threadId ? { threadId: opts.threadId } : {}),
+          ...(opts.turnId ? { turnId: opts.turnId } : {}),
+        };
+        const requestContext = getRequestContext();
+        const invokeAction = () =>
+          actionEntry.run(
+            toolCall.input as Record<string, string>,
+            actionContext,
+          );
         // Keep a reference to the action promise so we can attach a zombie-
         // detection continuation AFTER Promise.race abandons it on run abort.
         // The promise itself is not awaited here — Promise.race owns the await.
         const actionPromise = Promise.resolve(
-          actionEntry.run(toolCall.input as Record<string, string>, {
-            send,
-            userEmail: getRequestUserEmail(),
-            orgId: getRequestOrgId() ?? null,
-            caller: "tool",
-            attachments: opts.attachments,
-            signal,
-            // Audit attribution: the action name + the agent thread/turn that
-            // triggered this call, so a mutation can be traced to its run.
-            actionName: toolCall.name,
-            ...(opts.threadId ? { threadId: opts.threadId } : {}),
-            ...(opts.turnId ? { turnId: opts.turnId } : {}),
-          }),
+          runWithRequestContext(
+            {
+              ...(requestContext ?? {}),
+              ...(actionUserEmail ? { userEmail: actionUserEmail } : {}),
+              ...(actionOrgId ? { orgId: actionOrgId } : {}),
+              ...(requestContext?.run ? { run: requestContext.run } : {}),
+            },
+            invokeAction,
+          ),
         );
 
         // When the run is aborted (soft-timeout / user cancel) while this tool
@@ -3683,6 +3894,14 @@ export function createProductionAgentHandler(
   };
 
   return defineEventHandler(async (event) => {
+    // Diagnostic-only setup-timing instrumentation. Captures wall-clock offsets
+    // from handler entry through the work done BEFORE startRun so a slow pre-run
+    // setup phase is visible in the run diagnostics. Never alters control flow.
+    const setupT0 = Date.now();
+    const setupMarks: Record<string, number> = {};
+    const setupMark = (k: string) => {
+      setupMarks[k] = Date.now() - setupT0;
+    };
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -3723,6 +3942,7 @@ export function createProductionAgentHandler(
       scope,
       trackInRunsTray,
     } = body;
+    setupMark("bodyParsed");
 
     // Durable-background marker. Present ONLY when this handler was re-entered
     // as the Netlify background worker via the `_process-run` self-dispatch
@@ -3736,6 +3956,22 @@ export function createProductionAgentHandler(
         ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
         : null;
     const isBackgroundWorker = backgroundRunMarker !== null;
+    // DIAGNOSTIC-ONLY: progressive per-stage hang localizer for the bg worker.
+    // The worker's runId is available EARLY on the marker (the general `runId`
+    // var resolves much later), so capture it now and emit the LAST setup stage
+    // reached as the run's `diag_stage`. Best-effort, gated on the worker, never
+    // blocks or alters control flow.
+    const bgRunId = isBackgroundWorker
+      ? (backgroundRunMarker?.runId as string)
+      : null;
+    const workerStep = (s: string) => {
+      if (bgRunId)
+        void recordRunDiagnostic(
+          bgRunId,
+          RUN_DIAG_STAGE.workerSetupStep,
+          `${s}=${Date.now() - setupT0}ms`,
+        ).catch(() => {});
+    };
     // Whether this worker is REALLY executing inside a 15-min Netlify
     // `-background` function (proven by the runtime function name), not merely a
     // `_process-run` re-entry that may have landed on the ~60s synchronous
@@ -3761,6 +3997,11 @@ export function createProductionAgentHandler(
     if (requestRunCtx) {
       requestRunCtx.browserTabId = requestBrowserTabId;
       requestRunCtx.chatScope = requestChatScope;
+      // Let template extraContext / system-prompt builders detect the durable
+      // background worker so they can skip heavy hang-prone enrichment (e.g. the
+      // analytics data-dictionary read) that otherwise stalls the worker before
+      // it claims its run. Set early — before the system-prompt build runs.
+      requestRunCtx.isBackgroundWorker = isBackgroundWorker;
     }
     const requestMode: AgentExecutionMode =
       body.mode === "plan" ? "plan" : "act";
@@ -3804,7 +4045,13 @@ export function createProductionAgentHandler(
         requestAttachments = preparedRequest.attachments;
       }
     }
+    // DIAGNOSTIC-ONLY: owner/request context prep (resolveAgentOwnerEmail +
+    // prepareRequest) finished. A worker stuck before this points at the
+    // owner/request-context awaits.
+    workerStep("db_request_ctx");
 
+    // DIAGNOSTIC-ONLY: bracket attachment upload + text-attachment persistence.
+    workerStep("attach_start");
     // Pre-upload chat attachments (images AND files/PDFs) through the framework
     // file-upload provider (Builder.io by default). The model still sees the
     // base64 multimodal content for the current turn; each uploaded attachment
@@ -3867,9 +4114,13 @@ export function createProductionAgentHandler(
         );
       }
     }
+    // DIAGNOSTIC-ONLY: attachment upload + persistence finished.
+    workerStep("attach_done");
 
     // When a per-request engine override is specified, resolve the API key
     // for that provider instead of the global active engine's provider.
+    // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
+    workerStep("apikey_start");
     let userApiKey: string | undefined;
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
@@ -3885,6 +4136,8 @@ export function createProductionAgentHandler(
     } else {
       userApiKey = await getOwnerActiveApiKey(ownerEmail);
     }
+    // DIAGNOSTIC-ONLY: API-key resolution finished.
+    workerStep("apikey_done");
 
     // `options.apiKey` is the value the template constructed the plugin with
     // (e.g. wired from a deployment env var). On a shared hosted deploy this
@@ -3899,6 +4152,9 @@ export function createProductionAgentHandler(
         readDeployCredentialEnv("ANTHROPIC_API_KEY"));
 
     // Resolve engine — per-request engine override takes priority
+    // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default
+    // settings reads inside resolveEngine).
+    workerStep("engine_start");
     let engine: AgentEngine;
     try {
       engine = await resolveEngine({
@@ -3913,17 +4169,24 @@ export function createProductionAgentHandler(
         appId: options.appId,
       });
     }
+    // DIAGNOSTIC-ONLY: engine resolution finished.
+    workerStep("engine_done");
 
     // Honor the model the user picked in the settings UI (written via
     // `manage-agent-engine` action="set"), but only when the caller hasn't overridden it for
     // this request or at plugin construction time. Read per-request so a
     // dropdown change in the UI takes effect without a server restart. Skip
     // the DB read entirely when a higher-precedence value is set.
+    // DIAGNOSTIC-ONLY: bracket stored-model resolution (getStoredModelForEngine
+    // settings read).
+    workerStep("model_start");
     const modelCandidate =
       requestModel ??
       configuredModel ??
       (await getStoredModelForEngine(engine, { appId: options.appId })) ??
       engine.defaultModel;
+    // DIAGNOSTIC-ONLY: stored-model resolution finished.
+    workerStep("model_done");
     const model = normalizeModelForEngine(engine, modelCandidate);
     const reasoningEffort = normalizeReasoningEffortForModel(
       model,
@@ -3965,236 +4228,308 @@ export function createProductionAgentHandler(
       });
     }
 
+    setupMark("prepDone");
+    // DIAGNOSTIC-ONLY: engine/model/api-key resolution finished. A worker that
+    // reached db_request_ctx but not env_config hung in attachment upload or
+    // engine/model resolution.
+    workerStep("env_config");
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
-    const enrichedMessagePromise = enrichMessage(requestMessage, references);
-    const loopSettingsPromise = readAgentLoopSettings({
-      userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
-      orgId: getRequestOrgId() ?? null,
-    }).catch(() => readAgentLoopSettings({}));
+    const enrichedMessageThunk = () =>
+      enrichMessage(requestMessage, references);
+    const loopSettingsThunk = () =>
+      readAgentLoopSettings({
+        userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
+        orgId: getRequestOrgId() ?? null,
+      }).catch(() => readAgentLoopSettings({}));
 
     let systemPromptError: any = null;
-    const systemPromptPromise = (async (): Promise<string> => {
-      try {
-        return typeof options.systemPrompt === "function"
-          ? await options.systemPrompt(event)
-          : options.systemPrompt;
-      } catch (error) {
-        systemPromptError = error;
-        return "";
-      }
-    })();
-
-    const screenContextPromise = (async (): Promise<string> => {
-      try {
-        const viewScreenAction = resolvedActions["view-screen"];
-        if (viewScreenAction) {
-          const result = await viewScreenAction.run(
-            {},
-            {
-              userEmail: getRequestUserEmail(),
-              orgId: getRequestOrgId() ?? null,
-              caller: "tool",
-            },
-          );
-          if (result && result !== "(no output)") {
-            const screenText =
-              typeof result === "string"
-                ? result
-                : JSON.stringify(result, null, 2);
-            return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
-          }
-        } else {
-          const navigation = await readAppStateForBrowserTab(
-            "navigation",
-            requestBrowserTabId,
-          );
-          if (navigation) {
-            return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
-          }
+    const systemPromptThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        const sysPromptStart = Date.now();
+        try {
+          const built =
+            typeof options.systemPrompt === "function"
+              ? await options.systemPrompt(event)
+              : options.systemPrompt;
+          return built;
+        } catch (error) {
+          systemPromptError = error;
+          return "";
+        } finally {
+          setupMarks.sysPromptMs = Date.now() - sysPromptStart;
         }
-      } catch {
-        // DB not ready or no navigation state — skip silently
-      }
-      return "";
-    })();
+      })();
 
-    const urlContextPromise = (async (): Promise<string> => {
-      try {
-        const url = (await readAppStateForBrowserTab(
-          "__url__",
-          requestBrowserTabId,
-        )) as {
-          pathname?: string;
-          search?: string;
-          hash?: string;
-          searchParams?: Record<string, string>;
-        } | null;
-        if (url && (url.pathname || url.search || url.hash)) {
-          const lines: string[] = [];
-          if (url.pathname) lines.push(`pathname: ${url.pathname}`);
-          const extensionId = url.pathname
-            ? extensionIdFromPathname(url.pathname)
-            : null;
-          if (extensionId) lines.push(`extensionId: ${extensionId}`);
-          if (url.search) lines.push(`search: ${url.search}`);
-          if (url.hash) lines.push(`hash: ${url.hash}`);
-          if (url.searchParams && Object.keys(url.searchParams).length > 0) {
-            lines.push("searchParams:");
-            for (const [k, v] of Object.entries(url.searchParams)) {
-              lines.push(`  ${k}: ${v}`);
+    const screenContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        const screenStart = Date.now();
+        try {
+          const viewScreenAction = resolvedActions["view-screen"];
+          if (viewScreenAction) {
+            const result = await viewScreenAction.run(
+              {},
+              {
+                userEmail: getRequestUserEmail(),
+                orgId: getRequestOrgId() ?? null,
+                caller: "tool",
+              },
+            );
+            if (result && result !== "(no output)") {
+              const screenText =
+                typeof result === "string"
+                  ? result
+                  : JSON.stringify(result, null, 2);
+              return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
+            }
+          } else {
+            const navigation = await readAppStateForBrowserTab(
+              "navigation",
+              requestBrowserTabId,
+            );
+            if (navigation) {
+              return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
             }
           }
-          return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
+        } catch {
+          // DB not ready or no navigation state — skip silently
+        } finally {
+          setupMarks.screenMs = Date.now() - screenStart;
         }
-      } catch {
-        // DB not ready — skip silently
-      }
-      return "";
-    })();
+        return "";
+      })();
+
+    const urlContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        try {
+          const url = (await readAppStateForBrowserTab(
+            "__url__",
+            requestBrowserTabId,
+          )) as {
+            pathname?: string;
+            search?: string;
+            hash?: string;
+            searchParams?: Record<string, string>;
+          } | null;
+          if (url && (url.pathname || url.search || url.hash)) {
+            const lines: string[] = [];
+            if (url.pathname) lines.push(`pathname: ${url.pathname}`);
+            const extensionId = url.pathname
+              ? extensionIdFromPathname(url.pathname)
+              : null;
+            if (extensionId) lines.push(`extensionId: ${extensionId}`);
+            if (url.search) lines.push(`search: ${url.search}`);
+            if (url.hash) lines.push(`hash: ${url.hash}`);
+            if (url.searchParams && Object.keys(url.searchParams).length > 0) {
+              lines.push("searchParams:");
+              for (const [k, v] of Object.entries(url.searchParams)) {
+                lines.push(`  ${k}: ${v}`);
+              }
+            }
+            return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
+          }
+        } catch {
+          // DB not ready — skip silently
+        }
+        return "";
+      })();
 
     // Selection context: written by the client when the user presses Cmd+I
     // with text selected on the page. Treat anything older than 5 minutes
     // as stale and ignore it.
     const SELECTION_TTL_MS = 5 * 60 * 1000;
-    const selectionContextPromise = (async (): Promise<string> => {
-      try {
-        const sel = (await readAppState("pending-selection-context")) as {
-          text?: string;
-          capturedAt?: number;
-        } | null;
-        if (!sel?.text) return "";
-        const capturedAt =
-          typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
-        if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
-        return (
-          `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
-          `Treat this as the immediate context to act on:\n` +
-          `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
-        );
-      } catch {
-        // DB not ready — skip silently
-      }
-      return "";
-    })();
+    const selectionContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        try {
+          const sel = (await readAppState("pending-selection-context")) as {
+            text?: string;
+            capturedAt?: number;
+          } | null;
+          if (!sel?.text) return "";
+          const capturedAt =
+            typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
+          if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
+          return (
+            `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
+            `Treat this as the immediate context to act on:\n` +
+            `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
+          );
+        } catch {
+          // DB not ready — skip silently
+        }
+        return "";
+      })();
 
     // On the first message of a conversation, inject workspace inventory
     // so the agent knows what files, skills, jobs, and custom agents exist.
     // Templates can opt out via `skipFilesContext: true` when the inventory
     // is unrelated to the app's job (e.g. a voice-first macro tracker).
-    const filesContextPromise = (async (): Promise<string> => {
-      let filesContext = "";
-      if (options.skipFilesContext) return filesContext;
-      if (history.length === 0) {
-        try {
-          const {
-            resourceListAccessible,
-            SHARED_OWNER,
-            WORKSPACE_OWNER,
-            resourceGet,
-          } = await import("../resources/store.js");
-          const {
-            getResourceKind,
-            parseCustomAgentProfile,
-            parseRemoteAgentManifest,
-            parseSkillMetadata,
-          } = await import("../resources/metadata.js");
-          const ownerEmail = getRequestUserEmail();
-          const orgId = getRequestOrgId();
-          if (!ownerEmail) throw new Error("no authenticated user");
-          const allResources = await resourceListAccessible(
-            ownerEmail,
-            undefined,
-            { userEmail: ownerEmail, orgId },
-          );
+    const filesContextThunk = (): Promise<string> =>
+      (async (): Promise<string> => {
+        let filesContext = "";
+        if (options.skipFilesContext) return filesContext;
+        if (history.length === 0) {
+          try {
+            const {
+              resourceListAccessible,
+              SHARED_OWNER,
+              WORKSPACE_OWNER,
+              resourceGet,
+            } = await import("../resources/store.js");
+            const {
+              getResourceKind,
+              parseCustomAgentProfile,
+              parseRemoteAgentManifest,
+              parseSkillMetadata,
+            } = await import("../resources/metadata.js");
+            const ownerEmail = getRequestUserEmail();
+            const orgId = getRequestOrgId();
+            if (!ownerEmail) throw new Error("no authenticated user");
+            const allResources = await resourceListAccessible(
+              ownerEmail,
+              undefined,
+              { userEmail: ownerEmail, orgId },
+            );
 
-          if (allResources.length > 0) {
-            const fileLines: string[] = [];
-            const skillLines: string[] = [];
-            const agentLines: string[] = [];
-            const jobLines: string[] = [];
-            for (const r of allResources) {
-              const scope =
-                r.owner === WORKSPACE_OWNER
-                  ? "workspace"
-                  : r.owner === SHARED_OWNER
-                    ? "shared"
-                    : "personal";
-              const kind = getResourceKind(r.path);
-              if (kind === "file") {
-                fileLines.push(`  ${r.path} (${scope})`);
-                continue;
-              }
+            if (allResources.length > 0) {
+              const fileLines: string[] = [];
+              const skillLines: string[] = [];
+              const agentLines: string[] = [];
+              const jobLines: string[] = [];
+              for (const r of allResources) {
+                const scope =
+                  r.owner === WORKSPACE_OWNER
+                    ? "workspace"
+                    : r.owner === SHARED_OWNER
+                      ? "shared"
+                      : "personal";
+                const kind = getResourceKind(r.path);
+                if (kind === "file") {
+                  fileLines.push(`  ${r.path} (${scope})`);
+                  continue;
+                }
 
-              if (kind === "job") {
-                jobLines.push(`  ${r.path} (${scope})`);
-                continue;
-              }
+                if (kind === "job") {
+                  jobLines.push(`  ${r.path} (${scope})`);
+                  continue;
+                }
 
-              if (
-                kind === "skill" ||
-                kind === "agent" ||
-                kind === "remote-agent"
-              ) {
-                const full = await resourceGet(r.id, {
-                  userEmail: ownerEmail,
-                  orgId,
-                });
-                if (!full) continue;
-                if (kind === "skill") {
-                  const skill = parseSkillMetadata(full.content, r.path);
-                  skillLines.push(
-                    `  ${skill?.name || r.path} — ${compactInventoryDescription(skill?.description || r.path)} (${scope}, ${r.path})`,
-                  );
-                } else if (kind === "agent") {
-                  const agent = parseCustomAgentProfile(full.content, r.path);
-                  agentLines.push(
-                    `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Custom workspace agent")} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
-                  );
-                } else {
-                  const agent = parseRemoteAgentManifest(full.content, r.path);
-                  agentLines.push(
-                    `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Connected A2A agent")} (${scope}, remote via ${r.path})`,
-                  );
+                if (
+                  kind === "skill" ||
+                  kind === "agent" ||
+                  kind === "remote-agent"
+                ) {
+                  const full = await resourceGet(r.id, {
+                    userEmail: ownerEmail,
+                    orgId,
+                  });
+                  if (!full) continue;
+                  if (kind === "skill") {
+                    const skill = parseSkillMetadata(full.content, r.path);
+                    skillLines.push(
+                      `  ${skill?.name || r.path} — ${compactInventoryDescription(skill?.description || r.path)} (${scope}, ${r.path})`,
+                    );
+                  } else if (kind === "agent") {
+                    const agent = parseCustomAgentProfile(full.content, r.path);
+                    agentLines.push(
+                      `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Custom workspace agent")} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
+                    );
+                  } else {
+                    const agent = parseRemoteAgentManifest(
+                      full.content,
+                      r.path,
+                    );
+                    agentLines.push(
+                      `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Connected A2A agent")} (${scope}, remote via ${r.path})`,
+                    );
+                  }
                 }
               }
+              const blocks: string[] = [];
+              if (fileLines.length > 0) {
+                const lines = limitInventoryLines(fileLines, "files");
+                blocks.push(
+                  `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a resource file's contents, use the resources tool with action "read" and the file path.\n</available-files>`,
+                );
+              }
+              if (skillLines.length > 0) {
+                const lines = limitInventoryLines(skillLines, "skills");
+                blocks.push(
+                  `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n\nBefore using a matching workspace skill, read its path with the resources tool using action "read"; slash-selected skills are inlined automatically when available.\n</available-skills>`,
+                );
+              }
+              if (agentLines.length > 0) {
+                const lines = limitInventoryLines(agentLines, "agents");
+                blocks.push(
+                  `<available-agents>\nCustom and connected agents in the workspace:\n${lines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
+                );
+              }
+              if (jobLines.length > 0) {
+                const lines = limitInventoryLines(jobLines, "jobs");
+                blocks.push(
+                  `<available-jobs>\nScheduled tasks in the workspace:\n${lines.join("\n")}\n</available-jobs>`,
+                );
+              }
+              filesContext =
+                blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
             }
-            const blocks: string[] = [];
-            if (fileLines.length > 0) {
-              const lines = limitInventoryLines(fileLines, "files");
-              blocks.push(
-                `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a resource file's contents, use the resources tool with action "read" and the file path.\n</available-files>`,
-              );
-            }
-            if (skillLines.length > 0) {
-              const lines = limitInventoryLines(skillLines, "skills");
-              blocks.push(
-                `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n\nBefore using a matching workspace skill, read its path with the resources tool using action "read"; slash-selected skills are inlined automatically when available.\n</available-skills>`,
-              );
-            }
-            if (agentLines.length > 0) {
-              const lines = limitInventoryLines(agentLines, "agents");
-              blocks.push(
-                `<available-agents>\nCustom and connected agents in the workspace:\n${lines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
-              );
-            }
-            if (jobLines.length > 0) {
-              const lines = limitInventoryLines(jobLines, "jobs");
-              blocks.push(
-                `<available-jobs>\nScheduled tasks in the workspace:\n${lines.join("\n")}\n</available-jobs>`,
-              );
-            }
-            filesContext =
-              blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
+          } catch {
+            // Resources not available — skip silently
           }
-        } catch {
-          // Resources not available — skip silently
         }
-      }
-      return filesContext;
-    })();
+        return filesContext;
+      })();
 
+    // Durable bg worker: a pre-send step that HANGS (rather than erroring) would
+    // otherwise stall the worker until the foreground inline-recovery grace
+    // (~16s) — wasting the entire 15-min durable budget and leaving the run
+    // un-claimed (the exact analytics symptom: diag stuck at model_done,
+    // preStart≈18s). `presendCap` takes a THUNK (not an eagerly-started promise):
+    // the work runs INSIDE the cap, after the timer is armed, so a step whose
+    // own synchronous prefix is heavy can still be timed out — an eagerly-created
+    // promise would start (and could block the loop) before the cap ever wrapped
+    // it. On timeout it records `presend_timeout:<label>` so a stalled phase is
+    // attributable, then degrades to the fallback so the worker proceeds to
+    // claim. Foreground keeps the un-capped path (thunk invoked immediately), so
+    // its behaviour is unchanged. A rejected step (e.g. enrichMessage has no
+    // .catch) resolves to the fallback instead of rejecting the whole batch.
+    const presendCap = <T>(
+      label: string,
+      thunk: () => Promise<T>,
+      fallback: T,
+      ms: number,
+    ): Promise<T> => {
+      if (!isBackgroundWorker) return thunk();
+      return new Promise<T>((resolve) => {
+        const timer = setTimeout(() => {
+          workerStep(`presend_timeout:${label}`);
+          resolve(fallback);
+        }, ms);
+        // Defer invocation one microtask so every sibling cap arms its timer
+        // before any thunk's synchronous prefix runs.
+        void Promise.resolve()
+          .then(thunk)
+          .then(
+            (v) => {
+              clearTimeout(timer);
+              resolve(v);
+            },
+            () => {
+              clearTimeout(timer);
+              resolve(fallback);
+            },
+          );
+      });
+    };
+    const fallbackLoopSettings: AgentLoopSettings = {
+      maxIterations: getDefaultMaxIterations(),
+      defaultMaxIterations: getDefaultMaxIterations(),
+      minMaxIterations: MIN_AGENT_MAX_ITERATIONS,
+      maxMaxIterations: MAX_AGENT_MAX_ITERATIONS,
+      scope: "default",
+      source: "default",
+    };
     const [
       systemPrompt,
       screenBlock,
@@ -4204,14 +4539,18 @@ export function createProductionAgentHandler(
       loopSettings,
       enrichedMessage,
     ] = await Promise.all([
-      systemPromptPromise,
-      screenContextPromise,
-      urlContextPromise,
-      selectionContextPromise,
-      filesContextPromise,
-      loopSettingsPromise,
-      enrichedMessagePromise,
+      presendCap("systemPrompt", systemPromptThunk, "", 13000),
+      presendCap("screen", screenContextThunk, "", 9000),
+      presendCap("url", urlContextThunk, "", 9000),
+      presendCap("selection", selectionContextThunk, "", 9000),
+      presendCap("files", filesContextThunk, "", 12000),
+      presendCap("loopSettings", loopSettingsThunk, fallbackLoopSettings, 9000),
+      presendCap("enrichedMessage", enrichedMessageThunk, requestMessage, 9000),
     ]);
+    setupMark("ctxAll");
+    // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
+    // files, loop settings, enriched message) resolved.
+    workerStep("context_all");
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4239,6 +4578,9 @@ export function createProductionAgentHandler(
       availableRequestTools,
       options.initialToolNames,
     );
+    setupMark("actions");
+    // DIAGNOSTIC-ONLY: action/tool resolution + engine-tool filtering finished.
+    workerStep("action_tool_setup");
     const requestSystemPrompt =
       requestMode === "plan"
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
@@ -4349,6 +4691,10 @@ export function createProductionAgentHandler(
         // Keep the body-derived messages — never drop the run.
       }
     }
+    setupMark("depsThread");
+    // DIAGNOSTIC-ONLY: owner/thread resolution + runId/effectiveThreadId +
+    // chained-continuation thread fetch finished.
+    workerStep("owner_thread");
 
     // Persist the user's turn exactly once. The foreground POST does this
     // before dispatching; the background worker must NOT repeat it (it re-enters
@@ -4394,7 +4740,17 @@ export function createProductionAgentHandler(
       try {
         await fireInternalDispatch({
           event,
-          path: AGENT_CHAT_PROCESS_RUN_PATH,
+          // On hosted Netlify this resolves to the background function's DEFAULT
+          // url (/.netlify/functions/<name>, or per-app <app>-agent-background for
+          // workspaces) — the function declares NO custom config.path, so it keeps
+          // its default url, and `background: true` makes that url async (202,
+          // 15-min budget). The `server` /* catch-all already excludes /.netlify/*
+          // so it never shadows it. Off-Netlify this resolves to the framework
+          // `_process-run` route and the same in-process catch-all handles it
+          // inline. `fireInternalDispatch` strips the app base path for
+          // /.netlify/* targets so the request reaches the host-root function url;
+          // the Authorization Bearer HMAC is preserved either way.
+          path: resolveAgentChatProcessRunDispatchPath(),
           taskId: runId,
           body: {
             ...body,
@@ -4413,7 +4769,34 @@ export function createProductionAgentHandler(
         );
       }
 
-      if (dispatched) {
+      // ─── Circuit-breaker: a 202 only ENQUEUES the background invocation ─────
+      // It is NOT proof the worker executed. If the generated background-function
+      // wrapper fails to import `./main.mjs` or hand off to the Nitro
+      // `_process-run` route, the worker never reaches `claimBackgroundRun`: the
+      // row sits at `dispatch_mode='background'` until the reaper errors it
+      // ("worker never claimed the run"). `resolveBackgroundDispatchOutcome`
+      // polls briefly for the claim and decides:
+      //   - "stream":    a worker claimed the run → subscribe to it.
+      //   - "subscribe": a (delayed) worker already owns it → subscribe, NEVER
+      //                  run a second copy.
+      //   - "inline":    dispatch failed OR no worker claimed within grace → we
+      //                  atomically own the run; recover by running it inline so a
+      //                  dead worker degrades to a working synchronous turn.
+      const backgroundOutcome = await resolveBackgroundDispatchOutcome({
+        dispatched,
+        backgroundRowInserted,
+        runId,
+        graceMs: BACKGROUND_CLAIM_GRACE_MS,
+        reaperGraceMs: UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
+        pollIntervalMs: BACKGROUND_CLAIM_POLL_MS,
+        readClaim: readBackgroundRunClaim,
+        claim: claimBackgroundRun,
+      });
+
+      if (
+        backgroundOutcome.action === "stream" ||
+        backgroundOutcome.action === "subscribe"
+      ) {
         const stream = subscribeToRun(runId, 0);
         if (stream) {
           setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4422,65 +4805,45 @@ export function createProductionAgentHandler(
           setResponseHeader(event, "X-Run-Id", runId);
           return stream;
         }
-        // Subscription failed even though dispatch landed — surface an error
-        // rather than silently running inline (the background worker is already
-        // processing this runId, so an inline second run would double-execute).
+        // A background worker owns this run but we cannot subscribe — surface an
+        // error rather than risk a double-run by falling through to inline.
+        await updateRunStatusIfRunning(runId, "errored").catch(() => {});
         setResponseStatus(event, 500);
-        return { error: "Failed to subscribe to background run" };
+        return {
+          error:
+            backgroundOutcome.action === "stream"
+              ? "Failed to subscribe to background run"
+              : "Failed to dispatch background run",
+        };
       }
 
-      // ─── Dispatch failed → degrade to a normal synchronous (inline) run ────
-      // `fireInternalDispatch` throws ONLY when the self-POST failed *fast*
-      // (rejected the connection, or returned a non-2xx within the ~250ms settle
-      // race). The `_process-run` route verifies the HMAC token and validates
-      // the body BEFORE it ever reaches the SQL atomic claim, so a fast throw
-      // means NO background worker claimed this run — there is nothing to
-      // double-execute. Rather than break the chat with "Failed to dispatch
-      // background run", we run the turn inline (the same synchronous path the
-      // flag-off branch below takes), reusing the already-inserted run row.
-      //
-      // Safety against a (very improbable) delayed background delivery: claim the
-      // run atomically here via `claimBackgroundRun`, which flips the row's
-      // dispatch_mode `background → background-processing` in one conditional
-      // UPDATE. If a delayed dispatch DID land and a worker already won the
-      // claim, our claim returns false and we must NOT run inline (that would
-      // double-execute) — fall back to subscribing to the worker's run instead.
-      // The SQL atomic claim is the single source of truth for ownership, so at
-      // most one of {inline fallback, background worker} ever executes this run.
-      if (backgroundRowInserted) {
-        let claimedInline = false;
-        try {
-          claimedInline = await claimBackgroundRun(runId);
-        } catch (err) {
-          console.error(
-            "[agent-chat] inline-fallback claim failed:",
-            err instanceof Error ? err.message : err,
-          );
-        }
-        if (!claimedInline) {
-          // A background worker already owns this run (a delayed delivery landed
-          // after our fast throw). Stream its events instead of running a second
-          // copy. If we somehow can't subscribe, surface an error rather than
-          // risk a double-run.
-          const stream = subscribeToRun(runId, 0);
-          if (stream) {
-            setResponseHeader(event, "Content-Type", "text/event-stream");
-            setResponseHeader(event, "Cache-Control", "no-cache");
-            setResponseHeader(event, "Connection", "keep-alive");
-            setResponseHeader(event, "X-Run-Id", runId);
-            return stream;
-          }
-          await updateRunStatusIfRunning(runId, "errored").catch(() => {});
-          setResponseStatus(event, 500);
-          return { error: "Failed to dispatch background run" };
-        }
-        // We own the run. `startRun` (below) calls `insertRun` again, but its
-        // duplicate-PK collision is swallowed (`insertRun(...).catch(() => {})`),
-        // so the existing `background-processing` row is reused — no double row.
+      // backgroundOutcome.action === "inline": we atomically own the run (or
+      // there was no row to reconcile), so falling through to the inline
+      // `startRun` path below cannot double-execute. `startRun` calls `insertRun`
+      // again, but its duplicate-PK collision is swallowed, so an existing
+      // `background-processing` row is reused — no double row.
+      if (backgroundOutcome.reason === "worker-never-claimed") {
+        // The async 202 landed but no worker claimed within grace. PRESERVE the
+        // bg-fn's last-recorded diag_stage (route_entered / auth_failed / ... or
+        // "none" if it never reached the route) in the recovery detail BEFORE we
+        // overwrite diag_stage — otherwise foreground_inline_recovery clobbers
+        // the only clue to WHY the worker died (its own logs are unreadable).
+        const priorClaim = await readBackgroundRunClaim(runId).catch(
+          () => null,
+        );
+        const priorDiag = priorClaim?.diagStage ?? "none";
+        console.error(
+          "[agent-chat] background worker did not claim the 202-dispatched run " +
+            `within grace; recovering inline. bgFnPriorDiag=${priorDiag}`,
+          runId,
+        );
+        await recordRunDiagnostic(
+          runId,
+          RUN_DIAG_STAGE.foregroundInlineRecovery,
+          `202 dispatched but no worker claimed within grace; bgFnPriorDiag=${priorDiag}`,
+        ).catch(() => {});
       }
-      // Fall through to the inline `startRun` path below (the same one the
-      // flag-off branch uses). If the row was never inserted, `startRun` inserts
-      // it fresh; if it was, the claim above made us the sole owner.
+      // Fall through to the inline `startRun` path below.
     }
 
     const trackedProgressOwner =
@@ -4589,6 +4952,30 @@ export function createProductionAgentHandler(
       isBackgroundWorker || baseHandleRunComplete
         ? async (run: ActiveRun) => {
             try {
+              // DIAGNOSTIC: a background worker that completed in an errored
+              // state threw inside the loop. Record it (with the last error
+              // event's message when available) so the failure cause is
+              // readable from the client. Skipped for clean completions and for
+              // recoverable soft-timeout boundaries (those chain a continuation
+              // below, they did not "throw").
+              if (
+                isBackgroundWorker &&
+                run.status === "errored" &&
+                !endsAtInternalContinuationBoundary(run)
+              ) {
+                const errEvent = [...run.events]
+                  .reverse()
+                  .find((e) => e.event.type === "error")?.event as
+                  | { error?: string; errorCode?: string }
+                  | undefined;
+                await recordRunDiagnostic(
+                  run.runId,
+                  RUN_DIAG_STAGE.workerThrew,
+                  errEvent?.errorCode || errEvent?.error
+                    ? `${errEvent.errorCode ?? ""} ${errEvent.error ?? ""}`.trim()
+                    : "run ended in errored state",
+                ).catch(() => {});
+              }
               // Persist the (partial) assistant turn to thread_data FIRST — the
               // server-driven continuation below rebuilds from it, so it must be
               // committed before we re-fire.
@@ -4636,7 +5023,13 @@ export function createProductionAgentHandler(
                 try {
                   await fireInternalDispatch({
                     event,
-                    path: AGENT_CHAT_PROCESS_RUN_PATH,
+                    // Continuation chunks use the same path resolution as the
+                    // initial dispatch: on hosted Netlify the background
+                    // function's DEFAULT url (no custom config.path; async via
+                    // background:true; never shadowed because /.netlify/* is
+                    // excluded from the /* catch-all) so each chunk keeps the
+                    // 15-min budget; off-Netlify the in-process framework route.
+                    path: resolveAgentChatProcessRunDispatchPath(),
                     taskId: nextRunId,
                     body: {
                       ...body,
@@ -4673,6 +5066,17 @@ export function createProductionAgentHandler(
     // on entry so a slow cold-start doesn't leave the row looking stale to the
     // reaper before startRun's 1.5s heartbeat timer takes over.
     if (isBackgroundWorker) {
+      // DIAGNOSTIC: the re-entered handler recognized itself as the background
+      // worker. Record the runtime regime too — `isInBackgroundFunctionRuntime()`
+      // reads a globalThis marker set by the bg-fn entry, which may NOT be set in
+      // this isolate; recording the ACTUAL resolved value reveals whether the
+      // worker is on the 13-min `-background` budget or the 40s clamp. This is
+      // the proof the worker reached its own code (vs. dying at auth before it).
+      await recordRunDiagnostic(
+        runId,
+        RUN_DIAG_STAGE.workerEntered,
+        `runsInBackgroundFunction=${runsInBackgroundFunction} continuationCount=${backgroundContinuationCount}`,
+      ).catch(() => {});
       // A chained continuation chunk's runId was minted by the prior chunk and
       // never inserted, so insert its background row now (idempotently — a
       // duplicate Netlify delivery that already inserted it just PK-collides and
@@ -4687,10 +5091,31 @@ export function createProductionAgentHandler(
       if (!won) {
         // Already claimed by an earlier delivery — return a benign ack so
         // Netlify doesn't retry a successful handoff.
+        await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimLost).catch(
+          () => {},
+        );
         return { ok: true, skipped: "already-claimed" };
       }
+      // DIAGNOSTIC: this worker won the claim and now OWNS the run. If a run
+      // ever stalls at this stage it means the loop below failed to start.
+      await recordRunDiagnostic(runId, RUN_DIAG_STAGE.workerClaimed).catch(
+        () => {},
+      );
       await updateRunHeartbeat(runId).catch(() => {});
     }
+
+    // DIAGNOSTIC-ONLY: build the pre-startRun setup-timing breakdown now (so the
+    // marks reflect the work done BEFORE the loop), but EMIT it from inside
+    // startRun's callback below — the run row does not exist until startRun
+    // inserts it, so a pre-startRun write would no-op on the inline path.
+    setupMark("preStart");
+    // DIAGNOSTIC-ONLY: last stage before startRun fires. A worker that reaches
+    // prestart but never workerStarted is hanging inside startRun itself.
+    workerStep("prestart");
+    const setupDetail =
+      Object.entries(setupMarks)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ") + ` total=${Date.now() - setupT0}`;
 
     startRun(
       runId,
@@ -4702,6 +5127,29 @@ export function createProductionAgentHandler(
         };
 
         send({ type: "activity", label: "Starting agent" });
+
+        // DIAGNOSTIC: the agent loop body actually started running. For a
+        // background worker, a run that is claimed but never reaches this stage
+        // died between claiming and loop start. The pre-startRun setup-timing
+        // breakdown rides along here so it persists now that the run row exists
+        // (startRun inserted it), WITHOUT adding a separate DB hop to the
+        // run-start path: on the worker it is folded into this same
+        // already-awaited worker_started write (one hop, correctly ordered, no
+        // clobber); on the inline path there is no later diag stage to overwrite,
+        // so it is fire-and-forget to keep run-start non-blocking. Best-effort.
+        if (isBackgroundWorker) {
+          await recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.workerStarted,
+            setupDetail,
+          ).catch(() => {});
+        } else {
+          void recordRunDiagnostic(
+            runId,
+            RUN_DIAG_STAGE.setupTimings,
+            setupDetail,
+          ).catch(() => {});
+        }
 
         // Notify listeners that a run has started (used by agent teams)
         if (options.onRunStart) {

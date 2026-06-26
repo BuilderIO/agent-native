@@ -13,8 +13,9 @@
  * Cursors fade out after 10 seconds of no movement.
  */
 
-import { useState, useEffect, useRef, memo } from "react";
 import { IconSparkles } from "@tabler/icons-react";
+import { useState, useEffect, useRef, memo } from "react";
+
 import type { OtherPresence, NormalizedPoint } from "../../collab/presence.js";
 
 export interface CursorMapFn {

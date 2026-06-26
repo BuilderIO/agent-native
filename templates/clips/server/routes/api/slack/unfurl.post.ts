@@ -4,6 +4,8 @@ import {
   readRawBody,
   setResponseStatus,
 } from "h3";
+
+import { readSlackBotTokenForPayload } from "../../../lib/slack-oauth.js";
 import {
   handleSlackLinkSharedPayload,
   parseSlackJsonPayload,
@@ -12,7 +14,6 @@ import {
   verifySlackSignature,
   type SlackLinkSharedPayload,
 } from "../../../lib/slack-unfurls.js";
-import { readSlackBotTokenForPayload } from "../../../lib/slack-oauth.js";
 
 export default defineEventHandler(async (event) => {
   const rawBody = (await readRawBody(event)) ?? "";

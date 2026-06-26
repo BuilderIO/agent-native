@@ -1,10 +1,12 @@
 import crypto from "node:crypto";
-import { and, desc, eq, isNull, or } from "drizzle-orm";
-import { getOrgSetting, putOrgSetting } from "@agent-native/core/settings";
+
+import { and, desc, eq, isNull, or } from "@agent-native/core/db/schema";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server";
+import { getOrgSetting, putOrgSetting } from "@agent-native/core/settings";
+
 import { getDb, schema } from "../../db/index.js";
 
 export const SHARED_DISPATCH_OWNER = "dispatch@shared";

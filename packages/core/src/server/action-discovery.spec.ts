@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
+
 import {
   autoDiscoverActions,
   loadActionsFromStaticRegistry,
@@ -18,31 +20,35 @@ afterEach(() => {
 });
 
 describe("action discovery", () => {
-  it("loads TypeScript action files from plain source directories", async () => {
-    const actionsDir = fs.mkdtempSync(
-      path.join(os.tmpdir(), "agent-native-actions-"),
-    );
-    tmpDirs.push(actionsDir);
-    fs.writeFileSync(
-      path.join(actionsDir, "hello.ts"),
-      [
-        "export default {",
-        '  tool: { description: "Greet", parameters: { type: "object", properties: {} } },',
-        "  readOnly: true,",
-        '  run: async () => ({ message: "Hello from TS" }),',
-        "};",
-        "",
-      ].join("\n"),
-    );
+  it(
+    "loads TypeScript action files from plain source directories",
+    async () => {
+      const actionsDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-actions-"),
+      );
+      tmpDirs.push(actionsDir);
+      fs.writeFileSync(
+        path.join(actionsDir, "hello.ts"),
+        [
+          "export default {",
+          '  tool: { description: "Greet", parameters: { type: "object", properties: {} } },',
+          "  readOnly: true,",
+          '  run: async () => ({ message: "Hello from TS" }),',
+          "};",
+          "",
+        ].join("\n"),
+      );
 
-    const registry = await autoDiscoverActions(actionsDir);
+      const registry = await autoDiscoverActions(actionsDir);
 
-    expect(registry.hello).toBeDefined();
-    expect(registry.hello.readOnly).toBe(true);
-    await expect(registry.hello.run({})).resolves.toEqual({
-      message: "Hello from TS",
-    });
-  });
+      expect(registry.hello).toBeDefined();
+      expect(registry.hello.readOnly).toBe(true);
+      await expect(registry.hello.run({})).resolves.toEqual({
+        message: "Hello from TS",
+      });
+    },
+    CORE_ACTION_DISCOVERY_TIMEOUT_MS,
+  );
 
   it("preserves explicit readOnly false from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
@@ -306,5 +312,16 @@ describe("action discovery", () => {
     );
     // Other core actions still get merged in.
     expect(registry["unshare-resource"]).toBeDefined();
+  });
+
+  it("merges localization preference actions", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    expect(registry["get-localization-preference"]).toBeDefined();
+    expect(registry["get-localization-preference"].http).toEqual({
+      method: "GET",
+    });
+    expect(registry["set-localization-preference"]).toBeDefined();
   });
 });

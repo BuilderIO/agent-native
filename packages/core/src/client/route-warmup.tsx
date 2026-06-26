@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { matchRoutes, type RouteObject } from "react-router";
+
 import {
   mergeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,

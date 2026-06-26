@@ -1,5 +1,3 @@
-import { useEffect, useCallback, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   IconPackageExport,
   IconCode,
@@ -7,13 +5,15 @@ import {
   IconX,
   IconLoader2,
 } from "@tabler/icons-react";
-import { agentNativePath } from "../api-path.js";
+import { useEffect, useCallback, useState } from "react";
+import { createPortal } from "react-dom";
+
 import { trackEvent } from "../analytics.js";
+import { agentNativePath } from "../api-path.js";
+import { useT } from "../i18n.js";
 import { withBuilderConnectTrackingParams } from "../settings/useBuilderStatus.js";
 
 const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
-const CODE_CHANGE_FALLBACK_DETAIL =
-  "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.";
 
 export interface CodeRequiredDialogProps {
   open: boolean;
@@ -54,6 +54,7 @@ export function CodeRequiredDialog({
   onClose,
   featureLabel,
 }: CodeRequiredDialogProps) {
+  const t = useT();
   const {
     connected: builderConnected,
     cloudAgentsAvailable,
@@ -106,8 +107,7 @@ export function CodeRequiredDialog({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            userMessage:
-              featureLabel || "Make the requested code changes to this app",
+            userMessage: featureLabel || t("codeRequired.defaultFeature"),
           }),
         },
       );
@@ -118,7 +118,7 @@ export function CodeRequiredDialog({
       const data = await res.json();
       setBranchUrl(data.url || null);
     } catch (err: any) {
-      setError(err?.message || "Failed to create branch");
+      setError(err?.message || t("codeRequired.branchError"));
     } finally {
       setSubmitting(false);
     }
@@ -140,11 +140,13 @@ export function CodeRequiredDialog({
             <IconPackageExport size={20} />
           </div>
           <div>
-            <h2 style={s.title}>Code changes required</h2>
+            <h2 style={s.title}>{t("codeRequired.title")}</h2>
             <p style={s.subtitle}>
               {featureLabel
-                ? `"${featureLabel}" creates or modifies source code, which needs Desktop or Builder from this surface.`
-                : "This action creates or modifies source code, which needs Desktop or Builder from this surface."}
+                ? t("codeRequired.subtitleWithFeature", {
+                    feature: featureLabel,
+                  })
+                : t("codeRequired.subtitle")}
             </p>
           </div>
         </div>
@@ -167,10 +169,11 @@ export function CodeRequiredDialog({
               <IconCode size={24} />
             </div>
             <div style={s.optionText}>
-              <span style={s.optionTitle}>Use Agent Native Desktop</span>
+              <span style={s.optionTitle}>
+                {t("codeRequired.desktopTitle")}
+              </span>
               <span style={s.optionDesc}>
-                Open the project in the desktop app to enable source edits and
-                CLI access.
+                {t("codeRequired.desktopDescription")}
               </span>
             </div>
           </a>
@@ -202,10 +205,11 @@ export function CodeRequiredDialog({
                 )}
               </div>
               <div style={s.optionText}>
-                <span style={s.optionTitle}>Use Builder.io Agent</span>
+                <span style={s.optionTitle}>
+                  {t("codeRequired.builderAgentTitle")}
+                </span>
                 <span style={s.optionDesc}>
-                  Let our cloud agent make the changes for you. You'll get a
-                  link to preview and deploy.
+                  {t("codeRequired.builderAgentDescription")}
                 </span>
               </div>
             </button>
@@ -221,10 +225,14 @@ export function CodeRequiredDialog({
                 <IconExternalLink size={24} />
               </div>
               <div style={s.optionText}>
-                <span style={s.optionTitle}>This requires a code change</span>
-                <span style={s.optionDesc}>{CODE_CHANGE_FALLBACK_DETAIL}</span>
+                <span style={s.optionTitle}>
+                  {t("codeRequired.codeChangeTitle")}
+                </span>
+                <span style={s.optionDesc}>
+                  {t("codeRequired.fallbackDetail")}
+                </span>
               </div>
-              <span style={s.badge}>Code change</span>
+              <span style={s.badge}>{t("codeRequired.codeChangeBadge")}</span>
             </div>
           ) : (
             <a
@@ -254,13 +262,16 @@ export function CodeRequiredDialog({
                 <IconExternalLink size={24} />
               </div>
               <div style={s.optionText}>
-                <span style={s.optionTitle}>Connect Builder.io</span>
+                <span style={s.optionTitle}>
+                  {t("codeRequired.connectBuilderTitle")}
+                </span>
                 <span style={s.optionDesc}>
-                  Connect Builder to enable cloud-based code changes from this
-                  app.
+                  {t("codeRequired.connectBuilderDescription")}
                 </span>
               </div>
-              {!connectUrl && <span style={s.badge}>Setup required</span>}
+              {!connectUrl && (
+                <span style={s.badge}>{t("codeRequired.setupRequired")}</span>
+              )}
             </a>
           )}
         </div>
@@ -269,7 +280,7 @@ export function CodeRequiredDialog({
         {branchUrl && (
           <div style={s.result}>
             <span style={{ fontSize: 13, fontWeight: 600 }}>
-              Branch created
+              {t("codeRequired.branchCreated")}
             </span>
             <a
               href={branchUrl}
@@ -289,7 +300,11 @@ export function CodeRequiredDialog({
         )}
 
         {/* Close */}
-        <button style={s.closeButton} onClick={onClose} aria-label="Close">
+        <button
+          style={s.closeButton}
+          onClick={onClose}
+          aria-label={t("codeRequired.close")}
+        >
           <IconX size={16} />
         </button>
       </div>

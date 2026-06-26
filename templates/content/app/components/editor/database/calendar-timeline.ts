@@ -11,8 +11,9 @@ import {
   documentPropertyDateKey,
   documentPropertyDatePart,
 } from "@shared/properties";
-import { type DatabaseDateViewRange, type DatabaseTimelineSpan } from "./types";
+
 import { databaseCalendarDateProperty } from "./grouping";
+import { type DatabaseDateViewRange, type DatabaseTimelineSpan } from "./types";
 
 export { type DatabaseDateViewRange, type DatabaseTimelineSpan };
 

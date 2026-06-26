@@ -1,5 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
-import { createPortal } from "react-dom";
+import { useComposerRuntime } from "@assistant-ui/react";
 import {
   IconPlus,
   IconUpload,
@@ -14,15 +13,22 @@ import {
   IconArrowLeft,
   IconX,
 } from "@tabler/icons-react";
-import { useComposerRuntime } from "@assistant-ui/react";
-import { cn } from "../utils.js";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
+
+import { setAgentChatContextItem } from "../agent-chat.js";
+import { agentNativePath } from "../api-path.js";
 import {
   Popover,
   PopoverTrigger,
   PopoverContent,
 } from "../components/ui/popover.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
 import { useOrg } from "../org/hooks.js";
-import { agentNativePath } from "../api-path.js";
 import {
   formatMcpServerError,
   getMcpUrlValidationError,
@@ -30,13 +36,8 @@ import {
   testMcpServerUrl,
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
+import { cn } from "../utils.js";
 import type { ComposerMode } from "./types.js";
-import { setAgentChatContextItem } from "../agent-chat.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
 
 interface ComposerPlusMenuProps {
   onSelectMode?: (mode: ComposerMode) => void;
@@ -565,7 +566,7 @@ function ComposerPlusMenuFull({
       }}
       className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground mb-1.5"
     >
-      <IconArrowLeft className="h-3 w-3" />
+      <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
       Back
     </button>
   );
@@ -656,7 +657,7 @@ function ComposerPlusMenuFull({
                       type="button"
                       onClick={item.action}
                       className={cn(
-                        "flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50",
+                        "flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50",
                         isSkill && skillFlyoutOpen && "bg-accent/50",
                       )}
                     >
@@ -670,7 +671,7 @@ function ComposerPlusMenuFull({
                         </div>
                       </div>
                       {isSkill && (
-                        <span className="ml-auto text-muted-foreground/60">
+                        <span className="ms-auto text-muted-foreground/60">
                           ›
                         </span>
                       )}
@@ -694,7 +695,7 @@ function ComposerPlusMenuFull({
                             setSkillFlyoutOpen(false);
                             setOpen(false);
                           }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50"
                         >
                           <span className="text-muted-foreground">
                             <IconBulb className="h-3.5 w-3.5" />
@@ -714,7 +715,7 @@ function ComposerPlusMenuFull({
                             setSkillFlyoutOpen(false);
                             skillFileInputRef.current?.click();
                           }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-accent/50"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-start hover:bg-accent/50"
                         >
                           <span className="text-muted-foreground">
                             <IconUpload className="h-3.5 w-3.5" />
@@ -743,7 +744,7 @@ function ComposerPlusMenuFull({
                 onClick={() => setView("menu")}
                 className="mb-1.5 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
               >
-                <IconArrowLeft className="h-3 w-3" />
+                <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
                 Back
               </button>
               <label className="mb-1 block text-[11px] font-semibold text-foreground">

@@ -1,0 +1,227 @@
+---
+title: "एडेप्टर"
+description: "फ्रेमवर्क के दो एडेप्टर सीम: सैंडबॉक्स एडेप्टर बैकएंड को स्वैप करते हैं जो एजेंट के रन-कोड टूल को चलाता है, और CLI एडेप्टर एजेंट को कमांड-लाइन टूल्स तक संरचित पहुंच प्रदान करते हैं।"
+search: "एडेप्टर सैंडबॉक्स एडाप्टर सीएलआई एडाप्टर रन-कोड सैंडबॉक्सएडाप्टर क्लिएडाप्टर शेलक्लिएडाप्टर टिकाऊ रनर रिमोट सैंडबॉक्स एज सर्वर रहित चाइल्ड_प्रोसेस"
+---
+
+# एडेप्टर
+
+> **यह किसके लिए है:** मेजबान लेखक रनटाइम का विस्तार कर रहे हैं। ऐप डेवलपर शायद ही कभी
+> को इसकी आवश्यकता है - डिफ़ॉल्ट बॉक्स से बाहर काम करते हैं।
+
+Agent-Native में दो एडाप्टर सीम हैं जो एक संकीर्ण के पीछे चिंता का कारण बनते हैं,
+स्वैपेबल इंटरफ़ेस:
+
+- **सैंडबॉक्स एडाप्टर** एजेंट के `run-code` टूल को चलाने वाले बैकएंड को स्वैप करें -
+  डिफ़ॉल्ट रूप से एक स्थानीय चाइल्ड प्रक्रिया, या एक डॉकर/रिमोट/ड्यूरेबल रनर।
+- **CLI एडाप्टर** एजेंट को कमांड-लाइन टूल तक संरचित पहुंच प्रदान करते हैं
+  (`gh`, `ffmpeg`, `stripe`) खोज, उपलब्धता जांच और ए
+  सुसंगत परिणाम आकार।
+
+दोनों एक रनटाइम बाधा साझा करते हैं: वे Node.js सिस्टम बाइंडिंग पर भरोसा करते हैं और करते हैं
+एज/वर्कर रनटाइम पर नहीं चलता - [Edge and serverless](#edge-serverless) देखें।
+
+## मुझे कौन सा कोडिंग दस्तावेज़ चाहिए? {#which-doc}
+
+| आप चाहते हैं…                                                                      | उपयोग                                        |
+| ---------------------------------------------------------------------------------- | -------------------------------------------- |
+| एजेंट के **`run-code` टूल** को चलाने वाले बैकएंड को स्वैप करें                     | **सैंडबॉक्स एडाप्टर** (यह पृष्ठ)             |
+| एजेंट को कॉल करने के लिए एक CLI टूल (`gh`, `ffmpeg`) लपेटें                        | **CLI एडाप्टर** (यह पृष्ठ)                   |
+| एक Claude-कोड/Codex-शैली प्रस्तुत करें **कोडिंग कार्यक्षेत्र UI**                  | [Agent-Native Code UI](/docs/code-agents-ui) |
+| Claude कोड / Codex / Pi **एजेंट के रूप में** चलाएँ, अपने स्वयं के लूप + टूल के साथ | [Harness Agents](/docs/harness-agents)       |
+
+# सैंडबॉक्स एडाप्टर
+
+`run-code` उपकरण एक अलग वातावरण में एजेंट द्वारा आपूर्ति किए गए JavaScript को चलाता है। **सैंडबॉक्स एडाप्टर** उस टूल से _निष्पादन_ चिंता को दूर करता है ताकि बैकएंड को स्वैप किया जा सके - डिफ़ॉल्ट रूप से एक स्थानीय चाइल्ड प्रक्रिया, या डॉकर / रिमोट / टिकाऊ धावक - एजेंट लूप, `run-code.ts`, लोकलहोस्ट ब्रिज, एनवी स्क्रब, या आउटपुट फ़ॉर्मेटिंग को छुए बिना।
+
+## सीम क्यों {#why}
+
+डिफ़ॉल्ट बैकएंड एक लॉक-डाउन स्थानीय नोड चाइल्ड प्रक्रिया को जन्म देता है। यह होस्टिंग प्रक्रिया से घिरा है: होस्ट किए गए प्लेटफ़ॉर्म पर यह एजेंट लूप की सॉफ्ट निष्पादन सीमा (टाइमआउट/निरंतरता थ्रैश से पहले ~ 40s) साझा करता है। एक रिमोट या टिकाऊ एडाप्टर उस सीमा को पार करने का लीवर है - यह अनुरोध जीवनचक्र से स्वतंत्र रूप से पूरा करने के लिए बड़े डेटा कार्य चलाता है।
+
+अनुबंध को संकीर्ण रखने का मतलब है कि रिमोट एडॉप्टर को समान सुरक्षा स्थिति प्राप्त होती है। मूल प्रक्रिया हर चीज़ के स्वामित्व को गुप्त रखती है: यह सैंडबॉक्स मॉड्यूल बनाता है, लोकलहोस्ट ब्रिज चलाता है (जो अनुरोध संदर्भ रखता है और होस्ट अनुमति सूची + SSRF गार्ड लागू करता है), एनवी को स्क्रब करता है, और आउटपुट को प्रारूपित करता है। एक एडॉप्टर को केवल पहले से तैयार, **गैर-गुप्त** मॉड्यूल स्रोत प्लस संसाधन सीमाएँ प्राप्त होती हैं - यह इसे चलाने और stdout/stderr/exit स्थिति को कैप्चर करने के लिए पूरी तरह से जिम्मेदार है।
+
+```an-diagram title="माता-पिता रहस्य रखते हैं; एडॉप्टर केवल कोड चलाता है" summary="रन-कोड मॉड्यूल बनाता है और लूपबैक ब्रिज चलाता है; एडॉप्टर एक गैर-गुप्त मॉड्यूल + सीमाएं प्राप्त करता है और stdout/stderr/exit लौटाता है।"
+{
+  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>पैरेंट प्रोसेस</strong><small class=\"diagram-muted\">module बनाता है · loopback bridge · env scrub · output format</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">स्थानीय child · Docker · remote · durable रनटाइम</small></div></div>",
+  "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## इंटरफ़ेस {#interface}
+
+सीम `packages/core/src/coding-tools/sandbox/` - `adapter.ts` (अनुबंध), `index.ts` (चयन: `getSandboxAdapter()` / `registerSandboxAdapter()`), और `local-child-process-adapter.ts` (डिफ़ॉल्ट) पर कोर में रहता है। इसे `run-code.ts` द्वारा पैकेज में वायर्ड किया गया है; एक होस्ट `index.ts` पंजीकरण सहायक के माध्यम से एक अलग बैकएंड में प्लग करता है (या, डॉकर बैकएंड के लिए, [blueprint](/docs/blueprint-installer) के माध्यम से जो इन फ़ाइलों को सीधे संपादित करता है)।
+
+```an-file-tree title="core में sandbox seam"
+{
+  "title": "packages/core/src/coding-tools/sandbox/",
+  "entries": [
+    { "path": "adapter.ts", "note": "SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)" },
+    { "path": "index.ts", "note": "selection logic: getSandboxAdapter() / registerSandboxAdapter()" },
+    { "path": "local-child-process-adapter.ts", "note": "default backend: locked-down Node child process" },
+    { "path": "../run-code.ts", "note": "seam को wire करता है; backend बदलने पर कभी नहीं बदलता" }
+  ]
+}
+```
+
+प्रत्येक बैकएंड `SandboxAdapter` लागू करता है:
+
+```ts
+interface SandboxAdapter {
+  /** Stable id, surfaced for diagnostics and adapter selection. */
+  readonly id: string;
+  /** Execute one prepared sandbox module and capture its output. */
+  run(request: SandboxRunRequest): Promise<SandboxRunResult>;
+}
+```
+
+अनुरोध और परिणाम जानबूझकर छोटे और अपारदर्शी हैं:
+
+```ts
+interface SandboxRunRequest {
+  /**
+   * The complete ESM module source to execute. Already wraps the user's code
+   * and embeds the loopback bridge URL/token; the adapter does NOT parse or
+   * rewrite it.
+   */
+  moduleSource: string;
+  /**
+   * Scrubbed environment — only safe POSIX vars (PATH/HOME/TMPDIR/…), never app
+   * secrets. Adapters must not augment this with the parent's own environment.
+   */
+  env: Record<string, string>;
+  /** Hard wall-clock timeout in milliseconds. The adapter must enforce it. */
+  timeoutMs: number;
+  /**
+   * Loopback port of the parent's bridge server (reachable over 127.0.0.1). A
+   * remote adapter that can't reach the parent's loopback must tunnel or proxy
+   * this to support bridge-backed globals (`appAction`, `providerFetch`, …).
+   */
+  bridgePort: number;
+}
+
+interface SandboxRunResult {
+  stdout: string;
+  stderr: string;
+  /** `0` on clean exit, non-zero on failure, `null` when killed by a signal. */
+  exitCode: number | null;
+  /** True when the run was killed for exceeding `timeoutMs`. */
+  timedOut: boolean;
+}
+```
+
+## डिफ़ॉल्ट: `LocalChildProcessAdapter` {#default}
+
+बॉक्स से बाहर, `getSandboxAdapter()`, `LocalChildProcessAdapter` (`id: "local-child-process"`) लौटाता है। यह ऐतिहासिक `run-code` व्यवहार को बाइट-दर-बाइट संरक्षित करता है:
+
+- तैयार मॉड्यूल स्रोत एक ताजा अस्थायी डीआईआर में लिखा गया है।
+- बच्चा सैंडबॉक्स डीआईआर के अंदर `TMPDIR`/`TEMP`/`TMP` के साथ स्क्रब किए गए एनवी (कोई रहस्य नहीं) के साथ दौड़ता है।
+- जब नोड अनुमति मॉडल उपलब्ध होता है (`--permission`, या नोड 20 पर `--experimental-permission`), तो बच्चे को उसके अस्थायी डीआईआर, साथ ही चाइल्ड प्रक्रियाओं, श्रमिकों और मूल ऐडऑन के बाहर फ़ाइल सिस्टम पहुंच से वंचित कर दिया जाता है। आउटबाउंड नेटवर्क अनुमति मॉडल द्वारा अवरुद्ध नहीं है - लेकिन एनवी स्क्रब का मतलब है कि ऐसे अनुरोधों में कोई क्रेडेंशियल नहीं होता है, और सभी प्रमाणित कॉल पैरेंट के लूपबैक ब्रिज से गुज़रते हैं।
+- एक टाइमआउट `SIGTERM` भेजता है, फिर 2 सेकंड की छूट अवधि के बाद `SIGKILL` भेजता है।
+- टेम्प फ़ाइलों को चलाने के बाद सर्वोत्तम प्रयास से साफ़ किया जाता है।
+
+> [!WARNING]
+> डिफ़ॉल्ट एडाप्टर `node:child_process` का उपयोग करता है, जो एज/वर्कर रनटाइम पर मौजूद नहीं है। मानक Node.js वातावरण में `run-code` चलाएँ, या एक दूरस्थ एडाप्टर पंजीकृत करें - [Edge and serverless](#edge-serverless) देखें।
+
+## एडेप्टर का चयन करना {#selection}
+
+रिज़ॉल्यूशन ऑर्डर - एक स्पष्ट रूप से पंजीकृत एडाप्टर जीतता है; अन्यथा env var एक अंतर्निर्मित का चयन करता है; अन्यथा स्थानीय डिफ़ॉल्ट का उपयोग किया जाता है:
+
+```text
+registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
+```
+
+### `AGENT_NATIVE_SANDBOX` env var {#env}
+
+आईडी के आधार पर एक अंतर्निहित एडाप्टर का चयन करता है। वर्तमान में केवल `local` (डिफ़ॉल्ट) वायर्ड है; अज्ञात मान रन में विफल होने के बजाय स्थानीय स्तर पर वापस आ जाते हैं।
+
+```bash
+AGENT_NATIVE_SANDBOX=local   # डिफ़ॉल्ट - स्पष्ट
+```
+
+### `registerSandboxAdapter()` {#register}
+
+एक होस्ट प्रक्रिया सीम के `index.ts` के माध्यम से सभी बाद के `run-code` आमंत्रणों के लिए बैकएंड को ओवरराइड करती है - उदाहरण के लिए, एक दूरस्थ कंटेनर में प्रत्येक कॉल को चलाने के लिए:
+
+```ts
+import {
+  registerSandboxAdapter,
+  type SandboxAdapter,
+} from "./coding-tools/sandbox/index.js";
+
+class RemoteSandboxAdapter implements SandboxAdapter {
+  readonly id = "remote";
+  async run(request) {
+    // Ship request.moduleSource to the durable runner, enforce request.timeoutMs,
+    // proxy bridge calls back to request.bridgePort, and return stdout/stderr/exitCode.
+  }
+}
+
+registerSandboxAdapter(new RemoteSandboxAdapter());
+// Pass `null` to clear the override and fall back to env-var / default resolution.
+```
+
+## टिकाऊ धावक के लिए सीम {#durable}
+
+यह इंटरफ़ेस जानबूझकर भविष्य के रिमोट/टिकाऊ सैंडबॉक्स के लिए सीम है। एक रिमोट या टिकाऊ एडॉप्टर (डॉकर, एक वर्सेल-सैंडबॉक्स-शैली धावक, या एक कतारबद्ध पृष्ठभूमि कार्यकर्ता) यह करेगा:
+
+1. आउट-ऑफ़-प्रोसेस रनटाइम के विरुद्ध `SandboxAdapter.run` लागू करें।
+2. लूपबैक ब्रिज को टनल करें (या प्रॉक्सी ब्रिज पैरेंट को वापस कॉल करता है)।
+3. बड़े डेटा जॉब्स को अनुरोध जीवनचक्र से स्वतंत्र रूप से पूरा होने दें - स्थानीय चाइल्ड-प्रोसेस एडॉप्टर को सीमित करने वाली होस्ट की गई ~40एस कोड-एक्ज़ीक्यूटिव सीमा से अधिक।
+
+इसे एक नए `AGENT_NATIVE_SANDBOX` मान (जैसे `remote`) और/या `registerSandboxAdapter()` के माध्यम से पंजीकृत करें। एजेंट लूप और `run-code.ts` कभी नहीं बदलते।
+
+> [!TIP]
+> `agent-native add sandbox docker` ब्लूप्रिंट इस सीम के विरुद्ध डॉकर एडाप्टर को लागू करने के लिए एक पूर्ण, स्व-निहित नुस्खा उत्सर्जित करता है। [Blueprint Installer](/docs/blueprint-installer) देखें.
+
+# CLI एडाप्टर
+
+अन्य एडाप्टर सीम एक एकल कमांड-लाइन टूल (`gh`, `ffmpeg`, `stripe`, `aws`) को लपेटता है ताकि एजेंट इसे खोज सके, जांच सके कि यह इंस्टॉल है या नहीं, और इसे लगातार stdout/stderr/exit-code परिणाम के साथ चला सकता है। प्रत्येक CLI एडाप्टर `CliAdapter` को लागू करता है:
+
+```ts
+import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
+
+interface CliAdapter {
+  name: string; // "gh", "stripe", "ffmpeg"
+  description: string; // What the agent sees during discovery
+  isAvailable(): Promise<boolean>;
+  execute(args: string[]): Promise<CliResult>;
+}
+
+interface CliResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}
+```
+
+अधिकांश CLIs के लिए, `ShellCliAdapter` किसी भी बाइनरी को समझदार डिफ़ॉल्ट के साथ लपेटता है, और `CliRegistry` रनटाइम खोज के लिए एडेप्टर एकत्र करता है:
+
+```ts
+import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
+
+const cliRegistry = new CliRegistry();
+cliRegistry.register(
+  new ShellCliAdapter({
+    command: "gh",
+    description: "GitHub CLI — manage repos, PRs, issues, and releases",
+  }),
+);
+
+await cliRegistry.describe(); // [{ name, description, available }] for discovery
+const gh = cliRegistry.get("gh");
+const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
+```
+
+एक CLI कॉल को क्रिया सतह पर उजागर करने के लिए उसे `defineAction` में लपेटें। `ShellCliAdapter` विकल्पों, कस्टम एडाप्टर और एक्शन-रैपिंग पैटर्न के लिए [CLI Adapters](/docs/cli-adapters) त्वरित संदर्भ देखें।
+
+## एज और सर्वर रहित {#edge-serverless}
+
+> [!WARNING]
+> दोनों एडाप्टर सीम Node.js सिस्टम बाइंडिंग पर निर्भर हैं। सैंडबॉक्स `LocalChildProcessAdapter` और CLI एडेप्टर (`ShellCliAdapter` और कस्टम एडेप्टर) `node:child_process` (`execFile` / `spawn`) का उपयोग करते हैं, जो क्लाउडफ्लेयर वर्कर्स या नेटलिफाई एज फ़ंक्शंस जैसे एज/वर्कर रनटाइम पर **मौजूद नहीं है**। यदि आप इन एज प्रीसेट पर सर्वर रूट तैनात करते हैं, तो इन एडेप्टर को निष्पादित करने से एक रनटाइम अपवाद उत्पन्न होता है। एक मानक Node.js वातावरण (पारंपरिक सर्वर कंटेनर या सर्वर रहित नोड फ़ंक्शंस) में एडाप्टर एंडपॉइंट और कार्य चलाएं - या, सैंडबॉक्स सीम के लिए, एक रिमोट एडाप्टर पंजीकृत करें जो प्रक्रिया से बाहर काम करता है।
+
+## आगे क्या है
+
+- [**CLI Adapters**](/docs/cli-adapters) - CLI सीम के लिए त्वरित संदर्भ
+- [**Blueprint Installer**](/docs/blueprint-installer) - `agent-native add sandbox docker` एक डॉकर-एडेप्टर रेसिपी प्रिंट करता है
+- [**Agent Teams**](/docs/agent-teams) - उप-एजेंटों को भारी काम सौंपना
+- [**Security**](/docs/security) - एनवी स्क्रब और ब्रिज अनुमति सूची आसन

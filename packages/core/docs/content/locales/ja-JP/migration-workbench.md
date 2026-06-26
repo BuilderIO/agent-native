@@ -1,0 +1,33 @@
+---
+title: "Agent-Native への移行 (/移行)"
+description: "移行は、別個のアプリではなく、Agent-Native コード ワークスペースに組み込まれた /merge 目標です。完全なガイドについては、Agent-Native コード UI を参照してください。"
+---
+
+# Agent-Native への移行 (/移行)
+
+移行は **個別の製品やテンプレートではありません** - 組み込まれているものです
+[Agent-Native Code](/docs/code-agents-ui) ワークスペース内の `/migrate` ゴール。
+通常のコード セッションとして実行され、再開、接続、検査、停止が可能です。
+
+```an-diagram title="/merge はコード セッションであり、別個のアプリではありません" summary="パス、URL、または説明が入ります。実行では、他のすべてのコード セッションと同じストア、トランスクリプト、およびコントロールを共有し、ポータブルなドシエを出力できます。"
+{
+  "html": "<div class=\"diagram-migrate\"><div class=\"diagram-col\"><div class=\"diagram-pill\">./local-app</div><div class=\"diagram-pill\">https://example.com</div><div class=\"diagram-pill\">--describe \\\"...\\\"</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">/migrate goal</span><small class=\"diagram-muted\">同じストア · トランスクリプト · 実行制御</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\" data-rough>移行済みアプリ</div><div class=\"diagram-pill ok\">--emit dossier</div></div></div>",
+  "css": ".diagram-migrate{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-migrate .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-migrate .diagram-arrow{font-size:22px;line-height:1}.diagram-migrate .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+```bash
+npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
+npx @agent-native/core@latest code /migrate https://example.com --describe "marketing site plus dashboard"
+npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
+```
+
+完全ガイド — 入力形状 (パス / URL / 説明)、`--emit` ドシエ
+プラン モードと自動モード、実行コントロール、認証情報、デスクトップ ディープ リンク、および
+`@agent-native/migrate` パッケージのエクスポート — に存在します
+[Agent-Native Code UI → Migrating to Agent-Native](/docs/code-agents-ui#migrate).
+
+> [!NOTE]
+> 従来の非表示の `migration` 詳細アプリは削除されました。コードを使用してください
+> ワークスペース、デスクトップ コード タブ、またはサポートされるように出力されたドシエ
+> 面。

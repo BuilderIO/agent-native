@@ -37,6 +37,7 @@ const repoRoot = path.resolve(__dirname, "..");
 
 const SOURCE_OF_TRUTH = "packages/shared-app-config/templates.ts";
 const CLI_DUPLICATE = "packages/core/src/cli/templates-meta.ts";
+const HOSTED_GA_MEASUREMENT_ID = "G-ESF7FYXGN9";
 
 /**
  * Parse a TEMPLATES array out of a templates-meta-shaped file. Returns
@@ -162,6 +163,28 @@ const DOCS_CONTENT_DIR = "packages/core/docs/content";
           `Delete this file, or flip hidden:false in ${SOURCE_OF_TRUTH} (and ${CLI_DUPLICATE}).`,
       );
     }
+  }
+}
+
+// ── 5. Public hosted template apps must keep GA wired in their Netlify build
+// config. The shared Vite plugin bakes this public value into the SSR bundle so
+// the serverless runtime does not depend on netlify.toml env visibility.
+for (const slug of allowed) {
+  if (slug === "video") continue;
+  const relPath = path.join("templates", slug, "netlify.toml");
+  const absPath = path.join(repoRoot, relPath);
+  if (!fs.existsSync(absPath)) {
+    errors.push(
+      `${relPath}: missing Netlify config for public hosted template "${slug}".`,
+    );
+    continue;
+  }
+  const src = fs.readFileSync(absPath, "utf-8");
+  const expected = `GA_MEASUREMENT_ID = "${HOSTED_GA_MEASUREMENT_ID}"`;
+  if (!src.includes(expected)) {
+    errors.push(
+      `${relPath}: missing ${expected}. Hosted template app sessions will not appear in GA.`,
+    );
   }
 }
 

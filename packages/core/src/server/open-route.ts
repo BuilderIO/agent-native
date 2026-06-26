@@ -23,9 +23,8 @@
  */
 import type { H3Event } from "h3";
 import { defineEventHandler, getHeader, getMethod } from "h3";
-import { getSession, getConfiguredLoginHtml } from "./auth.js";
+
 import { appStatePut, appStateGet } from "../application-state/store.js";
-import { requestHasEmbedAuthMarker } from "./embed-session.js";
 import {
   AGENT_SIDEBAR_QUERY_PARAM,
   withCollapsedAgentSidebarParam,
@@ -35,11 +34,13 @@ import {
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
-import { getConfiguredAppBasePath } from "./app-base-path.js";
 import {
   isMcpEmbedCorsOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
+import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getSession, getConfiguredLoginHtml } from "./auth.js";
+import { requestHasEmbedAuthMarker } from "./embed-session.js";
 
 /** Query keys that are route control, not navigation payload. */
 const RESERVED = new Set([

@@ -3,6 +3,7 @@
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { DragHandle, type DragHandleOptions } from "./DragHandle.js";
 
 function makeRect({

@@ -1,0 +1,129 @@
+---
+title: "Modelo de bate-papo"
+description: "Um aplicativo nativo de agente com foco mínimo no chat: threads de chat duráveis, actions, estado do aplicativo, sincronização ao vivo, autenticação e espaço para adicionar seu próprio UI."
+---
+
+# Modelo de bate-papo
+
+O Chat é o ponto de partida básico do aplicativo nativo do agente. Ele oferece um shell limpo no estilo ChatGPT com bate-papo no centro, uma lista de tópicos à esquerda, navegação padrão do aplicativo, autenticação, sincronização ao vivo, actions e um exemplo de ação. Comece aqui quando quiser um aplicativo de navegador real no qual você possa desenvolver sem se comprometer com um modelo de domínio.
+
+Se você deseja o menor tempo de execução somente de ação sem navegador UI, comece com [Pure-Agent Apps](/docs/pure-agent-apps). Se você quiser um formato de produto de domínio finalizado, comece com [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) ou outro modelo de domínio.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Como posso ajudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Converse sobre qualquer coisa. Adicione ações, componentes, páginas, jobs ou seu próprio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Envie mensagem ao agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+}
+```
+
+## O que há nele {#whats-in-it}
+
+- **Bate-papo de página inteira** no `/` usando a superfície de bate-papo da estrutura e conversas de bate-papo duráveis.
+- **Lista de conversas na barra lateral do aplicativo** para que os usuários possam criar, reabrir, renomear, fixar e arquivar bate-papos.
+- **Plugin de bate-papo do agente** pré-configurado para que o bate-papo se comunique com o loop integrado do agente do aplicativo assim que suas credenciais de agente forem definidas.
+- **Auth** via Better Auth — login, inscrição, sessões, organizações. O mesmo fluxo funciona localmente e na produção; no desenvolvimento, a verificação de e-mail é ignorada.
+- **Diretório Actions** com um exemplo (`actions/hello.ts`) mais o `view-screen` padrão e `navigate` actions.
+- **As tabelas principais da estrutura** para estado do aplicativo, configurações, sessões, recursos, threads de bate-papo, histórico de execução e outros estados de tempo de execução.
+- **Sincronização ao vivo** (`useDbSync`) já conectada, portanto UI é atualizado automaticamente quando o agente grava em SQL.
+- **AGENTS.md** com orientação de bate-papo inicial para adicionar actions, rotas, skills e estado do aplicativo.
+
+## O que _não_ está nele {#not-in-it}
+
+- Sem tabelas de domínio ou dados iniciais.
+- Sem painéis, listas, gráficos, formulários ou integrações de provedores.
+- Nenhum actions específico do domínio além do esboço de exemplo.
+
+Esse é o ponto. O Chat é um shell padrão fino e útil para seu próprio agente, não um produto de domínio que finge ser genérico.
+
+```an-diagram title="O que vem no shell do Chat" summary="Uma superfície de bate-papo fina sobre o tempo de execução padrão da estrutura — ações, threads duráveis, sincronização ao vivo e autenticação — com espaço para adicionar sua própria UI."
+{
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Lista de threads<br><small class=\"diagram-muted\">criar · reabrir · fixar · arquivar</small></div><div class=\"diagram-node\">Chat em página inteira<br><small class=\"diagram-muted\">superfície de chat do framework em /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Tabelas SQL centrais<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Sincronização ao vivo &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · organizações · sessões</small></div></div></div>",
+  "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## Quando escolher {#when-to-pick}
+
+- **Você deseja um aplicativo básico com o qual os usuários possam conversar imediatamente** e depois estender com actions e UI.
+- **Você tem um aplicativo headless que precisa do chat** como primeira superfície do navegador.
+- **Você deseja conectar seu próprio back-end de agente a um bate-papo familiar UI** enquanto mantém o actions, o estado, a autenticação e o formato de implantação do Agent-Native.
+- **Você está criando um protótipo de uma ferramenta interna personalizada** que não corresponde a um modelo de domínio.
+
+## Andaimes {#scaffolding}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --template chat
+cd my-chat-app
+pnpm install
+pnpm dev
+```
+
+Ou comece sem UI e adicione uma superfície de chat mais tarde:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+A partir daí, copie a rota `/` do modelo de bate-papo e a lista de tópicos da barra lateral em seu aplicativo ou crie um aplicativo de bate-papo e mova o actions de seu agente headless para seu diretório `actions/`. A chave invariante permanece a mesma: actions é a superfície compartilhada para bate-papo, UI, HTTP, MCP, A2A e CLI.
+
+## Primeiro código a ser inspecionado {#first-code}
+
+- `actions/hello.ts` é o comportamento inicial que o agente pode chamar. Substitua-o ou
+  adicione actions ao lado dele.
+- `app/routes/_index.tsx` renderiza a superfície de chat de página inteira. Ajuste o
+  sugestões, estado vazio, compositor ou layout circundante aqui.
+- `AGENTS.md` informa ao agente integrado como trabalhar dentro deste aplicativo.
+
+```an-file-tree title="Layout do template Chat"
+{
+  "entries": [
+    { "path": "actions/hello.ts", "note": "A action de exemplo; substitua ou adicione actions ao lado dela" },
+    { "path": "actions/view-screen.ts", "note": "Action de contexto padrão que o agente lê" },
+    { "path": "actions/navigate.ts", "note": "Action de navegação padrão" },
+    { "path": "app/routes/_index.tsx", "note": "Renderiza a superfície de chat em página inteira; edite sugestões, estado vazio e composer" },
+    { "path": "AGENTS.md", "note": "Orientação centrada em chat que o agente integrado lê" }
+  ]
+}
+```
+
+A página de bate-papo é intencionalmente estreita:
+
+```tsx
+// app/routes/_index.tsx
+import { AgentChatSurface } from "@agent-native/core/client";
+
+export default function ChatRoute() {
+  return (
+    <AgentChatSurface
+      mode="page"
+      suggestions={[
+        "What can you do?",
+        "Help me customize this chat app",
+        "Show me the actions and pages I can add",
+      ]}
+    />
+  );
+}
+```
+
+## Use seu próprio back-end de agente {#own-agent-backend}
+
+O modelo usa o loop de agente de aplicativo integrado por padrão. Para conectar um back-end personalizado, troque o tempo de execução do chat pelo plug-in de chat do agente em vez de reescrever o UI. A rota de bate-papo deve permanecer como um renderizador fino em torno da superfície de bate-papo compartilhada; a escolha de back-end pertence ao plug-in do servidor/adaptador de tempo de execução.
+
+Use isso quando a orquestração do seu modelo já estiver em outro lugar, mas você ainda quiser um aplicativo com autenticação, threads, estado actions, UI e páginas implantáveis.
+
+## Primeiras edições {#first-edits}
+
+Após o andaime, pergunte ao agente:
+
+> Adicione um modelo de dados para `notes`. Uma nota possui id, título, corpo e proprietário. Renderize uma página de notas em `/notes`, adicione criar/listar actions e mantenha o chat capaz de criar notas.
+
+O agente deve adicionar um esquema Drizzle, actions, rota, navegação e instruções. Depois, você pode usar o recurso de notas do UI ou do chat.
+
+## O que vem a seguir
+
+- [**Getting Started**](/docs) — escolha entre modelos headless, chat e domínio
+- [**Agent Surfaces**](/docs/agent-surfaces) — padrões headless, chat, incorporados e de aplicativo completo
+- [**Actions**](/docs/actions) — o bate-papo do sistema de ação e UI chamam
+- [**Native Interface de chat**](/docs/native-chat-ui) — primitivas da superfície de bate-papo e opções de tempo de execução
+- [**Pure-Agent Apps**](/docs/pure-agent-apps): aplicativos somente de ação que podem se transformar no Chat mais tarde

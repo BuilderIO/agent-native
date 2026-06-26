@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import {
   DATA_CHART_WIDGET,
   DATA_INSIGHTS_WIDGET,

@@ -1,6 +1,6 @@
-import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
-import { EngineError } from "./engine/types.js";
 import { captureError } from "../server/capture-error.js";
+import { isLlmCredentialError } from "./engine/credential-errors.js";
+import { EngineError } from "./engine/types.js";
 import {
   insertRun,
   insertRunEvent,
@@ -15,10 +15,12 @@ import {
   updateRunHeartbeat,
   bumpRunProgress,
   reapIfStale,
+  reapUnclaimedBackgroundRun,
   ensureTerminalRunEvent,
   setRunError,
   STALE_RUN_ERROR_EVENT,
 } from "./run-store.js";
+import type { AgentChatEvent, RunEvent, RunStatus } from "./types.js";
 
 export interface ActiveRun {
   runId: string;
@@ -148,10 +150,15 @@ function getEngineRunErrorDetails(err: EngineError): string | undefined {
 function shouldCaptureRunError(err: unknown): boolean {
   if (!(err instanceof EngineError)) return true;
   const errorCode = getEngineRunErrorCode(err);
+  if (isLlmCredentialError(err, errorCode)) return false;
+  if (err.statusCode === 401 || err.statusCode === 403) return false;
+  if (/^40[13] status code\b/i.test(err.message)) return false;
+  if (err.message.trim().toLowerCase() === "connection error.") return false;
   if (!errorCode) return true;
   const normalizedCode = errorCode.toLowerCase();
   return (
     !normalizedCode.startsWith("credits-limit") &&
+    normalizedCode !== "builder_gateway_network_error" &&
     normalizedCode !== "provider_rate_limited" &&
     normalizedCode !== "rate_limit_exceeded"
   );
@@ -422,6 +429,8 @@ export function startRun(
   let pendingTerminalEvent: RunEvent | null = null;
 
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
+    const errorCode =
+      error instanceof EngineError ? getEngineRunErrorCode(error) : undefined;
     captureError(error, {
       route: "/_agent-native/agent-chat",
       tags: {
@@ -430,7 +439,7 @@ export function startRun(
         runStatus: run.status,
         softTimedOut: softTimedOut ? "true" : "false",
         abortReason: run.abortReason,
-        errorCode: error instanceof EngineError ? error.errorCode : undefined,
+        errorCode,
       },
       extra: {
         runId,
@@ -1022,6 +1031,14 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
   status: string;
   heartbeatAt: number;
   lastProgressAt: number | null;
+  /** How the run was dispatched (NULL/foreground, background, background-processing). */
+  dispatchMode?: string | null;
+  /**
+   * Last reached `_process-run` worker stage as a JSON string
+   * `{stage,detail?,at}`. Surfaced so a silent background-worker death is
+   * diagnosable from the client WITHOUT the unreadable bg-fn logs.
+   */
+  diagStage?: string | null;
 } | null> {
   // Check memory first — return both running AND recently-completed runs
   // that still have events in memory. This allows sub-agent tabs to replay
@@ -1055,6 +1072,20 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
     const sqlRun = await getRunByThread(threadId, { includeTerminal: true });
     if (!sqlRun) return null;
     if (sqlRun.status === "running") {
+      // FALLBACK HARDENING: a background-dispatched run that is still UNCLAIMED
+      // (dispatch_mode === 'background', never flipped to 'background-processing')
+      // past the tight grace means the bg-fn worker never started — a silent
+      // async-worker death that the 202-ack inline fallback can't catch. Reap it
+      // early and recoverably (background_worker_never_started) so the run no
+      // longer hangs for the full 90s window and the client's recoverable-error
+      // path can re-drive the turn. Only fires when there is provably no live
+      // worker; a claimed/heartbeating run is left alone by the conditional SQL.
+      if (sqlRun.dispatchMode === "background") {
+        const recovered = await reapUnclaimedBackgroundRun(sqlRun.id).catch(
+          () => false,
+        );
+        if (recovered) return null;
+      }
       // If the producer is dead (no recent heartbeat), reap before the
       // client can see a stale "running" status and enter a reconnect
       // loop it can never exit.
@@ -1067,6 +1098,8 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         status: sqlRun.status,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
+        dispatchMode: sqlRun.dispatchMode,
+        diagStage: sqlRun.diagStage,
       };
     }
     if (sqlRun.status === "completed" || sqlRun.status === "errored") {
@@ -1092,6 +1125,8 @@ export async function getActiveRunForThreadAsync(threadId: string): Promise<{
         status: sqlRun.status,
         heartbeatAt: sqlRun.heartbeatAt ?? sqlRun.startedAt,
         lastProgressAt: sqlRun.lastProgressAt,
+        dispatchMode: sqlRun.dispatchMode,
+        diagStage: sqlRun.diagStage,
       };
     }
   } catch {

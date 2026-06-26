@@ -12,11 +12,12 @@ description: "Author and embed interactive MCP App UIs inside Claude, ChatGPT, a
 | Connect an external agent/host to your app                   | [External Agents](/docs/external-agents) |
 | Give your agent more tools (consume other MCP servers)       | [MCP Clients](/docs/mcp-clients)         |
 | Build inline UIs that render in Claude/ChatGPT               | **This page** — MCP Apps                 |
+| Build generated inline UI inside Agent-Native chat           | [Generative UI](/docs/generative-ui)     |
 | Lower-level MCP server reference (auth, tools, custom mount) | [MCP Protocol](/docs/mcp-protocol)       |
 
 MCP Apps are the official `io.modelcontextprotocol/ui` extension that lets compatible hosts — Claude, Claude Desktop, ChatGPT, VS Code GitHub Copilot, Goose, Postman, MCPJam, and Cursor — render interactive UIs inline in chat. In agent-native apps, every MCP App is a **real React route**, not a separate plain-HTML widget.
 
-Inside an Agent-Native app's own chat, prefer [native chat renderers](/docs/native-chat-ui) for first-party widgets such as tables, charts, typed results, and approval affordances. Use MCP Apps for external/cross-host inline UI in Claude, ChatGPT, Copilot, Cursor, and other compatible hosts, with the action `link` as the universal deep-link fallback.
+Inside an Agent-Native app's own chat, prefer [native chat renderers](/docs/native-chat-ui) for first-party widgets such as tables, charts, typed results, and approval affordances. Use [Generative UI](/docs/generative-ui) when the in-app agent should create arbitrary sandboxed controls or visualizers inline. Use MCP Apps for external/cross-host inline UI in Claude, ChatGPT, Copilot, Cursor, and other compatible hosts, with the action `link` as the universal deep-link fallback.
 
 ## Authoring: optional MCP Apps UI {#mcp-apps}
 
@@ -141,7 +142,4 @@ Test MCP Apps with the lightweight fixtures around `embedApp()` and `McpAppRende
 - [External Agents](/docs/external-agents) — connecting Claude, ChatGPT, Codex, and Cursor to hosted apps; MCP Apps compatibility matrix; catalog tiers; deep links.
 - [MCP Protocol](/docs/mcp-protocol) — the auto-mounted MCP server, auth, tools, and `ask-agent`.
 - [Actions](/docs/actions) — `defineAction`, the `link` builder, `publicAgent`.
-
-```
-
-```
+- [Generative UI](/docs/generative-ui) — generated inline UI inside the app's own chat.

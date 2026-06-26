@@ -32,36 +32,37 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { and, eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
-import { getSetting } from "@agent-native/core/settings";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
+import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getCredentialContext,
 } from "@agent-native/core/server/request-context";
-import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
+import { getSetting } from "@agent-native/core/settings";
 import { transcribeWithBuilder } from "@agent-native/core/transcription/builder";
-import regenerateTitle, {
-  queueTitleRegenerationRequest,
-} from "./regenerate-title.js";
-import exportToBrain from "./export-to-brain.js";
-import cleanupTranscript from "./cleanup-transcript.js";
-import { loadAgentsMdContext } from "./lib/agents-md-context.js";
-import { isAutoTitleReplaceable } from "./lib/title-source.js";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
+import { normalizeLoomShareUrl } from "../shared/loom.js";
 import {
   buildCaptionSegmentsFromText,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import cleanupTranscript from "./cleanup-transcript.js";
+import exportToBrain from "./export-to-brain.js";
+import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
   AudioOnlyExtractionError,
   assertAudioHasAudibleSignal,
@@ -69,13 +70,16 @@ import {
   prepareAudioOnlyTranscriptionMedia,
   type AudioOnlyTranscriptionMedia,
 } from "./lib/audio-only-transcription.js";
-import { normalizeProviderTranscript } from "./lib/provider-transcript.js";
-import { isLoomRecording } from "./lib/native-media.js";
 import {
   fetchLoomTranscript,
   loomTranscriptUnavailableMessage,
 } from "./lib/loom-transcript.js";
-import { normalizeLoomShareUrl } from "../shared/loom.js";
+import { isLoomRecording } from "./lib/native-media.js";
+import { normalizeProviderTranscript } from "./lib/provider-transcript.js";
+import { isAutoTitleReplaceable } from "./lib/title-source.js";
+import regenerateTitle, {
+  queueTitleRegenerationRequest,
+} from "./regenerate-title.js";
 
 interface SpeechToTextSegment {
   start: number; // seconds
@@ -573,7 +577,7 @@ async function completeReadyTranscript({
     .where(
       and(
         eq(schema.recordings.id, recordingId),
-        eq(schema.recordings.ownerEmail, ownerEmail),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
       ),
     )
     .limit(1);

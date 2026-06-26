@@ -12,7 +12,6 @@
  * unless invoked.
  */
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -21,13 +20,15 @@ import {
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
-import { listDevPanels, subscribeDevPanels } from "./registry.js";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+
 import {
-  clearAllDevOverlayStorage,
-  useDevOption,
-  DEV_OVERLAY_STORAGE_PREFIX,
-} from "./use-dev-option.js";
-import { useDevOverlayShortcut } from "./use-dev-overlay-shortcut.js";
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { listDevPanels, subscribeDevPanels } from "./registry.js";
 import type {
   DevActionOption,
   DevBooleanOption,
@@ -36,13 +37,13 @@ import type {
   DevSelectOption,
   DevStringOption,
 } from "./types.js";
-import "./builtins.js";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
+  clearAllDevOverlayStorage,
+  useDevOption,
+  DEV_OVERLAY_STORAGE_PREFIX,
+} from "./use-dev-option.js";
+import "./builtins.js";
+import { useDevOverlayShortcut } from "./use-dev-overlay-shortcut.js";
 
 const COLLAPSED_KEY_PREFIX = `${DEV_OVERLAY_STORAGE_PREFIX}collapsed-`;
 

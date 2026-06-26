@@ -1,5 +1,3 @@
-import { useState } from "react";
-import { useNavigate } from "react-router";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import {
   IconApps,
@@ -17,6 +15,7 @@ import {
   IconCode,
   IconContract,
   IconFileText,
+  IconLayoutBoard,
   IconLoader2,
   IconLogout,
   IconMail,
@@ -27,6 +26,7 @@ import {
   IconPhoto,
   IconPlus,
   IconPresentation,
+  IconRoute,
   IconScreenShare,
   IconSelector,
   IconSettings,
@@ -37,6 +37,10 @@ import {
   IconVideo,
   IconWorld,
 } from "@tabler/icons-react";
+import { useState } from "react";
+import { useNavigate } from "react-router";
+
+import { agentNativePath } from "../api-path.js";
 import {
   useOrg,
   useSwitchOrg,
@@ -45,7 +49,6 @@ import {
   useAcceptInvitation,
   useJoinByDomain,
 } from "./hooks.js";
-import { agentNativePath } from "../api-path.js";
 import {
   ORG_SWITCHER_MAX_APP_LINKS,
   useOrgSwitcherAppLinks,
@@ -100,6 +103,7 @@ const APP_ICON_MAP: Record<string, typeof IconApps> = {
   Mail: IconMail,
   CalendarDays: IconCalendar,
   FileText: IconFileText,
+  LayoutBoard: IconLayoutBoard,
   BarChart2: IconChartBar,
   GalleryHorizontal: IconPresentation,
   Video: IconVideo,
@@ -109,6 +113,7 @@ const APP_ICON_MAP: Record<string, typeof IconApps> = {
   Code: IconCode,
   Contract: IconContract,
   MessageCircle: IconMessageCircle,
+  Route: IconRoute,
   ScreenShare: IconScreenShare,
   Brush: IconBrush,
   Brain: IconBrain,
@@ -208,7 +213,7 @@ function AppsSubmenu({
       <PopoverPrimitive.Trigger asChild>
         <button type="button" className={`${ITEM_CLASS} cursor-pointer`}>
           <IconApps className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="flex-1 text-left">Apps</span>
+          <span className="flex-1 text-start">Apps</span>
           <span className="text-[11px] text-muted-foreground">
             {isLoading ? (
               <IconLoader2 className="h-3 w-3 animate-spin" />
@@ -216,7 +221,7 @@ function AppsSubmenu({
               apps.length
             )}
           </span>
-          <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <IconChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
         </button>
       </PopoverPrimitive.Trigger>
       <PopoverPrimitive.Portal>
@@ -366,7 +371,7 @@ export function OrgSwitcher({
           className={`flex w-full items-center gap-2 rounded-md border border-border/50 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer ${className ?? ""}`}
         >
           <ButtonIcon className="h-3.5 w-3.5 shrink-0" />
-          <span className="truncate flex-1 text-left">{buttonLabel}</span>
+          <span className="truncate flex-1 text-start">{buttonLabel}</span>
           <IconSelector className="h-3 w-3 shrink-0 opacity-50" />
         </button>
       </PopoverPrimitive.Trigger>
@@ -390,7 +395,7 @@ export function OrgSwitcher({
                   aria-disabled="true"
                 >
                   <IconUser className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate flex-1 text-left">
+                  <span className="truncate flex-1 text-start">
                     Personal ({personalLabel})
                   </span>
                 </div>
@@ -418,7 +423,9 @@ export function OrgSwitcher({
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconBuilding className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate flex-1 text-left">{o.orgName}</span>
+                  <span className="truncate flex-1 text-start">
+                    {o.orgName}
+                  </span>
                   {o.orgId === org.orgId && (
                     <IconCheck className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   )}
@@ -535,7 +542,7 @@ export function OrgSwitcher({
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconSettings className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-left">
+                  <span className="flex-1 text-start">
                     Organization settings
                   </span>
                 </button>
@@ -552,7 +559,7 @@ export function OrgSwitcher({
                 className={`${ITEM_CLASS} cursor-pointer`}
               >
                 <IconPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="flex-1 text-left">Create organization</span>
+                <span className="flex-1 text-start">Create organization</span>
               </button>
               {canInvite && (
                 <button
@@ -564,7 +571,7 @@ export function OrgSwitcher({
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
                   <IconUserPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-left">Invite member</span>
+                  <span className="flex-1 text-start">Invite member</span>
                 </button>
               )}
 
@@ -578,12 +585,12 @@ export function OrgSwitcher({
                 {signingOut ? (
                   <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
                 ) : (
-                  <IconLogout className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <IconLogout className="h-3.5 w-3.5 shrink-0 text-muted-foreground rtl:-scale-x-100" />
                 )}
-                <span className="flex-1 text-left">
+                <span className="flex-1 text-start">
                   Sign out
                   {org.email ? (
-                    <span className="ml-1 text-muted-foreground">
+                    <span className="ms-1 text-muted-foreground">
                       ({org.email})
                     </span>
                   ) : null}

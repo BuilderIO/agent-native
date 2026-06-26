@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { suggestJoinKey } from "./_join-suggestion";
 
 describe("suggestJoinKey", () => {

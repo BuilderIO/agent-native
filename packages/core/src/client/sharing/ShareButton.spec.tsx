@@ -1,8 +1,9 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // @vitest-environment happy-dom
 import React, { act } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { ShareButton } from "./ShareButton.js";
 
 const shareMutate = vi.hoisted(() => vi.fn());

@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+
 import { runAggregateQuery } from "./staged-datasets-aggregate.js";
 
 const SALES = [

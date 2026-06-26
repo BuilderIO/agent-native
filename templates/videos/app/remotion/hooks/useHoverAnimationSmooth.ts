@@ -1,11 +1,13 @@
 import { useMemo } from "react";
+
+import { CURSOR_CONFIG } from "@/config/constants";
+
+import type { CursorFrame } from "./useCursorHistory";
 import type {
   HoverZone,
   HoverAnimationOptions,
   HoverAnimationResult,
 } from "./useHoverAnimation";
-import type { CursorFrame } from "./useCursorHistory";
-import { CURSOR_CONFIG } from "@/config/constants";
 
 /**
  * Hook for detecting cursor hover with smooth transitions.

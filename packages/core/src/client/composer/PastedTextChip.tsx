@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
-import { IconClipboardText, IconX } from "@tabler/icons-react";
-import * as PopoverPrimitive from "@radix-ui/react-popover";
 import type { Attachment } from "@assistant-ui/react";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+import { IconClipboardText, IconX } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
+
 import { cn } from "../utils.js";
 import { countLines, unwrapAttachmentEnvelope } from "./pasted-text.js";
 
@@ -74,11 +75,11 @@ export function PastedTextChip({
         <button
           type="button"
           className={cn(
-            "group relative inline-flex items-center gap-2 rounded-md border border-border/70 bg-muted/50 text-left text-foreground hover:bg-muted/70 cursor-pointer",
+            "group relative inline-flex items-center gap-2 rounded-md border border-border/70 bg-muted/50 text-start text-foreground hover:bg-muted/70 cursor-pointer",
             compact
               ? "max-w-[220px] px-2 py-1.5 text-xs"
               : "max-w-[260px] px-2.5 py-2 text-xs",
-            onRemove && !compact && "pr-7",
+            onRemove && !compact && "pe-7",
           )}
           aria-label="Preview pasted text"
         >
@@ -106,7 +107,7 @@ export function PastedTextChip({
               aria-label="Remove pasted text"
               className={cn(
                 "flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground",
-                compact ? "" : "absolute right-1.5 top-1.5",
+                compact ? "" : "absolute end-1.5 top-1.5",
               )}
             >
               <IconX className="h-3 w-3" />

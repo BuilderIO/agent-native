@@ -7,8 +7,9 @@
  * Uses the 'marked' library for markdown→HTML conversion.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { marked, type RendererThis, type Tokens } from "marked";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";
 
 interface Props {
@@ -295,6 +296,7 @@ export function resolveRenderedMarkdownHtml(
 
 export default function MarkdownRenderer({ markdown }: Props) {
   const articleRef = useRef<HTMLDivElement>(null);
+  const t = useT();
   const [highlightedHtml, setHighlightedHtml] =
     useState<HighlightedMarkdownHtml | null>(null);
 
@@ -441,7 +443,7 @@ export default function MarkdownRenderer({ markdown }: Props) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "code-copy-btn";
-      btn.setAttribute("aria-label", "Copy code");
+      btn.setAttribute("aria-label", t("common.copyCode"));
       btn.dataset.copySvg = copySvg;
       btn.innerHTML = copySvg;
       block.appendChild(btn);
@@ -450,7 +452,7 @@ export default function MarkdownRenderer({ markdown }: Props) {
     return () => {
       el.removeEventListener("click", handleCopyClick);
     };
-  }, [highlightedHtml]);
+  }, [highlightedHtml, t]);
 
   useEffect(() => {
     const el = articleRef.current;

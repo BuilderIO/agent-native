@@ -1,0 +1,147 @@
+---
+title: "MCP ऐप्स"
+description: "लेखक और इंटरैक्टिव MCP ऐप UI को Claude, ChatGPT और अन्य संगत होस्ट के अंदर एम्बेड करें - वास्तविक ऐप रूट, एंबेड ब्रिज और होस्ट ब्रिज API का उपयोग करके।"
+---
+
+# MCP ऐप्स
+
+**यह पृष्ठ: Claude/ChatGPT में इनलाइन UIs।** MCP ऐप संसाधनों और एंबेड ब्रिज का लेखन जो एक संगत होस्ट की चैट के अंदर एक वास्तविक ऐप रूट प्रस्तुत करता है। यह पेज **क्लाइंट सपोर्ट मैट्रिक्स** ([below](#client-support)) के लिए एकल होम भी है।
+
+| यदि आप चाहते हैं…                                               | पढ़ें                                    |
+| --------------------------------------------------------------- | ---------------------------------------- |
+| किसी बाहरी एजेंट/होस्ट को अपने ऐप से कनेक्ट करें                | [External Agents](/docs/external-agents) |
+| अपने एजेंट को अधिक टूल दें (अन्य MCP सर्वर का उपभोग करें)       | [MCP Clients](/docs/mcp-clients)         |
+| इनलाइन UI बनाएं जो Claude/ChatGPT में प्रस्तुत हों              | **यह पृष्ठ** — MCP ऐप्स                  |
+| निचले स्तर का MCP सर्वर संदर्भ (प्रमाणीकरण, उपकरण, कस्टम माउंट) | [MCP Protocol](/docs/mcp-protocol)       |
+
+MCP ऐप्स आधिकारिक `io.modelcontextprotocol/ui` एक्सटेंशन हैं जो संगत होस्ट - Claude, Claude डेस्कटॉप, ChatGPT, VS कोड GitHub कोपायलट, गूज़, पोस्टमैन, MCPJam और कर्सर - को चैट में इंटरैक्टिव UIs इनलाइन प्रस्तुत करने देता है। एजेंट-नेटिव ऐप्स में, प्रत्येक MCP ऐप एक **वास्तविक React रूट** है, न कि एक अलग सादा-HTML विजेट।
+
+Agent-Native ऐप की अपनी चैट के अंदर, टेबल, चार्ट, टाइप किए गए परिणाम और अनुमोदन व्यय जैसे प्रथम-पक्ष विजेट के लिए [native chat renderers](/docs/native-chat-ui) को प्राथमिकता दें। Claude, ChatGPT, Copilot, कर्सर और अन्य संगत होस्ट में बाहरी/क्रॉस-होस्ट इनलाइन UI के लिए MCP ऐप्स का उपयोग करें, एक्शन `link` के साथ यूनिवर्सल डीप-लिंक फ़ॉलबैक के रूप में।
+
+## संलेखन: वैकल्पिक MCP ऐप्स UI {#mcp-apps}
+
+उन होस्टों के लिए जो MCP ऐप्स एक्सटेंशन का समर्थन करते हैं, एक कार्रवाई `mcpApp` के साथ एक इनलाइन UI संसाधन का विज्ञापन भी कर सकती है। यह प्रवाह के लिए एक प्रगतिशील वृद्धि है जहां बाहरी एजेंट को उपयोगकर्ता को केवल पाठ के बजाय एक इंटरैक्टिव सतह सौंपनी चाहिए - उदाहरण के लिए ईमेल ड्राफ्ट की समीक्षा करना, कैलेंडर आमंत्रण संपादित करना, या जेनरेट किए गए डैशबोर्ड वेरिएंट के बीच चयन करना।
+
+जब भी उपयोगकर्ता को UI की आवश्यकता हो तो `embedRoute()` या `embedApp()` के साथ वास्तविक React ऐप का उपयोग करें। मानसिक मॉडल सरल है: कार्रवाई का `link` लक्ष्य MCP ऐप एम्बेड लक्ष्य भी है। ऑपरेशन को एक सामान्य क्रिया/टूल के रूप में प्रदर्शित करें, `link` के साथ एक केंद्रित डीप लिंक लौटाएं, और `mcpApp.resource = embedApp(...)` जोड़ें ताकि सक्षम होस्ट एक नया टैब खोलने के बजाय उसी रूट इनलाइन को लोड करें। जब दोनों को एक ही मार्ग से बनाया जाना चाहिए, तो `embedRoute({ title, openLabel, path })` को प्राथमिकता दें: यह सुविधा रैपर है जो एक कॉल से मिलान वाले `link` और `mcpApp` फ़ील्ड लौटाता है, जबकि `embedApp(...)` निचले स्तर का संसाधन है जिसे आप सीधे `mcpApp.resource` को असाइन करते हैं।
+
+इसका मतलब है कि फुल-ऐप एंबेड कुछ भी कर सकता है जो रूट एक बार खोलने के बाद कर सकता है: ईमेल ड्राफ्ट की समीक्षा करें या संपादित करें, एक फ़िल्टर किया गया इनबॉक्स/खोज दिखाएं, एक कैलेंडर ईवेंट या ईवेंट ड्राफ्ट खोलें, एक एक्सटेंशन पेज लोड करें, एक पूर्ण एनालिटिक्स डैशबोर्ड या सहेजे गए विश्लेषण का निरीक्षण करें, स्लाइड संपादक में एक डेक जारी रखें, या एक डिज़ाइन प्रोजेक्ट/संपादक खोलें। MCP ऐप्स के लिए दूसरे राज्य प्रोटोकॉल का आविष्कार करने के बजाय URL/डीप-लिंक पैरामीटर और मौजूदा `/_agent-native/open` नेविगेशन/ऐप-स्टेट ब्रिज को प्राथमिकता दें।
+
+दुर्लभ अवसरों पर सही लक्ष्य एक केंद्रित ऐप रूट होता है जो संपूर्ण ऐप शेल के बजाय एक साझा React घटक प्रस्तुत करता है। एनालिटिक्स का `/chart` रूट मॉडल है: यह URL में एक कॉम्पैक्ट `SqlPanel` पेलोड लेता है और डैशबोर्ड द्वारा उपयोग किए जाने वाले समान चार्ट घटक को प्रस्तुत करता है। यह अभी भी एक ऐप एंबेड है, कोई साधारण HTML MCP ऐप नहीं। इसे सामान्य क्रिया के माध्यम से उजागर करें या कॉल करें / `open_app({ path, embed: true })`, URL को नियतात्मक रखें, और `embedApp()` को उस रूट को इनलाइन रेंडर करने दें।
+
+उत्पाद UI के लिए एकमुश्त सादे HTML MCP ऐप्स को हाथ से न लिखें; यदि कार्रवाई के लिए एक कस्टम सतह की आवश्यकता है, तो पहले एक वास्तविक ऐप रूट/घटक जोड़ें या पुन: उपयोग करें और उस रूट को एम्बेड करें।
+
+```an-diagram title="MCP ऐप एम्बेड राउंड-ट्रिप" summary="कार्रवाई का लिंक लक्ष्य एम्बेड लक्ष्य भी है। सक्षम होस्ट समान हस्ताक्षरित ऐप रूट इनलाइन लोड करते हैं; बाकी सभी लोग गहरे लिंक पर वापस आ जाते हैं।"
+{
+  "html": "<div class=\"diagram-embed\"><div class=\"diagram-card\" data-rough><strong>Action</strong><small class=\"diagram-muted\">`link` target = MCP App embed target</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>embedApp()</strong><span class=\"diagram-pill accent\">create_embed_session</span><small class=\"diagram-muted\">mints short-lived embed session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>/_agent-native/embed/start</strong><small class=\"diagram-muted\">एक-बार SQL ticket बदलता है</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>Signed app route</strong><span class=\"diagram-pill ok\">वास्तविक React रूट</span><small class=\"diagram-muted\">short-lived browser session</small></div><div class=\"diagram-fallback\"><span class=\"diagram-pill warn\">MCP Apps समर्थन नहीं</span><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>&quot;Open in … &rarr;&quot; deep link</div></div></div>",
+"css": ".diagram-embed{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-embed .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:140px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .diagram-fallback{display:flex;flex-direction:column;align-items:center;gap:6px;margin-inline-start:8px}"
+}
+
+```
+
+```ts
+import { embedApp } from "@agent-native/core";
+
+export default defineAction({
+  // ...description, schema, run, link...
+  mcpApp: {
+    resource: embedApp({
+      title: "Review draft",
+      description: "Open the generated draft in the real Mail compose UI.",
+      iframeTitle: "Agent-Native Mail",
+      openLabel: "Open in Mail",
+    }),
+  },
+});
+```
+
+```an-annotated-code title="mcpApp संसाधन कॉन्फिगरेशन"
+{
+  "filename": "actions/review-draft.ts",
+  "language": "ts",
+  "code": "import { embedApp } from \"@agent-native/core\";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: \"Review draft\",\n      description: \"Open the generated draft in the real Mail compose UI.\",\n      iframeTitle: \"Agent-Native Mail\",\n      openLabel: \"Open in Mail\",\n    }),\n  },\n});",
+  "annotations": [
+    { "lines": "6", "label": "प्रगतिशील वृद्धि", "note": "`mcpApp.resource` उन होस्ट के लिए एक इनलाइन UI का विज्ञापन करता है जो MCP ऐप्स एक्सटेंशन का समर्थन करते हैं। कार्रवाई के `link` बिल्डर को भी रखें - CLI-केवल और पुराने होस्ट UI मेटाडेटा को अनदेखा करते हैं और अभी भी डीप लिंक की आवश्यकता है।" },
+    { "lines": "7", "label": "Embed = the link target", "note": "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route." },
+    { "lines": "11", "label": "यूनिवर्सल फ़ॉलबैक लेबल", "note": "`openLabel` is the visible `\"Open in … →\"` text used as the deep-link escape hatch when a host does not render the inline iframe." }
+  ]
+}
+```
+
+MCP सर्वर एक्सटेंशन `io.modelcontextprotocol/ui` का विज्ञापन करता है, `tools/list` में `_meta.ui.resourceUri` प्लस `_meta["ui/resourceUri"]` जोड़ता है, और ChatGPT ऐप्स SDK संगतता मेटाडेटा (`openai/outputTemplate`, विजेट CSP/विवरण/पहुंच-योग्यता) भी उत्सर्जित करता है। यह MIME `text/html;profile=mcp-app` का उपयोग करके `resources/list`, `resources/templates/list` और `resources/read` के माध्यम से HTML को उजागर करता है। stdio प्रॉक्सी उन संसाधन संचालकों को लाइव ऐप से अग्रेषित करता है, इसलिए डेस्कटॉप और CLI क्लाइंट HTTP क्लाइंट के समान संसाधन देखते हैं।
+
+`mcpApp` जोड़ते समय भी मौजूदा `link` बिल्डर को रखें। CLI-केवल क्लाइंट, पुराने होस्ट और कोई भी होस्ट जो MCP ऐप्स को प्रस्तुत नहीं करता है, UI मेटाडेटा को अनदेखा कर देगा और फिर भी `"Open in … →"` लिंक की आवश्यकता होगी। `embedApp()` उस लिंक को अपने लॉन्च लक्ष्य के रूप में उपयोग करता है, केवल ऐप `create_embed_session` हेल्पर को कॉल करता है, `/_agent-native/embed/start` पर एक बार SQL टिकट का आदान-प्रदान करता है, और MCP ऐप फ्रेम को एक अल्पकालिक ब्राउज़र सत्र के साथ लक्ष्य मार्ग पर नेविगेट करता है और समान-मूल फ़ेच के लिए एक बियरर फ़ॉलबैक देता है। `open_app({ app, path, embed: true })` पूर्ण डैशबोर्ड, फ़िल्टर किए गए इनबॉक्स, कैलेंडर ड्राफ्ट दृश्य, विश्लेषण और एक्सटेंशन पेज जैसे मार्गों के लिए सामान्य एस्केप हैच है, और इसका उपयोग उदारतापूर्वक तब किया जाना चाहिए जब पूर्ण ऐप सबसे स्पष्ट समीक्षा/संपादन सतह हो।
+
+`embedApp()` में संसाधन CSP में MCP अनुरोध मूल शामिल है ताकि लॉन्चर ला सके और, जब स्पष्ट रूप से अनुरोध किया जाए, तो हस्ताक्षरित प्रथम-पक्ष ऐप रूट को फ्रेम कर सके। डिस्पैच अपने `open_app` संसाधन में दिए गए ऐप्स के सटीक मूल को जोड़ता है ताकि एक एकल डिस्पैच कनेक्टर प्रत्येक HTTPS मूल की अनुमति दिए बिना मेल, कैलेंडर, स्लाइड और बाकी को इनलाइन कर सके। कस्टम MCP ऐप के लिए केवल अतिरिक्त फ़्रेम या संसाधन डोमेन पास करें जो वास्तव में एक तृतीय-पक्ष प्लेयर को एम्बेड करता है या तृतीय-पक्ष संपत्तियों को लोड करता है।
+
+उन `embedApp()` मार्गों के अंदर, `sendToAgentChat()` एम्बेड-जागरूक है। ऑटो-सबमिट किए गए संकेत MCP होस्ट को `ui/update-model-context` प्लस `ui/message` के रूप में रिले करते हैं, इसलिए एम्बेडेड ऐप में एक बटन जानबूझकर चयनित ऐप स्थिति से Claude/ChatGPT वार्तालाप जारी रख सकता है। छिपे हुए संदर्भ को मॉडल संदर्भ के रूप में भेजा जाता है; दृश्यमान उपयोगकर्ता मोड़ केवल ऐप का संकेत रहता है, जो आंतरिक ऐप-स्टेट फ़ाइल पथों के आसपास डरावनी होस्ट सहमति से बचाता है। `submit: false` स्थानीय प्रीफ़िल/समीक्षा व्यवहार बना हुआ है।
+
+## प्रथम श्रेणी MCP ऐप ब्रिज {#mcp-app-bridge}
+
+MCP ऐप एम्बेड रूट एम्बेड हैं, अलग-अलग मिनी-उत्पाद नहीं। `embedApp()` कार्रवाई के `link` लक्ष्य से शुरू होता है, एक अल्पकालिक एम्बेड सत्र बनाता है, और उस हस्ताक्षरित ऐप रूट को लॉन्च करता है। मानक MCP ऐप्स होस्ट MCP ऐप फ़्रेम को स्वयं नेविगेट कर सकते हैं जब होस्ट सीधे रूट को हाइड्रेट कर सकता है।
+
+```an-diagram title="दो मेजबान पुल पथ, एक हस्ताक्षरित मार्ग" summary="क्लाउड हाइड्रेटेड मार्ग को ट्रांसप्लांट करता है और प्रत्यक्ष ui/_bridge का उपयोग करता है; ChatGPT को window.openai के माध्यम से एक नियंत्रित iframe मिलता है और पोस्टमैसेज पर होस्ट क्रियाओं को रिले करता है। दोनों एक ही हस्ताक्षरित ऐप रूट की ओर इशारा करते हैं।"
+{
+  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><strong>Claude web</strong><span class=\"diagram-pill accent\">single-frame transplant</span><small class=\"diagram-muted\">Claude के iframe में signed app HTML hydrate करता है, फिर direct `ui/_` host bridge</small></div><div class=\"diagram-card\" data-rough><strong>ChatGPT web</strong><span class=\"diagram-pill accent\">controlled route iframe</span><small class=\"diagram-muted\">`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Same signed app route<br><small class=\"diagram-muted\">सामान्य route + React components</small></div></div>",
+"css": ".diagram-bridge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-bridge .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-bridge .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;max-width:300px}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}.diagram-bridge .diagram-box{padding:16px 18px;text-align:center}"
+}
+
+```
+
+Claude वेब एक सिंगल-फ्रेम ट्रांसप्लांट पथ का उपयोग करता है: संसाधन दस्तावेज़ हस्ताक्षरित ऐप HTML को लाता है और इसे Claude के MCP ऐप आईफ्रेम के अंदर हाइड्रेट करता है क्योंकि Claude विश्वसनीय रूप से ऐप के स्वामित्व वाले चाइल्ड आईफ्रेम या बाहरी फ्रेम नेविगेशन की अनुमति नहीं देता है। ChatGPT वेब को एक नियंत्रित रूट आईफ्रेम मिलता है क्योंकि इसका ऐप्स ब्रिज हमें स्थिर `window.openai` होस्ट APIs और सीमित ऊंचाई नियंत्रण देता है। सभी पथ एक ही हस्ताक्षरित ऐप रूट पर इंगित करते हैं और सामान्य रूट और React घटकों को प्रस्तुत करते हैं। एम्बेडेड मार्गों को डिज़ाइन करें ताकि समान हस्ताक्षरित URL के साथ पुनः लोड करने पर समान दृश्य का पुनर्निर्माण हो सके।
+
+समान-ऐप `open_app({ embed: true })` के लिए, फ्रेमवर्क मूल टूल कॉल के दौरान एंबेड-स्टार्ट टिकट को मिंट करता है और हस्ताक्षरित स्टार्ट URL को छिपे हुए टूल मेटाडेटा में संग्रहीत करता है। कस्टम actions उसी तेज़ पथ के लिए `embedStartUrl` लौटा सकता है; MCP परत मॉडल-दृश्य `structuredContent` और सामान्य ओपन-लिंक मेटाडेटा से टिकट-असर URL को अलग करती है। जब कोई एम्बेड स्टार्ट URL मौजूद नहीं होता है, तो संसाधन केवल ऐप `create_embed_session` हेल्पर पर वापस आ जाता है। यह उत्पादन होस्ट को बनाए रखता है जो एक बार के ऐप सत्र URLs को ट्रांसक्रिप्ट में लीक किए बिना सीधे रूट पर आईफ्रेम-आरंभित टूल कॉल को प्रतिबंधित करता है। यदि कोई उपयोगकर्ता एक बार के प्रारंभ टिकट की समय सीमा समाप्त होने के बाद पुरानी चैट को फिर से खोलता है, तो प्रारंभ मार्ग एक छोटा ताज़ा पृष्ठ लौटाता है और रैपर पर `agentNative.embedSessionExpired` पोस्ट करता है; `embedApp()` पुरानी शुरुआत URL को साफ़ करता है और `create_embed_session` के माध्यम से एक नया टिकट बनाता है जब उसके पास अभी भी मूल ऐप रूट होता है।
+
+ChatGPT को `window.openai` के माध्यम से एक समर्पित संगतता पथ मिलता है: लॉन्च दस्तावेज़ सीधे `toolInput`, `toolOutput`, और `toolResponseMetadata` पढ़ता है, फिर `window.openai.callTool(...)` के माध्यम से `create_embed_session` को कॉल करता है। मानक MCP ऐप्स होस्ट `ui/*` JSON-RPC ब्रिज का उपयोग करते हैं। सीधे हाइड्रेटेड मार्ग होस्ट ब्रिज हेल्पर्स के माध्यम से `ui/update-model-context`, `ui/message`, `ui/open-link` और `ui/request-display-mode` को कॉल कर सकते हैं। Claude का प्रत्यारोपित मार्ग जलयोजन के बाद उसी प्रत्यक्ष `ui/*` होस्ट ब्रिज का उपयोग करता है। जब ChatGPT या स्पष्ट डायग्नोस्टिक iframe पथ का उपयोग किया जाता है, तो रैपर `agentNative.mcpHost.*` पोस्टमैसेज अनुरोधों पर उसी होस्ट actions को रिले करता है। दोनों पथों के लिए परिणाम का आकार समान रखें: एक केंद्रित `link` और संक्षिप्त संरचित सामग्री लौटाएं।
+
+किसी ऐप URL पर मानक `_meta.ui.domain` सेट न करें। MCP ऐप्स उस फ़ील्ड को होस्ट-विशिष्ट मानते हैं: Claude `{hash}.claudemcpcontent.com`-शैली सैंडबॉक्स डोमेन को मान्य करता है, जबकि ChatGPT अपने स्वयं के `openai/widgetDomain` मेटाडेटा का उपयोग करता है। `ui.domain` को तब तक छोड़ें जब तक कि आप जानबूझकर होस्ट-विशिष्ट मान उत्सर्जित नहीं कर रहे हों; होस्ट एक डिफ़ॉल्ट सैंडबॉक्स मूल का चयन करेगा।
+
+एक्सटेंशन पेज दूसरे रूट आईफ्रेम पर नेविगेट किए बिना अपने सैंडबॉक्स को MCP चैट एम्बेड में रखते हैं। सामान्य ऐप उपयोग `/_agent-native/extensions/:id/render` को सैंडबॉक्स्ड चाइल्ड आईफ्रेम के रूप में प्रस्तुत करता है। MCP चैट ब्रिज मोड में फ्रेमवर्क रूट आईफ्रेम के अंदर सैंडबॉक्स किए गए `srcDoc` के समान एक्सटेंशन दस्तावेज़ प्रस्तुत करता है, `sandbox="allow-scripts allow-forms"` को संरक्षित करते हुए होस्ट `frame-ancestors` / `X-Frame-Options` विफलताओं से बचता है।
+
+संसाधन शेल बाहरी होस्ट आकार का स्वामी है। `embedApp({ height })` डिफ़ॉल्ट रूप से `560px` पर सेट होता है, शेल को `320-900px` पर क्लैंप करता है, और छोटे टूलबार के लिए `44px` को आरक्षित करता है, इसलिए रूट व्यूपोर्ट `height - 44px` है। एम्बेडेड ऐप रूट को आंतरिक रूप से स्क्रॉल करने योग्य रखें और लॉन्चर को पूर्ण दस्तावेज़ ऊंचाई के बजाय आंतरिक ऊंचाई की रिपोर्ट करने दें; अन्यथा होस्ट स्वतः-आकार एक सामान्य ऐप पेज को बहुत लंबे चैट आर्टिफैक्ट में बदल सकता है। बदला हुआ शेल केवल नए MCP ऐप संसाधनों और नए टूल कॉल को प्रभावित करता है। पुराने ChatGPT/Claude वार्तालाप फ़्रेम पिछले संसाधन व्यवहार को बनाए रख सकते हैं, इसलिए किसी समाधान का निर्णय लेने से पहले एक ताज़ा इनलाइन रेंडर के साथ आकार को सत्यापित करें।
+
+### एम्बेड मोड {#embed-modes}
+
+Claude डिफ़ॉल्ट रूप से सिंगल-फ़्रेम ट्रांसप्लांट पथ का उपयोग करता है। होस्ट मॉड्यूल-लोडिंग व्यवहार को डीबग करते समय आप इसे `embedMode: "transplant"` या `frame: "transplant"` के साथ अन्य होस्ट में भी लागू कर सकते हैं। आप नेस्टेड डायग्नोस्टिक iframe को `embedMode: "iframe"`, `renderMode: "iframe"`, `nested: true`, या `frame: "iframe"` के साथ बाध्य कर सकते हैं। यदि आईफ्रेम अवरुद्ध है, तो `embedApp()` इसे एक ओपन-ऐप फ़ॉलबैक के साथ बदल देता है: उपयोगकर्ता इनलाइन पुनः प्रयास कर सकता है, होस्ट के माध्यम से एक ताज़ा निर्मित एम्बेड सत्र खोल सकता है, या दृश्यमान मार्ग URL का उपयोग कर सकता है। कार्रवाई के `link` लक्ष्य को अपने आप में उपयोगी रखें क्योंकि यह अभी भी सार्वभौमिक पलायन हैच है।
+
+ngrok के माध्यम से Claude का परीक्षण करते समय, एक प्रोडक्शन बिल्ड (`npx @agent-native/core@latest build` फिर `npx @agent-native/core@latest start`) या एक तैनात पूर्वावलोकन/उत्पादन URL का उपयोग करें। Claude का सिंगल-फ्रेम ट्रांसप्लांट पथ उत्पादन परिसंपत्ति खंडों के साथ काम करता है; `/app/root.tsx` जैसे कच्चे Vite डेव मॉड्यूल को ऐप ऑथ द्वारा संरक्षित किया जा सकता है और Claude संसाधन मूल से गतिशील आयात को विफल किया जा सकता है।
+
+## मेजबान पुल API {#host-bridge}
+
+मेज़बान पुल जानबूझकर छोटा है:
+
+| मोड                    | संदेश प्रकार                          | इसके लिए इसका उपयोग करें                        |
+| ---------------------- | ------------------------------------- | ----------------------------------------------- |
+| प्रत्यक्ष होस्ट मार्ग  | `ui/update-model-context`             | होस्ट मॉडल के लिए छिपा हुआ संदर्भ               |
+| प्रत्यक्ष होस्ट मार्ग  | `ui/message`                          | एक दृश्यमान उपयोगकर्ता को होस्ट में पोस्ट करें  |
+| प्रत्यक्ष होस्ट मार्ग  | `ui/open-link`                        | होस्ट के माध्यम से एक बाहरी या ऐप URL खोलें     |
+| प्रत्यक्ष होस्ट मार्ग  | `ui/request-display-mode`             | `inline`, `fullscreen`, या `pip` का अनुरोध करें |
+| Claude प्रत्यारोपण     | `ui/*`                                | हाइड्रेशन के बाद वही डायरेक्ट होस्ट ब्रिज       |
+| ChatGPT / iframe मार्ग | `agentNative.mcpHostContext`          | थीम, स्थान, होस्ट प्लेटफ़ॉर्म, आयाम             |
+| ChatGPT / iframe मार्ग | `agentNative.embeddedAppReady`        | आईफ्रेम लोड किए गए रूट की पुष्टि करें           |
+| ChatGPT / iframe मार्ग | `agentNative.mcpHost.*` / `.response` | होस्ट अनुरोधों के लिए रैपर रिले                 |
+
+एम्बेडेड रूट `@agent-native/core/client` से `updateMcpAppModelContext()`, `openMcpAppHostLink()`, `requestMcpAppDisplayMode()`, `getMcpAppHostContext()` और `useMcpAppHostContext()` का उपयोग कर सकते हैं। `sendToAgentChat()` स्वतः सबमिट किए गए संकेतों के लिए पूर्ण-ऐप एम्बेड से समान पथ का उपयोग करता है।
+
+डिस्प्ले मोड सर्वोत्तम प्रयास है। इन-ऐप `McpAppRenderer` वर्तमान में एक इनलाइन वेब होस्ट संदर्भ और एक इनलाइन-केवल डिस्प्ले मोड की रिपोर्ट करता है; बाहरी होस्ट बड़े प्रदर्शन अनुरोधों का सम्मान कर सकते हैं, उन्हें अनदेखा कर सकते हैं, या असमर्थित-मोड त्रुटि के साथ उत्तर दे सकते हैं। इनलाइन रूट को हमेशा प्रयोग योग्य रखें।
+
+## क्लाइंट समर्थन और कैशिंग {#client-support}
+
+वर्तमान आधिकारिक MCP ऐप्स क्लाइंट सूची में Claude, Claude डेस्कटॉप, VS कोड GitHub कोपायलट, गूज़, पोस्टमैन, MCPJam, ChatGPT और कर्सर शामिल हैं; होस्ट समर्थन अभी भी योजना, रिलीज़ चैनल और क्लाइंट संस्करण के अनुसार भिन्न होता है, इसलिए [MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix) की जाँच करें। ChatGPT कस्टम MCP ऐप्स ChatGPT वेब पर बिजनेस और एंटरप्राइज/एजु वर्कस्पेस के लिए डेवलपर मोड के माध्यम से उपलब्ध हैं; OpenAI के [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) नोट्स देखें।
+
+Claude कोड, Codex, और अन्य CLI/कोड-एडिटर क्लाइंट अभी भी वही संसाधन और मेटाडेटा प्राप्त करते हैं जब वे MCP ऐप्स का समर्थन करते हैं, लेकिन उन्हें लिंक-आउट होस्ट के रूप में मानें जब तक कि आपने उस सटीक सतह में इनलाइन आईफ्रेम रेंडरिंग को सत्यापित नहीं किया हो। जब कोई होस्ट किसी आईफ्रेम को रेंडर नहीं करने का विकल्प चुनता है तो डीप लिंक विश्वसनीय फ़ॉलबैक बना रहता है। व्यवहार में, प्रत्येक एजेंट-नेटिव ऐप को दोनों के साथ लिखा जाना चाहिए: सक्षम होस्ट में इनलाइन समीक्षा/संपादन के लिए MCP ऐप्स, और पूर्ण ऐप पर यूनिवर्सल राउंड-ट्रिपिंग के लिए `link`।
+
+Claude और ChatGPT मौजूदा कस्टम कनेक्टर के लिए टूल और संसाधन मेटाडेटा को कैश कर सकते हैं। MCP ऐप मेटाडेटा बदलने के बाद, एक नए टूल कॉल से सत्यापित करें; यदि होस्ट अभी भी पुराने डिस्क्रिप्टर का उपयोग करता है, तो Claude कनेक्टर को फिर से कनेक्ट करें या ChatGPT कनेक्टर को फिर से स्कैन/समीक्षा करें ताकि यह कैटलॉग को ताज़ा कर सके। यदि Claude तैनाती के बाद टूल डिस्क्रिप्टर पर रहने वाले `_meta.ui.csp` या `_meta.ui.permissions` के बारे में चेतावनी लॉग करता है, तो वह कनेक्टर पुराने मेटाडेटा का उपयोग कर रहा है: Claude कनेक्टर को हटाएं/पुनः कनेक्ट करें और एक नई चैट शुरू करें।
+
+## परीक्षण {#testing}
+
+`embedApp()` और `McpAppRenderer` के आसपास हल्के फिक्स्चर के साथ MCP ऐप्स का परीक्षण करें; वे वास्तविक बाहरी होस्ट की आवश्यकता के बिना CSP, होस्ट संदर्भ, ऐप लॉन्च और ब्रिज संदेश व्यवहार को कवर करते हैं। ChatGPT या Claude वेब को मान्य करते समय, शेल परिवर्तन के बाद एक नया टूल कॉल ट्रिगर करें और दृश्यमान आईफ्रेम को मापें। उसी वार्तालाप में पहले रेंडर किए गए फ़्रेम अभी भी कैश्ड ऊंचाई या लॉन्च व्यवहार दिखा सकते हैं।
+
+## संबंधित {#related}
+
+- [External Agents](/docs/external-agents) - Claude, ChatGPT, Codex और कर्सर को होस्ट किए गए ऐप्स से कनेक्ट करना; MCP ऐप्स संगतता मैट्रिक्स; कैटलॉग स्तर; गहरे लिंक.
+- [MCP Protocol](/docs/mcp-protocol) - ऑटो-माउंटेड MCP सर्वर, ऑथ, टूल्स और `ask-agent`।
+- [Actions](/docs/actions) - `defineAction`, `link` बिल्डर, `publicAgent`।
+
+```
+
+```

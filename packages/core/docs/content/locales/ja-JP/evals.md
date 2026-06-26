@@ -1,0 +1,155 @@
+---
+title: "CI 評価ゲート"
+description: "固定入力に対して実際のエージェントを実行し、コンポーザブル スコアラーで出力をスコアリングし、しきい値に基づいて CI/デプロイをゲートする *.eval.ts テスト ケースを作成します。"
+---
+
+# CI 評価ゲート
+
+Evals は、第一級のテスト プリミティブです。プロンプトと期待する動作を宣言すると、ランナーはその入力に対して**実際にエージェント ループ**を実行し、コンポーザブル スコアラーを使用して出力をスコアリングし、いずれかのケースのスコアがしきい値を下回った場合はゼロ以外で終了します。ゼロ以外の終了により、`agent-native eval` がドロップイン CI デプロイ ゲートになります。
+
+これは、[Observability](/docs/observability) の事後スコアリングを補完するものです:
+
+- **可観測性評価** (`observability/evals.ts`) — _「この実際の実行はどうでしたか?」_ パッシブ、サンプリングされ、トレースの隣に存在します。
+- **`*.eval.ts` (このプリミティブ)** — _「エージェントはこの固定入力に対して正しい動作をしますか?」_ アクティブで確定的な、CLI 経由で実行される CI ゲート。
+
+ランナーは既存のレジストリからプロバイダーに依存しないエンジン/モデルを解決します (モデルはハードコードされていません)。そのため、アプリが構成されているどのエンジンに対しても同じスイートが実行されます。
+
+```an-diagram title="固定入力からデプロイゲートまで" summary="ランナーは実際に各ケースでエージェント ループを実行し、出力をスコアリングし、スコアラーがしきい値を下回った場合はゼロ以外で終了します。つまり、ドロップイン CI ゲートとなります。"
+{
+  "html": "<div class=\"eval-flow\"><div class=\"diagram-node\">*.eval.ts<br><small class=\"diagram-muted\">prompt + expected behavior</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">エージェントループを実行<br><small class=\"diagram-muted\">real engine/model</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Scorers<br><small class=\"diagram-muted\">every one must pass threshold</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box ok\">exit 0 &rarr; deploy</div><div class=\"diagram-box warn\">exit 1 &rarr; block</div></div></div>",
+  "css": ".eval-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.eval-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.eval-flow .diagram-col{display:flex;flex-direction:column;gap:8px}.eval-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## 評価を書く {#writing}
+
+アプリ内の任意の場所に `*.eval.ts` ファイル (または `evals/*.ts` ファイル) をドロップします。各ファイル `export default defineEval(...)` (またはそれらの配列をエクスポート):
+
+```ts
+// evals/greeting.eval.ts
+import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
+
+export default defineEval({
+  name: "greets the user by name",
+  input: { prompt: "Say hi to Ada." },
+  threshold: 0.7, // per-scorer pass bar; default 0.5
+  scorers: [
+    contains("Ada"),
+    llmJudge({ criteria: "friendliness", rubric: "1.0 = warm greeting" }),
+  ],
+});
+```
+
+評価は、**すべて**のスコアラーがしきい値を満たした場合にのみ合格します。主要な `defineEval` フィールド:
+
+| フィールド  | タイプ                | メモ                                                                              |
+| ----------- | --------------------- | --------------------------------------------------------------------------------- |
+| `name`      | 文字列                | 必須。レポートに表示されます。                                                    |
+| `input`     | `{ prompt, history }` | `prompt` が必要です。オプションで以前の `{ role, text }` ターン。                 |
+| `scorers`   | `Scorer[]`            | 少なくとも 1 つは必須です。                                                       |
+| `threshold` | 番号 `0..1`           | 得点者ごとのパスバー。デフォルトの`0.5`。 CLI からオーバーライド可能です。        |
+| `run`       | 機能                  | カスタム セットアップのオプションのオーバーライド (シード データ、マルチターン)。 |
+
+スコアラーに渡されるエージェントの実行は小さく、トランスポートに依存しません:
+
+```ts
+interface AgentRunOutput {
+  text: string; // concatenated assistant text
+  toolCalls: readonly string[]; // tool/action names, in call order
+  ok: boolean; // completed without a terminal error
+  error?: string;
+  runId: string;
+  durationMs: number;
+}
+```
+
+## 内蔵スコアラー {#built-in}
+
+`@agent-native/core/eval` からインポート:
+
+| 得点者                   | スコア                                                                                      | モデル? |
+| ------------------------ | ------------------------------------------------------------------------------------------- | ------- |
+| `exactMatch(expected)`   | テキストが `expected` と等しい場合は `1.0` (トリミングされ、大文字と小文字は区別されません) | いいえ  |
+| `contains(needles)`      | 必要な部分文字列の一部が存在します (部分的なヒットが表面化します)                           | いいえ  |
+| `usesTool(toolName)`     | エージェントがそのツール/アクションを少なくとも 1 回呼び出した場合は `1.0`                  | いいえ  |
+| `llmJudge({ criteria })` | 自然言語ルーブリックに対して審査員としての LLM が得点 → `0..1`                              | はい    |
+
+`exactMatch` および `contains` は、オプションの `{ caseSensitive }` を取ります。 `llmJudge` は `{ criteria, rubric?, name?, scoreRange? }` を受け取ります。その出力は `[0, 1]` に正規化され、ジャッジ モデルはランナーが解決したものになります (決してハードコーディングされたプロバイダーではありません)。
+
+## カスタム スコアラー: 4 ステップのパイプライン {#custom}
+
+`createScorer` は、Mastra スタイルの 4 ステップ パイプラインからスコアラーを構築します。 `generateScore` のみが必要です:
+
+```an-diagram title="4 ステップのスコアラー パイプライン" summary="デフォルトをアイデンティティの前処理および分析します。 generateScore のみが必要です。 analyze はプレーンな JS を実行することも、ctx 経由で LLM ジャッジを呼び出すこともできます。"
+{
+  "html": "<div class=\"scorer\"><div class=\"diagram-card\"><span class=\"diagram-pill\">preprocess(run)</span><small class=\"diagram-muted\">transform the run/output &middot; optional</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">analyze(x, ctx)</span><small class=\"diagram-muted\">plain JS or LLM judge &middot; optional</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">generateScore(a)</span><small class=\"diagram-muted\">&rarr; 0..1 normalized &middot; <strong>required</strong></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">generateReason</span><small class=\"diagram-muted\">human-readable why &middot; optional</small></div></div>",
+  "css": ".scorer{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.scorer .diagram-card{display:flex;flex-direction:column;gap:2px;padding:8px 12px}.scorer .diagram-arrow{font-size:20px;line-height:1}"
+}
+```
+
+```text
+preprocess(run)     → x          transform the run/output (optional)
+analyze(x, ctx)     → analysis   plain JS OR an LLM judge (optional)
+generateScore(a)    → 0..1       REQUIRED, normalized
+generateReason(...) → string     human-readable why (optional)
+```
+
+`preprocess` および `analyze` はデフォルトで ID になります (スコアラーには生の `AgentRunOutput` が表示されます)。 `analyze` ステップは、LLM ベースのスコアリング用のプロバイダーに依存しない `judge()` ヘルパーを含む `ctx` を受け取ります。
+
+```ts
+import { createScorer, clamp01 } from "@agent-native/core/eval";
+
+// A scorer that rewards short, tool-using answers.
+const concise = createScorer({
+  name: "concise_with_tool",
+  analyze(run) {
+    return {
+      words: run.text.trim().split(/\s+/).length,
+      usedTool: run.toolCalls.length > 0,
+    };
+  },
+  generateScore({ words, usedTool }) {
+    if (!usedTool) return 0;
+    return clamp01(1 - Math.max(0, words - 40) / 200);
+  },
+  generateReason({ analysis }) {
+    return `${analysis.words} words, tool used: ${analysis.usedTool}`;
+  },
+});
+```
+
+## ゲートの実行 {#cli}
+
+```bash
+agent-native eval                    # run every *.eval.ts; non-zero exit on failure
+agent-native eval billing            # パスに「billing」が含まれるファイルのみ
+agent-native eval --json             # machine-readable report (for CI)
+agent-native eval --threshold 0.8    # override every eval's pass threshold (0..1)
+```
+
+コマンドは、現在のアプリで `**/*.eval.ts` と `evals/*.ts` を検出し、入力ごとにエージェントを実行してスコアを付け、読み取り可能なテーブル (または JSON) を出力し、**評価スコアがしきい値を下回る場合はゼロ以外で終了します**。
+
+終了コード:
+
+| コード | 意味                                                                                            |
+| ------ | ----------------------------------------------------------------------------------------------- |
+| `0`    | すべての eval に合格しました — _または_ eval ファイルが見つかりませんでした (CI フレンドリー)。 |
+| `1`    | 少なくとも 1 つの評価スコアがしきい値を下回ったか、スイートでエラーが発生しました。             |
+| `2`    | 不正な引数 (例: `[0, 1]` の外の `--threshold`)。                                                |
+
+### CI デプロイゲートとして {#ci}
+
+デプロイ前に実行されるパイプラインに追加します。
+
+```yaml
+# .github/workflows/deploy.yml (excerpt)
+- run: npx agent-native eval --json
+```
+
+スコアラーがしきい値を下回る回帰は、ステップに失敗し、デプロイをブロックします。 eval ファイルのないアプリは `0` を終了するため、eval の採用はアプリごとにオプトインされます。
+
+## 次は何ですか
+
+- [**Observability**](/docs/observability) — 実際の運用実行の事後スコアリング (補完レイヤー)
+- [**Actions**](/docs/actions) — `toolCalls` に表示されるツール/actions
+- [**Agent Teams**](/docs/agent-teams) — 評価が実行される可能性のあるサブエージェント

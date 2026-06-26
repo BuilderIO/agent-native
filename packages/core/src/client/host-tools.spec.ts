@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import {
   AGENT_NATIVE_HOST_MESSAGE_TYPES,
   type AgentNativeHostMessageType,

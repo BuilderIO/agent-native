@@ -1,11 +1,13 @@
 import React from "react";
+
+import type { AnimationTrack } from "@/types";
+
 import { CameraHost } from "../CameraHost";
 import { findTrack } from "../trackAnimation";
-import { useCursorHistory } from "./useCursorHistory";
-import { useInteractiveComponentsCursor } from "./useInteractiveComponent";
 import { createCameraTrack, createCursorTrack } from "../trackHelpers";
-import type { AnimationTrack } from "@/types";
+import { useCursorHistory } from "./useCursorHistory";
 import type { CursorFrame } from "./useCursorHistory";
+import { useInteractiveComponentsCursor } from "./useInteractiveComponent";
 import type { InteractiveComponentState } from "./useInteractiveComponent";
 
 /**

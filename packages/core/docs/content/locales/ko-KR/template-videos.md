@@ -1,0 +1,222 @@
+---
+title: "동영상"
+description: "모션 그래픽, 제품 데모 및 키네틱 텍스트를 위한 프로그래밍 방식 비디오 스튜디오입니다. 프롬프트에서 애니메이션을 생성하고 타임라인에 맞춰 조정하세요."
+---
+
+# 동영상
+
+손으로 키프레임을 지정하기 어려운 모션 그래픽, 제품 데모 및 키네틱 텍스트 비디오를 위한 프로그래밍 방식 비디오 스튜디오입니다. 에이전트에게 "2초에 페이드 인되는 6초 로고 표시"를 요청하면 애니메이션이 빌드됩니다. 타임라인에서 타이밍, 이징, 카메라 이동을 조정한 다음 MP4 또는 WebM으로 렌더링하세요.
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>로고 공개</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion 미리보기</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>새 트랙</button></div><div class='wf-box'>제목 페이드 · 0-48프레임</div><div class='wf-box'>로고 스케일 · 48-120프레임</div><div class='wf-box'>카메라 푸시 · 72-144프레임</div></div></div>"
+}
+```
+
+스튜디오를 열면 홈 화면에 작곡 목록이 표시됩니다. 하나를 클릭하면 상단에 플레이어, 하단에 타임라인, 오른쪽에 속성 패널이 표시됩니다. 에이전트는 항상 귀하가 어떤 구성을 열었는지 알고 있습니다.
+
+```an-diagram title="데이터로서의 애니메이션" summary="컴포지션은 React 구성 요소입니다. 모든 애니메이션은 트랙에서 읽혀지므로 에이전트와 타임라인이 동일한 데이터를 편집합니다."
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Timeline<br><small class=\"diagram-muted\">드래그, 크기 조절, 스크럽</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">\"fade in at 2s\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">AnimationTrack</span><small class=\"diagram-muted\">startFrame / easing / animatedProps</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>React 컴포지션<br><small class=\"diagram-muted\">Remotion &lt;Player&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">MP4 / WebM</div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+}
+```
+
+## 그것으로 무엇을 할 수 있나요
+
+- **프롬프트에서 애니메이션을 생성합니다.** "2초에 페이드 인되고 5초까지 유지되는 타이틀 카드를 추가합니다." 상담원이 작곡을 편집합니다.
+- **타임라인의 타이밍을 조정합니다.** 애니메이션 트랙을 드래그하여 크기를 조정하고, 프레임을 스크럽하고, 이징 곡선을 시각적으로 설정합니다.
+- **카메라를 애니메이션화합니다.** 화면 도구를 사용하여 이동, 확대/축소, 기울기를 수행합니다. 도구를 클릭하고 미리보기에서 드래그하면 키프레임이 자동으로 생성됩니다.
+- **빈 구성 또는 예제에서 시작합니다.** 템플릿은 시작할 수 있는 하나의 코드 내 구성(`BlankComposition`)을 제공합니다. 예제 구성 — 운동 텍스트, 로고 공개, 입자 폭발, 대화형 UI 데모, 슬라이드쇼 — 데이터베이스에서 로드하고 직접 추가할 수 있습니다.
+- **이징 곡선을 시각적으로 편집합니다.** 파워, 백, 바운스, 순환, 탄성, 엑스포, 사인, 스프링 물리학 등 30개 이상의 곡선이 제공됩니다.
+- **카메라 줌 중에 선명한 텍스트와 벡터를 위해 1x, 2x 또는 3x 슈퍼샘플링으로 MP4 또는 WebM**으로 렌더링합니다.
+
+이것은 다른 템플릿보다 개발자 중심의 도구입니다. 컴포지션은 React 구성 요소이므로 고급 사용자(또는 에이전트)가 처음부터 완전히 새로운 애니메이션 유형을 작성할 수 있습니다. 하지만 일상적인 조정("타이핑 속도를 느리게 만들기", "입자 수를 12개로 줄이기")은 단지 채팅일 뿐입니다.
+
+## 시작하기
+
+라이브 데모: [videos.agent-native.com](https://videos.agent-native.com).
+
+스튜디오를 열 때:
+
+1. 홈 화면에서 작품을 선택하세요.
+2. 에이전트를 사용해 보세요. "2초에 페이드 인되는 로고 표시를 추가하세요." 타임라인 업데이트를 시청하세요.
+3. 트랙을 드래그하여 시간을 재조정하고, 카메라 도구를 클릭하고, 플레이어를 스크러빙하세요.
+
+### 유용한 메시지
+
+- "2초에 페이드 인되고 5초까지 유지되는 타이틀 카드를 추가하세요."
+- "프레임 60과 90 사이의 로고를 2배 확대하도록 카메라를 변경합니다."
+- "타이핑이 더 느리게 표시되도록 합니다 — 40% 더 길어집니다."
+- "입자 폭발이 너무 조밀합니다. 개수를 12로 낮추십시오."
+- "인트로 루프, 1080x1080, 6초라는 새 컴포지션을 만듭니다."
+- "버튼 영역에 클릭 애니메이션을 추가하고 커서를 거기에 애니메이션으로 적용합니다."
+- "이 트랙에 완화 대신 봄 완화를 제공합니다."
+
+타임라인에서 트랙을 선택하고 Cmd+I를 누르면 에이전트가 해당 선택을 선택합니다. "이 트랙을 더 빠르게 만들기"가 작동합니다.
+
+## 개발자용
+
+이 문서의 나머지 부분은 비디오 템플릿을 포크하거나 확장하는 모든 사람을 위한 것입니다. 이 템플릿은 다른 템플릿보다 더 코드 지향적입니다. 모든 구성은 React 구성 요소이고 모든 애니메이션은 트랙의 데이터입니다.
+
+### 건축
+
+스튜디오에서 보는 모든 것은 코드입니다. 컴포지션은 `app/remotion/compositions/`의 React 구성 요소를 가리키는 `app/remotion/registry.ts`의 `CompositionEntry`입니다. 해당 구성 요소의 모든 애니메이션은 `AnimationTrack`에서 읽혀지므로 사용자는 UI 타임라인에서 드래그하고, 크기를 조정하고, 시간을 재조정할 수 있습니다. 에이전트는 새 컴포지션을 만들고, 트랙을 추가하고, 이징을 조정하고, 레지스트리에 연결되는 전체 React 구성 요소를 작성할 수 있습니다.
+
+스튜디오는 미리보기용으로 Remotion의 `<Player>`를 사용하고 최종 렌더링용으로 Remotion CLI를 사용합니다. 출력 기본값은 30fps에서 1920x1080입니다.
+
+### 빠른 시작
+
+CLI의 새로운 비디오 앱을 스캐폴드하세요:
+
+```bash
+npx @agent-native/core@latest create my-video-app --standalone --template videos
+cd my-video-app
+pnpm install
+pnpm dev
+```
+
+브라우저에서 스튜디오를 열고 작품을 만든 후 처음부터 시작하세요. 상담원에게 "2초에 페이드 인되는 로고 공개 추가"와 같은 질문을 하면 구성이 편집됩니다.
+
+### 주요 기능
+
+**React 기반 구성.** 동영상은 원격 지원 React 구성 요소이며, SQL 지원 사용자 구성과 로컬 기본값에 대한 선택적 코드 레지스트리가 포함되어 있습니다.
+
+**타임라인 우선 애니메이션.** 기간 트랙, 키프레임, 여유 곡선, 카메라 이동 및 프로그래밍 방식 트랙은 모두 동일한 구성 데이터를 편집합니다.
+
+**조정 가능한 모션 시스템.** 매개변수, 커서 트랙, 대화형 호버 영역, 범위 탐색 및 반복 재생을 통해 생성된 애니메이션을 코드 없이 조정할 수 있습니다.
+
+**렌더링 및 지속성.** 컴포지션 설정, 품질, fps, 트랙 값 및 재정의는 컴포지션별로 지속되며 Remotion을 통해 MP4 또는 WebM으로 렌더링됩니다.
+
+### 에이전트와 협력하기
+
+에이전트는 귀하가 어떤 구성을 열어 놓았는지 항상 알고 있습니다. 탐색 상태(`{ view, compositionId }`)는 프레임워크의 `application_state` 테이블에 기록되고 `view-screen` 작업은 이를 반환하고 `app/remotion/registry.ts`를 가리키는 힌트를 반환합니다. 어떤 구성을 사용하고 있는지 에이전트에게 알릴 필요가 없습니다. "이 구성"에 대해 조치를 취하도록 요청하면 그렇게 됩니다.
+
+내부적으로 에이전트는 `navigate`, `save-composition` 및 `generate-animated-component`와 같이 actions를 호출합니다. SQL 지원 작성 레코드는 `save-composition`를 통해 생성되거나 업데이트됩니다. 코드 지원 Remotion 구성 요소는 여전히 `app/remotion/compositions/*.tsx`에 있으며 `app/remotion/registry.ts`에 등록되어 있습니다.
+
+### 데이터 모델
+
+서버 측 스키마는 `templates/videos/server/db/schema.ts`에 있습니다:
+
+```an-schema title="비디오 데이터 모델" summary="SQL 지원 컴포지션과 디자인 시스템, 중첩 가능한 폴더가 있으며 각각 프레임워크 공유 테이블이 있습니다."
+{
+  "entities": [
+    {
+      "id": "compositions",
+      "name": "compositions",
+      "note": "User-created compositions and overrides; ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "title", "type": "text" },
+        { "name": "type", "type": "text" },
+        { "name": "data", "type": "text", "note": "전체 구성 JSON blob" },
+        { "name": "created_at", "type": "text" },
+        { "name": "updated_at", "type": "text" }
+      ]
+    },
+    {
+      "id": "design_systems",
+      "name": "design_systems",
+      "note": "Reusable brand tokens; ownableColumns",
+      "fields": [
+        { "name": "data", "type": "text", "note": "colors / typography / spacing" },
+        { "name": "assets", "type": "text", "nullable": true },
+        { "name": "custom_instructions", "type": "text", "nullable": true },
+        { "name": "is_default", "type": "boolean" }
+      ]
+    },
+    {
+      "id": "folders",
+      "name": "folders",
+      "note": "Nestable folders; ownableColumns",
+      "fields": [
+        { "name": "id", "type": "text", "pk": true },
+        { "name": "name", "type": "text" }
+      ]
+    },
+    {
+      "id": "folder_memberships",
+      "name": "folder_memberships",
+      "note": "다대다 조인",
+      "fields": [
+        { "name": "folder_id", "type": "text", "fk": "folders.id" },
+        { "name": "composition_id", "type": "text", "fk": "compositions.id" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "folders", "to": "folder_memberships", "kind": "1-n", "label": "members" },
+    { "from": "compositions", "to": "folder_memberships", "kind": "1-n", "label": "in folders" }
+  ]
+}
+```
+
+각 테이블에는 `createSharesTable()`에서 생성된 일치하는 프레임워크 공유 테이블(`composition_shares`, `design_system_shares`, `folder_shares`)도 있습니다.
+
+- `compositions` — ID, 제목, 유형, `data`(전체 구성 JSON blob), 소유권 열, 타임스탬프.
+- `composition_shares` — `createSharesTable()`가 생성한 표준 주식 부여
+- `design_systems` — `ownableColumns`를 사용한 재사용 가능한 브랜드 토큰(색상, 타이포그래피, 간격, 자산, 맞춤 지침, `is_default` 플래그)
+- `design_system_shares` — 설계 시스템에 대한 공유 부여.
+- `folders` — `ownableColumns`를 사용하여 도서관 정리를 위한 중첩 가능한 폴더입니다.
+- `folder_shares` — 폴더에 대한 공유 권한 부여.
+- `folder_memberships` — `folder_id`와 `composition_id` 간의 다대다 조인.
+
+### 폴더 및 디자인 시스템
+
+작품은 폴더로 정리하고 디자인 시스템으로 스타일을 지정할 수 있습니다. Actions: `create-folder`, `rename-folder`, `delete-folder`, `move-composition-to-folder`. 디자인 시스템 actions: `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `set-default-design-system`, `apply-design-system`, `analyze-brand-assets`. actions 가져오기: `import-github`, `import-from-url`, `import-document` (DOCX/PPTX/PDF).
+
+`app/remotion/registry.ts`의 레지스트리는 템플릿과 함께 제공되는 정보의 코드 내 소스입니다. SQL 테이블은 사용자가 만든 구성과 재정의를 저장합니다. Studio 상태(컴포지션별 트랙 편집, 소품 재정의, 컴포지션 설정)는 `videos-tracks:<id>`, `videos-props:<id>` 및 `videos-comp-settings:<id>` 아래의 `localStorage`에 미러링되며 로드 시 레지스트리 기본값으로 다시 심층 병합됩니다.
+
+핵심 TypeScript 모양(`app/types.ts`):
+
+- `AnimationTrack` — `id`, `label`, `startFrame`, `endFrame`, `easing`, `animatedProps[]`.
+- `AnimatedProp` — `property`, `from`, `to`, `unit` 및 옵션 `keyframes`, `programmatic`, `description`, `codeSnippet`, `parameters`, `parameterValues`.
+- `CompositionEntry` — `id`, `title`, `description`, `component`, `durationInFrames`, `fps`, `width`, `height`, `defaultProps`, `tracks`.
+
+작곡물은 기본적으로 비공개입니다. 가시성은 `private`, `org` 또는 `public`일 수 있으며 공유 부여는 프레임워크의 공유 기본 요소를 통해 연결된 `viewer`, `editor` 또는 `admin` 역할을 제공합니다.
+
+### 맞춤 설정
+
+템플릿 폴더는 `templates/videos/`입니다(사용자용 슬러그는 `video`이지만 폴더는 복수임).
+
+**Actions** — `templates/videos/actions/`
+
+- `view-screen.ts` — 에이전트의 현재 탐색 상태를 반환합니다.
+- `navigate.ts` — 컴포지션(`--compositionId <id>`) 또는 홈 보기(`--view home`)로 이동합니다.
+- `save-composition.ts` — SQL 지원 작곡 레코드를 생성하거나 업데이트합니다.
+- `generate-animated-component.ts` — 상용구를 사용하여 새로운 Remotion 구성 요소 파일을 생성합니다.
+- `validate-compositions.ts` — 등록된 모든 작품에 구조적 문제가 있는지 확인하세요.
+- `list-compositions.ts`, `get-composition.ts`, `update-composition.ts`, `delete-composition.ts` — SQL 지원 작성 레코드를 읽고 업데이트하고 삭제합니다.
+
+**경로** — `templates/videos/app/routes/`
+
+- `_index.tsx` — 스튜디오 홈; 셸 및 구성 목록을 렌더링합니다.
+- `c.$compositionId.tsx` — 구성 편집기(타임라인, 플레이어, 속성 패널).
+- `components.tsx` — 구성 요소 라이브러리 브라우저.
+- `team.tsx` — 팀 관리.
+
+**리모션 내부** — `templates/videos/app/remotion/`
+
+- `registry.ts` — 권위 있는 작곡 목록
+- `compositions/` — 구성당 하나의 `.tsx`와 `index.ts` 배럴.
+- `trackAnimation.ts` — `trackProgress`, `getPropValue`, `findTrack`, `getPropValueKeyframed`.
+- `CameraHost.tsx` — 카메라 변환으로 컴포지션 콘텐츠를 래핑합니다.
+- `hooks/`, `ui-components/`, `components/` — 대화형 요소 도우미, 커서 렌더링, 애니메이션 요소 래퍼.
+
+**스튜디오 UI** — `templates/videos/app/components/`
+
+- `Timeline.tsx` — 완전히 제어되는 타임라인(`viewStart` / `viewEnd`는 내부적으로 상태 없음을 소유함).
+- `VideoPlayer.tsx` — 범위가 제한된 재생 기능을 갖춘 Remotion `<Player>` 래퍼.
+- `TrackPropertiesPanel.tsx`, `CompSettingsEditor.tsx`, `PropsEditor.tsx` — 오른쪽 패널.
+- `CameraToolbar.tsx`, `CameraControls.tsx` — 카메라 도구 및 숫자 컨트롤
+
+**에이전트 지침** — `templates/videos/AGENTS.md`는 에이전트가 읽는 긴 형식의 가이드입니다. 트랙으로서의 애니메이션 규칙, 카메라 시스템, 커서 시스템, CSS 필터 장치, 대화형 구성 요소 등록, UI 간격 및 구성 생성 또는 편집을 위한 체크리스트를 다룹니다.
+
+**Skills** — `templates/videos/.agents/skills/`
+
+- `composition-management/SKILL.md` — 작곡을 만들고 등록하는 방법
+- `animation-tracks/SKILL.md` — 트랙 및 애니메이션 소품을 편집하는 방법
+- 또한 표준 프레임워크 skills: `actions`, `self-modifying-code`, `delegate-to-agent`, `storing-data`, `security`, `frontend-design`, `create-skill`, `capture-learnings`.
+
+새 구성을 추가하려면 `AGENTS.md`의 체크리스트를 따르세요. 구성 요소를 만들고, `FALLBACK_TRACKS`를 선언하고, `findTrack` / `trackProgress` / `getPropValue`를 사용하고(하드코드 프레임은 사용하지 않음), `compositions/index.ts`에서 내보내고, 레지스트리에 `CompositionEntry`를 추가하고, `pnpm typecheck`를 실행하세요.

@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
-import { currentAccess, resolveAccess } from "@agent-native/core/sharing";
+import { organizations } from "@agent-native/core/org";
 import {
   getRequestUserEmail,
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
-import { organizations } from "@agent-native/core/org";
+import { currentAccess, resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   isAnonymousPublicViewer,

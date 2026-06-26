@@ -1,9 +1,9 @@
-import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 import {
   encryptSecretValue,
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 
 const SETTING_PREFIX = "credential:";
 

@@ -1,3 +1,4 @@
+import type { AppDefinition } from "@shared/app-registry";
 import {
   IconMail,
   IconCalendar,
@@ -20,11 +21,13 @@ import {
   IconNote,
   IconMicrophone,
   IconCalendarTime,
+  IconLayoutBoard,
   IconPlus,
+  IconRoute,
   IconWorld,
   IconPhoto,
 } from "@tabler/icons-react";
-import type { AppDefinition } from "@shared/app-registry";
+
 import { UpdateIndicator } from "./UpdateIndicator.js";
 
 const agentNativeIconUrl = new URL(
@@ -37,6 +40,7 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   Mail: IconMail,
   CalendarDays: IconCalendar,
   FileText: IconFileText,
+  LayoutBoard: IconLayoutBoard,
   BarChart2: IconChartBar,
   GalleryHorizontal: IconPresentation,
   Video: IconVideo,
@@ -46,6 +50,7 @@ const ICON_MAP: Record<string, React.ComponentType<Record<string, unknown>>> = {
   Code: IconCode,
   Contract: IconContract,
   MessageCircle: IconMessageCircle,
+  Route: IconRoute,
   ScreenShare: IconScreenShare,
   Brush: IconBrush,
   Brain: IconBrain,
@@ -76,13 +81,6 @@ export default function Sidebar({
   onCodeAgentsClick,
   onSettingsClick,
 }: SidebarProps) {
-  const pinnedBottomOrder = ["dispatch"];
-  const pinnedBottom = pinnedBottomOrder
-    .map((id) => apps.find((app) => app.id === id))
-    .filter((app): app is AppDefinition => !!app);
-  const mainApps = apps.filter((app) => !pinnedBottomOrder.includes(app.id));
-  const orderedApps = [...mainApps, ...pinnedBottom];
-
   return (
     <aside className="sidebar">
       {/* Windows/Linux custom traffic lights */}
@@ -109,7 +107,7 @@ export default function Sidebar({
 
       {/* App tabs */}
       <nav className="sidebar-nav">
-        {orderedApps.map((app) => (
+        {apps.map((app) => (
           <SidebarItem
             key={app.id}
             app={app}

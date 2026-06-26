@@ -8,10 +8,10 @@ read the relevant skill before changing that area.
 ## Always-On Rules
 
 - Stay on the current git branch. Never create, switch, delete, reset, rebase,
-  stash, or otherwise move branches unless Steve explicitly asks for that exact
+  stash, or otherwise move branches unless the user explicitly asks for that exact
   branch operation in the current task.
 - Never add `Co-Authored-By` or other agent attribution to commits.
-- PRs use the current branch unless Steve explicitly requests a new branch.
+- PRs use the current branch unless the user explicitly requests a new branch.
   PRs are ready for review by default, not drafts, unless requested.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
@@ -120,7 +120,7 @@ instructions, and application state.
 ## Frontend And UX
 
 - TypeScript everywhere. Do not add `.js` or `.mjs` source files.
-- Run Prettier on modified source files.
+- Run oxfmt on modified source files.
 - Use shadcn/ui primitives for standard controls and dialogs. Do not build custom
   dropdowns/popovers/modals with absolute positioning.
 - Use Tabler Icons for UI icons. Do not use emojis as first-party icons.
@@ -208,5 +208,6 @@ Read the relevant skill before making changes in that area:
 - `frontend-design`, `shadcn-ui` for interface work.
 - `changelog` for the per-app user-facing "What's new" CHANGELOG workflow.
 - `extensions` for sandboxed mini-apps.
+- `generative-ui` for transient or persisted sandboxed inline chat UI.
 - `observability`, `tracking`, `voice-transcription`, `a2a-protocol`,
   `external-agents`, and template-specific skills as needed.

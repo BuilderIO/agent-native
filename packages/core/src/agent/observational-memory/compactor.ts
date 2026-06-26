@@ -13,13 +13,13 @@
  * reimplements thread parsing.
  */
 
-import type { EngineMessage } from "../engine/types.js";
 import { getThread } from "../../chat-threads/store.js";
+import type { EngineMessage } from "../engine/types.js";
 import { threadDataToEngineMessages } from "../thread-data-builder.js";
 import type { ObservationalMemoryConfig } from "./config.js";
+import type { InternalAgentRunFn } from "./internal-run.js";
 import { runObserver, type RunObserverResult } from "./observer.js";
 import { runReflector, type RunReflectorResult } from "./reflector.js";
-import type { InternalAgentRunFn } from "./internal-run.js";
 import type { ObservationalMemoryOwner } from "./types.js";
 
 export interface MaybeCompactThreadOptions extends ObservationalMemoryOwner {

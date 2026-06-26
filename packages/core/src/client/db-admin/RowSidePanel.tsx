@@ -1,6 +1,11 @@
+import { IconKey, IconX, IconRefresh, IconCircleX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { IconKey, IconX, IconRefresh, IconCircleX } from "@tabler/icons-react";
+
+import type {
+  DbAdminColumn,
+  DbAdminTableSchema,
+} from "../../db-admin/types.js";
 import { cn } from "../utils.js";
 import {
   inferEditorKind,
@@ -10,10 +15,6 @@ import {
   ParseError,
   type EditorKind,
 } from "./cell-format.js";
-import type {
-  DbAdminColumn,
-  DbAdminTableSchema,
-} from "../../db-admin/types.js";
 
 export type RowSidePanelMode = "insert" | "edit";
 

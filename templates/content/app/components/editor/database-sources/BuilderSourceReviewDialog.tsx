@@ -215,7 +215,7 @@ export function BuilderSourceReviewDialog({
   source,
   canEdit,
   pending,
-  batchResult,
+  batchResult = null,
   checkedAt,
   onClose,
   onValidate,
@@ -225,7 +225,9 @@ export function BuilderSourceReviewDialog({
   source: ContentDatabaseSource | null;
   canEdit: boolean;
   pending: boolean;
-  batchResult: ExecuteBuilderSourceBatchResponse | null;
+  // Optional so the inline-database caller (DatabaseView) that doesn't surface
+  // batch results can still mount the dialog.
+  batchResult?: ExecuteBuilderSourceBatchResponse | null;
   checkedAt: string | null;
   onClose: () => void;
   onValidate: (transitions: BuilderReviewPublicationTransitions) => void;

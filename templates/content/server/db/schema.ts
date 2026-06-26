@@ -100,6 +100,8 @@ export const contentDatabases = table("content_databases", {
   ownerEmail: text("owner_email").notNull().default("local@localhost"),
   orgId: text("org_id"),
   documentId: text("document_id").notNull(),
+  ownerDocumentId: text("owner_document_id"),
+  ownerBlockId: text("owner_block_id"),
   title: text("title").notNull().default("Untitled database"),
   viewConfigJson: text("view_config_json").notNull().default("{}"),
   // Single source of truth for the primary "Content" Blocks field — the one
@@ -113,6 +115,7 @@ export const contentDatabases = table("content_databases", {
   // "primary intentionally deleted" (seeded once, then removed — must NOT be
   // reseeded). See delete-document-property.
   blocksSeeded: integer("blocks_seeded").notNull().default(0),
+  deletedAt: text("deleted_at"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });

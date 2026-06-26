@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import {
   CodeAgentsApp,
   type CodeAgentModelListResult,
@@ -7,6 +6,8 @@ import {
   type CodeAgentsHost,
 } from "@agent-native/code-agents-ui";
 import { toAppDefinition, type AppConfig } from "@shared/app-registry";
+import { useMemo } from "react";
+
 import AppWebview from "./AppWebview.js";
 
 const agentNativeIconUrl = new URL(

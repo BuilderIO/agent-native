@@ -22,13 +22,14 @@
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { runAgentLoopDirectWithSoftTimeout } from "./run-loop-with-resume.js";
-import { AGENT_INTERNAL_CONTINUE_PROMPT } from "./production-agent.js";
+
 import type {
   AgentEngine,
   EngineEvent,
   EngineMessage,
 } from "./engine/types.js";
+import { AGENT_INTERNAL_CONTINUE_PROMPT } from "./production-agent.js";
+import { runAgentLoopDirectWithSoftTimeout } from "./run-loop-with-resume.js";
 
 function fakeEngineWithGatewayTimeoutThenSuccess(): {
   engine: AgentEngine;

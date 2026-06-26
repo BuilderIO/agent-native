@@ -1,7 +1,9 @@
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
 import { TemplateDocsLink } from "../components/template-docs";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -94,6 +96,7 @@ function CliCopy() {
 }
 
 export default function DesignTemplate() {
+  const t = useT();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -116,7 +119,7 @@ export default function DesignTemplate() {
             >
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            All Templates
+            {t("templateLanding.design.s005")}
           </Link>
         </div>
 
@@ -131,13 +134,11 @@ export default function DesignTemplate() {
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              The open-source AI HTML prototyping studio
+              {t("templateLanding.design.s006")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Generate interactive Alpine/Tailwind prototypes from a prompt,
-              compare variants, refine with tweak controls, and export real
-              files you own.
+              {t("templateLanding.design.s007")}
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -153,7 +154,7 @@ export default function DesignTemplate() {
                   })
                 }
               >
-                Try It
+                {t("templateLanding.design.s008")}
                 <svg
                   width="16"
                   height="16"
@@ -177,7 +178,7 @@ export default function DesignTemplate() {
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
-              alt="Design template screenshot"
+              alt={t("templateLanding.design.s001")}
               className="w-full object-cover object-top"
             />
           </div>
@@ -186,22 +187,24 @@ export default function DesignTemplate() {
 
       {/* How it works */}
       <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">How it works</h2>
+        <h2 className="mb-8 text-2xl font-bold tracking-tight">
+          {t("templateLanding.design.s009")}
+        </h2>
         <div className="mx-auto grid max-w-3xl gap-6 sm:grid-cols-3">
           {[
             {
               step: "1",
-              title: "Describe",
+              title: t("templateLanding.design.s002"),
               desc: "Tell the agent what you're making — a landing page, product UI, brand direction, or interactive prototype.",
             },
             {
               step: "2",
-              title: "Generate",
+              title: t("templateLanding.design.s003"),
               desc: "The agent creates complete self-contained HTML with Tailwind styling and Alpine interactions.",
             },
             {
               step: "3",
-              title: "Refine",
+              title: t("templateLanding.design.s004"),
               desc: "Pick a variant, adjust tweak controls, or ask the agent for copy, layout, color, and interaction changes.",
             },
           ].map((s) => (
@@ -219,54 +222,58 @@ export default function DesignTemplate() {
       {/* Core features */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Everything you need
+          {t("templateLanding.design.s010")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          A prototype studio with an agent that writes and refines the source.
+          {t("templateLanding.design.s011")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">
-              Complete HTML Prototypes
+              {t("templateLanding.design.s012")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Generate self-contained Alpine/Tailwind HTML that renders in the
-              preview iframe and can be exported directly.
+              {t("templateLanding.design.s013")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Variant Generation</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.design.s014")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Start from multiple directions, compare them in the app, and keep
-              refining the strongest design.
+              {t("templateLanding.design.s015")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Tweak Controls</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.design.s016")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Adjust common design variables visually while the agent handles
-              larger structural and copy changes.
+              {t("templateLanding.design.s017")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Conversational Edits</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.design.s018")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              "Make the headline bolder", "try a warmer palette", "add a CTA
-              button". The agent updates the underlying HTML.
+              {t("templateLanding.design.s019")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Design Systems</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.design.s020")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Save reusable design-system preferences so new generations stay
-              closer to your product language.
+              {t("templateLanding.design.s021")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Export Anywhere</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.design.s022")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Export HTML, ZIP, or PDF from the generated prototype when you're
-              ready to share or hand off.
+              {t("templateLanding.design.s023")}
             </p>
           </div>
         </div>
@@ -277,12 +284,10 @@ export default function DesignTemplate() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Source-First Preview
+              {t("templateLanding.design.s024")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              The preview is rendered from the same HTML the agent edits and the
-              export uses, so there is less translation between concept and
-              handoff.
+              {t("templateLanding.design.s025")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -299,7 +304,7 @@ export default function DesignTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Iframe preview of the generated prototype
+                {t("templateLanding.design.s026")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -315,7 +320,7 @@ export default function DesignTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Exportable HTML, ZIP, and PDF artifacts
+                {t("templateLanding.design.s027")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -337,24 +342,23 @@ export default function DesignTemplate() {
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Conversational Refinement
+              {t("templateLanding.design.s028")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              The agent edits the prototype source. Plain-English instructions
-              become changes to copy, layout, colors, spacing, and interactions.
+              {t("templateLanding.design.s029")}
             </p>
             <div className="space-y-3 rounded-lg bg-[var(--bg-secondary)] p-4 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
-                "Make this look more premium"
+                {t("templateLanding.design.s030")}
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Try a darker color palette"
+                {t("templateLanding.design.s031")}
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Make the hero layout more editorial"
+                {t("templateLanding.design.s032")}
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Generate three variations of this"
+                {t("templateLanding.design.s033")}
               </div>
             </div>
           </div>
@@ -364,7 +368,7 @@ export default function DesignTemplate() {
       {/* Comparison table */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          How it compares
+          {t("templateLanding.design.s034")}
         </h2>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
@@ -372,10 +376,10 @@ export default function DesignTemplate() {
               <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg)]"></th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  Static mockup tools
+                  {t("templateLanding.design.s035")}
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  One-shot generators
+                  {t("templateLanding.design.s036")}
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Design
@@ -385,50 +389,72 @@ export default function DesignTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Visual editor
+                  {t("templateLanding.design.s037")}
                 </td>
-                <td className="px-5 py-3">Visual-first</td>
-                <td className="px-5 py-3">Prompt-first</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s038")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s039")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Agent + preview + code
+                  {t("templateLanding.design.s040")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  AI generation
+                  {t("templateLanding.design.s041")}
                 </td>
-                <td className="px-5 py-3">Limited / plugins</td>
-                <td className="px-5 py-3">One-shot prompt</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s042")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s043")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Iterative, conversational
+                  {t("templateLanding.design.s044")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Editable output
+                  {t("templateLanding.design.s045")}
                 </td>
-                <td className="px-5 py-3">Tool-native file</td>
-                <td className="px-5 py-3">Often static</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s046")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s047")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Complete HTML/CSS/JS
+                  {t("templateLanding.design.s048")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Customization
+                  {t("templateLanding.design.s049")}
                 </td>
-                <td className="px-5 py-3">Plugins only</td>
-                <td className="px-5 py-3">Prompt only</td>
-                <td className="px-5 py-3 text-[var(--fg)]">Full source code</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s050")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s051")}
+                </td>
+                <td className="px-5 py-3 text-[var(--fg)]">
+                  {t("templateLanding.design.s052")}
+                </td>
               </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Pricing
+                  {t("templateLanding.design.s053")}
                 </td>
-                <td className="px-5 py-3">$15+/mo per seat</td>
-                <td className="px-5 py-3">Per-image credits</td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s054")}
+                </td>
+                <td className="px-5 py-3">
+                  {t("templateLanding.design.s055")}
+                </td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Free &amp; open source
+                  {t("templateLanding.design.s056")}
                 </td>
               </tr>
             </tbody>
@@ -439,11 +465,10 @@ export default function DesignTemplate() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Get started in minutes
+          {t("templateLanding.design.s057")}
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template and start generating interactive prototypes with an
-          agent that edits the source.
+          {t("templateLanding.design.s058")}
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
@@ -451,14 +476,14 @@ export default function DesignTemplate() {
             location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the docs
+            {t("templateLanding.design.s059")}
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            View all templates
+            {t("templateLanding.design.s060")}
           </Link>
         </div>
       </section>

@@ -1,7 +1,8 @@
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { IconCut } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { useActionMutation } from "@agent-native/core/client";
 import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
@@ -20,6 +21,7 @@ export function SplitButton({
   playheadMs,
   disabled,
 }: SplitButtonProps) {
+  const t = useT();
   const split = useActionMutation("split-recording");
 
   const handleClick = async () => {
@@ -28,10 +30,10 @@ export function SplitButton({
         recordingId,
         atMs: Math.round(playheadMs),
       });
-      toast.success("Split added");
+      toast.success(t("editorToolbar.splitAdded"));
     } catch (err: any) {
       console.error(err);
-      toast.error(err?.message ?? "Failed to add split");
+      toast.error(err?.message ?? t("editorToolbar.splitFailed"));
     }
   };
 
@@ -45,10 +47,10 @@ export function SplitButton({
           disabled={disabled || split.isPending}
         >
           <IconCut className="w-4 h-4 mr-1" />
-          Split
+          {t("editorLayout.split")}
         </Button>
       </TooltipTrigger>
-      <TooltipContent>Split at playhead (S)</TooltipContent>
+      <TooltipContent>{t("clipsFinalRaw.splitAtPlayhead")}</TooltipContent>
     </Tooltip>
   );
 }

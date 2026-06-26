@@ -65,6 +65,18 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
+- For dashboard edits, default to `mutate-dashboard` with its typed
+  `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
+  edits, inserts, duplication, removal, and dashboard field patches in one
+  atomic save. The main payload is a string, so it avoids native-array
+  serialization traps. The script is constrained: only documented dashboard
+  method calls with JSON-compatible arguments are parsed; variables, imports,
+  loops, functions, network, filesystem, and DB access are not available.
+- Do not count shifting `/panels/<index>` values for ordinary dashboard edit
+  requests. Use low-level JSON-pointer edits only when explicitly requested.
+- `get-sql-dashboard` is compact by default for agents. Use its `panels`
+  summaries and `layout.panelOrder` / `layout.firstPanelIds` for orientation and
+  proof. Pass `includeConfig: true` only when full panel SQL/config is needed.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
   dashboard, analysis surface, visualization, interaction model, custom layout,
   or bespoke workflow cannot be done faithfully with the built-in dashboard JSON
@@ -72,14 +84,45 @@ details live in `.agents/skills/`.
   it as an extension instead and tell the user why.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
+- Dashboard email reports live in SQL via the
+  `dashboard-report-subscriptions` actions. They send daily snapshots scoped to
+  the exact user/org context that created the subscription with saved URL
+  filters; do not hand-wire custom email routes around that action surface.
+  Report PNGs are Playwright captures of the real dashboard route in
+  `reportScreenshot=1` mode, authenticated by a short-lived embed-session token
+  and embedded inline in email with a CID image. Netlify builds emit a scheduled
+  trigger plus a background worker from
+  `scripts/emit-netlify-dashboard-report-cron.ts`, using a per-deploy internal
+  token and disabling the in-process interval scheduler on Netlify to avoid
+  duplicate sends. External cron callers can still sweep due reports by POSTing
+  `/api/dashboard-reports/run` with
+  `Authorization: Bearer $DASHBOARD_REPORTS_CRON_SECRET`. PNG rendering uses
+  local Chrome in development and `playwright-core` plus
+  `@sparticuz/chromium-min` in serverless runtimes; set
+  `DASHBOARD_REPORT_CHROMIUM_PACK_URL` only when overriding the default
+  Chromium pack location.
 
 ## Application State
 
 - `navigation` exposes current dashboard, analysis, source, chart, and selected
   context.
 - `navigate` moves the user to the relevant analytics view, including
-  `view="catalog"` for the template catalog.
+  `view="catalog"` for the template catalog and `view="sessions"` for session
+  replay.
 - Use `view-screen` when the active dashboard/chart context is unclear.
+
+## Session Replay
+
+- `/sessions` lists scoped first-party session recordings. Filters live in the
+  URL (`range`, `app`, `q`) and are mirrored through application state so
+  the agent sees the same list the user sees.
+- `/sessions/:recordingId` loads summary/timeline data through
+  `get-session-replay-summary` and fetches rrweb payloads only through scoped
+  chunk routes. Do not expose storage/provider URLs, raw chunk table access, or
+  unscoped replay blobs in UI, actions, dashboards, docs, or prompts.
+- Dashboard rows that include `recording_id` should link to
+  `/sessions/:recordingId`; rows that only include `session_id` can link to a
+  filtered `/sessions` search.
 
 ## Dashboard Template Catalog
 

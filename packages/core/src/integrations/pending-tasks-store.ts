@@ -11,6 +11,11 @@
  * invocation gets its own fresh function timeout budget.
  */
 import { getDbExec, isPostgres, intType } from "../db/client.js";
+import {
+  ensureTableExists,
+  ensureColumnExists,
+  ensureIndexExists,
+} from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -18,22 +23,41 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS integration_pending_tasks (
-          id TEXT PRIMARY KEY,
-          platform TEXT NOT NULL,
-          external_thread_id TEXT NOT NULL,
-          payload TEXT NOT NULL,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          status TEXT NOT NULL,
-          attempts ${intType()} NOT NULL DEFAULT 0,
-          error_message TEXT,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
-          completed_at ${intType()}
-        )
-      `);
+      const createSql = `CREATE TABLE IF NOT EXISTS integration_pending_tasks (
+  id TEXT PRIMARY KEY,
+  platform TEXT NOT NULL,
+  external_thread_id TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  owner_email TEXT NOT NULL,
+  org_id TEXT,
+  status TEXT NOT NULL,
+  attempts ${intType()} NOT NULL DEFAULT 0,
+  error_message TEXT,
+  created_at ${intType()} NOT NULL,
+  updated_at ${intType()} NOT NULL,
+  completed_at ${intType()}
+)`;
+
+      if (isPostgres()) {
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("integration_pending_tasks", createSql);
+        await ensureColumnExists(
+          "integration_pending_tasks",
+          "external_event_key",
+          `ALTER TABLE integration_pending_tasks ADD COLUMN IF NOT EXISTS external_event_key TEXT`,
+        );
+        await ensureIndexExists(
+          "idx_pending_tasks_status_created",
+          `CREATE INDEX IF NOT EXISTS idx_pending_tasks_status_created ON integration_pending_tasks(status, created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_pending_tasks_event_key",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_tasks_event_key ON integration_pending_tasks(platform, external_event_key)`,
+        );
+        return;
+      }
+
+      await client.execute(createSql);
       await client.execute(
         `CREATE INDEX IF NOT EXISTS idx_pending_tasks_status_created ON integration_pending_tasks(status, created_at)`,
       );

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { TraceSummary, EvalCriteria } from "./types.js";
+
 import type { AgentEngine } from "../agent/engine/types.js";
+import type { TraceSummary, EvalCriteria } from "./types.js";
 
 // evals.ts has three layers:
 //  1. Automated deterministic scorers (tool success, step efficiency,

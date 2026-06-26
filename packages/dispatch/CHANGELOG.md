@@ -1,5 +1,49 @@
 # @agent-native/dispatch
 
+## 0.13.1
+
+### Patch Changes
+
+- 4a73032: Make shared agent and default navigation drawers feel recessed behind rounded app content.
+
+## 0.13.0
+
+### Minor Changes
+
+- 2a03c35: Upgrade framework and template React Router support to v8 and require the v8 runtime baselines.
+
+### Patch Changes
+
+- 2a03c35: Align dispatch landing-page redirects with the current router loader URL context.
+
+## 0.12.3
+
+### Patch Changes
+
+- fd78baa: Localize Dispatch workspace pages and scheduling booking-link controls.
+
+## 0.12.2
+
+### Patch Changes
+
+- c294aaa: Expand localized UI coverage across core client surfaces, Dispatch chrome, scheduling controls, templates, and the docs site.
+
+## 0.12.1
+
+### Patch Changes
+
+- 6067f27: Fix right-to-left (`ar-SA`) layout in shared framework chrome. Physical directional CSS in the agent panel, command menu, language picker, shadcn `ui/*` primitives, settings/composer/org/sharing/onboarding panels, and the agent-conversation/blocks/rich-markdown styles is converted to logical utilities (`ms`/`me`, `ps`/`pe`, `start`/`end`, `text-start`/`text-end`, `border-s`/`border-e`), and directional icons are mirrored with `rtl:-scale-x-100`. No change to left-to-right rendering (logical utilities are identical to physical in LTR).
+
+## 0.12.0
+
+### Minor Changes
+
+- 16356c2: Add a framework helper for opening the agent settings tab and standardize app settings access in Dispatch.
+
+### Patch Changes
+
+- 16356c2: Add framework localization support with shared i18n providers, locale preference actions, catalog loading helpers, guards, and docs.
+
 ## 0.11.9
 
 ### Patch Changes

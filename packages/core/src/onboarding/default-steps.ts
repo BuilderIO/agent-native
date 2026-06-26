@@ -6,8 +6,6 @@
  * `id` after these have been registered.
  */
 
-import { registerOnboardingStep } from "./registry.js";
-import type { OnboardingStep } from "./types.js";
 import {
   PROVIDER_ENV_META,
   PROVIDER_ENV_VARS,
@@ -21,6 +19,8 @@ import {
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { getSetting } from "../settings/store.js";
+import { registerOnboardingStep } from "./registry.js";
+import type { OnboardingStep } from "./types.js";
 
 type LlmKeyMethod = {
   provider: keyof typeof PROVIDER_ENV_META;
@@ -121,9 +121,9 @@ const llmStep: OnboardingStep = {
         await import("../server/credential-provider.js");
       if (await resolveHasCompleteBuilderConnection()) return true;
     } catch {
-      if (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) {
-        return true;
-      }
+      // Credential storage may be unavailable during early boot. Do not fall
+      // back to deployment-level Builder env here; the scoped resolver owns the
+      // policy for when that is safe.
     }
     try {
       if (await detectEngineFromUserSecrets()) return true;
@@ -151,7 +151,7 @@ const databaseStep: OnboardingStep = {
   required: false,
   title: "Database",
   description:
-    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database.",
+    "Agent-native stores app data in SQL. Set DATABASE_URL when you want to point this app at a specific database or opt into local PGlite.",
   methods: [
     {
       id: "database-url",
@@ -164,7 +164,8 @@ const databaseStep: OnboardingStep = {
           {
             key: "DATABASE_URL",
             label: "DATABASE_URL",
-            placeholder: "postgres://..., libsql://..., file:./data/app.db",
+            placeholder:
+              "postgres://..., libsql://..., file:./data/app.db, pglite:./data/pglite",
           },
           {
             key: "DATABASE_AUTH_TOKEN",

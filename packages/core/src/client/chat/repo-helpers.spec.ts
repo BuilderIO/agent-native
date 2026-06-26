@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { dedupeRepoMessagesById, type NormalizedRepo } from "./repo-helpers.js";
 
 describe("dedupeRepoMessagesById", () => {

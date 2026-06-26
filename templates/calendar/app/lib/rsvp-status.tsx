@@ -1,11 +1,12 @@
+import type { CalendarEvent } from "@shared/api";
 import {
   IconCheck,
   IconCircleX,
   IconClock,
   IconHelpCircle,
 } from "@tabler/icons-react";
+
 import { cn } from "@/lib/utils";
-import type { CalendarEvent } from "@shared/api";
 
 export type RsvpStatus = "accepted" | "declined" | "tentative" | "needsAction";
 

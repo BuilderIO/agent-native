@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import type { Document } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
 import {
   buildDocumentTree,
   filterDocumentTreeDocuments,

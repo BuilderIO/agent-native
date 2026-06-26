@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { PUBLIC_PLAN_ACTION_PATHS } from "./public-action-paths.js";
 
 describe("PUBLIC_PLAN_ACTION_PATHS", () => {

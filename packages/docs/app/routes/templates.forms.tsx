@@ -1,7 +1,9 @@
-import { Link } from "react-router";
+import { useT } from "@agent-native/core/client";
 import { useState } from "react";
-import { templates, trackEvent } from "../components/TemplateCard";
+import { Link } from "react-router";
+
 import { TemplateDocsLink } from "../components/template-docs";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -96,6 +98,7 @@ function CliCopy() {
 }
 
 export default function FormsTemplate() {
+  const t = useT();
   return (
     <main className="template-detail-page mx-auto w-full max-w-[1200px] overflow-x-clip px-4 sm:px-6">
       {/* Hero */}
@@ -118,7 +121,7 @@ export default function FormsTemplate() {
             >
               <polyline points="15 18 9 12 15 6" />
             </svg>
-            All Templates
+            {t("templateLanding.forms.s005")}
           </Link>
         </div>
 
@@ -133,14 +136,11 @@ export default function FormsTemplate() {
             </div>
 
             <h1 className="mb-4 text-[2rem] font-bold leading-[1.08] tracking-tight sm:text-4xl md:text-5xl">
-              The open-source AI alternative to Typeform &amp; Google Forms
+              {t("templateLanding.forms.s006")}
             </h1>
 
             <p className="mb-6 text-base leading-7 text-[var(--fg-secondary)] sm:text-lg sm:leading-relaxed">
-              Generate a full form from a prompt, refine fields
-              conversationally, and route submissions to Slack, Discord, Google
-              Sheets, or webhooks. Own your data and your workflow — no
-              per-response fees.
+              {t("templateLanding.forms.s007")}
             </p>
 
             <div className="template-detail-actions mb-8 grid grid-cols-2 items-stretch gap-3 sm:flex sm:flex-wrap sm:items-center">
@@ -156,7 +156,7 @@ export default function FormsTemplate() {
                   })
                 }
               >
-                Try It
+                {t("templateLanding.forms.s008")}
                 <svg
                   width="16"
                   height="16"
@@ -180,7 +180,7 @@ export default function FormsTemplate() {
           <div className="overflow-hidden rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
             <img
               src={template.screenshot}
-              alt="Forms template screenshot"
+              alt={t("templateLanding.forms.s001")}
               className="w-full object-cover object-top"
             />
           </div>
@@ -189,22 +189,24 @@ export default function FormsTemplate() {
 
       {/* How it works */}
       <section className="border-t border-[var(--docs-border)] py-16">
-        <h2 className="mb-8 text-2xl font-bold tracking-tight">How it works</h2>
+        <h2 className="mb-8 text-2xl font-bold tracking-tight">
+          {t("templateLanding.forms.s009")}
+        </h2>
         <div className="mx-auto grid max-w-3xl gap-6 sm:grid-cols-3">
           {[
             {
               step: "1",
-              title: "Describe",
+              title: t("templateLanding.forms.s002"),
               desc: "Tell the agent what you're collecting — RSVPs, leads, feedback, applications.",
             },
             {
               step: "2",
-              title: "Generate",
+              title: t("templateLanding.forms.s003"),
               desc: "The agent builds the form — fields, validation, options, and a public page.",
             },
             {
               step: "3",
-              title: "Route",
+              title: t("templateLanding.forms.s004"),
               desc: "Submissions flow into SQL and can be sent to Slack, Discord, Google Sheets, or a webhook.",
             },
           ].map((s) => (
@@ -222,56 +224,58 @@ export default function FormsTemplate() {
       {/* Core features */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Everything you need
+          {t("templateLanding.forms.s010")}
         </h2>
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
-          A full form builder with AI built in.
+          {t("templateLanding.forms.s011")}
         </p>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">All Field Types</h3>
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.forms.s012")}
+            </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Text, email, number, long text, select, multi-select, checkbox,
-              radio, date, rating, and scale.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Visual Field Editing</h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Update labels, placeholders, options, required state, and field
-              order in the editor or by asking the agent.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Custom Styling</h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Match your brand — colors, fonts, layout. Or just ask the agent to
-              "make it look like our marketing site".
+              {t("templateLanding.forms.s013")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">
-              Submission Integrations
+              {t("templateLanding.forms.s014")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Send structured submissions to Slack, Discord, Google Sheets, or a
-              webhook when each response arrives.
-            </p>
-          </div>
-          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-            <h3 className="mb-1 text-sm font-semibold">Public Share Pages</h3>
-            <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Each form gets a public URL with full SEO. Embed on any site, or
-              host on your own domain.
+              {t("templateLanding.forms.s015")}
             </p>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
             <h3 className="mb-1 text-sm font-semibold">
-              Submissions Dashboard
+              {t("templateLanding.forms.s016")}
             </h3>
             <p className="m-0 text-sm text-[var(--fg-secondary)]">
-              Sortable table, filters, CSV export, and per-submission detail
-              views. All the data lives in your SQL database.
+              {t("templateLanding.forms.s017")}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.forms.s018")}
+            </h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              {t("templateLanding.forms.s019")}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.forms.s020")}
+            </h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              {t("templateLanding.forms.s021")}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
+            <h3 className="mb-1 text-sm font-semibold">
+              {t("templateLanding.forms.s022")}
+            </h3>
+            <p className="m-0 text-sm text-[var(--fg-secondary)]">
+              {t("templateLanding.forms.s023")}
             </p>
           </div>
         </div>
@@ -282,11 +286,10 @@ export default function FormsTemplate() {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Visual + Conversational Editing
+              {t("templateLanding.forms.s024")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Drag fields, edit labels, set validation. Or just describe the
-              change and the agent updates the same form schema.
+              {t("templateLanding.forms.s025")}
             </p>
             <ul className="m-0 list-none space-y-2 p-0 text-sm text-[var(--fg-secondary)]">
               <li className="flex items-start gap-2">
@@ -303,7 +306,7 @@ export default function FormsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Drag-and-drop field reordering
+                {t("templateLanding.forms.s026")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -319,7 +322,7 @@ export default function FormsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Live preview alongside the editor
+                {t("templateLanding.forms.s027")}
               </li>
               <li className="flex items-start gap-2">
                 <svg
@@ -335,30 +338,29 @@ export default function FormsTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                Undo/redo with full history
+                {t("templateLanding.forms.s028")}
               </li>
             </ul>
           </div>
           <div className="rounded-xl border border-[var(--docs-border)] p-6">
             <h3 className="mb-2 text-base font-semibold">
-              Conversational Form Building
+              {t("templateLanding.forms.s029")}
             </h3>
             <p className="mb-4 text-sm text-[var(--fg-secondary)]">
-              Skip the field-by-field grind. Describe the form once, then refine
-              with plain language.
+              {t("templateLanding.forms.s030")}
             </p>
             <div className="space-y-3 rounded-lg bg-[var(--bg-secondary)] p-4 font-mono text-sm">
               <div className="text-[var(--fg-secondary)]">
-                "Create a job application form"
+                {t("templateLanding.forms.s031")}
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Add a required experience level dropdown"
+                {t("templateLanding.forms.s032")}
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Make the email field required"
+                {t("templateLanding.forms.s033")}
               </div>
               <div className="text-[var(--fg-secondary)]">
-                "Post each submission to Slack"
+                {t("templateLanding.forms.s034")}
               </div>
             </div>
           </div>
@@ -368,7 +370,7 @@ export default function FormsTemplate() {
       {/* Comparison table */}
       <section className="border-t border-[var(--docs-border)] py-16">
         <h2 className="mb-8 text-2xl font-bold tracking-tight">
-          How it compares
+          {t("templateLanding.forms.s035")}
         </h2>
         <div className="overflow-x-auto rounded-xl border border-[var(--docs-border)]">
           <table className="comparison-table min-w-[42rem] w-full text-sm">
@@ -379,7 +381,7 @@ export default function FormsTemplate() {
                   Typeform / Google Forms
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--fg-secondary)]">
-                  AI Form Generators
+                  {t("templateLanding.forms.s036")}
                 </th>
                 <th className="px-5 py-3 text-left font-semibold text-[var(--docs-accent)]">
                   Agent-Native Forms
@@ -389,52 +391,52 @@ export default function FormsTemplate() {
             <tbody className="text-[var(--fg-secondary)]">
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Visual editor
+                  {t("templateLanding.forms.s037")}
                 </td>
-                <td className="px-5 py-3">Yes, template-bound</td>
-                <td className="px-5 py-3">Limited / none</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s038")}</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s039")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Visual + agent + code
+                  {t("templateLanding.forms.s040")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  AI generation
+                  {t("templateLanding.forms.s041")}
                 </td>
-                <td className="px-5 py-3">None / basic</td>
-                <td className="px-5 py-3">One-shot, rigid</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s042")}</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s043")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Iterative, conversational
+                  {t("templateLanding.forms.s044")}
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Submission integrations
+                  {t("templateLanding.forms.s045")}
                 </td>
-                <td className="px-5 py-3">Manual</td>
-                <td className="px-5 py-3">Limited</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s046")}</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s047")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
                   Slack, Discord, Sheets, webhooks
                 </td>
               </tr>
               <tr className="border-b border-[var(--docs-border)]">
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Data ownership
+                  {t("templateLanding.forms.s048")}
                 </td>
-                <td className="px-5 py-3">Vendor's servers</td>
-                <td className="px-5 py-3">Vendor-hosted</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s049")}</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s050")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Your SQL database
+                  {t("templateLanding.forms.s051")}
                 </td>
               </tr>
               <tr>
                 <td className="px-5 py-3 font-medium text-[var(--fg)]">
-                  Pricing
+                  {t("templateLanding.forms.s052")}
                 </td>
-                <td className="px-5 py-3">Per-response fees</td>
-                <td className="px-5 py-3">Subscription</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s053")}</td>
+                <td className="px-5 py-3">{t("templateLanding.forms.s054")}</td>
                 <td className="px-5 py-3 text-[var(--fg)]">
-                  Free &amp; open source
+                  {t("templateLanding.forms.s055")}
                 </td>
               </tr>
             </tbody>
@@ -445,10 +447,10 @@ export default function FormsTemplate() {
       {/* CTA */}
       <section className="border-t border-[var(--docs-border)] py-16 text-center">
         <h2 className="mb-3 text-2xl font-bold tracking-tight">
-          Get started in minutes
+          {t("templateLanding.forms.s056")}
         </h2>
         <p className="mx-auto mb-8 max-w-lg text-base text-[var(--fg-secondary)]">
-          Fork the template and start collecting submissions you fully own.
+          {t("templateLanding.forms.s057")}
         </p>
         <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center sm:gap-4">
           <TemplateDocsLink
@@ -456,14 +458,14 @@ export default function FormsTemplate() {
             location="landing_page_cta"
             className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
-            Read the docs
+            {t("templateLanding.forms.s058")}
           </TemplateDocsLink>
           <Link
             data-an-prefetch="render"
             to="/templates"
             className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
-            View all templates
+            {t("templateLanding.forms.s059")}
           </Link>
         </div>
       </section>

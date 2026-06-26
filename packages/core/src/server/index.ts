@@ -79,6 +79,14 @@ export {
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
 export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {
+  getLocaleInitScript,
+  parseAcceptLanguage,
+  resolveLocaleFromRequest,
+  type LocaleInitScriptOptions,
+  type ResolveLocaleFromRequestOptions,
+  type ResolvedRequestLocale,
+} from "../localization/server.js";
+export {
   createProductionAgentHandler,
   type ActionEntry,
   type ScriptEntry,
@@ -390,6 +398,7 @@ export {
   sendEmail,
   isEmailConfigured,
   getEmailProvider,
+  type EmailAttachment,
   type EmailProvider,
   type SendEmailArgs,
 } from "./email.js";

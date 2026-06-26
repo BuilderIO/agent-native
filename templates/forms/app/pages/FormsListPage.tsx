@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
-import { format } from "date-fns";
+import {
+  VisibilityBadge,
+  callAction,
+  useFormatters,
+  useT,
+} from "@agent-native/core/client";
 import {
   IconPlus,
   IconDots,
@@ -14,25 +17,15 @@ import {
   IconChecks,
   IconX,
 } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Skeleton } from "@/components/ui/skeleton";
-import { VisibilityBadge, callAction } from "@agent-native/core/client";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { toast } from "sonner";
+
+import { CloudUpgrade } from "@/components/CloudUpgrade";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  useForms,
-  useCreateForm,
-  useDeleteForm,
-  useRestoreForm,
-  useUpdateForm,
-} from "@/hooks/use-forms";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,13 +36,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { useDbStatus } from "@/hooks/use-db-status";
-import { CloudUpgrade } from "@/components/CloudUpgrade";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
-import { toast } from "sonner";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useDbStatus } from "@/hooks/use-db-status";
+import {
+  useForms,
+  useCreateForm,
+  useDeleteForm,
+  useRestoreForm,
+  useUpdateForm,
+} from "@/hooks/use-forms";
 import { cn } from "@/lib/utils";
 
 const statusColors: Record<string, string> = {
@@ -61,6 +66,8 @@ const statusColors: Record<string, string> = {
 };
 
 export function FormsListPage() {
+  const t = useT();
+  const { formatDate, formatNumber } = useFormatters();
   const navigate = useNavigate();
   const [view, setView] = useState<"active" | "archive">("active");
   const {
@@ -99,12 +106,12 @@ export function FormsListPage() {
     const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
     navigate(`/forms/${tempId}`);
     createForm.mutate(
-      { title: "Untitled Form" },
+      { title: t("forms.untitled") },
       { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
     );
   }
 
-  useSetPageTitle("Forms");
+  useSetPageTitle(t("header.forms"));
 
   const headerActions = useMemo(
     () => (
@@ -114,8 +121,8 @@ export function FormsListPage() {
         className="shrink-0 cursor-pointer"
       >
         <IconPlus className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">New Form</span>
-        <span className="sm:hidden">New</span>
+        <span className="hidden sm:inline">{t("forms.newForm")}</span>
+        <span className="sm:hidden">{t("forms.new")}</span>
       </Button>
     ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -130,20 +137,20 @@ export function FormsListPage() {
       const full = await callAction("get-form", { id: form.id });
       createForm.mutate(
         {
-          title: `${full.title} (copy)`,
+          title: t("forms.copyTitle", { title: full.title }),
           description: full.description,
           fields: full.fields,
           settings: full.settings,
         },
         {
           onSuccess: (newForm) => {
-            toast.success("Form duplicated");
+            toast.success(t("forms.duplicated"));
             navigate(`/forms/${newForm.id}`);
           },
         },
       );
     } catch {
-      toast.error("Failed to duplicate form");
+      toast.error(t("forms.duplicateFailed"));
     }
   }
 
@@ -151,7 +158,7 @@ export function FormsListPage() {
     deleteForm.mutate(
       { id },
       {
-        onSuccess: () => toast.success("Form moved to Archive"),
+        onSuccess: () => toast.success(t("forms.movedToArchive")),
       },
     );
   }
@@ -160,7 +167,7 @@ export function FormsListPage() {
     restoreForm.mutate(
       { id },
       {
-        onSuccess: () => toast.success("Form restored"),
+        onSuccess: () => toast.success(t("forms.restored")),
       },
     );
   }
@@ -172,7 +179,7 @@ export function FormsListPage() {
     deleteForm.mutate(
       { id, purge: true },
       {
-        onSuccess: () => toast.success("Form permanently deleted"),
+        onSuccess: () => toast.success(t("forms.permanentlyDeleted")),
       },
     );
   }
@@ -220,11 +227,17 @@ export function FormsListPage() {
       toast.success(
         ids.length === 1
           ? purge
-            ? "Form permanently deleted"
-            : "Form moved to Archive"
+            ? t("forms.permanentlyDeleted")
+            : t("forms.movedToArchive")
           : purge
-            ? `${ids.length} forms permanently deleted`
-            : `${ids.length} forms moved to Archive`,
+            ? t("forms.bulkPermanentlyDeleted", {
+                count: ids.length,
+                formattedCount: formatNumber(ids.length),
+              })
+            : t("forms.bulkMovedToArchive", {
+                count: ids.length,
+                formattedCount: formatNumber(ids.length),
+              }),
       );
       setSelectedIds(new Set());
       setSelectionMode(false);
@@ -245,7 +258,9 @@ export function FormsListPage() {
       {
         onSuccess: () =>
           toast.success(
-            newStatus === "published" ? "Form published" : "Form unpublished",
+            newStatus === "published"
+              ? t("forms.published")
+              : t("forms.unpublished"),
           ),
       },
     );
@@ -287,7 +302,7 @@ export function FormsListPage() {
       return (
         <div className="flex flex-col items-center justify-center h-full gap-3">
           <p className="text-sm text-muted-foreground">
-            Sign in to see your forms.
+            {t("forms.signInPrompt")}
           </p>
           <Button
             variant="outline"
@@ -299,7 +314,7 @@ export function FormsListPage() {
               window.location.href = `/login?next=${next}`;
             }}
           >
-            Sign in
+            {t("common.signIn")}
           </Button>
         </div>
       );
@@ -307,7 +322,7 @@ export function FormsListPage() {
     const reason =
       error instanceof Error
         ? error.message.replace(/^Action list-forms failed:\s*/, "")
-        : "Couldn't load forms";
+        : t("forms.loadFailed");
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3 px-4 text-center">
         <p className="text-sm text-muted-foreground max-w-sm">{reason}</p>
@@ -318,7 +333,7 @@ export function FormsListPage() {
           className="gap-2"
         >
           <IconRefresh className="h-3.5 w-3.5" />
-          Retry
+          {t("common.retry")}
         </Button>
       </div>
     );
@@ -338,11 +353,11 @@ export function FormsListPage() {
         >
           <TabsList>
             <TabsTrigger value="active" className="text-xs gap-1.5">
-              Forms
+              {t("header.forms")}
             </TabsTrigger>
             <TabsTrigger value="archive" className="text-xs gap-1.5">
               <IconArchive className="h-3.5 w-3.5" />
-              Archive
+              {t("forms.archive")}
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -360,7 +375,7 @@ export function FormsListPage() {
             }}
           >
             <IconChecks className="h-3.5 w-3.5" />
-            {selectionMode ? "Done" : "Select"}
+            {selectionMode ? t("common.done") : t("common.select")}
           </Button>
         )}
       </div>
@@ -368,7 +383,10 @@ export function FormsListPage() {
       {selectionMode && forms.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/30 px-3 py-2">
           <span className="text-xs font-medium text-foreground">
-            {selectedCount} selected
+            {t("forms.selectedCount", {
+              count: selectedCount,
+              formattedCount: formatNumber(selectedCount),
+            })}
           </span>
           <div className="h-4 w-px bg-border" />
           <Button
@@ -377,7 +395,7 @@ export function FormsListPage() {
             className="h-8 text-xs"
             onClick={toggleSelectAll}
           >
-            {allFormsSelected ? "Clear all" : "Select all"}
+            {allFormsSelected ? t("common.clearAll") : t("common.selectAll")}
           </Button>
           <Button
             variant="ghost"
@@ -389,14 +407,14 @@ export function FormsListPage() {
             disabled={selectedCount === 0 || bulkDeletePending}
           >
             <IconTrash className="h-3.5 w-3.5" />
-            {isArchive ? "Delete forever" : "Move to Archive"}
+            {isArchive ? t("forms.deleteForever") : t("forms.moveToArchive")}
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            className="ml-auto h-8 w-8"
+            className="ms-auto h-8 w-8"
             onClick={clearSelection}
-            aria-label="Exit selection mode"
+            aria-label={t("forms.exitSelectionMode")}
           >
             <IconX className="h-3.5 w-3.5" />
           </Button>
@@ -407,21 +425,22 @@ export function FormsListPage() {
         <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border rounded-xl">
           {isArchive ? (
             <>
-              <h3 className="font-medium mb-1">Archive is empty</h3>
+              <h3 className="font-medium mb-1">
+                {t("forms.archiveEmptyTitle")}
+              </h3>
               <p className="text-sm text-muted-foreground">
-                Deleted forms appear here. Their responses are kept until you
-                permanently delete them.
+                {t("forms.archiveEmptyDescription")}
               </p>
             </>
           ) : (
             <>
-              <h3 className="font-medium mb-1">No forms yet</h3>
+              <h3 className="font-medium mb-1">{t("forms.emptyTitle")}</h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Create your first form to get started
+                {t("forms.emptyDescription")}
               </p>
               <Button onClick={handleCreate} size="sm" className="gap-2">
                 <IconPlus className="h-4 w-4" />
-                Create Form
+                {t("forms.createForm")}
               </Button>
             </>
           )}
@@ -481,7 +500,9 @@ export function FormsListPage() {
                         checked={selected}
                         onCheckedChange={() => toggleSelection(form.id)}
                         onClick={(e) => e.stopPropagation()}
-                        aria-label={`Select ${form.title}`}
+                        aria-label={t("forms.selectForm", {
+                          title: form.title,
+                        })}
                         className="mt-0.5 shrink-0"
                       />
                     )}
@@ -512,7 +533,7 @@ export function FormsListPage() {
                           variant="ghost"
                           size="sm"
                           className="h-10 w-10 sm:h-8 sm:w-8 p-0 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100"
-                          aria-label="Form actions"
+                          aria-label={t("forms.formActions")}
                         >
                           <IconDots className="h-4 w-4" />
                         </Button>
@@ -526,8 +547,8 @@ export function FormsListPage() {
                                 navigate(`/forms/${form.id}/responses`);
                               }}
                             >
-                              <IconChartBar className="h-4 w-4 mr-2" />
-                              View Responses
+                              <IconChartBar className="h-4 w-4 me-2" />
+                              {t("forms.viewResponses")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               onClick={(e) => {
@@ -535,8 +556,8 @@ export function FormsListPage() {
                                 handleRestore(form.id);
                               }}
                             >
-                              <IconArchiveOff className="h-4 w-4 mr-2" />
-                              Restore
+                              <IconArchiveOff className="h-4 w-4 me-2" />
+                              {t("forms.restore")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-destructive"
@@ -545,8 +566,8 @@ export function FormsListPage() {
                                 setPurgeId(form.id);
                               }}
                             >
-                              <IconTrash className="h-4 w-4 mr-2" />
-                              Delete forever
+                              <IconTrash className="h-4 w-4 me-2" />
+                              {t("forms.deleteForever")}
                             </DropdownMenuItem>
                           </>
                         ) : (
@@ -574,8 +595,8 @@ export function FormsListPage() {
                                     navigate(`/forms/${form.id}`);
                                   }}
                                 >
-                                  <IconExternalLink className="h-4 w-4 mr-2" />
-                                  Open
+                                  <IconExternalLink className="h-4 w-4 me-2" />
+                                  {t("common.open")}
                                 </DropdownMenuItem>
                               );
                             }
@@ -587,8 +608,8 @@ export function FormsListPage() {
                                     navigate(`/forms/${form.id}/responses`);
                                   }}
                                 >
-                                  <IconChartBar className="h-4 w-4 mr-2" />
-                                  View Responses
+                                  <IconChartBar className="h-4 w-4 me-2" />
+                                  {t("forms.viewResponses")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={(e) => {
@@ -596,10 +617,10 @@ export function FormsListPage() {
                                     handleTogglePublish(form);
                                   }}
                                 >
-                                  <IconExternalLink className="h-4 w-4 mr-2" />
+                                  <IconExternalLink className="h-4 w-4 me-2" />
                                   {form.status === "published"
-                                    ? "Unpublish"
-                                    : "Publish"}
+                                    ? t("forms.unpublish")
+                                    : t("forms.publish")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onClick={(e) => {
@@ -607,8 +628,8 @@ export function FormsListPage() {
                                     handleDuplicate(form);
                                   }}
                                 >
-                                  <IconCopy className="h-4 w-4 mr-2" />
-                                  Duplicate
+                                  <IconCopy className="h-4 w-4 me-2" />
+                                  {t("forms.duplicate")}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem
                                   className="text-destructive"
@@ -617,8 +638,8 @@ export function FormsListPage() {
                                     handleDelete(form.id);
                                   }}
                                 >
-                                  <IconTrash className="h-4 w-4 mr-2" />
-                                  Delete
+                                  <IconTrash className="h-4 w-4 me-2" />
+                                  {t("common.delete")}
                                 </DropdownMenuItem>
                               </>
                             );
@@ -641,12 +662,23 @@ export function FormsListPage() {
                   </Badge>
                   <div className="flex min-w-0 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-xs text-muted-foreground">
                     <span className="block min-w-0 max-w-full truncate">
-                      {form.responseCount ?? 0} responses
+                      {t("responses.totalCount", {
+                        count: form.responseCount ?? 0,
+                        formattedCount: formatNumber(form.responseCount ?? 0),
+                      })}
                     </span>
                     <span className="block min-w-0 max-w-full truncate">
                       {isArchive && (form as any).deletedAt
-                        ? `Deleted ${format(new Date((form as any).deletedAt), "MMM d")}`
-                        : format(new Date(form.createdAt), "MMM d")}
+                        ? t("forms.deletedDate", {
+                            date: formatDate((form as any).deletedAt, {
+                              month: "short",
+                              day: "numeric",
+                            }),
+                          })
+                        : formatDate(form.createdAt, {
+                            month: "short",
+                            day: "numeric",
+                          })}
                     </span>
                   </div>
                 </div>
@@ -664,19 +696,18 @@ export function FormsListPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Permanently delete this form?</AlertDialogTitle>
+            <AlertDialogTitle>{t("forms.purgeTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              The form and all its responses will be deleted forever. This
-              cannot be undone.
+              {t("forms.purgeDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handlePurge}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete forever
+              {t("forms.deleteForever")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -685,25 +716,24 @@ export function FormsListPage() {
       <AlertDialog open={bulkPurgeOpen} onOpenChange={setBulkPurgeOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              Permanently delete selected forms?
-            </AlertDialogTitle>
+            <AlertDialogTitle>{t("forms.bulkPurgeTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              The {selectedCount} selected{" "}
-              {selectedCount === 1 ? "form" : "forms"} and their responses will
-              be deleted forever. This cannot be undone.
+              {t("forms.bulkPurgeDescription", {
+                count: selectedCount,
+                formattedCount: formatNumber(selectedCount),
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={bulkDeletePending}>
-              Cancel
+              {t("common.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => handleBulkDelete(true)}
               disabled={bulkDeletePending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              Delete forever
+              {t("forms.deleteForever")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -711,8 +741,8 @@ export function FormsListPage() {
 
       {showCloudUpgrade && (
         <CloudUpgrade
-          title="Publish Form"
-          description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
+          title={t("forms.publishCloudTitle")}
+          description={t("forms.publishCloudDescription")}
           onClose={() => setShowCloudUpgrade(false)}
         />
       )}

@@ -1,22 +1,26 @@
+import { useLocale } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
 import type { ReactNode } from "react";
+
+import { sitePathForLocale } from "../components/docs-locale";
 import { withDefaultSocialImage } from "../seo";
 
 const UPDATED_AT = "June 24, 2026";
 
-const HOSTED_SERVICE_POINTS = [
-  "Create and operate hosted Agent-Native workspaces and template apps.",
-  "Run agent workflows, actions, automations, and integrations you choose to use.",
-  "Store hosted app content, settings, organization data, and connected-account state needed to provide the service.",
-  "Measure, secure, debug, and improve hosted Agent-Native services.",
-];
+const HOSTED_SERVICE_KEYS = [
+  "create",
+  "workflows",
+  "store",
+  "improve",
+] as const;
 
-const ACCEPTABLE_USE = [
-  "Do not use hosted Agent-Native apps to violate laws, infringe rights, or harm people or systems.",
-  "Do not attempt to bypass access controls, rate limits, security boundaries, or tenant isolation.",
-  "Do not upload malware, credential theft material, or content designed to disrupt the service.",
-  "Do not use the service to send spam, scrape without authorization, or abuse connected providers.",
-  "Do not put secrets or sensitive regulated data into hosted apps unless you are authorized and the app is appropriate for that use.",
-];
+const ACCEPTABLE_USE_KEYS = [
+  "laws",
+  "bypass",
+  "malware",
+  "spam",
+  "sensitive",
+] as const;
 
 export const meta = () =>
   withDefaultSocialImage([
@@ -75,9 +79,14 @@ function ScopeCard({ title, body }: { title: string; body: string }) {
 }
 
 function InlineLink({ href, children }: { href: string; children: ReactNode }) {
+  const { locale } = useLocale();
+  const localizedHref = href.startsWith("/")
+    ? sitePathForLocale(href, locale)
+    : href;
+
   return (
     <a
-      href={href}
+      href={localizedHref}
       className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
     >
       {children}
@@ -86,179 +95,120 @@ function InlineLink({ href, children }: { href: string; children: ReactNode }) {
 }
 
 export default function TermsPage() {
+  const t = useT();
+
   return (
     <main className="mx-auto w-full max-w-[980px] px-6 py-14 sm:py-20">
       <header className="mb-10">
         <p className="mb-3 text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
-          Terms of Service
+          {t("legal.terms.eyebrow")}
         </p>
         <h1 className="mb-5 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-[var(--fg)] sm:text-5xl">
-          Agent-Native hosted applications
+          {t("legal.terms.title")}
         </h1>
         <p className="max-w-3xl text-lg leading-8 text-[var(--fg-secondary)]">
-          These terms apply when Builder.io operates Agent-Native hosted
-          applications, hosted templates, demos, and official hosted services
-          for you.
+          {t("legal.terms.intro")}
         </p>
         <p className="mt-4 text-sm text-[var(--fg-secondary)]">
-          Last updated: {UPDATED_AT}
+          {t("legal.lastUpdated", { date: UPDATED_AT })}
         </p>
       </header>
 
       <div className="mb-10 grid gap-4 md:grid-cols-3">
         <ScopeCard
-          title="Hosted apps"
-          body="Covered when you use an Agent-Native app or template operated by Builder.io."
+          title={t("legal.terms.scopeCards.hosted.title")}
+          body={t("legal.terms.scopeCards.hosted.body")}
         />
         <ScopeCard
-          title="Open source"
-          body="The MIT-licensed source code remains available under its open-source license."
+          title={t("legal.terms.scopeCards.openSource.title")}
+          body={t("legal.terms.scopeCards.openSource.body")}
         />
         <ScopeCard
-          title="Self-hosted"
-          body="Separate deployments operated by you or someone else are not Builder.io hosted services."
+          title={t("legal.terms.scopeCards.selfHosted.title")}
+          body={t("legal.terms.scopeCards.selfHosted.body")}
         />
       </div>
 
-      <Section title="Scope and related terms">
+      <Section title={t("legal.terms.sections.scope")}>
+        <p>{t("legal.terms.paragraphs.scope1")}</p>
         <p>
-          Agent-Native is open source, and its source code is available under
-          the MIT license. These terms apply only to hosted applications and
-          services operated by Builder.io for Agent-Native users. They do not
-          govern forks, custom templates, private deployments, or self-hosted
-          versions operated outside Builder.io.
-        </p>
-        <p>
-          These terms supplement Builder.io&apos;s broader{" "}
+          {t("legal.terms.paragraphs.scope2Prefix")}{" "}
           <InlineLink href="https://www.builder.io/legal/terms">
-            Terms of Service
+            {t("legal.terms.links.builderTerms")}
           </InlineLink>{" "}
-          and the Agent-Native{" "}
-          <InlineLink href="/privacy">Privacy Policy</InlineLink>. If you use a
-          hosted Agent-Native app on behalf of a company or organization, you
-          represent that you have authority to accept these terms for that
-          organization.
+          {t("legal.terms.paragraphs.scope2Middle")}{" "}
+          <InlineLink href="/privacy">
+            {t("legal.terms.links.privacyPolicy")}
+          </InlineLink>
+          . {t("legal.terms.paragraphs.scope2Suffix")}
         </p>
       </Section>
 
-      <Section title="Hosted service">
-        <p>
-          Builder.io may provide hosted Agent-Native applications, templates,
-          demos, shared workspaces, browser extensions, and related agent
-          workflows. The hosted service may be updated, limited, suspended, or
-          discontinued as the product evolves.
-        </p>
+      <Section title={t("legal.terms.sections.hostedService")}>
+        <p>{t("legal.terms.paragraphs.hostedService")}</p>
         <ul className="m-0 list-disc space-y-2 pl-5">
-          {HOSTED_SERVICE_POINTS.map((point) => (
-            <li key={point}>{point}</li>
+          {HOSTED_SERVICE_KEYS.map((pointKey) => (
+            <li key={pointKey}>
+              {t(`legal.terms.hostedServicePoints.${pointKey}`)}
+            </li>
           ))}
         </ul>
       </Section>
 
-      <Section title="Accounts and workspaces">
-        <p>
-          You are responsible for the accuracy of account information, activity
-          under your account, and keeping credentials secure. Hosted
-          Agent-Native apps may include organization features, invitations,
-          shared resources, connected integrations, and app-specific access
-          controls. Only invite users and connect services you are authorized to
-          use.
-        </p>
-        <p>
-          If you believe an account, workspace, integration, or shared resource
-          has been compromised or misused, contact Builder.io support promptly.
-        </p>
+      <Section title={t("legal.terms.sections.accounts")}>
+        <p>{t("legal.terms.paragraphs.accounts1")}</p>
+        <p>{t("legal.terms.paragraphs.accounts2")}</p>
       </Section>
 
-      <Section title="Your content and permissions">
-        <p>
-          You retain ownership of content you create, upload, record, import, or
-          connect to hosted Agent-Native apps. You grant Builder.io the limited
-          permission needed to host, process, transmit, display, transform,
-          analyze, and store that content so the hosted app and its agent
-          workflows can operate.
-        </p>
-        <p>
-          You are responsible for having the rights and permissions needed for
-          content, recordings, prompts, files, credentials, and connected
-          integration data you provide to the service.
-        </p>
+      <Section title={t("legal.terms.sections.content")}>
+        <p>{t("legal.terms.paragraphs.content1")}</p>
+        <p>{t("legal.terms.paragraphs.content2")}</p>
       </Section>
 
-      <Section title="Agents, AI outputs, and integrations">
-        <p>
-          Hosted Agent-Native apps can run AI agents, tools, automations, and
-          provider integrations at your request. AI-generated output may be
-          incomplete, inaccurate, or unsuitable for a particular use. Review
-          important outputs, actions, exports, and messages before relying on
-          them.
-        </p>
-        <p>
-          When you connect third-party services, your use of those services
-          remains subject to their own terms, limits, permissions, and privacy
-          practices.
-        </p>
+      <Section title={t("legal.terms.sections.agents")}>
+        <p>{t("legal.terms.paragraphs.agents1")}</p>
+        <p>{t("legal.terms.paragraphs.agents2")}</p>
       </Section>
 
-      <Section title="Acceptable use">
+      <Section title={t("legal.terms.sections.acceptableUse")}>
         <ul className="m-0 list-disc space-y-2 pl-5">
-          {ACCEPTABLE_USE.map((point) => (
-            <li key={point}>{point}</li>
+          {ACCEPTABLE_USE_KEYS.map((pointKey) => (
+            <li key={pointKey}>{t(`legal.terms.acceptableUse.${pointKey}`)}</li>
           ))}
         </ul>
       </Section>
 
-      <Section title="Open source and self-hosting">
+      <Section title={t("legal.terms.sections.openSource")}>
+        <p>{t("legal.terms.paragraphs.openSource")}</p>
+      </Section>
+
+      <Section title={t("legal.terms.sections.suspension")}>
         <p>
-          These terms do not change the open-source license for Agent-Native
-          code. If you download, fork, modify, or self-host Agent-Native, the
-          MIT license and the terms you set for your own deployment govern that
-          use. You are responsible for security, privacy, compliance,
-          operations, and user support for deployments you operate.
+          {t("legal.terms.paragraphs.suspensionPrefix")}{" "}
+          <InlineLink href="/privacy">
+            {t("legal.terms.links.privacyPolicy")}
+          </InlineLink>
+          .
         </p>
       </Section>
 
-      <Section title="Suspension and termination">
+      <Section title={t("legal.terms.sections.disclaimers")}>
+        <p>{t("legal.terms.paragraphs.disclaimers1")}</p>
         <p>
-          Builder.io may suspend or restrict access to hosted Agent-Native
-          services when needed to protect users, comply with law, prevent abuse,
-          address security risk, or operate the service. You may stop using the
-          hosted service at any time. Some data may remain in backups, logs, or
-          audit records for a limited period as described in the{" "}
-          <InlineLink href="/privacy">Privacy Policy</InlineLink>.
-        </p>
-      </Section>
-
-      <Section title="Disclaimers and liability">
-        <p>
-          Hosted Agent-Native services are provided on an as-is and as-available
-          basis, subject to applicable law and any separate written agreement
-          you have with Builder.io. Builder.io does not guarantee that hosted
-          apps, integrations, automations, or AI outputs will be uninterrupted,
-          error-free, or meet every requirement.
-        </p>
-        <p>
-          To the maximum extent permitted by law, Builder.io&apos;s liability
-          for hosted Agent-Native services is limited as described in
-          Builder.io&apos;s broader{" "}
+          {t("legal.terms.paragraphs.disclaimers2Prefix")}{" "}
           <InlineLink href="https://www.builder.io/legal/terms">
-            Terms of Service
+            {t("legal.terms.links.builderTerms")}
           </InlineLink>{" "}
-          or another written agreement that applies to your use.
+          {t("legal.terms.paragraphs.disclaimers2Suffix")}
         </p>
       </Section>
 
-      <Section title="Changes and contact">
+      <Section title={t("legal.terms.sections.changes")}>
+        <p>{t("legal.terms.paragraphs.changes1")}</p>
         <p>
-          We may update these terms as Agent-Native hosted applications change.
-          The updated date at the top of the page shows when the terms were last
-          revised.
-        </p>
-        <p>
-          For questions about these terms, contact Builder.io through the
-          support channels listed in Builder.io&apos;s{" "}
+          {t("legal.terms.paragraphs.changes2Prefix")}{" "}
           <InlineLink href="https://www.builder.io/legal/terms">
-            Terms of Service
+            {t("legal.terms.links.builderTerms")}
           </InlineLink>
           .
         </p>

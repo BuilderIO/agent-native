@@ -1,0 +1,70 @@
+const messages = {
+  settings: {
+    title: "Settings",
+    description: "Language and workspace preferences for this app.",
+    languageTitle: "Language",
+    languageDescription:
+      "Choose the interface language. This preference is saved for your account.",
+    languageLabel: "Interface language",
+    workspaceTitle: "Workspace",
+    workspaceDescription:
+      "Manage team members, organization access, and shared workspace preferences.",
+    openTeamSettings: "Open team settings",
+    openResourceSettings: "Open resource settings",
+    agentTitle: "Agent settings",
+    agentDescription:
+      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent settings",
+  },
+  chat: {
+    archiveChat: "Archive Chat",
+    archiveFailed: "Archive Failed",
+    chats: "Chats",
+    composerPlaceholder: "Ask the agent...",
+    emptyState: "Ask me anything",
+    heroDescription: "Ask the agent to inspect, explain, or change this app.",
+    heroTitle: "How can I help?",
+    inspectEmptyState: "Ask me anything about this app",
+    inspectSuggestionAction: "Show available actions",
+    inspectSuggestionCapabilities: "What can this app do?",
+    inspectSuggestionHello: "Help me get started",
+    newChat: "New Chat",
+    optionsFor: "Options For",
+    pinChat: "Pin Chat",
+    renameChat: "Rename Chat",
+    renameFailed: "Rename Failed",
+    renameThread: "Rename Thread",
+    suggestionActions: "Show me the available actions",
+    suggestionCapabilities: "What can this app do?",
+    suggestionCustomize: "Help me customize this app",
+    unpinChat: "Unpin Chat",
+  },
+  navigation: {
+    chat: "Chat",
+    collapseSidebar: "Collapse Sidebar",
+    database: "Database",
+    expandSidebar: "Expand Sidebar",
+    extensions: "Extensions",
+    navigation: "Navigation",
+    navigationDescription: "Main navigation",
+    observability: "Observability",
+    openNavigation: "Open navigation",
+    settings: "Settings",
+    team: "Team",
+  },
+  pages: {
+    databaseTitle: "Database",
+    observabilityPageTitle: "Agent Observability",
+    teamTitle: "Team",
+    teamCreateOrgDescription:
+      "Create an organization to invite teammates and share this app.",
+  },
+  root: {
+    commandActions: "Actions",
+    commandAppearance: "Appearance",
+    commandSearch: "Search",
+    toggleTheme: "Toggle theme",
+  },
+};
+
+export default messages;

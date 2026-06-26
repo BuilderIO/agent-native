@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { drizzle } from "drizzle-orm/better-sqlite3";
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { table, text, ownableColumns } from "../db/schema.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
@@ -10,16 +11,16 @@ import {
   ForbiddenError,
   resolveAccess,
 } from "./access.js";
-import { createSharesTable, type ShareRole } from "./schema.js";
-import { registerShareableResource } from "./registry.js";
+import listResourceShares from "./actions/list-resource-shares.js";
+import setResourceVisibility from "./actions/set-resource-visibility.js";
 import shareResource from "./actions/share-resource.js";
 import {
   isSyntheticQaEmail,
   resolveShareNotificationUrl,
 } from "./actions/share-resource.js";
 import unshareResource from "./actions/unshare-resource.js";
-import listResourceShares from "./actions/list-resource-shares.js";
-import setResourceVisibility from "./actions/set-resource-visibility.js";
+import { registerShareableResource } from "./registry.js";
+import { createSharesTable, type ShareRole } from "./schema.js";
 
 const resourceType = "qa-doc";
 const ownerEmail = "owner+qa@example.com";
@@ -313,6 +314,67 @@ describe("shareable resource access helpers", () => {
     );
   });
 
+  it("matches owner and user-share emails case-insensitively", async () => {
+    await insertDoc({
+      id: "doc-owned-case",
+      ownerEmail: "Owner+QA@Example.COM",
+    });
+    await insertDoc({ id: "doc-shared-case", ownerEmail: outsiderEmail });
+    await db.insert(docShares).values({
+      id: "share-case",
+      resourceId: "doc-shared-case",
+      principalType: "user",
+      principalId: "Viewer+QA@Example.COM",
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: "2026-04-30T00:00:00.000Z",
+    });
+
+    await expect(
+      listVisible({ userEmail: "owner+qa@example.com", orgId }),
+    ).resolves.toContain("doc-owned-case");
+
+    await runWithRequestContext(
+      { userEmail: "OWNER+QA@example.com", orgId },
+      async () => {
+        await expect(
+          assertAccess(resourceType, "doc-owned-case", "owner"),
+        ).resolves.toMatchObject({ role: "owner" });
+      },
+    );
+
+    await runWithRequestContext(
+      { userEmail: "viewer+qa@example.com", orgId },
+      async () => {
+        await expect(
+          assertAccess(resourceType, "doc-shared-case", "editor"),
+        ).resolves.toMatchObject({ role: "editor" });
+      },
+    );
+  });
+
+  it("can opt a resource into owner access regardless of active org", async () => {
+    registerShareableResource({
+      type: resourceType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      ownerAccessIgnoresOrg: true,
+    });
+    await insertDoc({ id: "doc-cross-org-owner", orgId: otherOrgId });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        assertAccess(resourceType, "doc-cross-org-owner", "owner"),
+      ).resolves.toMatchObject({ role: "owner" });
+      await expect(
+        listVisible({ userEmail: ownerEmail, orgId }),
+      ).resolves.toContain("doc-cross-org-owner");
+    });
+  });
+
   it("runs share, list, visibility, and unshare actions with role checks", async () => {
     await insertDoc({ id: "doc-actions" });
 
@@ -404,6 +466,60 @@ describe("shareable resource access helpers", () => {
       principalId: viewerEmail,
       role: "admin",
     });
+  });
+
+  it("upserts and revokes user shares case-insensitively", async () => {
+    await insertDoc({ id: "doc-user-case-actions" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-user-case-actions",
+          principalType: "user",
+          principalId: "Viewer+QA@Example.COM",
+          role: "viewer",
+        }),
+      ).resolves.toMatchObject({ updated: false });
+
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-user-case-actions",
+          principalType: "user",
+          principalId: viewerEmail,
+          role: "admin",
+        }),
+      ).resolves.toMatchObject({ updated: true });
+    });
+
+    let shares = await db
+      .select()
+      .from(docShares)
+      .where(eq(docShares.resourceId, "doc-user-case-actions"));
+    expect(shares).toHaveLength(1);
+    expect(shares[0]).toMatchObject({
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "admin",
+    });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        unshareResource.run({
+          resourceType,
+          resourceId: "doc-user-case-actions",
+          principalType: "user",
+          principalId: "VIEWER+QA@EXAMPLE.COM",
+        }),
+      ).resolves.toEqual({ ok: true });
+    });
+
+    shares = await db
+      .select()
+      .from(docShares)
+      .where(eq(docShares.resourceId, "doc-user-case-actions"));
+    expect(shares).toHaveLength(0);
   });
 
   it("attaches legacy unscoped owner resources to the active org when making them org-visible", async () => {

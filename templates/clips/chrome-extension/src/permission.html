@@ -52,6 +52,9 @@
       * {
         box-sizing: border-box;
       }
+      [hidden] {
+        display: none !important;
+      }
       body {
         margin: 0;
         min-height: 100vh;
@@ -143,6 +146,45 @@
         color: var(--fg-subtle);
         font-size: 12px;
       }
+      .success-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        margin-top: -4px;
+        padding: 18px 16px;
+        border: 1px solid var(--status-ok);
+        border-radius: var(--radius-sm);
+        background: rgba(34, 197, 94, 0.1);
+        text-align: center;
+      }
+      .success-icon {
+        display: inline-flex;
+        width: 58px;
+        height: 58px;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid var(--status-ok);
+        border-radius: 50%;
+        background: var(--bg);
+        color: var(--status-ok);
+      }
+      .success-icon svg {
+        width: 32px;
+        height: 32px;
+      }
+      .success-title {
+        margin: 0;
+        color: var(--fg);
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.2;
+      }
+      .success-copy {
+        margin: 0;
+        color: var(--fg-muted);
+        font-size: 13.5px;
+      }
       button {
         font: inherit;
         appearance: none;
@@ -218,6 +260,24 @@
             <span class="row-sub">— show your face in recordings</span></span
           >
         </div>
+      </div>
+      <div class="success-state" id="success-state" role="status" hidden>
+        <div class="success-icon" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </div>
+        <div class="success-title" id="success-title">You're all done</div>
+        <p class="success-copy" id="success-copy">
+          You can close this tab and start recording from the Clips icon.
+        </p>
       </div>
       <button id="enable">Enable camera &amp; microphone</button>
       <div class="status" id="status"></div>

@@ -2,7 +2,6 @@
 // AssistantMessage, MessageBranchPicker, CheckpointContext, MessageActionsContext,
 // RunningActivityStatus, ThinkingIndicator, and displayableUserMessageText.
 
-import React, { useState, useEffect, useCallback, useRef, useId } from "react";
 import {
   useThread,
   useMessageRuntime,
@@ -13,34 +12,6 @@ import {
   ComposerPrimitive,
 } from "@assistant-ui/react";
 import type { Attachment } from "@assistant-ui/react";
-import type { ContentPart } from "../sse-event-processor.js";
-import { getActiveRun } from "../active-run-state.js";
-import { cn } from "../utils.js";
-import { writeClipboardText } from "../clipboard.js";
-import { agentNativePath } from "../api-path.js";
-import { isPastedTextAttachmentName } from "../composer/pasted-text.js";
-import { PastedTextChip } from "../composer/PastedTextChip.js";
-import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu.js";
-import { MarkdownText } from "./markdown-renderer.js";
-import {
-  ToolCallFallback,
-  FilesChangedSummary,
-  ChatRunningContext,
-} from "./tool-call-display.js";
 import {
   IconX,
   IconCheck,
@@ -66,6 +37,36 @@ import {
   IconPencil,
   IconLoader2,
 } from "@tabler/icons-react";
+import React, { useState, useEffect, useCallback, useRef, useId } from "react";
+
+import { getActiveRun } from "../active-run-state.js";
+import { agentNativePath } from "../api-path.js";
+import { writeClipboardText } from "../clipboard.js";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../components/ui/tooltip.js";
+import { isPastedTextAttachmentName } from "../composer/pasted-text.js";
+import { PastedTextChip } from "../composer/PastedTextChip.js";
+import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
+import type { ContentPart } from "../sse-event-processor.js";
+import { cn } from "../utils.js";
+import { MarkdownText } from "./markdown-renderer.js";
+import {
+  ToolCallFallback,
+  FilesChangedSummary,
+  ChatRunningContext,
+} from "./tool-call-display.js";
 
 // ─── Pending selection context key ───────────────────────────────────────────
 // Mirrored from AssistantChat to avoid a cross-import on a private constant.

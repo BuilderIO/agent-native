@@ -1,0 +1,392 @@
+---
+title: "A2A प्रोटोकॉल"
+description: "JSON-RPC के माध्यम से एजेंट-से-एजेंट संचार: खोज, संदेश, स्ट्रीमिंग और कार्य प्रबंधन।"
+---
+
+# A2A प्रोटोकॉल
+
+HTTP पर एजेंट-टू-एजेंट संचार। एजेंट एक-दूसरे को खोजते हैं, संदेश भेजते हैं, और संरचित परिणाम प्राप्त करते हैं।
+
+## अवलोकन {#overview}
+
+A2A (एजेंट-टू-एजेंट) अंतर-एजेंट संचार के लिए एक JSON-RPC प्रोटोकॉल है। एक मेल एजेंट एक एनालिटिक्स एजेंट से एक क्वेरी चलाने के लिए कह सकता है। एक कैलेंडर एजेंट किसी प्रोजेक्ट प्रबंधन एजेंट में समस्याएँ खोज सकता है। प्रत्येक एजेंट एक एजेंट कार्ड के माध्यम से अपनी क्षमताओं को उजागर करता है और एक मानक JSON-RPC एंडपॉइंट के माध्यम से काम स्वीकार करता है।
+
+A2A इस ढांचे में क्रॉस-ऐप डेलिगेशन के लिए सब्सट्रेट है - सबसे प्रमुख रूप से [Dispatch](/docs/dispatch) के लिए, जो एकल इनबाउंड संदेश (Slack, ईमेल इत्यादि) को कार्यक्षेत्र में जो भी ऐप इसे संभालने के लिए सबसे उपयुक्त है, रूट करता है।
+
+मुख्य अवधारणाएँ:
+
+- **एजेंट कार्ड** - `/.well-known/agent-card.json` पर सार्वजनिक मेटाडेटा skills और क्षमताओं का वर्णन करता है
+- **JSON-RPC** — एजेंट-मूल ऐप्स `POST /_agent-native/a2a` का उपयोग करते हैं; बाहरी/विरासत सहकर्मी `POST /a2a`
+- **कार्य** - प्रत्येक संदेश एक जीवनचक्र के साथ एक कार्य बनाता है (प्रस्तुत, कार्यशील, पूर्ण, विफल, रद्द)
+- **JWT वाहक प्राधिकरण** - उत्पादन A2A के लिए `A2A_SECRET` या एक स्पष्ट विरासत `apiKeyEnv` की आवश्यकता होती है
+
+```an-diagram title="एक एजेंट दूसरे को काम सौंपता है" summary="एक मेल एजेंट एनालिटिक्स एजेंट के कार्ड का पता लगाता है, एक JSON-RPC संदेश भेजता है, और पूरा किया गया कार्य वापस प्राप्त करता है।"
+{
+  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail एजेंट</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">कार्य · पूरा</div></div><div class=\"diagram-card\" data-rough><strong>Analytics एजेंट</strong><small class=\"diagram-muted\">run-query चलाता है, परिणाम लौटाता है</small></div></div>",
+  "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
+}
+```
+
+## सर्वर सेटअप {#server-setup}
+
+अधिकांश टेम्प्लेट फ़्रेमवर्क एजेंट चैट प्लगइन के माध्यम से A2A प्राप्त करते हैं। यदि आप इसे स्वयं माउंट कर रहे हैं, तो सर्वर प्लगइन में `mountA2A()` पर कॉल करें:
+
+```ts
+// server/plugins/a2a.ts
+import { mountA2A } from "@agent-native/core/a2a";
+
+export default defineNitroPlugin((nitro) => {
+  mountA2A(nitro, {
+    name: "Analytics Agent",
+    description: "Runs analytics queries and returns chart data",
+    skills: [
+      {
+        id: "run-query",
+        name: "Run Query",
+        description: "Execute a SQL query against the analytics database",
+        tags: ["analytics", "sql"],
+        examples: ["Show me signups by source this month"],
+      },
+    ],
+    // Optional legacy external-peer bearer key. Prefer A2A_SECRET for
+    // agent-native workspace calls and production deployments.
+    apiKeyEnv: "A2A_API_KEY",
+    streaming: true, // enable message/stream
+  });
+});
+```
+
+यह माउंट करता है:
+
+- `GET /.well-known/agent-card.json` - सार्वजनिक खोज मेटाडेटा।
+- `POST /_agent-native/a2a` - प्राथमिक एजेंट-मूल JSON-RPC समापन बिंदु।
+- `POST /_agent-native/a2a/_process-task` - आंतरिक एसिंक प्रोसेसर रूट, `A2A_SECRET` के साथ हस्ताक्षरित।
+
+ग्राहक बाहरी एजेंटों के लिए `/a2a` पर भी वापस आता है जो विरासत/सरल पथ को उजागर करता है। उत्पादन एजेंट-मूल परिनियोजन को `A2A_SECRET` सेट करना चाहिए; इसके बिना, होस्ट किए गए रनटाइम अप्रमाणित दूरस्थ कार्य को स्वीकार करने के बजाय बंद हो जाते हैं।
+
+## एजेंट कार्ड {#agent-card}
+
+एजेंट कार्ड आपके कॉन्फिगरेशन से स्वतः जेनरेट होता है और `/.well-known/agent-card.json` पर परोसा जाता है। अन्य एजेंट आपके एजेंट के skills को खोजने के लिए इसे लाते हैं।
+
+### प्रति-किरायेदार कौशल फ़िल्टरिंग {#agent-card-filtering}
+
+कार्ड एंडपॉइंट सार्वजनिक है, इसलिए फ्रेमवर्क skills को रिडक्ट करता है जिनकी आईडी सेवा देने से पहले प्रति-उपयोगकर्ता या प्रति-संगठन एकीकरण को प्रकट करती है। कोई भी कौशल जिसकी आईडी `mcp__user_<emailhash>_…` या `mcp__org_<orgid>_…` से शुरू होती है उसे प्रकाशित कार्ड से हटा दिया जाता है। ऑपरेटर-नियंत्रित stdio MCP उपकरण (`mcp.config.json` से लोड किए गए) और टेम्पलेट-परिभाषित skills दृश्यमान रहते हैं। यह अनधिकृत कॉल करने वाले को फ़िंगरप्रिंट करने से रोकता है कि कौन से किरायेदार मौजूद हैं या उन्होंने कौन से एकीकरण कनेक्ट किए हैं। `packages/core/src/a2a/server.ts` देखें.
+
+```json
+{
+  "name": "Analytics Agent",
+  "description": "Runs analytics queries and returns chart data",
+  "url": "https://analytics.example.com",
+  "version": "1.0.0",
+  "protocolVersion": "0.3",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "skills": [
+    {
+      "id": "run-query",
+      "name": "Run Query",
+      "description": "Execute a SQL query against the analytics database",
+      "tags": ["analytics", "sql"],
+      "examples": ["Show me signups by source this month"]
+    }
+  ],
+  "securitySchemes": {
+    "jwtBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+    "apiKey": { "type": "http", "scheme": "bearer" }
+  },
+  "security": [{ "jwtBearer": [] }, { "apiKey": [] }]
+}
+```
+
+_(संस्करण भिन्न हो सकता है; वर्तमान `protocolVersion` के लिए अपने ऐप का लाइव कार्ड `/.well-known/agent-card.json` पर प्राप्त करें।)_
+
+जब `A2A_SECRET` सेट किया जाता है (अनुशंसित पथ), तो कार्ड एक विज्ञापन देता है
+`jwtBearer` योजना उपरोक्तानुसार। `apiKey` योजना केवल तभी जोड़ी जाती है जब कोई विरासत
+`apiKeyEnv` भी कॉन्फ़िगर किया गया है, इसलिए केवल `A2A_SECRET` सेट वाला कार्ड प्रकाशित होता है
+`jwtBearer` अकेले।
+
+## JSON-RPC विधियाँ {#json-rpc-methods}
+
+सभी विधियों को `POST /_agent-native/a2a` के माध्यम से JSON-RPC 2.0 प्रारूप के साथ बुलाया जाता है:
+
+| विधि             | विवरण                                                                                                                         | मुख्य पैरामीटर                |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `message/send`   | एक संदेश भेजें और कार्य पूरा होने की प्रतीक्षा करें। `working` स्थिति और मतदान में तुरंत लौटने के लिए `async: true` पास करें। | `message, contextId?, async?` |
+| `message/stream` | एक संदेश भेजें, SSE कार्य अपडेट प्राप्त करें                                                                                  | `message, contextId?`         |
+| `tasks/get`      | किसी कार्य को आईडी के आधार पर प्राप्त करें - इसका उपयोग किसी एसिंक कार्य को पूरा करने के लिए मतदान करने के लिए किया जाता है   | `id`                          |
+| `tasks/cancel`   | चल रहे कार्य को रद्द करें                                                                                                     | `id`                          |
+
+```an-api title="प्राथमिक A2A समापन बिंदु" summary="सभी JSON-RPC विधियां यहां पोस्ट की गई हैं। message/send दिखाया गया।"
+{
+  "method": "POST",
+  "path": "/_agent-native/a2a",
+  "summary": "एक संदेश भेजें और कार्य पूरा होने की प्रतीक्षा करें",
+  "description": "JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. Pass `async: true` to return immediately in `working` state and poll with `tasks/get`.",
+  "auth": "JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)",
+  "params": [
+    { "name": "Authorization", "in": "header", "type": "string", "required": false, "description": "Bearer token. Required in hosted production runtimes; optional in local dev." },
+    { "name": "method", "in": "body", "type": "string", "required": true, "description": "One of message/send, message/stream, tasks/get, tasks/cancel." },
+    { "name": "params.message", "in": "body", "type": "object", "required": false, "description": "{ role, parts[] } for message/send and message/stream." },
+    { "name": "params.async", "in": "body", "type": "boolean", "required": false, "description": "Return immediately in working state and poll via tasks/get. Use on serverless hosts." },
+    { "name": "params.id", "in": "body", "type": "string", "required": false, "description": "Task id for tasks/get and tasks/cancel." }
+  ],
+  "request": {
+    "contentType": "application/json",
+    "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"message/send\",\n  \"params\": {\n    \"message\": {\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"Show signups by source\" }]\n    },\n    \"async\": true\n  }\n}"
+  },
+  "responses": [
+    { "status": "200", "description": "JSON-RPC result containing the task. With async:true the task returns in working state.", "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"result\": { \"id\": \"task_123\", \"status\": { \"state\": \"working\" } }\n}" },
+    { "status": "503", "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated." }
+  ]
+}
+```
+
+जब `message/send` को `async: true` के साथ कॉल किया जाता है, तो JSON-RPC हैंडलर कार्य को कतारबद्ध करता है और POST को आंतरिक `/_agent-native/a2a/_process-task` रूट पर सेल्फ-फायर करता है, ताकि हैंडलर अपने स्वयं के पूर्ण टाइमआउट के साथ एक ताजा फ़ंक्शन निष्पादन में चलता रहे। यह मार्ग कार्य आईडी से जुड़े HMAC टोकन (5 मिनट का जीवनकाल, `A2A_SECRET` के साथ हस्ताक्षरित) के साथ प्रमाणित है। इसे `/_agent-native/a2a` JSON-RPC रूट से पहले माउंट किया गया है ताकि h3 का उपसर्ग मिलान इसे निगल न सके।
+
+```an-diagram title="सर्वर रहित पर Async कार्य जीवनचक्र" summary="async:true, मिलीसेकेंड में काम करके रिटर्न देता है, फिर एक ताज़ा निष्पादन एजेंट लूप चलाता है जबकि कॉलर पोल करता है।"
+{
+  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~मिलीसेकंड</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>स्व-ट्रिगर POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · नया execution · पूरा timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
+  "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
+  "caption": "A recurring sweeper re-claims any task left in flight if the function execution dies mid-run."
+}
+```
+
+> [!IMPORTANT]
+> **सर्वर रहित वेबहुक और गेटवे टाइमआउट:**
+> होस्ट किए गए पर्यावरण गेटवे (जैसे नेटलिफाई, वर्सेल, या क्लाउडफ्लेयर पेज) सार्वजनिक-सामना वाले HTTP मार्गों पर सख्त निष्पादन सीमाएँ (अक्सर 10 से 30 सेकंड) लगाते हैं। क्योंकि एजेंट लूप को क्वेरी चलाने, संदर्भ लाने और टूल निष्पादित करने में महत्वपूर्ण समय लग सकता है, आपको A2A एंडपॉइंट को कॉल करते समय या बाहरी webhooks को संभालते समय **`async: true`** का उपयोग करना चाहिए। यह तुरंत API गेटवे पर `working` स्थिति लौटाता है, कनेक्शन को केवल कुछ मिलीसेकंड के लिए खुला रखता है, जबकि स्व-चालित `/process-task` POST पृष्ठभूमि में एजेंट लूप निष्पादित करता है। एजेंट लूप समाप्त होने की प्रतीक्षा में प्राथमिक HTTP अनुरोध को ब्लॉक न करें।
+
+संदेशों में टाइप किए गए भाग होते हैं - पाठ, संरचित डेटा और फ़ाइलें सभी एक संदेश में यात्रा कर सकते हैं:
+
+```an-annotated-code title="टाइप किए गए भागों के साथ A2A संदेश"
+{
+  "language": "json",
+  "code": "{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}",
+  "annotations": [
+    { "lines": "4", "label": "text part", "note": "एजेंट द्वारा पढ़ा जाने वाला सादा प्राकृतिक-भाषा निर्देश।" },
+    { "lines": "5", "label": "data part", "note": "संरचित JSON तर्क - उदा. एक तिथि सीमा - संकेत के साथ पारित की गई।" },
+    { "lines": "6-9", "label": "file part", "note": "नाम, `mimeType`, और बेस64 `bytes` द्वारा एक फ़ाइल संलग्न करें।" }
+  ]
+}
+```
+
+## क्लाइंट {#client}
+
+`A2AClient` क्लास खोज, मैसेजिंग और स्ट्रीमिंग को संभालती है:
+
+```ts
+import { A2AClient } from "@agent-native/core/a2a";
+
+const client = new A2AClient("https://analytics.example.com", "my-api-key");
+
+// Discover agent capabilities
+const card = await client.getAgentCard();
+console.log(card.skills);
+
+// Send a message and get a completed task
+const task = await client.send({
+  role: "user",
+  parts: [{ type: "text", text: "Show signups by source this month" }],
+});
+console.log(task.status.state); // "completed"
+// task.status.message is a Message object ({ role, parts }), not a string.
+// Pull text out of its parts:
+const reply = task.status.message?.parts
+  .filter((p) => p.type === "text")
+  .map((p) => p.text)
+  .join("");
+console.log(reply); // agent's response text
+
+// Stream responses for long-running work
+for await (const update of client.stream({
+  role: "user",
+  parts: [{ type: "text", text: "Generate a full quarterly report" }],
+})) {
+  console.log(update.status.state, update.status.message);
+}
+```
+
+## सुविधा सहायक {#convenience-helper}
+
+सरल टेक्स्ट-इन/टेक्स्ट-आउट कॉल के लिए, `callAgent()` का उपयोग करें:
+
+```ts
+import { callAgent } from "@agent-native/core/a2a";
+
+// One-shot: send text, get text back
+const response = await callAgent(
+  "https://analytics.example.com",
+  "How many signups last week?",
+  { apiKey: process.env.ANALYTICS_API_KEY },
+);
+console.log(response); // "There were 1,247 signups last week..."
+```
+
+## प्रोग्रामेटिक वर्कस्पेस इनवोक {#programmatic-invoke}
+
+एजेंट-मूल कार्यस्थानों के लिए, कोड या ए के समय `agentNative` सहायक को प्राथमिकता दें
+हेडलेस ऐप को सहोदर ऐप्स की खोज करनी होगी और उन्हें आईडी, नाम या नाम से लागू करना होगा
+URL. यह
+`agent-native agents` और `agent-native invoke` CLI कमांड।
+
+```ts
+import { agentNative } from "@agent-native/core/agent-native";
+
+const agents = await agentNative.listAgents();
+
+const result = await agentNative.invoke(
+  "analytics",
+  "Summarize signups by source this month.",
+  { userEmail: "steve@example.com" },
+);
+
+console.log(`Called ${result.target.name}: ${result.responseText}`);
+```
+
+कंपोज़ेबल मिनी-ऐप्स के लिए इसका उपयोग करें: डिस्पैच या एक ऑर्केस्ट्रेटर ऐप खोजता है
+कार्यस्थान भाई-बहन, फिर प्रदाता के स्वामित्व वाले विशेषज्ञ ऐप को आमंत्रित करता है,
+dataset, or workflow. In production agent-native apps, set `A2A_SECRET` in each
+ऐप वातावरण और कॉल करने वाले की पहचान (`userEmail`) पास करें ताकि आउटबाउंड कॉल हों
+JWT वाहक टोकन के रूप में हस्ताक्षरित। `apiKeyEnv` का उपयोग केवल विरासती बाहरी समकक्षों के लिए करें
+एक स्थिर वाहक टोकन की अपेक्षा करें। स्वयं का आह्वान करने के बजाय स्थानीय actions का उपयोग करें।
+
+## कार्य जीवनचक्र {#task-lifecycle}
+
+प्रत्येक संदेश एक कार्य बनाता है जो इन स्थितियों से होकर गुजरता है:
+
+`submitted` → `working` → `completed` | `failed` | `canceled` | `input-required`
+
+`input-required` गैर-टर्मिनल है: हैंडलर कॉलर से अधिक जानकारी की प्रतीक्षा कर रहा है, और इनपुट आने के बाद कार्य `working` पर वापस जा सकता है।
+
+| राज्य            | अर्थ                                                |
+| ---------------- | --------------------------------------------------- |
+| `submitted`      | कार्य बनाया गया, प्रसंस्करण के लिए कतारबद्ध         |
+| `working`        | हैंडलर संदेश संसाधित कर रहा है                      |
+| `completed`      | हैंडलर सफलतापूर्वक समाप्त हुआ                       |
+| `failed`         | हैंडलर ने एक त्रुटि उत्पन्न की                      |
+| `canceled`       | कार्य/कैंसिल के माध्यम से कार्य रद्द कर दिया गया था |
+| `input-required` | हैंडलर को कॉल करने वाले से अधिक जानकारी चाहिए       |
+
+कार्य `a2a_tasks` SQL तालिका में बने रहते हैं और बाद में `tasks/get` के माध्यम से पुनर्प्राप्त किए जा सकते हैं।
+
+## सुरक्षा {#security}
+
+प्रत्येक प्रोडक्शन ऐप पर `A2A_SECRET` सेट करें जो A2A ट्रैफ़िक को कॉल करता है या प्राप्त करता है। एजेंट-मूल कॉल करने वाले इस रहस्य के साथ JWT बियरर टोकन पर हस्ताक्षर करते हैं ताकि रिसीवर एजेंट लूप शुरू होने से पहले कॉलर की पहचान सत्यापित कर सकें।
+
+बाहरी साथियों के लिए जो अभी भी एक साझा स्थिर टोकन का उपयोग करते हैं, अपने कॉन्फ़िगरेशन में `apiKeyEnv` को अपेक्षित वाहक टोकन वाले पर्यावरण चर के नाम पर सेट करें:
+
+```ts
+// Config
+mountA2A(app, {
+  // ...
+  apiKeyEnv: "A2A_API_KEY", // reads process.env.A2A_API_KEY
+});
+
+// Client calls with the matching key
+const client = new A2AClient(url, process.env.A2A_API_KEY);
+```
+
+एजेंट कार्ड एंडपॉइंट हमेशा सार्वजनिक होता है (कोई प्रमाणीकरण नहीं) ताकि अन्य एजेंट क्षमताओं की खोज कर सकें। `/_agent-native/a2a` JSON-RPC एंडपॉइंट `A2A_SECRET` द्वारा हस्ताक्षरित JWT बियरर टोकन स्वीकार करता है, और कॉन्फ़िगर होने पर लीगेसी `apiKeyEnv` टोकन भी स्वीकार करता है। स्थानीय विकास में, प्रमाणीकरण को छोड़ा जा सकता है; होस्ट किए गए उत्पादन रनटाइम में, गुम A2A प्रमाणीकरण अप्रमाणित रूप से चलने के बजाय 503 लौटाता है।
+
+### प्रामाणिक नीति सीमा {#auth-policy}
+
+बेयरर सत्यापन अनुरोध सीमा पर चलता है - JSON-RPC हैंडलर में - एजेंट लूप द्वारा संदेश देखने से पहले। `packages/core/src/a2a/auth-policy.ts` में साझा सहायक तय करते हैं कि तैनाती के लिए क्या आवश्यक है:
+
+- `isA2AProductionRuntime()` Netlify, AWS Lambda, Cloudflare Pages/Workers, Vercel, Render, Fly, और Cloud Run पर `true` लौटाता है - तब भी जब `NODE_ENV` `"production"` नहीं है। कुछ सर्वर रहित प्रदाता लगातार `NODE_ENV` सेट नहीं करते हैं, इसलिए नीति प्रदाता-विशिष्ट फ़्लैग भी पढ़ती है।
+- `A2A_SECRET` सेट होने पर `hasConfiguredA2ASecret()` `true` लौटाता है।
+- `shouldAdvertiseJwtA2AAuth()` वह है जिसका उपयोग एजेंट कार्ड यह तय करने के लिए करता है कि `jwtBearer` सुरक्षा योजना प्रकाशित की जाए या नहीं।
+
+उत्पादन नीति सख्त है: किसी भी उत्पादन रनटाइम में, async `_process-task` रूट तब तक भेजने से इंकार कर देता है जब तक कि `A2A_SECRET` कॉन्फ़िगर नहीं किया जाता है (503 लौटाता है), और JSON-RPC एंडपॉइंट अप्रमाणित कॉल को मना कर देता है। डेव फ़ॉलबैक (एक बार चेतावनी दें, अनुमति दें) केवल तभी सक्रिय होता है जब कोई उत्पादन ध्वज सेट नहीं होता है।
+
+यह सीमा मायने रखती है क्योंकि एजेंट लूप एक दूरस्थ कॉलर से फ्री-फॉर्म इनपुट स्वीकार करता है। बियरर चेक को लूप के अंदर रखने से, या इसे लागू करने के लिए किसी टूल पर निर्भर रहने से, प्रॉम्प्ट-इंजेक्शन या बग्गी हैंडलर को बायपास करने की अनुमति मिल जाएगी। इसे HTTP सीमा पर रखने का मतलब है किसी भी LLM कॉल से पहले टोकन विफलता शॉर्ट-सर्किट।
+
+JWT सत्यापन (`server.ts` में `verifyA2AToken`) वैश्विक `A2A_SECRET` या टोकन के `org_domain` दावे के माध्यम से SQL से देखे गए ऑर्ग-स्कोप्ड रहस्य के साथ हस्ताक्षरित टोकन स्वीकार करता है, और मौजूद होने पर टोकन के स्वयं के `aud`/`iss` दावों को लागू करता है।
+
+## निरंतरता {#continuations}
+
+जब कोई एजेंट किसी दूरस्थ A2A सहकर्मी को कॉल करता है जो तुरंत वापस नहीं आता है, तो कार्य पूरा होने तक फ्रेमवर्क `tasks/get` को पोल करता है। इसे `A2AClient.sendAndWait` के माध्यम से वायर्ड किया गया है, जो `callAgent()` हेल्पर द्वारा उपयोग किया जाने वाला डिफ़ॉल्ट मोड है।
+
+```ts
+// Default: async + poll (safe on serverless hosts)
+const reply = await callAgent(url, "Generate the quarterly report", {
+  userEmail: session.email,
+});
+
+// Single-shot blocking POST (avoid on Netlify/Vercel for slow handlers)
+const reply2 = await callAgent(url, "Quick lookup", { async: false });
+```
+
+मैसेजिंग इंटीग्रेशन (Slack, ईमेल) द्वारा शुरू की गई इनबाउंड निरंतरता के लिए, फ्रेमवर्क SQL में निरंतरता बनाए रखता है और इसे आउट-ऑफ-बैंड प्रोसेस करता है:
+
+- जब एकीकरण हैंडलर किसी रिमोट एजेंट को सौंपता है तो `a2a_continuations` तालिका में एक पंक्ति लिखी जाती है।
+- एक स्व-चालित `POST /_agent-native/integrations/process-a2a-continuation` पंक्ति का दावा करता है, रिमोट एजेंट पर `tasks/get` को कॉल करता है, और या तो एकीकरण एडाप्टर या पुनर्निर्धारण का उत्तर देता है।
+- यदि दूरस्थ कार्य अभी भी काम कर रहा है, तो पंक्ति को पुनर्निर्धारित और पुनः भेजा जाता है। मतदान बजट **~20 मिनट के दूरस्थ कार्य** (`MAX_REMOTE_WORK_MS`) और **30 प्रेषण प्रयासों** (`MAX_ATTEMPTS`) से घिरा है; किसी भी सीमा के बाद, निरंतरता एक स्पष्ट त्रुटि के साथ विफल हो जाती है और उपयोगकर्ता को "एजेंट ने समय पर जवाब नहीं दिया" उत्तर मिलता है।
+- एक आवर्ती स्वीपर (`claimDueA2AContinuations`) किसी भी निरंतरता पंक्तियों का पुनः दावा करता है जो पिछले फ़ंक्शन निष्पादन के समाप्त होने पर उड़ान में छोड़ दी गई थीं। भले ही कॉलिंग ऐप मध्य मतदान में क्रैश हो जाए, अगला स्वीप टिक काम फिर से शुरू कर देता है।
+
+`packages/core/src/integrations/a2a-continuation-processor.ts` में परिभाषित। एक ही पुन: प्रयास कार्य पैटर्न का उपयोग एकीकरण वेबहुक कार्यों (`pending-tasks-retry-job.ts`) के लिए किया जाता है, जो 3 प्रयासों पर कैप की गई एक अलग कतार है - उपरोक्त निरंतरता-मतदान बजट से अलग।
+
+## कार्यस्थान A2A {#workspace-a2a}
+
+एकल नेटलाइज़ साइट ([multi-app workspace](/docs/multi-app-workspace) देखें) पर तैनात मल्टी-ऐप वर्कस्पेस में, `apps/<id>/` के तहत प्रत्येक ऐप A2A पीयर के रूप में ऑटो-पंजीकृत है:
+
+- एक साझा `A2A_SECRET` को निर्माण के समय प्रत्येक ऐप के वातावरण में माउंट किया जाता है।
+- क्रॉस-ऐप कॉल समान-मूल हैं - `https://workspace.example.com/apps/analytics` कॉल `https://workspace.example.com/apps/mail` - इसलिए कोई DNS, CORS, या प्रति-जोड़ी JWT सेटअप नहीं है।
+- साझा रहस्य के साथ हस्ताक्षरित आउटबाउंड कॉल में कॉलर का ईमेल `sub` और (जब मौजूद हो) ऑर्ग डोमेन होता है। रिसीवर का JWT सत्यापनकर्ता या तो साझा रहस्य या SQL से ऑर्ग-स्कोप्ड रहस्य को उसी क्रम में स्वीकार करता है।
+- एजेंट डिस्कवरी प्रत्येक सहकर्मी को हाथ से तार देने के लिए ऑपरेटर पर निर्भर रहने के बजाय कार्यक्षेत्र रजिस्ट्री पर चलती है। `packages/core/src/server/agent-discovery.ts` में `discoverAgents` और `packages/core/src/org/handlers.ts` में ऑर्ग रिफ्रेश पथ देखें।
+
+बाहरी A2A - आपके कार्यक्षेत्र के बाहर के एजेंटों को कॉल - अभी भी बियरर-टोकन मॉडल (`apiKeyEnv` + `A2AClient(url, apiKey)`) का उपयोग करता है। कार्यक्षेत्र A2A शीर्ष पर स्तरित है; बाहरी साथियों के बारे में कुछ भी नहीं बदलता।
+
+## सर्वर रहित गेट्चा {#serverless}
+
+**कभी भी प्रतिक्रिया को समाप्त करने वाले `Promise` पर भरोसा न करें। ** सर्वर रहित फ़ंक्शंस (नेटलिफाई, वर्सेल, AWS लैम्ब्डा, क्लाउड रन) प्रतिक्रिया निकाय के फ्लश होते ही रुक जाते हैं - कभी-कभी एक अप्रत्याशित `fetch(...)` के TCP हैंडशेक के पूरा होने से पहले भी। नोड पर स्थानीय रूप से काम करने वाले पैटर्न चुपचाप उत्पादन में काम बंद कर देंगे।
+
+A2A async डिस्पैच और [integration webhook queue](/docs/messaging) दोनों द्वारा उपयोग किया जाने वाला फ्रेमवर्क का पैटर्न है:
+
+1. अनुरोध स्वीकार करें, SQL के साथ जो होना चाहिए उसे जारी रखें, तुरंत 200 लौटाएं।
+2. एक `POST` को एक अलग फ्रेमवर्क रूट (`/_agent-native/a2a/_process-task` या `/_agent-native/integrations/process-task`) में सेल्फ-फायर करें ताकि वास्तविक कार्य अपने पूर्ण टाइमआउट के साथ **ताज़ा फ़ंक्शन निष्पादन** में चले।
+3. पंक्ति आईडी से जुड़े HMAC टोकन के साथ सेल्फ-फायर को प्रमाणित करें, `A2A_SECRET` के साथ हस्ताक्षरित।
+4. आवर्ती पुनर्प्रयास कार्य उन सभी पंक्तियों को साफ़ कर देता है जिन पर दावा किया गया था लेकिन समाप्त नहीं हुआ था, इसलिए क्रैश हुआ फ़ंक्शन कार्य को बाधित नहीं करता है।
+
+जब आप अपना स्वयं का A2A हैंडलर या एकीकरण एडाप्टर लिखते हैं, तो उसी आकार का पालन करें। `return` के बाद काम को किसी अलग वादे से न जोड़ें। यदि आपको सर्वर रहित हैंडलर से सेल्फ-फायर करना है, तो लौटने से पहले फ़ेच शुरू करें और इसे एक छोटी शुरुआत दें (फ्रेमवर्क एक छोटे टाइमआउट का उपयोग करता है) ताकि आउटबाउंड अनुरोध प्रक्रिया छोड़ने से पहले लैम्ब्डा-शैली रनटाइम फ्रीज न हो। `integration-webhooks` कौशल विहित संदर्भ है।
+
+## एजेंट का उल्लेख {#agent-mentions}
+
+आप सीधे चैट कंपोजर में एजेंटों का `@`-उल्लेख कर सकते हैं। कनेक्टेड एजेंट A2A का उपयोग करते हैं: जब आप किसी कनेक्टेड एजेंट का उल्लेख करते हैं, तो सर्वर उस एजेंट को A2A कॉल करता है और प्रतिक्रिया को आपके वार्तालाप संदर्भ में बुनता है।
+
+कस्टम वर्कस्पेस एजेंट अलग-अलग होते हैं: वे A2A के बजाय वर्तमान ऐप/रनटाइम के अंदर स्थानीय रूप से चलते हैं।
+
+उल्लेख कैसे काम करते हैं, एजेंट कैसे जोड़ें, और कस्टम उल्लेख प्रदाता कैसे बनाएं, इसके विवरण के लिए [Agent Mentions](/docs/agent-mentions) देखें।
+
+## मैसेजिंग एकीकरण {#messaging-integrations}
+
+एजेंटों तक Slack, ईमेल, टेलीग्राम और व्हाट्सएप जैसे बाहरी मैसेजिंग प्लेटफॉर्म से भी पहुंचा जा सकता है। उपयोगकर्ता उन प्लेटफ़ॉर्म पर संदेश भेजते हैं और एजेंट वेब चैट के समान टूल और actions का उपयोग करके उसी थ्रेड में प्रतिक्रिया देता है।
+
+प्रत्येक प्लेटफ़ॉर्म पर सेटअप विवरण के लिए [Messaging](/docs/messaging) देखें।
+
+## उदाहरण: क्रॉस-एजेंट क्वेरी {#example}
+
+एक मेल एजेंट को एनालिटिक्स डेटा की आवश्यकता होती है। एनालिटिक्स एजेंट A2A के माध्यम से "रन-क्वेरी" कौशल को उजागर करता है:
+
+```ts
+// In the mail agent's actions/get-analytics.ts
+import { defineAction } from "@agent-native/core/action";
+import { callAgent } from "@agent-native/core/a2a";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Ask the analytics agent a question.",
+  schema: z.object({ question: z.string() }),
+  async run({ question }) {
+    const response = await callAgent(
+      "https://analytics.example.com",
+      question,
+      { apiKey: process.env.ANALYTICS_API_KEY },
+    );
+    return { answer: response };
+  },
+});
+```
+
+एनालिटिक्स एजेंट संदेश प्राप्त करता है, अपने हैंडलर के माध्यम से क्वेरी चलाता है, और परिणाम लौटाता है। मेल कार्रवाई से टेक्स्ट प्रतिक्रिया वापस मिल जाती है। कोई साझा डेटाबेस नहीं, कोई प्रत्यक्ष API कॉल नहीं - केवल एजेंट-टू-एजेंट संचार।

@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useT } from "@agent-native/core/client";
 import { Player } from "@remotion/player";
-import type { CompositionEntry } from "@/remotion/registry";
-import { cn } from "@/lib/utils";
 import { IconTrash } from "@tabler/icons-react";
+import { useState } from "react";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +18,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import type { CompositionEntry } from "@/remotion/registry";
 
 type CompositionCardProps = {
   composition: CompositionEntry;
@@ -34,6 +36,7 @@ export function CompositionCard({
   onDelete,
   draggable = false,
 }: CompositionCardProps) {
+  const t = useT();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const handleDragStart = (e: React.DragEvent) => {
@@ -109,7 +112,9 @@ export function CompositionCard({
                 <IconTrash className="w-3.5 h-3.5" />
               </button>
             </TooltipTrigger>
-            <TooltipContent>Delete composition</TooltipContent>
+            <TooltipContent>
+              {t("editor.composition.deleteComposition")}
+            </TooltipContent>
           </Tooltip>
         )}
       </div>
@@ -117,9 +122,13 @@ export function CompositionCard({
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete "{composition.title}"?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("editor.composition.deleteCompositionTitle", {
+                title: composition.title,
+              })}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This cannot be undone.
+              {t("editor.composition.deleteCompositionDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

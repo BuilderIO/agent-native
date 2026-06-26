@@ -1,7 +1,8 @@
-import Database from "better-sqlite3";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 vi.mock("../db/client.js", () => ({

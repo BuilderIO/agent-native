@@ -6,6 +6,7 @@ import type {
   PendingAttachment,
   Attachment,
 } from "@assistant-ui/react";
+
 import {
   CHAT_DOCUMENT_ATTACHMENT_ACCEPT,
   IMAGE_ATTACHMENT_ACCEPT,

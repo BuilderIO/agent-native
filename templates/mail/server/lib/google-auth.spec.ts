@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   gmailBatchGetThreads,
   gmailGetThread,

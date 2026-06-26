@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentChatEvent } from "./types.js";
+
+import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
+import type { AgentChatEvent } from "./types.js";
 
 vi.mock("./run-store.js", () => ({
   insertRun: vi.fn(() => Promise.resolve()),
@@ -21,6 +23,7 @@ vi.mock("./run-store.js", () => ({
   updateRunHeartbeat: vi.fn(() => Promise.resolve()),
   bumpRunProgress: vi.fn(() => Promise.resolve()),
   reapIfStale: vi.fn(() => Promise.resolve(null)),
+  reapUnclaimedBackgroundRun: vi.fn(() => Promise.resolve(false)),
   ensureTerminalRunEvent: vi.fn(() => Promise.resolve()),
   setRunError: vi.fn(() => Promise.resolve()),
   STALE_RUN_ERROR_EVENT: {
@@ -34,6 +37,8 @@ vi.mock("./run-store.js", () => ({
   },
 }));
 
+import { registerErrorCaptureProvider } from "../server/capture-error.js";
+import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   abortRun,
   BACKGROUND_SOFT_TIMEOUT_CEILING_MS,
@@ -50,7 +55,6 @@ import {
   subscribeToRun,
   TERMINAL_RUN_RECONNECT_WINDOW_MS,
 } from "./run-manager.js";
-import { isInBackgroundFunctionRuntime } from "./durable-background.js";
 import {
   getRunAbortState,
   getRunStatus,
@@ -65,8 +69,9 @@ import {
   ensureTerminalRunEvent,
   cleanupOldRuns,
   setRunError,
+  reapIfStale,
+  reapUnclaimedBackgroundRun,
 } from "./run-store.js";
-import { registerErrorCaptureProvider } from "../server/capture-error.js";
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
 const originalRetentionEnv = process.env.AGENT_RUN_RETENTION_MS;
@@ -144,6 +149,10 @@ describe("run manager soft timeout", () => {
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
     vi.mocked(setRunError).mockClear();
+    vi.mocked(reapUnclaimedBackgroundRun).mockReset();
+    vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValue(false);
+    vi.mocked(reapIfStale).mockReset();
+    vi.mocked(reapIfStale).mockResolvedValue(null as any);
   });
 
   afterEach(() => {
@@ -837,6 +846,117 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("does not capture missing LLM provider errors while preserving the terminal event", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-missing-provider-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-missing-provider-no-capture",
+        "thread-missing-provider-no-capture",
+        async () => {
+          throw new EngineError(LLM_MISSING_CREDENTIALS_MESSAGE);
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-missing-provider-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: LLM_MISSING_CREDENTIALS_MESSAGE,
+    });
+  });
+
+  it("does not capture provider auth failures while preserving the terminal event", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-provider-auth-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-provider-auth-no-capture",
+        "thread-provider-auth-no-capture",
+        async () => {
+          throw new EngineError("401 status code (no body)");
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-provider-auth-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: "401 status code (no body)",
+    });
+  });
+
+  it("does not capture provider connection failures while preserving the terminal event", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-provider-connection-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-provider-connection-no-capture",
+        "thread-provider-connection-no-capture",
+        async () => {
+          throw new EngineError("Connection error.");
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-provider-connection-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: "Connection error.",
+    });
+  });
+
   it("emits terminal events only after the completion callback resolves", async () => {
     let resolveComplete!: () => void;
     const onComplete = vi.fn(
@@ -1113,6 +1233,59 @@ describe("run manager soft timeout", () => {
     expect(result).toMatchObject({
       runId: "run-recent-errored",
       status: "errored",
+    });
+  });
+
+  // ─── FALLBACK HARDENING: unclaimed background run recovery ──────────────────
+  it("recovers an unclaimed-stale background run (202 acked, worker never started)", async () => {
+    // dispatch_mode still 'background' (never flipped to 'background-processing')
+    // means the bg-fn worker silently died. The read path must recover it.
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-unclaimed",
+      threadId: "thread-unclaimed",
+      status: "running",
+      startedAt: Date.now() - 30_000,
+      heartbeatAt: Date.now() - 30_000,
+      completedAt: null,
+      lastProgressAt: null,
+      dispatchMode: "background",
+      diagStage: null,
+    });
+    vi.mocked(reapUnclaimedBackgroundRun).mockResolvedValueOnce(true);
+    vi.mocked(reapIfStale).mockClear();
+
+    const result = await getActiveRunForThreadAsync("thread-unclaimed");
+
+    // Recovered → the read returns null (run no longer "active"), and we never
+    // fell through to the generic stale reaper.
+    expect(result).toBeNull();
+    expect(reapUnclaimedBackgroundRun).toHaveBeenCalledWith("run-unclaimed");
+    expect(reapIfStale).not.toHaveBeenCalled();
+  });
+
+  it("does NOT attempt unclaimed recovery for a claimed (background-processing) run", async () => {
+    vi.mocked(getRunByThread).mockResolvedValue({
+      id: "run-processing",
+      threadId: "thread-processing",
+      status: "running",
+      startedAt: Date.now() - 5_000,
+      heartbeatAt: Date.now() - 1_000,
+      completedAt: null,
+      lastProgressAt: Date.now() - 1_000,
+      dispatchMode: "background-processing",
+      diagStage: '{"stage":"worker_started","at":1}',
+    });
+    vi.mocked(reapUnclaimedBackgroundRun).mockClear();
+
+    const result = await getActiveRunForThreadAsync("thread-processing");
+
+    // A claimed, heartbeating worker is left alone and its diagnostics surface.
+    expect(reapUnclaimedBackgroundRun).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      runId: "run-processing",
+      status: "running",
+      dispatchMode: "background-processing",
+      diagStage: '{"stage":"worker_started","at":1}',
     });
   });
 

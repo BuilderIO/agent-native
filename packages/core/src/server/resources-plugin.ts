@@ -1,8 +1,5 @@
-import {
-  getH3App,
-  markDefaultPluginProvided,
-} from "./framework-request-handler.js";
 import { defineEventHandler, setResponseStatus, getMethod } from "h3";
+
 import {
   handleListResources,
   handleGetResourceTree,
@@ -13,6 +10,10 @@ import {
   handleDeleteResource,
   handleUploadResource,
 } from "../resources/handlers.js";
+import {
+  getH3App,
+  markDefaultPluginProvided,
+} from "./framework-request-handler.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 

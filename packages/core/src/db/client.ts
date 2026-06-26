@@ -103,6 +103,107 @@ export function isLocalSqliteUrl(url: string): boolean {
   return url === "" || url.startsWith("file:") || !url.includes("://");
 }
 
+export function isPgliteUrl(url: string): boolean {
+  return url.toLowerCase().startsWith("pglite:");
+}
+
+export function pgliteDataDirFromUrl(url: string): string {
+  const raw = url.slice("pglite:".length);
+  const dataDir = raw.startsWith("//") ? raw.slice(2) : raw;
+  if (!dataDir || dataDir === "/") return "./data/pglite";
+  if (
+    dataDir === "memory" ||
+    dataDir === "/memory" ||
+    dataDir === ":memory:" ||
+    dataDir === "/:memory:" ||
+    dataDir === "memory://"
+  ) {
+    return "memory://";
+  }
+  return dataDir;
+}
+
+async function importOptionalModule(specifier: string): Promise<any> {
+  return import(/* @vite-ignore */ specifier);
+}
+
+function isMissingPackageError(err: unknown, packageName: string): boolean {
+  const anyErr = err as any;
+  const message = String(anyErr?.message ?? anyErr ?? "");
+  return (
+    (anyErr?.code === "ERR_MODULE_NOT_FOUND" &&
+      message.includes(packageName)) ||
+    message.includes(`Cannot find package '${packageName}'`) ||
+    message.includes(`Cannot find module '${packageName}'`)
+  );
+}
+
+export async function loadPglitePackage(): Promise<{ PGlite: any }> {
+  const packageName = "@electric-sql/pglite";
+  try {
+    return (await importOptionalModule(packageName)) as { PGlite: any };
+  } catch (err) {
+    if (isMissingPackageError(err, packageName)) {
+      throw new Error(
+        "PGlite database support requires the optional @electric-sql/pglite package. " +
+          "Install it with `pnpm add @electric-sql/pglite@^0.5.3`, then set " +
+          "`DATABASE_URL=pglite:./data/pglite`.",
+      );
+    }
+    throw err;
+  }
+}
+
+export async function loadPgliteDrizzle(): Promise<{
+  PGlite: any;
+  drizzle: any;
+}> {
+  const drizzlePackage = "drizzle-orm/pglite";
+  const { PGlite } = await loadPglitePackage();
+  const drizzleMod = await importOptionalModule(drizzlePackage);
+  return {
+    PGlite,
+    drizzle: drizzleMod.drizzle,
+  };
+}
+
+const _pgliteClients = new Map<string, Promise<any>>();
+
+export async function getPgliteClient(url: string): Promise<any> {
+  const dataDir = pgliteDataDirFromUrl(url);
+  let ready = _pgliteClients.get(dataDir);
+  if (!ready) {
+    ready = loadPglitePackage().then(({ PGlite }) => PGlite.create(dataDir));
+    _pgliteClients.set(dataDir, ready);
+  }
+  return ready;
+}
+
+export async function closePgliteClients(): Promise<void> {
+  const clients = await Promise.allSettled(_pgliteClients.values());
+  _pgliteClients.clear();
+  for (const result of clients) {
+    if (result.status === "fulfilled") {
+      await result.value.close().catch(() => {});
+    }
+  }
+}
+
+export async function closePgliteClient(url: string): Promise<void> {
+  const dataDir = pgliteDataDirFromUrl(url);
+  const ready = _pgliteClients.get(dataDir);
+  _pgliteClients.delete(dataDir);
+  if (!ready) return;
+
+  const result = await Promise.resolve(ready).then(
+    (client) => ({ status: "fulfilled" as const, client }),
+    () => ({ status: "rejected" as const }),
+  );
+  if (result.status === "fulfilled") {
+    await result.client.close().catch(() => {});
+  }
+}
+
 export async function prepareLocalSqliteUrl(url: string): Promise<string> {
   if (!url.startsWith("file:")) return url;
 
@@ -258,7 +359,11 @@ export function getDialect(): Dialect {
 
   // DATABASE_URL takes priority over D1 when set.
   const url = getDatabaseUrl();
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
+  if (
+    url.startsWith("postgres://") ||
+    url.startsWith("postgresql://") ||
+    isPgliteUrl(url)
+  ) {
     _dialect = "postgres";
     return _dialect;
   }
@@ -286,7 +391,11 @@ export function isPostgres(): boolean {
 
 function dialectForConfig(config: DbExecConfig): Dialect {
   const url = config.url ?? "";
-  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
+  if (
+    url.startsWith("postgres://") ||
+    url.startsWith("postgresql://") ||
+    isPgliteUrl(url)
+  ) {
     return "postgres";
   }
   if (url && !url.startsWith("file:")) {
@@ -308,6 +417,7 @@ function dialectForConfig(config: DbExecConfig): Dialect {
  * would read and write each other's settings, oauth tokens, and app state.
  */
 export function isLocalDatabase(): boolean {
+  if (isPgliteUrl(getDatabaseUrl())) return true;
   if (getDialect() !== "sqlite") return false;
   const url = getDatabaseUrl();
   return url === "" || url.startsWith("file:");
@@ -326,9 +436,129 @@ export function intType(): string {
 // Parameter conversion: ? -> $1, $2, $3
 // ---------------------------------------------------------------------------
 
-function sqliteToPostgresParams(sql: string): string {
+export function sqliteToPostgresParams(sql: string): string {
+  let out = "";
+  let param = 0;
   let i = 0;
-  return sql.replace(/\?/g, () => `$${++i}`);
+  let mode:
+    | "normal"
+    | "single"
+    | "double"
+    | "line-comment"
+    | "block-comment"
+    | "dollar" = "normal";
+  let dollarTag = "";
+
+  while (i < sql.length) {
+    const ch = sql[i];
+    const next = sql[i + 1];
+
+    if (mode === "line-comment") {
+      out += ch;
+      i++;
+      if (ch === "\n") mode = "normal";
+      continue;
+    }
+
+    if (mode === "block-comment") {
+      out += ch;
+      if (ch === "*" && next === "/") {
+        out += next;
+        i += 2;
+        mode = "normal";
+        continue;
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === "single") {
+      out += ch;
+      if (ch === "\\" && next) {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === "'" && next === "'") {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === "'") mode = "normal";
+      i++;
+      continue;
+    }
+
+    if (mode === "double") {
+      out += ch;
+      if (ch === '"' && next === '"') {
+        out += next;
+        i += 2;
+        continue;
+      }
+      if (ch === '"') mode = "normal";
+      i++;
+      continue;
+    }
+
+    if (mode === "dollar") {
+      if (dollarTag && sql.startsWith(dollarTag, i)) {
+        out += dollarTag;
+        i += dollarTag.length;
+        mode = "normal";
+        dollarTag = "";
+        continue;
+      }
+      out += ch;
+      i++;
+      continue;
+    }
+
+    if (ch === "-" && next === "-") {
+      out += ch + next;
+      i += 2;
+      mode = "line-comment";
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      out += ch + next;
+      i += 2;
+      mode = "block-comment";
+      continue;
+    }
+    if (ch === "'") {
+      out += ch;
+      i++;
+      mode = "single";
+      continue;
+    }
+    if (ch === '"') {
+      out += ch;
+      i++;
+      mode = "double";
+      continue;
+    }
+    if (ch === "$") {
+      const match = /^\$[A-Za-z_][A-Za-z0-9_]*\$|^\$\$/.exec(sql.slice(i));
+      if (match) {
+        dollarTag = match[0];
+        out += dollarTag;
+        i += dollarTag.length;
+        mode = "dollar";
+        continue;
+      }
+    }
+    if (ch === "?") {
+      out += `$${++param}`;
+      i++;
+      continue;
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return out;
 }
 
 function sqlAndArgs(sql: string | { sql: string; args?: unknown[] }): {
@@ -564,7 +794,47 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
  * proceed when one connection is busy.
  */
 export function neonPoolMax(): number {
-  return isServerlessRuntime() ? 2 : 10;
+  if (!isServerlessRuntime()) return 10;
+  // The durable background-function worker is a SINGLE process per run (unlike
+  // the many warm request-instances the foreground serverless has), so it can
+  // safely hold a larger pool without risking Neon's connection cap. The agent's
+  // pre-send setup fires ~6 concurrent DB reads in parallel; with only 2
+  // connections that burst exhausts the pool and a single stalled connection
+  // freezes the worker before it can claim — observed on analytics' heavier
+  // action surface, where the worker froze right after `model_done` and never
+  // recorded `env_config`/`presend`, while the foreground (10-connection pool)
+  // ran the identical code in ~2s. Give the bg worker enough connections for the
+  // burst; keep the foreground serverless pool tiny to avoid "Max client
+  // connections reached" across many warm instances.
+  if (isBackgroundFunctionPoolContext()) return 8;
+  return 2;
+}
+
+/**
+ * Inline mirror of `isInBackgroundFunctionRuntime()`
+ * (agent/durable-background.ts), replicated here to avoid a `db` → `agent`
+ * import cycle. Keep the signals in sync with that function.
+ */
+function isBackgroundFunctionPoolContext(): boolean {
+  if (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true
+  ) {
+    return true;
+  }
+  const lambdaName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+  if (
+    typeof lambdaName === "string" &&
+    lambdaName.toLowerCase().endsWith("-background")
+  ) {
+    return true;
+  }
+  const forced = process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME;
+  if (forced != null) {
+    const v = forced.trim().toLowerCase();
+    return v === "1" || v === "true" || v === "yes" || v === "on";
+  }
+  return false;
 }
 
 /**
@@ -664,6 +934,24 @@ let _neonPool: any;
 let _sqlite: any;
 let _initPromise: Promise<void> | undefined;
 
+async function executePglite(
+  client: {
+    query: (
+      sql: string,
+      args?: any[],
+    ) => Promise<{ rows?: any[]; affectedRows?: number; rowCount?: number }>;
+  },
+  sql: Parameters<DbExec["execute"]>[0],
+): ReturnType<DbExec["execute"]> {
+  const { rawSql, args } = sqlAndArgs(sql);
+  const pgSql = sqliteToPostgresParams(rawSql);
+  const result = await client.query(pgSql, args as any[]);
+  return {
+    rows: Array.from(result.rows ?? []),
+    rowsAffected: result.affectedRows ?? result.rowCount ?? 0,
+  };
+}
+
 async function createDbExecInternal(
   config: DbExecConfig = {},
   trackSingletonResources = false,
@@ -695,6 +983,23 @@ async function createDbExecInternal(
 
   let url = config.url || "file:./data/app.db";
 
+  if (isPgliteUrl(url)) {
+    const client = await getPgliteClient(url);
+    return {
+      execute: (sql) => executePglite(client, sql),
+      async transaction<T>(fn: (tx: DbExec) => Promise<T>): Promise<T> {
+        return client.transaction((tx: any) =>
+          fn({
+            execute: (sql) => executePglite(tx, sql),
+          }),
+        );
+      },
+      async close() {
+        await closePgliteClient(url);
+      },
+    };
+  }
+
   // Postgres — uses postgres.js. Works on Node.js natively and on Cloudflare
   // Workers with the nodejs_compat compatibility flag (provides net/tls polyfills).
   // On Workers, connections can't be shared across requests, so we create a
@@ -710,7 +1015,19 @@ async function createDbExecInternal(
     // with CONNECT_TIMEOUT. The serverless Pool handles wake-up transparently
     // and keeps the same `pg`-compatible query(...) interface we need here.
     if (isNeonUrl(url)) {
-      const { Pool } = await import("@neondatabase/serverless");
+      const { Pool, neonConfig } = await import("@neondatabase/serverless");
+      // In the durable background-function worker, route pool queries over Neon's
+      // stateless HTTP transport instead of a long-lived WebSocket. A frozen/thawed
+      // bg-fn instance can leave the pool's WebSocket connections half-dead, so
+      // queries after the first burst stall on connect()/query() — observed: the
+      // analytics worker stalls right after model resolution and never claims.
+      // HTTP-per-query (poolQueryViaFetch) has no persistent socket to die; the
+      // foreground keeps the WebSocket pool. See the bg-fn execute branch below.
+      const bgHttp = isBackgroundFunctionPoolContext();
+      if (bgHttp) {
+        (neonConfig as { poolQueryViaFetch?: boolean }).poolQueryViaFetch =
+          true;
+      }
       const pool = new Pool({ connectionString: url, max: neonPoolMax() });
       attachNeonPoolErrorLogger(pool);
       if (trackSingletonResources) _neonPool = pool;
@@ -736,6 +1053,21 @@ async function createDbExecInternal(
       }
       return {
         async execute(sql) {
+          if (bgHttp) {
+            // HTTP-per-query path (poolQueryViaFetch=true): no pool.connect(), no
+            // persistent socket to stall. queryNeonClient calls pool.query(),
+            // which the driver routes over HTTP when poolQueryViaFetch is set.
+            return retryOnConnectionError<{
+              rows: unknown[];
+              rowsAffected: number;
+            }>(() =>
+              withDbTimeout(
+                "http-query",
+                () => queryNeonClient(pool, sql),
+                dbOpTimeoutMs(),
+              ),
+            );
+          }
           const result = await retryOnConnectionError<{
             rows: unknown[];
             rowsAffected: number;
@@ -1172,6 +1504,7 @@ export async function closeDbExec(): Promise<void> {
     _sqlite.close();
     _sqlite = undefined;
   }
+  await closePgliteClients();
   _exec = undefined;
   _initPromise = undefined;
 }

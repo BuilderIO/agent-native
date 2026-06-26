@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { resolveCatchAllTarget } from "./catch-all-target.js";
 
 describe("resolveCatchAllTarget", () => {

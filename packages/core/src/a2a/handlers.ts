@@ -1,13 +1,12 @@
 import { setResponseHeader, setResponseStatus } from "h3";
-import type {
-  A2AConfig,
-  A2AHandler,
-  A2AHandlerContext,
-  A2AHandlerResult,
-  JsonRpcResponse,
-  Message,
-  Artifact,
-} from "./types.js";
+
+import { signInternalToken } from "../integrations/internal-token.js";
+import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { agentChat } from "../shared/agent-chat.js";
+import {
+  hasConfiguredA2ASecret,
+  isA2AProductionRuntime,
+} from "./auth-policy.js";
 import {
   createTask,
   getTask,
@@ -19,13 +18,15 @@ import {
   touchQueuedA2ATaskDispatch,
   touchProcessingA2ATask,
 } from "./task-store.js";
-import { agentChat } from "../shared/agent-chat.js";
-import { signInternalToken } from "../integrations/internal-token.js";
-import { withConfiguredAppBasePath } from "../server/app-base-path.js";
-import {
-  hasConfiguredA2ASecret,
-  isA2AProductionRuntime,
-} from "./auth-policy.js";
+import type {
+  A2AConfig,
+  A2AHandler,
+  A2AHandlerContext,
+  A2AHandlerResult,
+  JsonRpcResponse,
+  Message,
+  Artifact,
+} from "./types.js";
 
 // Inlined to avoid pulling the entire core-routes-plugin (and its h3
 // transitive deps) into the a2a/handlers test boundary. Must stay in sync

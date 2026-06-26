@@ -3,20 +3,12 @@
   "displayName": "Agent-Native Content",
   "private": true,
   "type": "module",
-  "pkg": {
-    "assets": [
-      "dist/spa/*"
-    ],
-    "scripts": [
-      "dist/server/**/*.js"
-    ]
-  },
   "scripts": {
     "dev": "agent-native dev",
     "build": "agent-native build",
     "start": "agent-native start",
     "test": "vitest --run",
-    "format.fix": "prettier --write .",
+    "format.fix": "oxfmt --write .",
     "typecheck": "agent-native typecheck",
     "action": "agent-native action",
     "script": "agent-native script"
@@ -78,8 +70,8 @@
     "@radix-ui/react-toast": "^1.2.14",
     "@radix-ui/react-toggle": "^1.1.9",
     "@radix-ui/react-tooltip": "^1.2.7",
-    "@react-router/dev": "^7.16.0",
-    "@react-router/fs-routes": "^7.16.0",
+    "@react-router/dev": "^8.0.1",
+    "@react-router/fs-routes": "^8.0.1",
     "@swc/core": "^1.13.3",
     "@tailwindcss/typography": "^0.5.16",
     "@tailwindcss/vite": "catalog:",
@@ -87,15 +79,16 @@
     "@types/node": "^24.2.1",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@typescript/native-preview": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-kit": "^0.31.10",
     "next-themes": "^0.4.6",
-    "prettier": "^3.6.2",
+    "oxfmt": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "react-router": "^7.16.0",
+    "react-router": "^8.0.1",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",
@@ -103,5 +96,13 @@
     "vite": "catalog:",
     "vitest": "catalog:"
   },
-  "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748"
+  "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748",
+  "pkg": {
+    "assets": [
+      "dist/spa/*"
+    ],
+    "scripts": [
+      "dist/server/**/*.js"
+    ]
+  }
 }

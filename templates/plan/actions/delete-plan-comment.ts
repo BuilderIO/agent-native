@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   ForbiddenError,
   assertAccess,
@@ -7,7 +8,7 @@ import {
 } from "@agent-native/core/sharing";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+
 import { getDb, schema } from "../server/db/index.js";
 import {
   isAnonymousPublicViewer,

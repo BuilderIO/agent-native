@@ -1,8 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import { db, schema } from "../server/db/index.js";
 import { and, gte, lte, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
+
+import { db, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "Get weight trend history for a date range",

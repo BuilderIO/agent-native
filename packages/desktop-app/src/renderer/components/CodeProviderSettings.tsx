@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -6,6 +5,7 @@ import {
   IconLoader2,
   IconTerminal2,
 } from "@tabler/icons-react";
+import { useCallback, useEffect, useState } from "react";
 
 type ProviderStatusTone = "ok" | "offline";
 const PENDING_BUILDER_CONNECT_RELOAD_KEY =

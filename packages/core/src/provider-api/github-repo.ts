@@ -1,9 +1,9 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { CredentialContext } from "../credentials/index.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
-import type { CredentialContext } from "../credentials/index.js";
 import { getCredentialContext } from "../server/request-context.js";
 import {
   createProviderApiRuntime,

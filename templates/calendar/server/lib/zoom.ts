@@ -1,3 +1,10 @@
+import {
+  getOAuthTokens,
+  saveOAuthTokens,
+  listOAuthAccountsByOwner,
+  deleteOAuthTokens,
+} from "@agent-native/core/oauth-tokens";
+import { createZoomProvider } from "@agent-native/scheduling/server/providers";
 /**
  * Zoom integration for the calendar template.
  *
@@ -13,13 +20,6 @@
  *   real Zoom meeting for a new booking
  */
 import { nanoid } from "nanoid";
-import {
-  getOAuthTokens,
-  saveOAuthTokens,
-  listOAuthAccountsByOwner,
-  deleteOAuthTokens,
-} from "@agent-native/core/oauth-tokens";
-import { createZoomProvider } from "@agent-native/scheduling/server/providers";
 
 const PROVIDER = "zoom_video";
 const SCOPES = [

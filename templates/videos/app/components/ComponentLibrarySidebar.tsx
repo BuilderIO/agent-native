@@ -1,10 +1,4 @@
-import { useState, useMemo, Component, type ReactNode } from "react";
-import {
-  libraryComponents,
-  type LibraryComponentEntry,
-  type ComponentCategory,
-} from "@/remotion/componentRegistry";
-import { cn } from "@/lib/utils";
+import { useT } from "@agent-native/core/client";
 import {
   IconBox,
   IconAdjustmentsHorizontal,
@@ -12,10 +6,18 @@ import {
   IconFileText,
   IconInfoCircle,
 } from "@tabler/icons-react";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { useState, useMemo, Component, type ReactNode } from "react";
+
 import { CurrentElementPanel } from "@/components/CurrentElementPanel";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import {
+  libraryComponents,
+  type LibraryComponentEntry,
+  type ComponentCategory,
+} from "@/remotion/componentRegistry";
 
 class SafeBoundary extends Component<
   { children: ReactNode },
@@ -48,6 +50,7 @@ export function ComponentLibrarySidebar({
   propValues,
   onPropChange,
 }: ComponentLibrarySidebarProps) {
+  const t = useT();
   const [tab, setTab] = useState<"components" | "properties">("components");
   const [openSections, setOpenSections] = useState({
     props: true,
@@ -110,13 +113,13 @@ export function ComponentLibrarySidebar({
             value="components"
             className="flex-1 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground data-[state=active]:bg-secondary data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
-            Components
+            {t("editor.library.componentsTab")}
           </TabsTrigger>
           <TabsTrigger
             value="properties"
             className="flex-1 px-3 py-1.5 text-xs font-medium rounded-md text-muted-foreground data-[state=active]:bg-secondary data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
-            Properties
+            {t("editor.library.propertiesTab")}
           </TabsTrigger>
         </TabsList>
 
@@ -125,10 +128,10 @@ export function ComponentLibrarySidebar({
           <div className="h-full flex flex-col">
             <div className="px-4 py-3 border-b border-border">
               <h2 className="text-sm font-semibold text-foreground">
-                Component Library
+                {t("editor.library.title")}
               </h2>
               <p className="text-xs text-muted-foreground mt-1">
-                Organized by atomic design
+                {t("editor.library.organizedByAtomicDesign")}
               </p>
             </div>
 
@@ -136,8 +139,10 @@ export function ComponentLibrarySidebar({
               {libraryComponents.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
                   <IconBox className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>No components yet</p>
-                  <p className="text-xs mt-1">Components will appear here</p>
+                  <p>{t("editor.library.noComponents")}</p>
+                  <p className="text-xs mt-1">
+                    {t("editor.library.componentsWillAppear")}
+                  </p>
                 </div>
               ) : (
                 Array.from(componentsByCategory.entries()).map(
@@ -159,7 +164,9 @@ export function ComponentLibrarySidebar({
                               isExpanded && "rotate-90",
                             )}
                           />
-                          {category}
+                          {t(`editor.library.categories.${category}`, {
+                            defaultValue: category,
+                          })}
                           <span className="ml-auto text-[10px] font-mono">
                             {components.length}
                           </span>
@@ -212,7 +219,7 @@ export function ComponentLibrarySidebar({
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                       <IconAdjustmentsHorizontal className="w-3.5 h-3.5 text-green-400" />
                       <span className="text-xs font-medium">
-                        Cursor Interactions
+                        {t("editor.library.cursorInteractions")}
                       </span>
                       <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
@@ -231,7 +238,7 @@ export function ComponentLibrarySidebar({
                       <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                         <IconFileText className="w-3.5 h-3.5 text-sky-400" />
                         <span className="text-xs font-medium">
-                          Text Animations
+                          {t("editor.library.textAnimations")}
                         </span>
                         <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                       </div>
@@ -242,11 +249,10 @@ export function ComponentLibrarySidebar({
                           <IconInfoCircle className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
                           <div>
                             <p className="text-xs font-medium text-sky-200 mb-1">
-                              Interactive Text Input
+                              {t("editor.library.interactiveTextInput")}
                             </p>
                             <p className="text-xs text-sky-300/80">
-                              Type in the "Ask Builder" textarea below. The send
-                              button will light up blue when text is entered.
+                              {t("editor.library.interactiveTextInputHelp")}
                             </p>
                           </div>
                         </div>
@@ -254,17 +260,12 @@ export function ComponentLibrarySidebar({
 
                       <div className="space-y-2">
                         <p className="text-xs text-muted-foreground">
-                          This component is now fully interactive:
+                          {t("editor.library.fullyInteractive")}
                         </p>
                         <ul className="text-xs text-muted-foreground space-y-1 ml-4 list-disc">
-                          <li>
-                            Type in the textarea to see the blue send button
-                          </li>
-                          <li>Click the send button to clear the text</li>
-                          <li>
-                            Hover over the button to see the grow/brightness
-                            effect
-                          </li>
+                          <li>{t("editor.library.typeToSeeSendButton")}</li>
+                          <li>{t("editor.library.clickSendToClear")}</li>
+                          <li>{t("editor.library.hoverToSeeEffect")}</li>
                         </ul>
                       </div>
                     </div>
@@ -283,7 +284,7 @@ export function ComponentLibrarySidebar({
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                       <IconFileText className="w-3.5 h-3.5 text-blue-400" />
                       <span className="text-xs font-medium">
-                        Component Props
+                        {t("editor.properties.componentProps")}
                       </span>
                       <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
@@ -294,13 +295,13 @@ export function ComponentLibrarySidebar({
                       {/* Preview Notice */}
                       <div className="px-4 py-3 bg-muted/30 rounded-lg border border-dashed border-border">
                         <p className="text-xs text-muted-foreground">
-                          Changes are for preview only and won't be saved
+                          {t("editor.library.previewOnly")}
                         </p>
                       </div>
 
                       {selectedComponent.propTypes.length === 0 ? (
                         <p className="text-xs text-muted-foreground">
-                          No configurable props
+                          {t("editor.properties.noConfigurableProps")}
                         </p>
                       ) : (
                         selectedComponent.propTypes.map((prop) => {
@@ -400,7 +401,7 @@ export function ComponentLibrarySidebar({
                     <div className="flex items-center gap-2 p-2 rounded hover:bg-secondary/50 transition-colors">
                       <IconInfoCircle className="w-3.5 h-3.5 text-amber-400" />
                       <span className="text-xs font-medium">
-                        Component IconInfoCircle
+                        {t("editor.library.componentInfo")}
                       </span>
                       <IconChevronRight className="w-3 h-3 ml-auto group-open:rotate-90 transition-transform text-muted-foreground" />
                     </div>
@@ -408,7 +409,7 @@ export function ComponentLibrarySidebar({
                   <div className="mt-1 px-4 py-3 space-y-3 text-xs text-muted-foreground">
                     <div>
                       <div className="font-medium text-foreground mb-1">
-                        Dimensions
+                        {t("editor.properties.dimensions")}
                       </div>
                       <div>
                         {selectedComponent.width} × {selectedComponent.height}px
@@ -417,7 +418,7 @@ export function ComponentLibrarySidebar({
 
                     <div>
                       <div className="font-medium text-foreground mb-1">
-                        Duration
+                        {t("editor.properties.duration")}
                       </div>
                       <div>
                         {selectedComponent.durationInFrames} frames @{" "}
@@ -432,7 +433,7 @@ export function ComponentLibrarySidebar({
 
                     <div>
                       <div className="font-medium text-foreground mb-1">
-                        Component ID
+                        {t("editor.properties.componentId")}
                       </div>
                       <code className="px-1.5 py-0.5 bg-secondary rounded font-mono">
                         {selectedComponent.id}
@@ -444,7 +445,7 @@ export function ComponentLibrarySidebar({
             ) : (
               <div className="h-full flex items-center justify-center p-4">
                 <p className="text-sm text-muted-foreground text-center">
-                  Select a component to view its properties
+                  {t("editor.library.selectComponent")}
                 </p>
               </div>
             )}

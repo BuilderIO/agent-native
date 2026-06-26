@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
-import {
-  applyPlanContentPatches,
-  planContentSchema,
-  type PlanContent,
-} from "../shared/plan-content.js";
+
 import {
   describeIncompatibleBlocks,
   getIncompatibleBlockCounts,
   isNotionCompatibleBlockType,
   NOTION_COMPATIBLE_BLOCK_TYPES,
 } from "../shared/notion-compat.js";
+import {
+  applyPlanContentPatches,
+  planContentSchema,
+  type PlanContent,
+} from "../shared/plan-content.js";
 import {
   exportPlanContentToMdxFolder,
   parsePlanMdxFolder,

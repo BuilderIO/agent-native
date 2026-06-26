@@ -25,16 +25,17 @@ import {
   setResponseStatus,
   type H3Event,
 } from "h3";
-import { getSession } from "./auth.js";
+
+import { createBuilderEngine } from "../agent/engine/builder-engine.js";
 import { appStateGet } from "../application-state/store.js";
+import { getOrgContext } from "../org/context.js";
+import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
+import { getSession } from "./auth.js";
 import {
   resolveHasBuilderPrivateKey,
   resolveSecret,
 } from "./credential-provider.js";
-import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
 import { runWithRequestContext } from "./request-context.js";
-import { getOrgContext } from "../org/context.js";
-import { createBuilderEngine } from "../agent/engine/builder-engine.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";

@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { prop, attributeValue } from "../mdx.js";
 import type { BlockMdxConfig } from "../types.js";
 

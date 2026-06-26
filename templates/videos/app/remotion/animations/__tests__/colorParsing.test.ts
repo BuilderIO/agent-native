@@ -5,6 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from "vitest";
+
 import { calculateElementAnimations } from "../useElementAnimations";
 
 describe("Color Parsing Performance", () => {

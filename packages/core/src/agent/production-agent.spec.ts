@@ -1,8 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { attachToolSearch } from "./tool-search.js";
+
+import { describe, expect, it, vi } from "vitest";
+
+import { AgentActionStopError } from "../action.js";
+import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
+import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
+import {
+  getRequestRunContext,
+  runWithRequestContext,
+} from "../server/request-context.js";
+import type { AgentEngine, EngineEvent } from "./engine/types.js";
+import { EngineError } from "./engine/types.js";
 import {
   AGENT_INTERNAL_CONTINUE_PROMPT,
   buildUserContentWithAttachments,
@@ -13,6 +23,7 @@ import {
   actionsToEngineTools,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
   resolveAgentOwnerEmail,
+  resolveBackgroundDispatchOutcome,
   resolveSkillReferenceContent,
   runAgentLoop,
   shouldChainBackgroundContinuation,
@@ -23,16 +34,8 @@ import {
   type AgentLoopFinalResponseGuardContext,
 } from "./production-agent.js";
 import type { ActiveRun } from "./run-manager.js";
+import { attachToolSearch } from "./tool-search.js";
 import type { AgentChatEvent, RunEvent } from "./types.js";
-import { AgentActionStopError } from "../action.js";
-import {
-  getRequestRunContext,
-  runWithRequestContext,
-} from "../server/request-context.js";
-import { __resetAgentsBundleCache } from "../server/agents-bundle.js";
-import type { AgentEngine, EngineEvent } from "./engine/types.js";
-import { EngineError } from "./engine/types.js";
-import { MCP_ACTION_RESULT_MARKER } from "../mcp-client/app-result.js";
 
 function actionEntry(opts: {
   description?: string;
@@ -4063,5 +4066,213 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS - 1,
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveBackgroundDispatchOutcome (durable circuit-breaker)", () => {
+  // Deterministic clock so the grace loop terminates without real time: each
+  // now() call advances 10ms; with graceMs=25 the loop polls ~3 times.
+  function makeClock() {
+    let t = 0;
+    return () => (t += 10);
+  }
+  const base = {
+    runId: "run-x",
+    graceMs: 25,
+    pollIntervalMs: 5,
+    sleep: async () => {},
+  };
+  // diag_stage is persisted as JSON ({stage, detail?, at}) by recordRunDiagnostic,
+  // so model that here — exercises the parser the circuit-breaker relies on.
+  const diag = (stage: string) => JSON.stringify({ stage, at: 1 });
+
+  it("202 + worker claims within grace -> stream, no inline claim", async () => {
+    const claim = vi.fn();
+    const readClaim = vi
+      .fn()
+      .mockResolvedValueOnce({ dispatchMode: "background", status: "running" })
+      .mockResolvedValueOnce({
+        dispatchMode: "background-processing",
+        status: "running",
+      });
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({ action: "stream" });
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("202 + no claim within grace -> foreground claims and runs inline", async () => {
+    const readClaim = vi
+      .fn()
+      .mockResolvedValue({ dispatchMode: "background", status: "running" });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    expect(claim).toHaveBeenCalledWith("run-x");
+  });
+
+  it("delayed worker wins the claim race after grace -> subscribe (no double-run)", async () => {
+    const readClaim = vi
+      .fn()
+      .mockResolvedValue({ dispatchMode: "background", status: "running" });
+    const claim = vi.fn().mockResolvedValue(false);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({ action: "subscribe" });
+  });
+
+  it("fast dispatch failure -> inline without polling for a claim", async () => {
+    const readClaim = vi.fn();
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      dispatched: false,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({ action: "inline", reason: "dispatch-failed" });
+    expect(readClaim).not.toHaveBeenCalled();
+  });
+
+  it("alive worker still in setup past the base grace -> extend, then stream when it claims", async () => {
+    // auth_passed proves the worker is alive and grinding through setup. Without
+    // the extension the base grace (25) elapses (~iter3) and recovers inline;
+    // the reaper-anchored extension keeps polling so the late claim is honored.
+    const claim = vi.fn();
+    const alive = {
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("auth_passed"),
+      lastLivenessAt: 0,
+    };
+    const readClaim = vi
+      .fn()
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValueOnce(alive)
+      .mockResolvedValue({
+        dispatchMode: "background-processing",
+        status: "running",
+        diagStage: diag("worker_claimed"),
+        lastLivenessAt: 0,
+      });
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 100_000, // far away, so the claim wins before the reaper cap
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({ action: "stream" });
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("dead handoff (never recorded auth_passed) is NOT extended -> inline at the base grace", async () => {
+    // No diag stage = the generated wrapper never reached the route, so the
+    // extension must not apply and it recovers inline at the base grace.
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: null,
+      lastLivenessAt: 0,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 100_000,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    expect(claim).toHaveBeenCalledWith("run-x");
+  });
+
+  it("worker that threw during setup (route_threw) recovers inline immediately, not after the grace", async () => {
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("route_threw"),
+      lastLivenessAt: 0,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 100_000,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    // Broke on the FIRST poll via the death check — did not wait out the grace.
+    expect(readClaim).toHaveBeenCalledTimes(1);
+  });
+
+  it("alive worker that never claims recovers inline BEFORE the reaper, anchored to row liveness", async () => {
+    // The worker stays alive in setup (auth_passed) but never claims. The
+    // extension is bounded by the reaper window measured from the row's OWN
+    // liveness (lastLivenessAt), NOT poll-start — so the foreground claims inline
+    // just before reapUnclaimedBackgroundRun would fire. With reaperGraceMs=60
+    // and margin=10 the cap is liveness+50; the stepping clock hits 50 at iter4.
+    const readClaim = vi.fn().mockResolvedValue({
+      dispatchMode: "background",
+      status: "running",
+      diagStage: diag("auth_passed"),
+      lastLivenessAt: 0,
+    });
+    const claim = vi.fn().mockResolvedValue(true);
+    const outcome = await resolveBackgroundDispatchOutcome({
+      ...base,
+      reaperGraceMs: 60,
+      reaperSafetyMarginMs: 10,
+      dispatched: true,
+      backgroundRowInserted: true,
+      readClaim,
+      claim,
+      now: makeClock(),
+    });
+    expect(outcome).toEqual({
+      action: "inline",
+      reason: "worker-never-claimed",
+    });
+    // Bounded by the reaper-anchored cap (liveness+50 → iter4), not unbounded.
+    expect(readClaim).toHaveBeenCalledTimes(4);
   });
 });

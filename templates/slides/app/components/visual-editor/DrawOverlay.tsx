@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconEraser,
   IconArrowBackUp,
@@ -6,14 +6,16 @@ import {
   IconCursorText,
   IconX,
 } from "@tabler/icons-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 
 export interface DrawAnnotation {
   id: string;
@@ -82,6 +84,7 @@ interface Stroke {
  * be `position: relative`.
  */
 export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [color, setColor] = useState(PRESET_COLORS[0].color);
@@ -297,7 +300,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
             }}
             className="h-7 w-48 border-primary bg-background text-sm"
             autoFocus
-            placeholder="Type annotation…"
+            placeholder={t("raw.typeAnnotation")}
           />
         </div>
       )}
@@ -372,7 +375,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconCursorText className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Type anywhere on the canvas</TooltipContent>
+          <TooltipContent>{t("raw.typeAnywhere")}</TooltipContent>
         </Tooltip>
 
         {/* Undo last stroke */}
@@ -386,7 +389,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconArrowBackUp className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Undo stroke</TooltipContent>
+          <TooltipContent>{t("raw.undoStroke")}</TooltipContent>
         </Tooltip>
 
         {/* Clear all */}
@@ -400,7 +403,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconEraser className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Clear all</TooltipContent>
+          <TooltipContent>{t("raw.drawClearAll")}</TooltipContent>
         </Tooltip>
 
         <div className="mx-1 h-4 w-px bg-border" />
@@ -413,7 +416,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
             if (e.key === "Enter" && hasContent) send();
             if (e.key === "Escape") onClose();
           }}
-          placeholder="Tell the agent what to do…"
+          placeholder={t("raw.tellAgentDo")}
           className="h-7 w-48 border-border bg-background text-xs sm:w-56"
         />
 
@@ -438,7 +441,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconX className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Exit draw mode</TooltipContent>
+          <TooltipContent>{t("raw.drawExitMode")}</TooltipContent>
         </Tooltip>
       </div>
     </div>

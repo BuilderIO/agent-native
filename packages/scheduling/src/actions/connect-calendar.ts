@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
 import { nanoid } from "nanoid";
+import { z } from "zod";
+
 import { getCalendarProvider } from "../server/providers/registry.js";
 
 function badRequest(message: string): Error & { statusCode: number } {

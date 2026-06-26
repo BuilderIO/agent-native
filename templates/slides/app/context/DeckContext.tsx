@@ -1,4 +1,10 @@
 import {
+  appBasePath,
+  callAction,
+  isEmbedAuthActive,
+} from "@agent-native/core/client";
+import { nanoid } from "nanoid";
+import {
   createContext,
   useContext,
   useState,
@@ -8,12 +14,7 @@ import {
   useSyncExternalStore,
   ReactNode,
 } from "react";
-import { nanoid } from "nanoid";
-import {
-  appBasePath,
-  callAction,
-  isEmbedAuthActive,
-} from "@agent-native/core/client";
+
 import type { AspectRatio } from "@/lib/aspect-ratios";
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,6 @@
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -11,11 +13,11 @@ import {
   sql,
 } from "drizzle-orm";
 import { z } from "zod";
+
 import { getDb, schema } from "../server/db/index.js";
-import { accessFilter } from "@agent-native/core/sharing";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import {
   getActiveOrganizationId,
+  ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 
@@ -81,7 +83,9 @@ export default defineAction({
     if (args.view === "library") {
       const email = getRequestUserEmail();
       if (email) {
-        whereClauses.push(eq(schema.recordings.ownerEmail, email));
+        whereClauses.push(
+          ownerEmailMatches(schema.recordings.ownerEmail, email),
+        );
       }
       if (orgId) {
         whereClauses.push(eq(schema.recordings.organizationId, orgId));

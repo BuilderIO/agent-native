@@ -1,0 +1,71 @@
+---
+title: "エージェントの使用"
+description: "エージェントとの日々の作業のループ。エージェントは、あなたが見ているものを見て、それを指示し、埋め込み、軽量UI を実行し、一緒に共同編集します。"
+---
+
+# エージェントの使用
+
+エージェント ネイティブの背後にある決定的な考え方は、エージェントと UI が **対等なパートナーである**ということです。その理由については、[What Is Agent-Native?](/docs/what-is-agent-native) を参照してください。このセクションは、その約束の残り半分、つまり、エージェントがアプリの隣にドッキングされたときに実際にエージェントを操作するとどのような感じになるかについて説明します。
+
+シンプルなスルーラインがあります。エージェントは、あなたが見ているものを**見て**、あなたが望むものに**指示**し、どこにでも**埋め込む**ことができ、最適な場合は完全に**UIライト**にすることができ、同じドキュメントを同時に**共同編集**できます。それぞれがこのセクションの 1 ページです。
+
+```an-diagram title="日々のループ" summary="ドッキングされたエージェントを操作する 5 つの方法 - それぞれがこのセクションのページです。"
+{
+  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>軽量UI</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">共同編集</span><small class=\"diagram-muted\">ライブで並列</small></div></div>",
+  "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
+}
+```
+
+## あなたが見ているものが見えます {#it-sees}
+
+エージェントはあなたの画面を見ていないわけではありません。電子メールを開くと、どのスレッドであるかがわかります。チャートを選択すると、どのチャートであるかがわかります。段落を強調表示すると、その範囲のみに作用します。この認識の共有により、毎回文脈を詳しく説明することなく、「これに返信」または「選択内容を要約」と言うことができます。
+
+これが機能するのは、現在のナビゲーションと選択が `application_state` SQL に存在し、エージェントがコンテキストの一部として読み取るためです。エージェントは同じ状態 (ビューを開いたり、行を選択したり) を元に戻すこともできるため、トランスクリプトではなく実際の UI で動作するのを確認できます。
+
+```an-callout
+{
+  "tone": "info",
+  "body": "**Shared awareness is two-way.** You and the agent both read and write `application_state`, so \"reply to this\" or \"summarize the selection\" just works — and when the agent navigates, the real UI moves with it."
+}
+```
+
+→ [**Context Awareness**](/docs/context-awareness) — ナビゲーション状態、画面表示、ナビゲーション コマンド、およびエージェントが画面と同期する方法。
+
+## あなたが指示します {#you-direct-it}
+
+ほとんどの場合、チャットに入力することでエージェントを操作します。 2 つの点で高速化が可能です。
+
+**メンション。** カスタム エージェント、接続されているエージェント、またはファイルに `@` のタグを付けて、会話に組み込みます。「`@analytics` に先週の数字を引き出してから、概要の下書きを作成します。」メンションは、作曲家から離れることなく、適切な専門家に連絡したり、適切なコンテキストを添付したりする方法です。
+
+**Voice.** 作曲家はマイクを持っています。 Builder がホストするトランスクリプションから、独自のキーの持ち込み、ブラウザのフォールバックまで、プロバイダー オプションを使用して、リクエストを入力する代わりに口述入力します。
+
+→ [**Agent Mentions**](/docs/agent-mentions) — `@` - カスタム エージェント、接続されているエージェント、チャット内のファイルについて言及します。
+→ [**Voice Input**](/docs/voice-input) — チャット コンポーザーでのディクテーションとトランスクリプションのルーティング方法。
+
+## あなたが埋め込みます {#you-embed-it}
+
+エージェントは、タブで移動できる別個のアプリではありません。これは、いくつかの React コンポーネント (サイドバー、生のパネル、`sendToAgentChat()` 呼び出し) として出荷され、任意のアプリにドロップできます。 `<AgentSidebar>` をレンダリングしてすべての画面に切り替え可能なエージェントを提供するか、ワンショットの LLM 呼び出しを実行する代わりに特定のタスクをチャットに渡すボタンを配線します。
+
+→ [**Drop-in Agent**](/docs/drop-in-agent) — `<AgentPanel>`、`<AgentSidebar>`、および `sendToAgentChat()` を任意の React アプリにマウントします。
+→ [**Agent Surfaces**](/docs/agent-surfaces) — ワークフローをヘッドレス、チャットファースト、埋め込み、または完全なアプリのいずれにするかを選択します。
+
+## 軽量UI に行くことができます {#ui-light}
+
+すべてのアプリに完全なダッシュボードが必要なわけではありません。エージェントが製品である場合、カスタム UI のほとんどをスキップできます。アプリを開いて必要なものを尋ね、残りはエージェントに任せます。エージェントには履歴、ワークスペース、設定などの管理画面がまだありますが、主な操作はクリックではなく会話です。
+
+→ [**Pure-Agent Apps**](/docs/pure-agent-apps) — エージェントが製品全体であるアプリ。
+
+## あなたはそれを共同編集します {#you-co-edit}
+
+あなたとエージェントが同じドキュメントで作業している場合、交代する必要はありません。リアルタイムのコラボレーションにより、エージェントの編集内容は、チームメイトの場合と同じように、ライブ カーソルで上書きされずに、あなたの編集内容と並行してストリーミングされます。機能している間は入力を続けることができ、変更が発生するとその内容が反映されます。
+
+→ [**Real-Time Collaboration**](/docs/real-time-collaboration) — 同じドキュメント内でライブ カーソルとエージェント編集を使用したマルチユーザーの共同編集。
+
+## 次は何ですか {#whats-next}
+
+- [**Context Awareness**](/docs/context-awareness) — エージェントはあなたが何を見ているのかを知っています
+- [**Agent Mentions**](/docs/agent-mentions) — `@` メンションで指示
+- [**Voice Input**](/docs/voice-input) — 話すことで指示
+- [**Drop-in Agent**](/docs/drop-in-agent) — React アプリに埋め込みます
+- [**Pure-Agent Apps**](/docs/pure-agent-apps) — エージェントが製品の場合は 軽量UI に移行します
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — 同じドキュメントを一緒に共同編集します

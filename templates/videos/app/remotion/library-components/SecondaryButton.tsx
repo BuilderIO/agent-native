@@ -16,9 +16,10 @@
  */
 
 import { AbsoluteFill, useVideoConfig } from "remotion";
+
+import { AnimatedElement } from "@/remotion/components/AnimatedElement";
 import { createInteractiveComposition } from "@/remotion/hooks/createInteractiveComposition";
 import { useInteractiveComponent } from "@/remotion/hooks/useInteractiveComponent";
-import { AnimatedElement } from "@/remotion/components/AnimatedElement";
 import { createCameraTrack, createCursorTrack } from "@/remotion/trackHelpers";
 import type { AnimationTrack, AnimationShorthand } from "@/types";
 

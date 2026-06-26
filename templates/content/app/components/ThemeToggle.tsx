@@ -1,6 +1,8 @@
-import { useState, useEffect } from "react";
-import { useTheme } from "next-themes";
+import { useT } from "@agent-native/core/client";
 import { IconDeviceDesktop, IconMoon, IconSun } from "@tabler/icons-react";
+import { useTheme } from "next-themes";
+import { useState, useEffect } from "react";
+
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -10,9 +12,9 @@ import {
 import { cn } from "@/lib/utils";
 
 const themeOptions = [
-  { value: "system", label: "System theme", icon: IconDeviceDesktop },
-  { value: "light", label: "Light theme", icon: IconSun },
-  { value: "dark", label: "Dark theme", icon: IconMoon },
+  { value: "system", icon: IconDeviceDesktop },
+  { value: "light", icon: IconSun },
+  { value: "dark", icon: IconMoon },
 ] as const;
 
 const THEME_PREFERENCE_STORAGE_KEY = "content-theme-preference";
@@ -56,6 +58,7 @@ function nextTheme(theme: ThemeOption): ThemeOption {
 
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, setTheme } = useTheme();
+  const t = useT();
   const [mounted, setMounted] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<ThemeOption>("system");
 
@@ -84,7 +87,7 @@ export function ThemeToggle({ className }: { className?: string }) {
         <Button
           variant="ghost"
           size="icon"
-          aria-label={activeOption.label}
+          aria-label={t(`theme.${activeOption.value}`)}
           onClick={handleClick}
           className={cn(
             "size-8 rounded-md text-sidebar-muted hover:text-sidebar-foreground",
@@ -94,7 +97,7 @@ export function ThemeToggle({ className }: { className?: string }) {
           <ActiveIcon size={14} />
         </Button>
       </TooltipTrigger>
-      <TooltipContent>{activeOption.label}</TooltipContent>
+      <TooltipContent>{t(`theme.${activeOption.value}`)}</TooltipContent>
     </Tooltip>
   );
 }

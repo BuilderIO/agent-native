@@ -1,8 +1,9 @@
 import { eq, sql, desc, and } from "drizzle-orm";
 import { nanoid } from "nanoid";
-import { db, schema } from "../db/index.js";
-import type { EmailTrackingStats } from "../../shared/types.js";
+
 import { extractMarkdownUrls } from "../../shared/markdown.js";
+import type { EmailTrackingStats } from "../../shared/types.js";
+import { db, schema } from "../db/index.js";
 
 export type TrackingContext = {
   pixelToken: string;

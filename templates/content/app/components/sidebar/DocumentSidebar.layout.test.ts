@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-import { getDocumentSidebarIconKind } from "./DocumentTreeItem";
+
 import type { DocumentTreeNode } from "@shared/api";
+import { describe, expect, it } from "vitest";
+
+import { getDocumentSidebarIconKind } from "./DocumentTreeItem";
 
 function readSidebarSource(relativePath: string) {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
@@ -25,7 +27,7 @@ describe("document sidebar layout", () => {
     const scrollArea = readSidebarSource("../ui/scroll-area.tsx");
 
     expect(layout).toContain("const MIN_SIDEBAR_WIDTH = 240");
-    expect(sidebar).toContain('className="min-w-full w-max py-2 pr-2"');
+    expect(sidebar).toContain('className="min-w-full w-max py-2 pe-2"');
     expect(treeItem).toContain("const indent = depth * 12 + 12");
     expect(treeItem).toContain("min-w-56");
     expect(scrollArea).toContain('<ScrollBar orientation="horizontal" />');
@@ -38,6 +40,20 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain("const canManage =");
     expect(treeItem).toContain("{canEdit && (");
     expect(treeItem).toContain("{canManage && (");
+  });
+
+  it("keeps hovered page row actions readable on inactive rows", () => {
+    const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
+
+    expect(treeItem).toContain("hover:bg-accent hover:text-foreground");
+    expect(treeItem).toContain("pointer-events-none");
+    expect(treeItem).toContain("group-focus-within:opacity-100");
+    expect(treeItem).toContain('"bg-accent text-foreground"');
+    expect(treeItem).toContain("More actions for");
+    expect(treeItem).not.toContain("bg-inherit");
+    expect(treeItem).not.toContain("hover:bg-accent/50");
+    expect(treeItem).not.toContain("hover:bg-background/70");
+    expect(treeItem).not.toContain("transition-opacity");
   });
 
   it("defaults database pages to the database icon before the page icon", () => {

@@ -1,12 +1,13 @@
 import { defineAction } from "@agent-native/core";
-import { z } from "zod";
-import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
-import { getDb, schema } from "../server/db/index.js";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
+import { eq } from "drizzle-orm";
+import { nanoid } from "nanoid";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:

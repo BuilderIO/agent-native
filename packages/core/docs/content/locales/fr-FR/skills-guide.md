@@ -1,0 +1,281 @@
+---
+title: "Guide Skills"
+description: "Comment fonctionne skills dans l'agent natif : framework skills, domaine skills et création de skills personnalisé."
+---
+
+# Guide Skills
+
+Skills sont des fichiers Markdown qui donnent à l'agent des connaissances approfondies sur des modèles et des flux de travail spécifiques.
+
+## Que sont les skills {#what-are-skills}
+
+Skills en direct sur `.agents/skills/<name>/SKILL.md` et contient des conseils détaillés pour l'agent. Chaque compétence se concentre sur une préoccupation : comment stocker les données, comment synchroniser l'état, comment déléguer le travail au chat de l'agent.
+
+Les éléments `name` et `description` de chaque compétence sont toujours injectés dans le bloc skills de l'invite système afin que l'agent sache quels skills existent. Le corps complet des compétences est chargé à la demande lorsque l'agent décide qu'une compétence est pertinente pour la tâche (elle est également affichée via `docs-search`). C'est pourquoi il est important de garder les descriptions courtes et spécifiques au déclencheur : la description est la seule chose que l'agent lit avant de décider de charger ou non le reste.
+
+```an-diagram title="Divulgation progressive" summary="Seul le nom + la description de chaque compétence est toujours en contexte. Le corps entier se charge à la demande lorsque la tâche correspond."
+{
+  "html": "<div class=\"sk-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Toujours dans le prompt système</span><div class=\"sk-list\"><span class=\"diagram-pill\">storing-data &mdash; <small class=\"diagram-muted\">add data models&hellip;</small></span><span class=\"diagram-pill\">real-time-sync &mdash; <small class=\"diagram-muted\">wire polling&hellip;</small></span><span class=\"diagram-pill\">create-skill &mdash; <small class=\"diagram-muted\">add a skill&hellip;</small></span></div><small class=\"diagram-muted\">just name + description (cheap)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><small class=\"diagram-muted\">task matches a description</small><span class=\"diagram-pill accent\">load on demand</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Full <code>SKILL.md</code> body<br><small class=\"diagram-muted\">règles, code, à faire / à éviter</small></div></div>",
+  "css": ".sk-flow{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.sk-flow .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:240px}.sk-flow .sk-list{display:flex;flex-direction:column;gap:6px}.sk-flow .center{display:flex;flex-direction:column;align-items:center;gap:6px}.sk-flow .diagram-arrow{font-size:22px}"
+}
+```
+
+## Cadre skills {#framework-skills}
+
+Il s'agit du skills fourni avec le **modèle par défaut**. L'ensemble exact disponible dans une application donnée dépend du modèle à partir duquel vous avez créé votre échafaudage : vérifiez le répertoire `.agents/skills/` de ce modèle pour savoir ce qu'il contient réellement.
+
+| Compétence             | Quand utiliser                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `storing-data`         | Ajout de modèles de données, lecture/écriture de configuration ou d'état                            |
+| `real-time-sync`       | Synchronisation des interrogations de câblage, débogage de UI non mis à jour                        |
+| `delegate-to-agent`    | Déléguer le travail d'IA de UI ou actions à l'agent                                                 |
+| `actions`              | Création ou exécution de l'agent actions                                                            |
+| `self-modifying-code`  | Modification de la source, des composants ou des styles de l'application                            |
+| `create-skill`         | Ajout d'un nouveau skills pour l'agent                                                              |
+| `capture-learnings`    | Enregistrement des corrections et des modèles                                                       |
+| `frontend-design`      | Créer ou styliser n'importe quel site Web UI, composants ou pages                                   |
+| `adding-a-feature`     | La liste de contrôle en quatre domaines : UI, actions, skills, état de l'application                |
+| `internationalization` | Mise à jour de la copie localisée de UI, des catalogues de langues et des styles sécurisés pour RTL |
+| `shadcn-ui`            | Utilisation des primitives et des composants shadcn/ui                                              |
+| `security`             | Authentification, contrôle d'accès et gestion des secrets                                           |
+| `real-time-collab`     | Édition collaborative multi-utilisateurs                                                            |
+| `agent-engines`        | Échange ou configuration du moteur d'agent sous-jacent                                              |
+| `notifications`        | Modèles de notifications dans l'application et push                                                 |
+| `progress`             | Suivi et affichage de la progression des tâches en arrière-plan                                     |
+| `inline-embeds`        | Intégration d'applications ou d'iframes dans le chat de l'agent                                     |
+
+`context-awareness` et `a2a-protocol` sont des skills au niveau du framework disponibles dans le répertoire `.agents/skills/` à la racine du dépôt – voir le `.agents/skills/` de chaque modèle pour savoir ce dont il hérite.
+
+## Domaine skills {#domain-skills}
+
+Les modèles incluent skills spécifique à leur domaine. Ceux-ci se trouvent dans le même répertoire `.agents/skills/` mais couvrent des modèles spécifiques aux modèles. Consultez le répertoire `.agents/skills/` de chaque modèle pour la liste complète ; un échantillon représentatif :
+
+- **Modèle de courrier** — `email-drafts`, `draft-queue`
+- **Modèle de formulaires** — `form-building`, `form-publishing`, `form-responses`
+- **Modèle d'analyse** : `adhoc-analysis`, `bigquery`, `cross-source-analysis`, `dashboard-management`, `data-querying`, `provider-api`, `gong`, `hubspot`, `prometheus`
+- **Modèle de diapositives** — `create-deck`, `deck-management`, `design-systems`, `slide-editing`, `slide-images`
+
+Le domaine skills suit le même format que le framework skills. Ils codent des modèles spécifiques au modèle que l'agent doit suivre.
+
+## skills soutenu par une application {#app-backed-skills}
+
+skills basé sur une application regroupe une application native d'agent en tant qu'artefact de marché de compétences. L'ensemble peut inclure des instructions d'agent, des métadonnées de connecteur skills exportées et MCP, des instructions de lancement hébergées/locales et des surfaces UI telles que les applications MCP.
+
+> **Tous les détails ci-dessous :** les mécanismes du skills basé sur l'application (format du manifeste, commandes CLI, adaptateurs de marché, hachage de mise à jour automatique) sont couverts dans [App-backed skills — full details](#app-backed-skills-full).
+
+## Création d'un skills personnalisé {#creating-skills}
+
+Créez une compétence lorsque :
+
+- Il existe un modèle que l'agent doit suivre à plusieurs reprises
+- Un flux de travail nécessite des conseils étape par étape
+- Vous souhaitez créer des fichiers à partir d'un modèle
+
+Ne créez pas de compétence lorsque :
+
+- Les conseils existent déjà dans une autre compétence – étendez-les à la place
+- Le guide est unique : placez-le plutôt dans `AGENTS.md` ou dans la mémoire de l'espace de travail
+
+## Format de compétence {#skill-format}
+
+Chaque compétence est un fichier Markdown avec le thème principal YAML :
+
+```an-annotated-code title="Anatomie d'un SKILL.md"
+{
+  "filename": ".agents/skills/project-imports/SKILL.md",
+  "language": "markdown",
+  "code": "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import",
+  "annotations": [
+    { "lines": "2", "label": "Clé de découverte", "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`." },
+    { "lines": "3-5", "label": "Le déclencheur", "note": "Ce `description` est le **seul** texte toujours en contexte. Faites-le indiquer précisément *quand* la compétence s'applique." },
+    { "lines": "9-14", "label": "Les règles d'abord", "note": "Commencez par la règle stricte et le pourquoi ; l’agent ne lit le corps que lorsque la tâche correspond." },
+    { "lines": "27-30", "label": "Lien croisé", "note": "Pointez sur les compétences associées afin que l'agent puisse les enchaîner au lieu de rediriger les conseils." }
+  ]
+}
+```
+
+Les frontmatters `name` et `description` sont utilisés par le système d'outils de l'agent pour la découverte de compétences. La description doit indiquer quand la compétence se déclenche – être précis sur les situations.
+
+Enregistrez le fichier sous `.agents/skills/my-skill/SKILL.md`. Le nom du répertoire doit correspondre au `name` en première page.
+
+> **Voir aussi :** [Writing Agent Instructions](/docs/writing-agent-instructions) pour savoir comment rédiger des descriptions de compétences, appliquer la divulgation progressive et maintenir `AGENTS.md` simple. Les deux pages utilisent la compétence `project-imports` comme exemple courant.
+
+## Portée des compétences : runtime vs dev {#skill-scope}
+
+Un champ frontal `scope` facultatif contrôle à quel agent une compétence est destinée :
+
+| `scope`   | Chargé par l'agent d'exécution ? | Utiliser pour                                                                                               |
+| --------- | -------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `both`    | Oui (par défaut)                 | Skills utile à l'agent intégré à l'application. Il s'agit de la valeur par défaut lorsque `scope` est omis. |
+| `runtime` | Oui                              | Skills destiné uniquement à l'agent d'exécution intégré à l'application.                                    |
+| `dev`     | Non                              | Skills destiné uniquement à l'agent de codage de l'humain (par exemple, le code Claude).                    |
+
+```markdown
+---
+name: release-checklist
+description: >-
+  Steps for cutting a release. Use when preparing or publishing a new version.
+scope: dev
+---
+```
+
+Lorsque `scope` est absent (ou défini sur une valeur non reconnue), la valeur par défaut est `both`, de sorte que chaque compétence existante continue de se charger au moment de l'exécution — ce champ est entièrement rétrocompatible. Une compétence `scope: dev` est invisible partout pour l'agent d'exécution : elle est exclue du bloc skills injecté dans l'invite système et des résultats `docs-search`.
+
+### Exposer une compétence réservée aux développeurs à votre agent de codage {#dev-only-skills}
+
+Le runtime natif de l'agent lit skills à partir de `.agents/skills/`. Le code Claude lit indépendamment skills à partir de `.claude/skills/`. Pour rendre une compétence disponible pour votre agent de codage mais masquée pour l'agent d'exécution :
+
+- Marquez-le `scope: dev` dans `.agents/skills/<name>/SKILL.md` pour que l'agent d'exécution ne le charge jamais, et/ou
+- Placez ou mettez en miroir la compétence sous `.claude/skills/<name>/SKILL.md` pour que le code Claude la récupère.
+
+Cela remplace l'ancien hack consistant à s'appuyer sur le code Claude lisant uniquement `.claude/skills` — `scope: dev` fait de la division développement/exécution un choix explicite de première classe.
+
+```an-diagram title="Quel agent charge quelle compétence" summary="scope décide si l'agent d'exécution intégré à l'application voit une compétence. Les compétences dev sont visibles uniquement par votre agent de codage."
+{
+"html": "<div class=\"sc-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill\">.agents/skills/</span><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: both</span><small class=\"diagram-muted\">default</small></div><div class=\"sc-row\"><span class=\"diagram-pill ok\">scope: runtime</span></div><div class=\"sc-row\"><span class=\"diagram-pill warn\">scope: dev</span></div></div><div class=\"sc-targets\"><div class=\"diagram-box\">Runtime agent<br><small class=\"diagram-muted\">reads <code>both</code> + <code>runtime</code></small></div><div class=\"diagram-box\">Agent de code<br><small class=\"diagram-muted\">Claude Code reads <code>.claude/skills/</code> + <code>dev</code></small></div></div></div>",
+"css": ".sc-grid{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}.sc-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.sc-grid .sc-row{display:flex;align-items:center;gap:8px}.sc-grid .sc-targets{display:flex;flex-direction:column;gap:10px}"
+}
+
+```
+
+> **Voir aussi :** [Writing Agent Instructions](/docs/writing-agent-instructions) pour savoir comment rédiger des descriptions de compétences, appliquer la divulgation progressive et maintenir `AGENTS.md` simple.
+
+## Skills contre AGENTS.md {#skills-vs-agents-md}
+
+> **AGENTS.md** — La présentation. Répertorie tous les scripts, décrit le modèle de données, explique l'architecture de l'application. L'agent lit ceci en premier pour comprendre l'application.
+>
+> **Skills** — Analyses approfondies. Chaque compétence se concentre sur un modèle avec des règles détaillées, des exemples de code et des listes de choses à faire/à ne pas faire. L'agent les lit lorsqu'il doit suivre un modèle spécifique.
+
+`AGENTS.md` indique à l'agent _ce que_ l'application fait. Skills indique à l'agent _comment_ faire des choses spécifiques correctement. Les deux sont nécessaires : `AGENTS.md` pour l'orientation, skills pour l'exécution.
+
+## Skills contre mémoire {#skills-vs-memory}
+
+> **Skills** — Guides pratiques rédigés et réutilisables. S'applique à chaque utilisateur, invoqué à la demande lorsque la tâche correspond.
+>
+> **Mémoire (`LEARNINGS.md` / `memory/MEMORY.md`)** — Apprentissages partagés du projet et mémoire structurée personnelle chargée à chaque tour.
+
+Si les connaissances s'appliquent à _tout le monde_ travaillant dans l'application (« préférez toujours les CTE aux sous-requêtes »), il s'agit d'une compétence ou d'un `LEARNINGS.md` partagé. S'il s'agit de _cet utilisateur particulier_ ("Steve aime les réponses concises"), cela appartient à `memory/MEMORY.md`. Voir [Workspace Memory](/docs/workspace#memory) pour le traitement complet.
+
+---
+
+# Avancé
+
+## skills basé sur une application — tous les détails {#app-backed-skills-full}
+
+skills basé sur une application regroupe une application native d'agent en tant qu'artefact de marché de compétences.
+Le bundle peut inclure des instructions d'agent, un connecteur skills exporté et un connecteur MCP
+métadonnées, instructions de lancement hébergées/locales et surfaces UI telles que les applications MCP.
+
+Chaque compétence basée sur l'application commence par `agent-native.app-skill.json` à la racine de l'application :
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "assets",
+  "hosted": {
+    "url": "https://assets.agent-native.com",
+    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": { "serverName": "agent-native-assets" },
+  "skills": [
+    {
+      "path": ".agents/skills/asset-generation",
+      "visibility": "both",
+      "exportAs": "assets"
+    }
+  ]
+}
+```
+
+La visibilité des compétences contrôle ce qui est expédié :
+
+| Visibilité | Signification                                                                        |
+| ---------- | ------------------------------------------------------------------------------------ |
+| `internal` | Utilisé par le propre agent de l'application, non exporté vers les places de marché. |
+| `exported` | Exporté vers les places de marché, mais non nécessaire à l'application en interne.   |
+| `both`     | Utilisé en interne et exporté.                                                       |
+
+Hosted est le chemin d’installation par défaut. Le lancement local est explicite pour la personnalisation,
+travail hors ligne ou utilisation sensible à la confidentialité.
+
+```bash
+# Chemin heureux : instructions exportées et connecteur MCP hébergé.
+npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add assets
+
+# Édition docs/blog/MDX avec Content, d'abord dans le dépôt.
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+
+# Compétences Vercel/open CLI : instructions exportées uniquement, pas de configuration MCP.
+npx skills@latest add BuilderIO/agent-native --skill assets
+
+# Enregistrez un connecteur MCP hébergé pour les clients d'agent locaux.
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+
+# Matérialisez et exécutez une source locale modifiable.
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+
+# Créez des adaptateurs de marché : plugin Codex, compétences Claude marketplace, Vercel,
+# Compétences plain/Claude et configurations MCP.
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# Installez un bundle exporté local avec les compétences Vercel/open CLI.
+npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
+
+# Ajoutez la place de marché Claude Code générée, puis installez son plugin Assets.
+claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
+claude plugin install agent-native-assets@agent-native-apps
+```
+
+Gardez les secrets hors des fichiers de compétences. Le manifeste doit contenir le connecteur URL uniquement
+métadonnées ; La configuration de OAuth/appareil s'effectue dans l'hôte MCP ou via le mode normal de l'application
+flux des paramètres.
+
+L'adaptateur Vercel Labs `skills` est un ensemble portable `skills/<name>/SKILL.md`
+pour `npx skills@latest add ...`, mais le `skills` brut CLI installe uniquement les instructions.
+Il n'exécute pas les scripts de post-installation définis dans le référentiel et n'enregistre pas les connecteurs MCP.
+Conservez le Agent Native CLI comme chemin de documentation par défaut pour les agents locaux, car il
+enregistre également le connecteur MCP. `BuilderIO/agent-native` est un vrai GitHub
+source du référentiel pour Vercel/open Skills CLI ; `skills.sh` est une découverte et
+répertoire du classement, pas un espace de noms de package de style npm.
+
+L'adaptateur de marché Claude Code écrit
+`adapters/claude-marketplace/.claude-plugin/marketplace.json` plus un imbriqué
+répertoire du plugin contenant `skills/<name>/SKILL.md` et `.mcp.json`. Dans Claude
+Codez, ajoutez la place de marché, installez `agent-native-assets@agent-native-apps`,
+rechargez les plugins, puis authentifiez le connecteur MCP uniquement URL à partir de `/mcp`.
+
+Les manifestes de plug-in générés sont configurés pour être mis à jour automatiquement : le code Claude
+ensembles d'entrées de marché `autoUpdate: true` (avec gestion des versions commit-SHA) et
+Le plug-in Codex `version` intègre un hachage de contenu des ensembles skills et MCP
+point de terminaison, donc les plugins installés récupèrent les changements de compétences sans reconditionner. Le
+L'application Plan est publiée de cette manière en tant que marché prêt à être ajouté à la racine du dépôt –
+voir [Plan plugin & marketplace](/docs/plan-plugin) pour l'installation de bout en bout
+et flux de mise à jour automatique.
+
+Pour les utilisateurs qui installent une copie de skills via le CLI universel au lieu d'un
+Place de marché des plugins, utilisez les commandes de fraîcheur CLI :
+
+```bash
+npx @agent-native/core@latest skills status visual-plan
+npx @agent-native/core@latest skills update visual-plan
+```
+
+`skills update` analyse les projets Codex/Claude connus et les dossiers de compétences utilisateur, compare
+le dossier copié est haché dans la dernière compétence groupée et réécrit les dossiers obsolètes dans
+lieu. Les Agent Native skills nouvellement copiés incluent un `agent-native-skill.json`
+marqueur permettant à la sortie d'état future d'identifier la source et le hachage.
+
+Les applications et espaces de travail Agent Native générés incluent également le framework fourni
+skills sous `.agents/skills` (ou `packages/shared/.agents/skills` dans un
+espace de travail). Actualisez ces skills échafaudés à partir du CLI actuel/dernier avec :
+
+```bash
+npm run skills:update
+# ou, sans compter sur le script du package local :
+npx @agent-native/core@latest skills update scaffold --project
+```
+
+`AGENTS.md` et `.agents/skills` restent canoniques. La commande update répare également
+Liens de compatibilité Claude (`CLAUDE.md` et `.claude/skills`) pour que le code Claude voie
+les mêmes instructions sans conserver une deuxième copie.

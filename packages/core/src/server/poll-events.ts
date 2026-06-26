@@ -1,4 +1,10 @@
 import { createEventStream, defineEventHandler, setResponseStatus } from "h3";
+
+import {
+  getAwarenessEmitter,
+  AWARENESS_CHANGE_EVENT,
+  type AwarenessChangeEvent,
+} from "../collab/awareness.js";
 import { getSession } from "./auth.js";
 import {
   canSeeChangeForUser,
@@ -6,11 +12,6 @@ import {
   POLL_CHANGE_EVENT,
   type ChangeEvent,
 } from "./poll.js";
-import {
-  getAwarenessEmitter,
-  AWARENESS_CHANGE_EVENT,
-  type AwarenessChangeEvent,
-} from "../collab/awareness.js";
 
 /**
  * Stream in-process poll events over SSE.

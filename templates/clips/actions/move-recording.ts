@@ -1,13 +1,15 @@
 import { defineAction } from "@agent-native/core";
-import { and, eq, inArray } from "drizzle-orm";
-import { z } from "zod";
-import { getDb, schema } from "../server/db/index.js";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import { and, eq, inArray } from "drizzle-orm";
+import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import {
   getCurrentOwnerEmail,
   parseSpaceIds,
   requireActiveOrganizationId,
+  sameOwnerEmail,
 } from "../server/lib/recordings.js";
 
 const moveRecordingSchema = z
@@ -68,7 +70,10 @@ export default defineAction({
         )
         .limit(1);
 
-      if (!folder || (!folder.spaceId && folder.ownerEmail !== ownerEmail)) {
+      if (
+        !folder ||
+        (!folder.spaceId && !sameOwnerEmail(folder.ownerEmail, ownerEmail))
+      ) {
         throw new Error(`Folder not found: ${folderId}`);
       }
 
