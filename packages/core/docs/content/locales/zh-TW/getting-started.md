@@ -1,6 +1,6 @@
 ---
 title: "開始使用"
-description: "建立代理應用，了解說明、skills 和 actions，然後觀看代理調用其第一個操作。"
+description: "建立代理應用，了解說明、skills 和 actions，然後觀看代理呼叫其第一個操作。"
 ---
 
 # 開始使用
@@ -9,7 +9,7 @@ Agent-Native 應用程式為 AI 代理和您的 UI 提供相同的 actions、資
 狀態。基本代理是由指導它的指令（skills 進行教學）組成的
 可重複的行為，以及讓它做實際工作的 actions。
 
-**想要一個完整的應用程式開始嗎？**克隆我們丰富的範本之一 -
+**想要一個完整的應用程式開始嗎？**克隆我們豐富的範本之一 -
 [Chat](/docs/template-chat), [Mail](/docs/template-mail),
 [Calendar](/docs/template-calendar), [Content](/docs/template-content),
 [Analytics](/docs/template-analytics) 和 [many more](/docs/cloneable-saas) —
@@ -30,31 +30,31 @@ Agent-Native 應用程式為 AI 代理和您的 UI 提供相同的 actions、資
 ```
 
 無論您是從聊天 UI、無頭代理還是完整應用程式開始，都是如此。
-UI改變表面；指令、skills 和 actions 為代理提供
+UI 改變表面；指令、skills 和 actions 為代理提供
 指導和行為。
 
 ## 1。建立您的應用
 
 您需要 [Node.js 22+](https://nodejs.org) 和 [pnpm](https://pnpm.io)。
 
-在沒有標志的情況下執行 `create`，它會詢問您要如何開始（完整的範本，
+在沒有標誌的情況下執行 `create`，它會詢問您要如何開始（完整的範本，
 聊天，或無頭）先於其他：
 
 ```bash
 npx @agent-native/core@latest create my-app
 ```
 
-或者傳遞一個標志來跳過提示：
+或者傳遞一個標誌來跳過提示：
 
-**想要 UI？** 從聊天範本開始。您將獲得一名工作代理人以及
-可自訂的聊天UI，您新增的每個操作都會自動顯示在其中：
+**想要 UI？** 從聊天範本開始。您將獲得一名工作代理以及
+可自訂的聊天 UI，您新增的每個操作都會自動顯示在其中：
 
 ```bash
 npx @agent-native/core@latest create my-app --template chat
 ```
 
 **只是無頭原語？**開始無頭 - 相同的 actions 和代理
-循環，無 UI shell：
+迴圈，無 UI shell：
 
 ```bash
 npx @agent-native/core@latest create my-agent --headless
@@ -71,7 +71,7 @@ pnpm install
 
 ## 2。新增操作
 
-操作是您的代理（以及您的 UI）可以調用的一項操作。兩個腳手架
+操作是您的代理（以及您的 UI）可以呼叫的一項操作。兩個腳手架
 附帶此範例：
 
 ```an-annotated-code title="你的第一個 action"
@@ -80,10 +80,10 @@ pnpm install
   "language": "ts",
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"從本機代理問好。\",\n  schema: z.object({\n    name: z.string().default(\"world\"),\n  }),\n  http: { method: \"GET\" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});",
   "annotations": [
-    { "lines": "5", "label": "工具描述", "note": "代理會讀取 `description`，判斷何時把它作為工具調用。" },
+    { "lines": "5", "label": "工具描述", "note": "代理會讀取 `description`，判斷何時把它作為工具呼叫。" },
     { "lines": "6-8", "label": "型別化契約", "note": "一個 zod `schema` 會校驗來自每個入口的輸入：代理、UI、HTTP、MCP 和 A2A。" },
     { "lines": "9", "label": "HTTP 動詞", "note": "將此操作接入自動掛載的 HTTP 端點。" },
-    { "lines": "10", "label": "唯讀", "note": "`readOnly` 表示該操作無需批準即可安全調用，並且可作為查詢快取。" },
+    { "lines": "10", "label": "唯讀", "note": "`readOnly` 表示該操作無需核准即可安全呼叫，並且可作為查詢快取。" },
     { "lines": "11-13", "label": "單一實現", "note": "`run` 主體是所有介面都會執行的唯一真實來源。" }
   ]
 }
@@ -94,12 +94,12 @@ pnpm install
 
 使用 `AGENTS.md` 作為每回合都適用的指導。使用技能時
 代理需要可重用的工作流程或域過程。在以下情況下使用操作
-代理需要一種型別化、可測試的方式來讀取資料、寫入資料、調用 API 或
-執行批準。
+代理需要一種型別化、可測試的方式來讀取資料、寫入資料、呼叫 API 或
+執行核准。
 
 ## 3。執行它
 
-直接調用操作：
+直接呼叫操作：
 
 ```bash
 pnpm action hello --name Steve
@@ -112,25 +112,25 @@ pnpm agent "Call the hello action for Steve and explain what happened."
 ```
 
 如果您從聊天範本開始，請執行該應用並在
-瀏覽器 - 它已經可以調用您定義的每個操作：
+瀏覽器 - 它已經可以呼叫您定義的每個操作：
 
 ```bash
 pnpm dev
 ```
 
-現在可以通過聊天 UI、CLI、HTTP、MCP、A2A 存取該操作
-計畫作業和 webhooks。定義一次，從任何地方調用。
+現在可以透過聊天 UI、CLI、HTTP、MCP、A2A 存取該操作
+計畫作業和 webhooks。定義一次，從任何地方呼叫。
 
-```an-diagram title="一個動作，每個表面" summary="單個 defineAction 檔案扇出到每個消費者，無需額外接線。"
+```an-diagram title="一個動作，每個表面" summary="單一 defineAction 檔案扇出到每個消費者，無需額外接線。"
 {
   "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">聊天介面</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">計畫工作</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
   "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 
-## 狀態是內置的
+## 狀態是內建的
 
-無頭並不意味著無狀態。 Actions，工作階段，應用程式狀態，線程，
+無頭並不意味著無狀態。 Actions，工作階段，應用程式狀態，對話串，
 執行歷史紀錄和憑證均位於 SQL 中。本機地址為 SQLite
 `data/app.db`；在正式環境中您設定 `DATABASE_URL`。請參閱
 [Deployment](/docs/deployment).
@@ -138,14 +138,14 @@ pnpm dev
 ```an-callout
 {
   "tone": "info",
-  "body": "**Headless 仍然是一個真正的應用程式。**應用程式代理循環在 SQL 中保留工作階段、線程、執行、設定和憑證 - 它不是無狀態提示。您可以稍後新增 UI，而無需更改操作或狀態。"
+  "body": "**Headless 仍然是一個真正的應用程式。**應用程式代理迴圈在 SQL 中保留工作階段、對話串、執行、設定和憑證 - 它不是無狀態提示。您可以稍後新增 UI，而無需更改操作或狀態。"
 }
 ```
 
-## 自訂UI
+## 自訂 UI
 
 如果您從聊天範本開始，則可以編輯 UI。聊天本身
-是基於 `<AgentChatSurface>` 元件建置的一條小路線：
+是基於 `<AgentChatSurface>` 元件建置的一條小路由：
 
 ```tsx
 // app/routes/_index.tsx
@@ -158,7 +158,7 @@ export default function ChatRoute() {
 
 - **`app/routes/_index.tsx`** — 聊天頁面。更改建議，空
   狀態和布局。
-- **`app/root.tsx`** — 應用程式外殼。在週圍新增您自己的路線和螢幕
+- **`app/root.tsx`** — 應用程式外殼。在週圍新增您自己的路由和螢幕
   代理。
 - 使用 `<AgentSidebar>` 將代理放入任何螢幕，從 a 手動操作它
   使用 `sendToAgentChat()` 按鈕，或直接使用
@@ -166,7 +166,7 @@ export default function ChatRoute() {
 
 請參閱 [Drop-in Agent](/docs/drop-in-agent) 了解完整的元件集，並且
 [Native 聊天介面](/docs/native-chat-ui) 將操作結果呈現為表格，
-圖表和打字卡片而不是純文本。
+圖表和打字卡片而不是純文字。
 
 **開始無頭，稍後想要 UI？** 聊天範本*是* UI 入口 -
 它的`app/`層（React Router + Vite）正是無頭腳手架
@@ -178,7 +178,7 @@ export default function ChatRoute() {
 
 ```text
 my-app/
-  actions/         # 代理可調用的操作
+  actions/         # 代理可呼叫的操作
   app/             # React 前端（僅 UI 範本；無頭模式會省略）
   server/          # Nitro API 伺服器（路由、外掛）
   AGENTS.md        # 始終生效的代理指令
@@ -189,9 +189,9 @@ my-app/
 ## 下一步去哪裡
 
 - **[Key Concepts](/docs/key-concepts)** — 核心架構：SQL、actions，
-  同步和上下文感知。
+  同步和脈絡感知。
 - **[Actions](/docs/actions)** — 完整操作 API：架構、HTTP、驗證和
-  批準。
+  核准。
 - **[Agent Surfaces](/docs/agent-surfaces)** — 無頭、聊天、嵌入式 sidecar，
   和完整的應用程式。
 - **[Drop-in Agent](/docs/drop-in-agent)** — 將代理聊天新增到任何 React 應用程式。

@@ -1,16 +1,16 @@
 ---
-title: "元件API"
-description: "用於自訂代理 UI、聊天欄位、對話呈現、實時狀態、共用、進度和丰富編輯器的公開 React 建置塊。"
+title: "元件 API"
+description: "用於自訂代理 UI、聊天欄位、對話呈現、即時狀態、共用、進度和豐富編輯器的公開 React 建置塊。"
 ---
 
-# 元件API
+# 元件 API
 
 Agent-Native 附帶了完整的側邊欄，但側邊欄不是合同。
-合約是執行時：聊天流、線程狀態、actions、上下文，
-附件、模型選取、執行和 SQL 支持的同步。使用庫存
-當你需要定制產品UI時，可以選取元件，並下拉一層。
+合約是執行時：聊天流、對話串狀態、actions、脈絡，
+附件、模型選取、執行和 SQL 支援的同步。使用庫存
+當你需要定制產品 UI 時，可以選取元件，並下拉一層。
 
-從聚焦的用戶端子路徑匯入瀏覽器UI：
+從聚焦的用戶端子路徑匯入瀏覽器 UI：
 
 ```tsx
 import { AgentSidebar } from "@agent-native/core/client";
@@ -25,23 +25,23 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` 或聚焦的 `@agent-native/core/client/*` 子路徑
 因此捆綁商選取瀏覽器安全的條目。
 
-```an-diagram title="下拉一層，不脫離框架" summary="每個層都保持相同的執行時 - 操作、線程狀態和 SQL-backed 同步 - 同時讓您更好地控制鑲邊。"
+```an-diagram title="下拉一層，不脫離框架" summary="每個層都保持相同的執行時 - 操作、對話串狀態和 SQL-backed 同步 - 同時讓您更好地控制鑲邊。"
 {
   "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">圍繞應用的完整側邊欄。80% 的常見場景。</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">你自己布局中的面板或聊天頁面。</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">撰寫r and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>同一 runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
 }
 ```
 
-## 代理並聊天UI {#agent-chat-ui}
+## 代理並聊天 UI {#agent-chat-ui}
 
 | API                                  | 匯入路徑                                      | 何時使用                                                    |
 | ------------------------------------ | --------------------------------------------- | ----------------------------------------------------------- |
 | `<AgentSidebar>`                     | `@agent-native/core/client` 或 `/client/chat` | 您希望應用程式週圍有完整的側邊欄。                          |
 | `<AgentToggleButton>`                | `@agent-native/core/client` 或 `/client/chat` | 您為側邊欄渲染自己的標題按鈕。                              |
-| `<AgentPanel>`                       | `@agent-native/core/client` 或 `/client/chat` | 您希望在自己的布局、路線、對話框或側欄中顯示完整面板。      |
+| `<AgentPanel>`                       | `@agent-native/core/client` 或 `/client/chat` | 您希望在自己的布局、路由、對話框或側欄中顯示完整面板。      |
 | `<AgentChatSurface>`                 | `@agent-native/core/client` 或 `/client/chat` | 您希望在面板或頁面模式下聊天，而不需要側邊欄包裝。          |
-| `<AssistantChat>`                    | `@agent-native/core/client`或`/client/chat`   | 您希望擁有週圍的鑲邊，同時保持標準對話和作曲家執行時。      |
-| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 或 `/client/chat` | 您希望框架的線程分頁沒有 `AgentPanel` chrome。              |
+| `<AssistantChat>`                    | `@agent-native/core/client`或`/client/chat`   | 您希望擁有週圍的鑲邊，同時保持標準對話和撰寫器執行時。      |
+| `<MultiTabAssistantChat>`            | `@agent-native/core/client` 或 `/client/chat` | 您希望框架的對話串分頁沒有 `AgentPanel` chrome。            |
 | `createHttpAgentChatRuntime()`       | `@agent-native/core/client` 或 `/client/chat` | 您有一個 BYO 代理端點，用於流式傳輸規範化的聊天事件。       |
 | `createOpenAIAgentsChatRuntime()`    | `@agent-native/core/client` 或 `/client/chat` | 您有一個 OpenAI 代理 SDK 流，並希望圍繞它進行標準聊天 UI。  |
 | `createOpenAIResponsesChatRuntime()` | `@agent-native/core/client` 或 `/client/chat` | 您有一個 OpenAI 回應事件流，並希望將其規範化到聊天 UI 中。  |
@@ -49,20 +49,20 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 | `createClaudeAgentChatRuntime()`     | `@agent-native/core/client`或`/client/chat`   | 您有一個 Claude 代理 SDK 流，並希望將其規範化到聊天 UI 中。 |
 | `createVercelAiChatRuntime()`        | `@agent-native/core/client` 或 `/client/chat` | 您有一個 Vercel AI SDK 流，並希望將其規範化到聊天 UI 中。   |
 | `createAgentChatRuntimeAdapter()`    | `@agent-native/core/client` 或 `/client/chat` | 需要自己將一個`AgentChatRuntime`適配成assistant-ui。        |
-| `createAgentChatAdapter()`           | `@agent-native/core/client` 或 `/client/chat` | 您需要內置 Agent-Native SSE 傳輸作為低級助手 UI 適配器。    |
-| `useChatThreads()`                   | `@agent-native/core/client`或`/client/chat`   | 您需要自訂話題列表、歷史紀錄選取器或範圍聊天 UI。           |
+| `createAgentChatAdapter()`           | `@agent-native/core/client` 或 `/client/chat` | 您需要內建 Agent-Native SSE 傳輸作為低階助手 UI 轉接器。    |
+| `useChatThreads()`                   | `@agent-native/core/client`或`/client/chat`   | 您需要自訂話題清單、歷史紀錄選取器或範圍聊天 UI。           |
 | `sendToAgentChat()`                  | `@agent-native/core/client` 或 `/client/chat` | 產品操作應該將工作交給代理聊天。                            |
 
-`AgentChatRuntime` 是標準聊天 shell 的 BYO 代理合約。通過
+`AgentChatRuntime` 是標準聊天 shell 的 BYO 代理合約。透過
 當外部代理應該為 `runtime` 到 `<AssistantChat>` 供電時
-Agent-Native 保留作曲家、文字紀錄、工具卡和
-本機小部件渲染。上面的連線器是API面；執行時
+Agent-Native 保留撰寫器、文字紀錄、工具卡和
+本機小工具渲染。上面的連線器是 API 面；執行時
 合同和事件形狀在中教授
 [Native 聊天介面 — BYO agent runtimes](/docs/native-chat-ui#byo-agent-runtimes).
-如果您在無頭代理、丰富聊天、嵌入式 sidecar 之間進行選取
+如果您在無頭代理、豐富聊天、嵌入式 sidecar 之間進行選取
 完整的應用形狀，請參閱 [Agent Surfaces](/docs/agent-surfaces)。
 
-最短的自訂路線仍然是預接線表面：
+最短的自訂路由仍然是預接線表面：
 
 ```tsx
 import { AgentChatSurface } from "@agent-native/core/client/chat";
@@ -100,18 +100,18 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 連線器使用情況、標準化事件流以及何時到達
 `createHttpAgentChatRuntime()` 與特定於協議的連線器。
 
-## 聊天欄位和作曲家 {#composer}
+## 聊天欄位和撰寫器 {#composer}
 
 當您需要進行相同的聊天時，請使用`@agent-native/core/client/composer`
-自訂UI內的側邊欄使用的欄位。
+自訂 UI 內的側邊欄使用的欄位。
 
 | API                               | 何時使用                                                                                                       |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `<PromptComposer>`                | 您需要一個隨時可以提交的聊天欄位，其中包含附件、斜線指令、參考、貼上文本處理、草稿持久性、語音輸入和提交語義。 |
+| `<PromptComposer>`                | 您需要一個隨時可以提交的聊天欄位，其中包含附件、斜線指令、參考、貼上文字處理、草稿持久性、語音輸入和提交語義。 |
 | `<AgentComposerFrame>`            | 您需要自訂 撰寫r 主體週圍的標準視覺外殼。                                                                      |
-| `<TiptapComposer>`                | 您需要最低級別的丰富聊天欄位。它必須在 Assistant-ui `ThreadPrimitive.Root` / 撰寫r 執行時內呈現。              |
-| `buildPromptComposerSubmission()` | 在調用您自己的提交處理程序之前，您需要相同的附件和貼上文本規範化。                                             |
-| `formatPromptWithAttachments()`   | 您需要將隱藏的附件元資料呈現到提示字串中。                                                                     |
+| `<TiptapComposer>`                | 您需要最低階別的豐富聊天欄位。它必須在 Assistant-ui `ThreadPrimitive.Root` / 撰寫r 執行時內呈現。              |
+| `buildPromptComposerSubmission()` | 在呼叫您自己的提交處理常式之前，您需要相同的附件和貼上文字規範化。                                             |
+| `formatPromptWithAttachments()`   | 您需要將隱藏的附件中繼資料呈現到提示字串中。                                                                   |
 
 大多數自訂 UI 應以 `PromptComposer` 開頭：
 
@@ -136,19 +136,19 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 
 | API                                             | 何時使用                             |
 | ----------------------------------------------- | ------------------------------------ |
-| `<AgentConversation>`                           | 呈現標準化代理訊息列表。             |
+| `<AgentConversation>`                           | 呈現標準化代理訊息清單。             |
 | `<AgentConversationMessageView>`                | 渲染一條標準化訊息。                 |
 | `normalizeCodeAgentTranscriptForConversation()` | 將程式碼代理轉錄事件轉換為對話訊息。 |
-| `useNearBottomAutoscroll()`                     | 在流式傳輸時將自訂腳本固定在底部。   |
+| `useNearBottomAutoscroll()`                     | 在流式傳輸時將自訂指令碼固定在底部。 |
 
 這一層有意做到資料優先：您擁有訊息的來源，並且
 渲染器擁有一致的降價、附件、通知、工件和
-工具調用顯示。
+工具呼叫顯示。
 
-## 本機工具小部件 {#native-tool-widgets}
+## 本機工具小工具 {#native-tool-widgets}
 
-當操作結果應呈現為應用品質 UI 時，請使用本機工具小部件
-內部聊天而不是普通的 JSON。內置可重複使用的輸出包括
+當操作結果應呈現為應用品質 UI 時，請使用本機工具小工具
+內部聊天而不是普通的 JSON。內建可重複使用的輸出包括
 `DataTableWidget`、`DataChartWidget` 和 `DataWidgetResult`；它們被匯出
 來自 `@agent-native/core/client/chat` 和根用戶端條目。請參閱
 [Native 聊天介面](/docs/native-chat-ui) 表示操作結果合約。
@@ -162,23 +162,23 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 | `registerToolRenderer()`         | 您需要特定於產品的本機渲染器來獲得非核心工具結果。                            |
 | `registerReservedToolRenderer()` | 框架程式碼需要一個保留的渲染器，該渲染器在範本渲染器之前獲勝。                |
 
-## 實時協作和線上狀態 {#collab-presence}
+## 即時協作和線上狀態 {#collab-presence}
 
 使用 `@agent-native/core/client/collab` 實現 Liveblocks 式的呈現效果
 協作檔案掛鉤。
 
 | API                                                 | 何時使用                                                          |
 | --------------------------------------------------- | ----------------------------------------------------------------- |
-| `useCollaborativeDoc()`                             | 將富文本編輯器或自訂 Yjs 介面綁定到 `/_agent-native/collab`。     |
-| `usePresence()`                                     | 發布並渲染任意感知欄位：光標、選取、視口、模式。                  |
+| `useCollaborativeDoc()`                             | 將富文字編輯器或自訂 Yjs 介面綁定到 `/_agent-native/collab`。     |
+| `usePresence()`                                     | 發布並渲染任意感知欄位：游標、選取、視口、模式。                  |
 | `<PresenceBar>`                                     | 顯示活躍的人類和代理協作者。                                      |
-| `<LiveCursorOverlay>`                               | 在定位的容器上渲染遠端光標標籤。                                  |
+| `<LiveCursorOverlay>`                               | 在定位的容器上渲染遠端游標標籤。                                  |
 | `<RemoteSelectionRings>`                            | 在 DOM 元素上渲染遠端選取輪廓。                                   |
 | `useFollowUser()`                                   | 跟隨其他參與者的視口或選取。                                      |
-| `useCollaborativeMap()` / `useCollaborativeArray()` | 當富文本內文協作不合適時，使用結構化 Y.Map/Y.Array 狀態進行實驗。 |
+| `useCollaborativeMap()` / `useCollaborativeArray()` | 當富文字內文協作不合適時，使用結構化 Y.Map/Y.Array 狀態進行實驗。 |
 | `dedupeCollabUsersByEmail()`                        | 為同一使用者建置一個沒有重複分頁的自訂頭像堆堆疊。                |
 
-```an-diagram title="存在：人類和智能體共用一個意識層" summary="useCollaborativeDoc 擁有感知執行個體；用戶端掛鉤發布光標和選取；伺服器助手讓代理操作顯示為實時參與者。"
+```an-diagram title="存在：人類和智慧體共用一個意識層" summary="useCollaborativeDoc 擁有感知執行個體；用戶端掛鉤發布游標和選取；伺服器助手讓代理操作顯示為即時參與者。"
 {
   "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent 操作<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">渲染所有人，包括代理</small></div></div>",
   "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
@@ -186,7 +186,7 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 ```
 
 想要作為現場參與者出現的伺服器端代理 actions 使用
-較低級別的 `@agent-native/core/collab` 代理存在助手：
+較低階別的 `@agent-native/core/collab` 代理存在助手：
 
 ```ts
 import {
@@ -196,7 +196,7 @@ import {
 } from "@agent-native/core/collab";
 ```
 
-## 丰富的編輯器 {#rich-editor}
+## 豐富的編輯器 {#rich-editor}
 
 當需要共用markdown編輯器時使用`@agent-native/core/client/editor`
 計畫、內容、資源和協作檔案使用的表面
@@ -205,11 +205,11 @@ import {
 | API                              | 何時使用                                                                  |
 | -------------------------------- | ------------------------------------------------------------------------- |
 | `<SharedRichEditor>`             | 您需要具有 Markdown 序列化、可選 Yjs 和應用附加功能的目前可設定編輯器。   |
-| `<RichMarkdownEditor>`           | 您需要共用丰富編輯器的向後兼容別名。                                      |
+| `<RichMarkdownEditor>`           | 您需要共用豐富編輯器的向後相容別名。                                      |
 | `createSharedEditorExtensions()` | 您正在建置自己的 Tiptap 編輯器，但需要框架架構和 Markdown 方言。          |
 | `<SlashCommandMenu>`             | 您需要共用斜線指令 UI 來建立自訂 Tiptap 表面。                            |
-| `<BubbleToolbar>`                | 您需要用於標記、連結和自訂內聯 actions 的共用選取工具列。                 |
-| `createRegistryBlockNode()`      | 您需要在丰富的編輯器中提供註冊表支持的塊節點。                            |
+| `<BubbleToolbar>`                | 您需要用於標記、連結和自訂行內 actions 的共用選取工具列。                 |
+| `createRegistryBlockNode()`      | 您需要在豐富的編輯器中提供註冊表支援的塊節點。                            |
 | `uploadEditorImage()`            | 您希望框架上傳圖片操作位於編輯器的共用圖片塊後面。                        |
 | `useCollabReconcile()`           | 您正在將自訂編輯器介面綁定到 Yjs 檔案，同時將 Markdown 保留為已儲存狀態。 |
 
@@ -226,7 +226,7 @@ import { SharedRichEditor } from "@agent-native/core/client/editor";
 />;
 ```
 
-對於實時編輯，請將其與協作子路徑配對：
+對於即時編輯，請將其與協作子路徑配對：
 
 ```tsx
 import {
@@ -257,7 +257,7 @@ const collab = useCollaborativeDoc({
 ## 工作區資源 {#resources}
 
 當您想要公開相同的內容時，請使用 `@agent-native/core/client/resources`
-為代理面板的“工作空間”分頁提供支持的工作空間資源模型。
+為代理面板的“工作空間”分頁提供支援的工作空間資源模型。
 
 | API                                                                   | 何時使用                                             |
 | --------------------------------------------------------------------- | ---------------------------------------------------- |
@@ -265,9 +265,9 @@ const collab = useCollaborativeDoc({
 | `<ResourceTree>`                                                      | 您想要圍繞框架資料渲染您自己的資源瀏覽器。           |
 | `<ResourceEditor>`                                                    | 您需要所選資源的框架編輯器。                         |
 | `useResourceTree()`                                                   | 您需要一個用於個人、共用或工作區資源的作用域樹。     |
-| `useResource()`                                                       | 您需要一項選定資源的內容和元資料。                   |
+| `useResource()`                                                       | 您需要一項選定資源的內容和中繼資料。                 |
 | `useCreateResource()` / `useUpdateResource()` / `useDeleteResource()` | 您需要圍繞資源生命週期進行自訂控制。                 |
-| `useUploadResource()`                                                 | 您需要將檔案上傳到框架資源存儲中。                   |
+| `useUploadResource()`                                                 | 您需要將檔案上傳到框架資源儲存中。                   |
 
 完整的面板不需要道具：
 
@@ -320,7 +320,7 @@ function WorkspaceResources() {
 }
 ```
 
-## 其他公開UI {#other-ui}
+## 其他公開 UI {#other-ui}
 
 | 區域         | APIs                                                  | 匯入路徑                                  |
 | ------------ | ----------------------------------------------------- | ----------------------------------------- |
@@ -330,13 +330,13 @@ function WorkspaceResources() {
 | 入職         | `useOnboarding()`，入門面板掛鉤                       | `@agent-native/core/client/onboarding`    |
 | 可觀察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>`        | `@agent-native/core/client/observability` |
 | 資源         | `<ResourcesPanel>`、`<ResourceTree>`、資源掛鉤        | `@agent-native/core/client/resources`     |
-| 丰富的編輯器 | `<SharedRichEditor>`，斜杠指令，塊節點掛鉤            | `@agent-native/core/client/editor`        |
+| 豐富的編輯器 | `<SharedRichEditor>`，斜杠指令，塊節點掛鉤            | `@agent-native/core/client/editor`        |
 
-## 一次性文本完成 {#one-off-text-completion}
+## 一次性文字完成 {#one-off-text-completion}
 
-如果您確實需要原始文本輸入/文本輸出，請將其保留在伺服器端並使用
+如果您確實需要原始文字輸入/文字輸出，請將其保留在伺服器端並使用
 `completeText()` 來自 `@agent-native/core/server`。將面向使用者的用法包裝在
-采取行動，使 UI 和代理共用相同的功能。
+採取行動，使 UI 和代理共用相同的功能。
 
 ```an-callout
 {

@@ -1,43 +1,43 @@
 ---
 title: "聊天範本"
-description: "一個最小的聊天優先代理本機應用程式：持久的聊天線程、actions、應用程式狀態、實時同步、驗證以及新增您自己的 UI 的空間。"
+description: "一個最小的聊天優先 Agent-Native 應用程式：持久的聊天對話串、actions、應用程式狀態、即時同步、驗證以及新增您自己的 UI 的空間。"
 ---
 
 # 聊天範本
 
-聊天是基本的代理本機應用程式起點。它為您提供了一個幹淨的 ChatGPT 風格的 shell，聊天位於中心，線程列表位於左側，標準應用程式導覽、驗證、實時同步、actions 和一個範例操作。當您想要一個無需提交域範本即可建置的真正的瀏覽器應用程式時，請從這裡開始。
+聊天是基本的 Agent-Native 應用程式起點。它為您提供了一個幹淨的 ChatGPT 風格的 shell，聊天位於中心，對話串清單位於左側，標準應用程式導覽、驗證、即時同步、actions 和一個範例操作。當您想要一個無需提交域範本即可建置的真正的瀏覽器應用程式時，請從這裡開始。
 
 如果您想要最小的僅操作執行時且沒有瀏覽器 UI，請從 [Pure-Agent Apps](/docs/pure-agent-apps) 開始。如果您想要成品域產品形狀，請從 [Calendar](/docs/template-calendar)、[Mail](/docs/template-mail)、[Content](/docs/template-content)、[Forms](/docs/template-forms)、[Analytics](/docs/template-analytics) 或其他域範本開始。
 
 ```an-wireframe
 {
   "surface": "desktop",
-  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>我能幫什么？</h1><p class='wf-muted' style='margin:10px 0 0'>聊任何事情。新增 actions、元件、頁面、工作或你自己的後端。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>給代理發訊息...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+  "html": "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>我能幫什麼？</h1><p class='wf-muted' style='margin:10px 0 0'>聊任何事情。新增 actions、元件、頁面、工作或你自己的後端。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>給代理發訊息...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
 }
 ```
 
-## 裡面有什么 {#whats-in-it}
+## 裡面有什麼 {#whats-in-it}
 
-- 使用框架聊天介面和持久聊天線程在 `/` 上進行**全頁面聊天**。
-- **應用側邊欄中的話題列表**，以便使用者可以建立、重新開啟、重命名、固定和存檔聊天。
-- **代理聊天外掛**已預先設定，因此一旦設定了代理憑證，聊天就會與內置的應用程式代理循環進行對話。
-- **Auth** 通過更好的驗證 - 登入、註冊、工作階段、組織。相同的流程在本機和正式環境中執行；在開發中，電子郵件驗證被跳過。
+- 使用框架聊天介面和持久聊天對話串在 `/` 上進行**全頁面聊天**。
+- **應用側邊欄中的話題清單**，以便使用者可以建立、重新開啟、重新命名、固定和存檔聊天。
+- **代理聊天外掛**已預先設定，因此一旦設定了代理憑證，聊天就會與內建的應用程式代理迴圈進行對話。
+- **Auth** 透過更好的驗證 - 登入、註冊、工作階段、組織。相同的流程在本機和正式環境中執行；在開發中，電子郵件驗證被跳過。
 - **Actions 目錄**，包含一個範例 (`actions/hello.ts`) 以及標準 `view-screen` 和 `navigate` actions。
-- **框架的核心表**，用於應用程式狀態、設定、工作階段、資源、聊天線程、執行歷史紀錄和其他執行時狀態。
-- **實時同步** (`useDbSync`) 已連線，因此當代理寫入 SQL 時，UI 會自動刷新。
-- **AGENTS.md** 包含用於新增 actions、路線、skills 和應用程式狀態的聊天優先指南。
+- **框架的核心表**，用於應用程式狀態、設定、工作階段、資源、聊天對話串、執行歷史紀錄和其他執行時狀態。
+- **即時同步** (`useDbSync`) 已連線，因此當代理寫入 SQL 時，UI 會自動重新整理。
+- **AGENTS.md** 包含用於新增 actions、路由、skills 和應用程式狀態的聊天優先指南。
 
-## 其中*不*有什么 {#not-in-it}
+## 其中*不*有什麼 {#not-in-it}
 
 - 沒有域表或種子資料。
-- 沒有儀表板、列表、圖表、表單或提供者整合。
+- 沒有儀表板、清單、圖表、表單或提供者整合。
 - 除了範例存根之外，沒有特定於域的 actions。
 
 這就是重點。聊天是您自己的代理的一個薄而有用的預設外殼，而不是一個假裝通用的領域產品。
 
-```an-diagram title="Chat shell 中包含哪些內容" summary="框架標準執行時上的精簡聊天介面（操作、持久線程、實時同步和驗證），有空間新增您自己的 UI。"
+```an-diagram title="Chat shell 中包含哪些內容" summary="框架標準執行時上的精簡聊天介面（操作、持久對話串、即時同步和驗證），有空間新增您自己的 UI。"
 {
-  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">線程列表<br><small class=\"diagram-muted\">建立 · 重新開啟 · 固定 · 封存</small></div><div class=\"diagram-node\">整頁面聊天<br><small class=\"diagram-muted\">/ 上的框架聊天介面</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">核心 SQL 表<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">實時同步 &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">登入 · 組織 · 工作階段</small></div></div></div>",
+  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">對話串清單<br><small class=\"diagram-muted\">建立 · 重新開啟 · 固定 · 封存</small></div><div class=\"diagram-node\">整頁面聊天<br><small class=\"diagram-muted\">/ 上的框架聊天介面</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">核心 SQL 表<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">即時同步 &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">登入 · 組織 · 工作階段</small></div></div></div>",
   "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
@@ -64,24 +64,24 @@ pnpm dev
 npx @agent-native/core@latest create my-agent --headless
 ```
 
-從那裡，將聊天範本的 `/` 路由和側邊欄線程列表複製到您的應用程式中，或者建置聊天應用程式並將 actions 從無頭代理行動到其 `actions/` 目錄中。關鍵不變數保持不變：actions 是聊天的共用介面，UI、HTTP、MCP、A2A 和 CLI。
+從那裡，將聊天範本的 `/` 路由和側邊欄對話串清單複製到您的應用程式中，或者建置聊天應用程式並將 actions 從無頭代理行動到其 `actions/` 目錄中。關鍵不變數保持不變：actions 是聊天的共用介面，UI、HTTP、MCP、A2A 和 CLI。
 
 ## 要檢查的第一個程式碼 {#first-code}
 
-- `actions/hello.ts` 是代理可以調用的啟動行為。更換它或
+- `actions/hello.ts` 是代理可以呼叫的啟動行為。更換它或
   在其旁邊新增 actions。
 - `app/routes/_index.tsx` 渲染全頁面聊天介面。調整
-  建議、空狀態、作曲家或週圍布局。
-- `AGENTS.md` 告訴內置代理如何在此應用程式內工作。
+  建議、空狀態、撰寫器或週圍布局。
+- `AGENTS.md` 告訴內建代理如何在此應用程式內工作。
 
 ```an-file-tree title="Chat 範本布局"
 {
   "entries": [
     { "path": "actions/hello.ts", "note": "一個範例 action；替換它或在旁邊新增 actions" },
-    { "path": "actions/view-screen.ts", "note": "代理讀取的標準上下文 action" },
+    { "path": "actions/view-screen.ts", "note": "代理讀取的標準脈絡 action" },
     { "path": "actions/navigate.ts", "note": "標準導覽 action" },
     { "path": "app/routes/_index.tsx", "note": "渲染整頁面 chat 介面；編輯建議、空狀態和 composer" },
-    { "path": "AGENTS.md", "note": "內置代理讀取的以 chat 為先的指南" }
+    { "path": "AGENTS.md", "note": "內建代理讀取的以 chat 為先的指南" }
   ]
 }
 ```
@@ -108,22 +108,22 @@ export default function ChatRoute() {
 
 ## 使用您自己的代理後端 {#own-agent-backend}
 
-該範本預設使用內置的應用程式代理循環。要連線自訂後端，請交換代理聊天外掛後面的聊天執行時，而不是重寫 UI。聊天路由應該在共用聊天介面週圍保留一個薄渲染器；後端選取屬於伺服器外掛/執行時適配器。
+該範本預設使用內建的應用程式代理迴圈。要連線自訂後端，請交換代理聊天外掛後面的聊天執行時，而不是重寫 UI。聊天路由應該在共用聊天介面週圍保留一個薄渲染器；後端選取屬於伺服器外掛/執行時轉接器。
 
-當您的模型編排已經存在於其他地方，但您仍然想要一個具有驗證、線程、actions、UI 狀態和可部署頁面的應用程式時，請使用此選項。
+當您的模型編排已經存在於其他地方，但您仍然想要一個具有驗證、對話串、actions、UI 狀態和可部署頁面的應用程式時，請使用此選項。
 
 ## 首次編輯 {#first-edits}
 
 搭好腳手架後，詢問代理：
 
-> 新增 `notes` 的資料模型。注釋有 ID、標題、內文和所有者。在 `/notes` 渲染筆記頁面，新增建立/列出 actions，並保持聊天能夠建立筆記。
+> 新增 `notes` 的資料模型。註解有 ID、標題、內文和所有者。在 `/notes` 渲染筆記頁面，新增建立/列出 actions，並保持聊天能夠建立筆記。
 
-代理應新增 Drizzle 架構、actions、路線、導覽和說明。然後您可以使用 UI 或聊天中的注釋功能。
+代理應新增 Drizzle 架構、actions、路由、導覽和說明。然後您可以使用 UI 或聊天中的註解功能。
 
-## 下一步是什么
+## 下一步是什麼
 
 - [**Getting Started**](/docs) — 在無頭、聊天和域範本之間進行選取
 - [**Agent Surfaces**](/docs/agent-surfaces) — 無頭、聊天、嵌入式和完整應用模式
-- [**Actions**](/docs/actions) - 操作系統聊天和 UI 都調用
+- [**Actions**](/docs/actions) - 操作系統聊天和 UI 都呼叫
 - [**Native 聊天介面**](/docs/native-chat-ui) — 聊天介面基元和執行時選項
 - [**Pure-Agent Apps**](/docs/pure-agent-apps) - 僅限操作的應用程式，稍後可以發展為聊天

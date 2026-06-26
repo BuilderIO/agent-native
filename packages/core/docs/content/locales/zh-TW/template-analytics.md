@@ -1,11 +1,11 @@
 ---
 title: "分析"
-description: "用簡單的英語提出分析問題，獲取圖表和儀表板。 Amplitude、Mixpanel 和 Looker 的開來源替代品。"
+description: "用簡單的英語提出分析問題，取得圖表和儀表板。 Amplitude、Mixpanel 和 Looker 的開放原始碼替代品。"
 ---
 
 # 分析
 
-用簡單的英語提出分析問題，獲取圖表和儀表板。該代理連線到 BigQuery、GA4、Amplitude、內置第一方事件收集器、HubSpot、Jira 和十幾個其他來源，為您編寫查詢、驗證查詢，並將答案呈現為圖表、表格或儲存的儀表板面板。
+用簡單的英語提出分析問題，取得圖表和儀表板。該代理連線到 BigQuery、GA4、Amplitude、內建第一方事件收集器、HubSpot、Jira 和十幾個其他來源，為您編寫查詢、驗證查詢，並將答案呈現為圖表、表格或儲存的儀表板面板。
 
 ```an-wireframe
 {
@@ -14,7 +14,7 @@ description: "用簡單的英語提出分析問題，獲取圖表和儀表板。
 }
 ```
 
-它是 Amplitude、Mixpanel 和 Looker 的開來源替代品——適合想要擁有程式碼、查詢和資料的團隊。
+它是 Amplitude、Mixpanel 和 Looker 的開放原始碼替代品——適合想要擁有程式碼、查詢和資料的團隊。
 
 ```an-diagram title="問題到圖表" summary="代理查閱資料字典，寫入 SQL，根據倉庫對其進行驗證，然後渲染圖表或儲存面板。"
 {
@@ -23,12 +23,12 @@ description: "用簡單的英語提出分析問題，獲取圖表和儀表板。
 }
 ```
 
-## 你可以用它做什么
+## 你可以用它做什麼
 
 - **用簡單的英語詢問資料問題。**“上個月註冊轉化為付費的比例是多少？”或“顯示過去 6 個月的每週活躍使用者數”。代理選取正確的來源，寫入 SQL，並渲染圖表。
-- **使用過濾器、儲存的視圖和參數查詢建置可重用的 SQL 儀表板**。
+- **使用過濾器、儲存的檢視和參數查詢建置可重用的 SQL 儀表板**。
 - **執行臨時分析**，交叉引用多個資料來源 - 與原始問題、說明和結果一起儲存為可重新執行的調查。
-- **維護指標、表和 SQL 配方的實時資料字典**，以便代理每次都使用正確的列名稱（當它實際上是 `hs_is_closed` 時，不再猜測 `is_closed`）。
+- **維護指標、表和 SQL 配方的即時資料字典**，以便代理每次都使用正確的列名稱（當它實際上是 `hs_is_closed` 時，不再猜測 `is_closed`）。
 - **與您的團隊共用儀表板** - 預設情況下是私人的，可按使用者或按組織與檢視者/編輯者/管理員角色共用。
 - **連線到許多來源**，開箱即用：BigQuery、GA4、Mixpanel、Amplitude、PostHog、HubSpot、Jira、Apollo、Pylon、Gong、Common Room、Twitter，以及特定於應用程式的 SEO 來源。
 - \*\*當工作區已連線且
@@ -38,7 +38,7 @@ description: "用簡單的英語提出分析問題，獲取圖表和儀表板。
 
 ## 開始使用
 
-現場演示：[analytics.agent-native.com](https://analytics.agent-native.com)。
+線上示範：[analytics.agent-native.com](https://analytics.agent-native.com)。
 
 首次開啟應用程式時：
 
@@ -59,17 +59,17 @@ description: "用簡單的英語提出分析問題，獲取圖表和儀表板。
 - “使用本月的資料重新執行客戶流失分析。”
 - “在資料字典中紀錄此指標。”
 
-代理始終知道您在檢視什么 - 目前儀表板、過濾器、視圖 - 因此您可以直接說出“此儀表板”或“那個面板”。
+代理始終知道您在檢視什麼 - 目前儀表板、過濾器、檢視 - 因此您可以直接說出“此儀表板”或“那個面板”。
 
 ## 需要知道的三件事
 
 該應用程式具有三個主要介面，您將在其中花費時間：
 
-- **SQL 儀表板** — 帶有過濾器和儲存視圖的可重複使用面板。最適合您定期檢查的指標。
+- **SQL 儀表板** — 帶有過濾器和儲存檢視的可重複使用面板。最適合您定期檢查的指標。
 - **臨時分析** — 從多個來源進行的長篇調查，並儲存重新執行說明。最適合您可能想重新審視的一次性問題。
 - **資料字典** — 指標、表、列和 SQL 配方的規範目錄。代理在寫入任何 SQL 之前會查閱它，因此它使用真實的倉庫列名稱，並了解“排除內部電子郵件”等警告。
 
-通過詢問代理來播種字典：“匯入我們的 dbt 定義”或“從我們的 Notion 手冊中提取指標”，它就會完成工作。
+透過詢問代理來播種字典：“匯入我們的 dbt 定義”或“從我們的 Notion 手冊中擷取指標”，它就會完成工作。
 
 ## 對於開發者
 
@@ -95,54 +95,54 @@ CLI 列印本機開發 URL。使用 Google 登入，然後開啟 **資料來源*
 
 ### 主要功能
 
-**提出問題，獲取圖表。**代理選取資料來源，寫入並驗證 SQL，然後呈現圖表、表格、指標或儲存的面板。
+**提出問題，取得圖表。**代理選取資料來源，寫入並驗證 SQL，然後呈現圖表、表格、指標或儲存的面板。
 
-**儀表板和調查。**可重複使用的儀表板保留 SQL 面板、過濾器、儲存的視圖和共用；臨時分析通過重新執行指令儲存更長的結果。
+**儀表板和調查。**可重複使用的儀表板保留 SQL 面板、過濾器、儲存的檢視和共用；臨時分析透過重新執行指令儲存更長的結果。
 
-**實時資料字典。**指標定義、所有者、來源表和已知警告在寫入查詢之前為代理提供真實的倉庫詞匯。
+**即時資料字典。**指標定義、所有者、來源表和已知警告在寫入查詢之前為代理提供真實的倉庫詞匯。
 
-**廣泛的連線器表面。** BigQuery、GA4、產品分析、CRM、支持、社區、GitHub/Jira、SEO 和第一方 `/track` 事件均來自代理可以調用的 actions。
+**廣泛的連線器表面。** BigQuery、GA4、產品分析、CRM、支援、社群、GitHub/Jira、SEO 和第一方 `/track` 事件均來自代理可以呼叫的 actions。
 
 ### 與代理合作
 
-代理始終知道您在看什么。目前螢幕狀態作為 `<current-screen>` 塊注入到每條訊息中 - 它包含活動視圖、開啟的儀表板或分析以及任何選定的過濾器。
+代理始終知道您在看什麼。目前螢幕狀態作為 `<current-screen>` 塊注入到每條訊息中 - 它包含活動檢視、開啟的儀表板或分析以及任何選定的過濾器。
 
-代理的系統提示符會獲取注入的 `<data-dictionary>` 塊，其中包含活動組織的已批準指標條目。當您請求儀表板時，代理首先查閱字典並逐字使用紀錄的 `table` / `columns` / `queryTemplate` - 它不會猜測列名稱。
+代理的系統提示符會取得注入的 `<data-dictionary>` 塊，其中包含活動組織的已核准指標條目。當您請求儀表板時，代理首先查閱字典並逐字使用紀錄的 `table` / `columns` / `queryTemplate` - 它不會猜測列名稱。
 
-**它自動具有的上下文：**
+**它自動具有的脈絡：**
 
-- **目前視圖** — `overview`、`adhoc`（使用 `dashboardId`）、`analyses`（使用 `analysisId`）、`data-dictionary`、`data-sources` 或 `settings`。
+- **目前檢視** — `overview`、`adhoc`（使用 `dashboardId`）、`analyses`（使用 `analysisId`）、`data-dictionary`、`data-sources` 或 `settings`。
 - **活動組織** — 範圍所有查詢和寫入。
-- **批準的字典條目** - 用於活動工作區。
+- **核准的字典條目** - 用於活動工作區。
 
-**儀表板編輯。** 代理使用 `update-dashboard` 操作來編輯儀表板。它支持兩種模式：
+**儀表板編輯。** 代理使用 `update-dashboard` 操作來編輯儀表板。它支援兩種模式：
 
 - `ops` — JSON-用於外科編輯的指針補丁（行動面板、替換一個 SQL 字串、刪除過濾器）。
 - `config` — 完全替換儀表板設定。
 
-在儲存儀表板之前，每個 BigQuery 面板的 SQL 都會針對倉庫進行試執行。如果列錯誤，則儲存會被拒絕，並出現 BigQuery 錯誤 - 代理會修複 SQL 並重試，而不是保留損壞的面板。
+在儲存儀表板之前，每個 BigQuery 面板的 SQL 都會針對倉庫進行試執行。如果列錯誤，則儲存會被拒絕，並出現 BigQuery 錯誤 - 代理會修復 SQL 並重試，而不是保留損壞的面板。
 
 ### 連線資料來源
 
 開啟 **資料來源** 頁面 (`/data-sources`) 以連線提供者。每個
-來源程式碼公開了一個環境金鑰列表、一個演練和一個 **測試連線** 按鈕。
+來源程式碼公開了一個環境金鑰清單、一個演練和一個 **測試連線** 按鈕。
 當 Analytics 在工作區中執行時，`data-source-status` 也會報告
 為 `appId=analytics` 授予可重用工作區連線，以便代理可以
 請求應用程式授權，而不是同一提供者金鑰的另一個副本。
-對於可重用的提供程序（例如 Slack、HubSpot、Notion 和 GitHub），資料
-來源UI直接顯示共用整合狀態：通過工作區準備就緒，
+對於可重用的提供者（例如 Slack、HubSpot、Notion 和 GitHub），資料
+來源 UI 直接顯示共用整合狀態：透過工作區準備就緒，
 需要授權、需要憑證或本機憑證。
 
-可重用工作區整合是共用提供程序的執行時方向：
-該框架存儲提供者身分、帳戶元資料、憑證引用和
-每個應用程式授予一次； Analytics 存儲資料來源解釋、來源
+可重用工作區整合是共用提供者的執行時方向：
+此框架儲存提供者身分、帳戶中繼資料、憑證引用和
+每個應用程式授予一次； Analytics 儲存資料來源解釋、來源
 事實選取、指標定義、儀表板和分析。
 
-憑證通過框架的settings/env層存儲——git中沒有秘密。制作要求：
+憑證透過框架的settings/env層儲存——git中沒有秘密。製作要求：
 
 | 變數                                     | 目的                               |
 | ---------------------------------------- | ---------------------------------- |
-| `DATABASE_URL`                           | 持久SQL連線URL                     |
+| `DATABASE_URL`                           | 持久 SQL 連線 URL                  |
 | `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | 驗證                               |
 | `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | 首選 Google 登入用戶端 (OAuth 2.0) |
 | `GOOGLE_CLIENT_ID` / `_SECRET`           | 舊版登入回退/Google API 整合用戶端 |
@@ -150,11 +150,11 @@ CLI 列印本機開發 URL。使用 Google 登入，然後開啟 **資料來源*
 | `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | BigQuery 服務帳戶 JSON             |
 | `ANTHROPIC_API_KEY`                      | 代理聊天                           |
 
-特定於提供者的金鑰（HubSpot、Jira、Gong、Pylon 等）紀錄在資料來源頁面上每個來源的演練中。如果您新增需要 API 金鑰的新操作，它將通過範本的入門註冊在該頁面上顯示為新來源。
+特定於提供者的金鑰（HubSpot、Jira、Gong、Pylon 等）紀錄在資料來源頁面上每個來源的演練中。如果您新增需要 API 金鑰的新操作，它將透過範本的入門註冊在該頁面上顯示為新來源。
 
 注意：用於 Google 登入的 BigQuery OAuth 憑證是**單獨的**
 來自 BigQuery 服務帳號 JSON 的憑證。在
-GCP 控制台 → API 和服務 → 憑證 → OAuth 用戶端 ID，並首選
+GCP 主控台 → API 和服務 → 憑證 → OAuth 用戶端 ID，並首選
 `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` 環境名稱是這樣的
 低範圍登入用戶端與 Google API 整合用戶端保持分離。
 
@@ -220,7 +220,7 @@ GCP 控制台 → API 和服務 → 憑證 → OAuth 用戶端 ID，並首選
 - **`dashboard_views`** — 每個儀表板儲存的過濾器預設。
 - **`analyses`** — 使用 `question`、`instructions`、`dataSources`、`resultMarkdown` 和可選的 `resultData` 進行臨時調查。
 - **`analysis_shares`** — 用於分析的每個資源份額授予。
-- **`bigquery_cache`** — 由 SQL 哈希鍵控的查詢結果快取，並進行字節處理記帳。
+- **`bigquery_cache`** — 由 SQL 哈希鍵控的查詢結果快取，並進行位元組處理記帳。
 
 加上`@agent-native/core/org`提供的組織表（`organizations`、`org_members`、`org_invitations`）。
 
@@ -230,29 +230,29 @@ GCP 控制台 → API 和服務 → 憑證 → OAuth 用戶端 ID，並首選
 
 Analytics 範本旨在進行分叉和擴充功能。一切都存在於 `templates/analytics/` 中：
 
-- **`AGENTS.md`** — 代理的頂級指南。紀錄視圖、actions 和工作流程。
-- **`actions/`** — 每個代理可調用的操作。新增新檔案以新增新操作。值得注意的：
+- **`AGENTS.md`** — 代理的頂級指南。紀錄檢視、actions 和工作流程。
+- **`actions/`** — 每個代理可呼叫的操作。新增新檔案以新增新操作。值得注意的：
   - `update-dashboard.ts` - 儀表板編輯（操作 + 完全替換）
   - `save-analysis.ts` / `list-analyses.ts` - 特別分析
   - `save-data-dictionary-entry.ts` / `list-data-dictionary.ts` — 字典
   - `bigquery.ts` — 原始 BigQuery 執行
   - `view-screen.ts` / `navigate.ts` — 情境感知
 - **`app/routes/`** — 基於檔案的路由。每個路由都是 `app/pages/` 中頁面的薄包裝。
-- **`app/pages/adhoc/sql-dashboard/`** — SQL 儀表板渲染器、面板編輯器、過濾器欄、儲存的視圖。
-- **`app/pages/analyses/`** — 分析列表和詳細視圖。
+- **`app/pages/adhoc/sql-dashboard/`** — SQL 儀表板渲染器、面板編輯器、過濾器欄、儲存的檢視。
+- **`app/pages/analyses/`** — 分析清單和詳細檢視。
 - **`app/pages/DataSources.tsx`** — 資料來源載入 UI。
 - **`app/pages/DataDictionary.tsx`** — 詞典瀏覽器和編輯器。
 - **`.agents/skills/`** — 模式指導代理按需讀取：
-  - `dashboard-management` — 存儲、範圍分辨率、儀表板設定形狀
-  - `data-querying` — 要存取哪個腳本，過濾模式
+  - `dashboard-management` — 儲存、範圍分辨率、儀表板設定形狀
+  - `data-querying` — 要存取哪個指令碼，過濾模式
   - `adhoc-analysis` — 跨來源調查的工作流程
   - `data-querying`, `real-time-sync`, `frontend-design`, `storing-data`, `self-modifying-code`
 - **`.builder/skills/<provider>/SKILL.md`** — 特定於提供者的問題（BigQuery、HubSpot、Jira、GA4 等）。查詢前請先閱讀；當您學到新東西時更新。
-- **`server/db/schema.ts`** - 用於儀表板、共用、視圖、分析、BigQuery 快取的 Drizzle 架構。
+- **`server/db/schema.ts`** - 用於儀表板、共用、檢視、分析、BigQuery 快取的 Drizzle 架構。
 - **`server/lib/dashboards-store.ts`** — 儀表板讀/寫，具有範圍解析和舊版 KV 遷移。
 - **`server/lib/bigquery.ts`** — BigQuery 用戶端、空執行驗證器、快取邏輯。
 
-要新增新資料來源，請在 `actions/` 中放置一個腳本，該腳本調用提供程序並通過 `output()` 幫助程序返回結果。它立即可供代理使用，並且可以在儀表板面板內使用（如果您通過伺服器處理程序公開結果）。
+要新增新資料來源，請在 `actions/` 中放置一個指令碼，該指令碼呼叫提供者並透過 `output()` 幫助程式返回結果。它立即可供代理使用，並且可以在儀表板面板內使用（如果您透過伺服器處理常式公開結果）。
 
 要新增新的圖表型別，請在`app/pages/adhoc/sql-dashboard/types.ts`中擴充功能`ChartType`聯合，在`SqlChartCard.tsx`中進行處理，代理可以在任何面板中使用它。
 

@@ -96,7 +96,7 @@ const messages = {
     scopesPlaceholder: "channels:history, search",
     accessMode: "存取模式",
     allAppsCanReuseConnection: "所有工作區應用都可以複用此連線",
-    onlySelectedAppsCanReuseConnection: "只有選中的應用可以複用此連線",
+    onlySelectedAppsCanReuseConnection: "只有選取的應用可以複用此連線",
     grantAllWorkspaceAppsAria: "將此連線授權給所有工作區應用",
     cancel: "取消",
     saveConnection: "儲存連線",
@@ -133,7 +133,7 @@ const messages = {
     grantPreviewAllApps:
       "每個工作區應用都可以使用 {{provider}}。金鑰值保留在 Vault 或 OAuth 中。",
     grantPreviewSelected:
-      "{{apps}} 可以使用 {{provider}}。應用專屬的渠道、倉庫、游標和同步規則仍保留在各應用中。",
+      "{{apps}} 可以使用 {{provider}}。應用專屬的管道、倉庫、游標和同步規則仍保留在各應用中。",
     grantPreviewEmpty: "選取哪些應用可以使用 {{provider}}，或切換到所有應用。",
     deleteConnection: "刪除連線",
     deleteConnectionDescription: "這會移除 {{connection}} 及其應用授權。",
@@ -181,11 +181,12 @@ const messages = {
     emptyConnectedAccountsDescription:
       "從上方目錄選取提供者，儲存其憑證引用名稱，然後將共用帳戶授權給 Brain、Analytics、Mail、Dispatch 或其他工作區應用。",
     onboardingConnectTitle: "連線一次",
-    onboardingConnectDetail: "在 Dispatch 中儲存安全帳戶元資料和憑證引用名稱。",
+    onboardingConnectDetail:
+      "在 Dispatch 中儲存安全帳戶中繼資料和憑證引用名稱。",
     onboardingGrantTitle: "授權應用",
     onboardingGrantDetail: "讓 Brain、Analytics、Mail 或 Dispatch 複用該帳戶。",
     onboardingLocalTitle: "保留應用本機設定",
-    onboardingLocalDetail: "渠道、倉庫、游標和同步規則保留在各自應用中。",
+    onboardingLocalDetail: "管道、倉庫、游標和同步規則保留在各自應用中。",
     onboardingTitle: "連線一次，授權給應用",
     onboardingDescription:
       "Dispatch 管理共用提供者帳戶。每個應用管理自己如何使用該帳戶。",

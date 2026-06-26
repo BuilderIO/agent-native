@@ -1,22 +1,22 @@
 ---
 title: "工作區連線"
-description: "用於 connect-once-use-everywhere 整合的共用提供者元資料、授權和憑證引用。"
+description: "用於 connect-once-use-everywhere 整合的共用提供者中繼資料、授權和憑證引用。"
 ---
 
 # 工作區連線
 
-工作區連線是可重用整合元資料的框架原語。它們使“連線一次、授予應用程式、重複使用憑證”成為可能，而無需假裝每個提供者都是完全通用的。
+工作區連線是可重用整合中繼資料的框架原語。它們使“連線一次、授予應用程式、重複使用憑證”成為可能，而無需假裝每個提供者都是完全通用的。
 
 ## 快速入門 {#quickstart}
 
 ### 四個概念
 
-- **連線** — 指定提供者帳戶（`team-slack`、`acme-hubspot`）。紀錄提供者 ID、帳戶標籤、狀態、範圍和安全設定。從不存儲秘密值。
+- **連線** — 指定提供者帳戶（`team-slack`、`acme-hubspot`）。紀錄提供者 ID、帳戶標籤、狀態、範圍和安全設定。從不儲存秘密值。
 - **授予** — 特定應用程式使用連線的權限。未經授權的應用程式無法檢視連線的憑證。
 - **credentialRef** — 指向保管庫機密 (`{ key: "SLACK_BOT_TOKEN", scope: "org" }`) 的指針。連線表明權杖所在的位置；金庫儲存著價值。
 - **就緒** - 應用程式看到的組合狀態：`connected`（已授予 + 存在憑證）、`needs_grant`、`needs_credentials`、`needs_attention` 或 `not_configured`。
 
-```an-diagram title="連線一次、授予應用程式、重複使用憑證" summary="連線儲存提供者元資料（絕不是秘密）和指向保管庫的 credentialRefs。每個應用程式授予解鎖它。應用程式讀取單個就緒狀態。"
+```an-diagram title="連線一次、授予應用程式、重複使用憑證" summary="連線儲存提供者中繼資料（絕不是秘密）和指向保管庫的 credentialRefs。每個應用程式授予解鎖它。應用程式讀取單一就緒狀態。"
 {
   "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, 狀態、作用域、設定 &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
   "css": ".diagram-conn{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-conn .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-conn .diagram-arrow{font-size:22px;line-height:1}.diagram-conn .sev-row{display:flex;gap:8px;flex-wrap:wrap}"
@@ -64,7 +64,7 @@ await upsertWorkspaceConnectionGrant({
     {
       "id": "conn",
       "name": "workspace_connections",
-      "note": "指定的提供者帳戶。從不存儲秘密值。",
+      "note": "指定的提供者帳戶。從不儲存秘密值。",
       "fields": [
         { "name": "id", "type": "string", "pk": true, "note": "e.g. acme-slack" },
         { "name": "provider", "type": "string", "note": "穩定的提供者 ID，e.g。松弛" },
@@ -93,7 +93,7 @@ await upsertWorkspaceConnectionGrant({
 }
 ```
 
-### 調用哪些應用
+### 呼叫哪些應用
 
 在要求使用者貼上新金鑰之前，請先檢查準備情況：
 
@@ -151,9 +151,9 @@ if (workspaceConnectionProviderSupports("slack", "messages")) {
 | `clips`        | 搜尋、匯入、會議         | 大腦、剪輯、影片         |
 | `generic`      | 搜尋、匯入、檔案         | 自訂 webhooks 和檔案投放 |
 
-憑證金鑰僅為名稱，例如 `SLACK_BOT_TOKEN` 或 `GITHUB_TOKEN`。提供者元資料絕不能包含實際的憑證值。
+憑證金鑰僅為名稱，例如 `SLACK_BOT_TOKEN` 或 `GITHUB_TOKEN`。提供者中繼資料絕不能包含實際的憑證值。
 
-### 連線存儲API
+### 連線儲存 API
 
 ```ts
 import {
@@ -190,25 +190,25 @@ const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
 });
 ```
 
-`credentialRefs` 陣列指向保管庫金鑰；它不是憑證存儲。例如，`{ key: "SLACK_BOT_TOKEN", scope: "org" }` 告訴授權應用程式在需要調用 Slack 時查找名為 `SLACK_BOT_TOKEN` 的組織範圍保管庫機密。連線級引用描述了提供者帳戶；授予級別的引用可以縮小或覆蓋特定應用程式應使用的內容。
+`credentialRefs` 陣列指向保管庫金鑰；它不是憑證儲存。例如，`{ key: "SLACK_BOT_TOKEN", scope: "org" }` 告訴授權應用程式在需要呼叫 Slack 時尋找名為 `SLACK_BOT_TOKEN` 的組織範圍保管庫機密。連線級引用描述了提供者帳戶；授予層級的引用可以縮小或覆蓋特定應用程式應使用的內容。
 
 當存在活動組織時，連線行的範圍僅限於活動組織。如果沒有組織，它們的範圍僅限於經過驗證的使用者。授予行使用相同的範圍。
 
-**舊版 `allowedApps` 欄位：** `allowedApps: []` 表示同一範圍內的每個應用程式都可以使用該連線； `allowedApps: ["dispatch"]` 通過舊欄位授予存取權限。使用顯式 `workspace_connection_grants` 行進行新設定 - 它們使撤銷、審核和每個應用程式的準備工作變得更容易。 `revokeWorkspaceConnectionGrant(connectionId, appId)` 刪除了顯式授權，但不更改舊版 `allowedApps`。
+**舊版 `allowedApps` 欄位：** `allowedApps: []` 表示同一範圍內的每個應用程式都可以使用該連線； `allowedApps: ["dispatch"]` 透過舊欄位授予存取權限。使用顯式 `workspace_connection_grants` 行進行新設定 - 它們使撤銷、審核和每個應用程式的準備工作變得更容易。 `revokeWorkspaceConnectionGrant(connectionId, appId)` 刪除了顯式授權，但不更改舊版 `allowedApps`。
 
-使用 `summarizeWorkspaceConnectionProviderForApp()` 和 `summarizeWorkspaceConnectionProviderReadiness()` 來獲取面向應用的狀態，而不是手動滾動授權檢查。共用摘要返回 `grantState`、`grantAvailability`、安全憑證引用名稱、每個應用程式連線行以及就緒欄位（例如 `readyConnectionCount` 和 `missingRequiredCredentialKeys`）。
+使用 `summarizeWorkspaceConnectionProviderForApp()` 和 `summarizeWorkspaceConnectionProviderReadiness()` 來取得面向應用的狀態，而不是手動滾動授權檢查。共用摘要返回 `grantState`、`grantAvailability`、安全憑證引用名稱、每個應用程式連線行以及就緒欄位（例如 `readyConnectionCount` 和 `missingRequiredCredentialKeys`）。
 
-對於新的應用程式設定螢幕，更喜歡 `listWorkspaceConnectionProviderCatalogForApp()` 作為更高級別的邊界 - 它將提供程序目錄、範圍連線、顯式授權、每個應用程式存取摘要和提供程序準備情況結合到一個安全的形狀中。
+對於新的應用程式設定螢幕，更喜歡 `listWorkspaceConnectionProviderCatalogForApp()` 作為更進階別的邊界 - 它將提供者目錄、範圍連線、顯式授權、每個應用程式存取摘要和提供者準備情況結合到一個安全的形狀中。
 
 ### 這如何補充金庫
 
-憑證庫回答：“秘密存儲在哪裡，誰可以存取它，以及哪些應用程式被授予它？”
+憑證庫回答：“秘密儲存在哪裡，誰可以存取它，以及哪些應用程式被授予它？”
 
-工作區連線提供程序元資料回答：“這是哪個提供程序，它能做什么，可能需要什么憑證金鑰，以及哪些範本應提供它？”
+工作區連線提供者中繼資料回答：“這是哪個提供者，它能做什麼，可能需要什麼憑證金鑰，以及哪些範本應提供它？”
 
-```an-diagram title="連線存儲與保管庫" summary="金庫擁有秘密價值。連線擁有提供者元資料和 credentialRefs（指針）。在執行時，應用程式通過授予的連線解析引用並從保管庫讀取值。"
+```an-diagram title="連線儲存與保管庫" summary="金庫擁有秘密價值。連線擁有提供者中繼資料和 credentialRefs（指針）。在執行時，應用程式透過授予的連線解析引用並從保管庫讀取值。"
 {
-  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">連線存儲</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">狀態、作用域、設定</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">應用 action</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">絕不返回給代理或 UI</small></div></div></div>",
+  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">連線儲存</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">狀態、作用域、設定</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">應用 action</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">絕不返回給代理或 UI</small></div></div></div>",
   "css": ".diagram-vault{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-vault .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-vault .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-vault .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -216,17 +216,17 @@ const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
 同時使用兩者：
 
 1. Dispatch（或其他工作區設定流程）建立底層保管庫機密或 OAuth 憑證引用。
-2. 工作區連線存儲紀錄提供者帳戶、安全元資料、憑證引用和應用授權。
-3. 每個應用程式從目錄中讀取提供程序元資料，並從共用存儲中讀取連線/授權摘要。
-4. 應用 UI 顯示就緒狀態：已連線、已授予但不健康、需要授予、缺少憑證或僅元資料。
-5. 特定於應用程式的 SQL 僅存儲特定於應用程式的來源 ID、游標、過濾器、同步窗口、指標定義、審核規則和使用者選取。
-6. 應用程式 actions 在執行時通過授予的連線引用和保管庫解析憑證，並且從不返回秘密值。
+2. 工作區連線儲存紀錄提供者帳戶、安全中繼資料、憑證引用和應用授權。
+3. 每個應用程式從目錄中讀取提供者中繼資料，並從共用儲存中讀取連線/授權摘要。
+4. 應用 UI 顯示就緒狀態：已連線、已授予但不健康、需要授予、缺少憑證或僅中繼資料。
+5. 特定於應用程式的 SQL 僅儲存特定於應用程式的來源 ID、游標、過濾器、同步視窗、指標定義、審核規則和使用者選取。
+6. 應用程式 actions 在執行時透過授予的連線引用和保管庫解析憑證，並且從不返回秘密值。
 
 ### 提供者讀取器執行時
 
-提供者-讀取器層首先是一個契約，而不是每個提供者都有一個共用的實時讀取器的承諾。讀者定義描述了支持的操作、憑證要求和實施狀態：`metadata-only`、`template-owned` 或 `shared`。執行時解析應用程式授予的工作區連線和憑證引用，調用註冊的處理程序，並返回規範化的專案而不暴露秘密值。
+提供者-讀取器層首先是一個契約，而不是每個提供者都有一個共用的即時讀取器的承諾。讀者定義描述了支援的操作、憑證要求和實施狀態：`metadata-only`、`template-owned` 或 `shared`。執行時解析應用程式授予的工作區連線和憑證引用，呼叫註冊的處理常式，並返回規範化的專案而不暴露秘密值。
 
-如今，大多數實時處理程序仍然由範本擁有，這意味著 Brain 仍然擁有 Slack/GitHub 攝取行為，而 Analytics 仍然擁有分析解釋。僅當特定於提供者的 API 調用、分頁面、權限和結果語義真正可跨範本重用時，才將讀者提升為 `shared`。
+如今，大多數即時處理常式仍然由範本擁有，這意味著 Brain 仍然擁有 Slack/GitHub 攝取行為，而 Analytics 仍然擁有分析解釋。僅當特定於提供者的 API 呼叫、分頁面、權限和結果語義真正可跨範本重用時，才將讀者提升為 `shared`。
 
 ### 應用準備模式
 
@@ -234,24 +234,24 @@ const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
 
 - **提供者目錄：**提供者 ID、標籤、功能、推薦的範本用途以及來自 `@agent-native/core/connections` 的所需憑證金鑰名稱。
 - **工作區摘要：**來自 `@agent-native/core/workspace-connections` 的連線計數、活動/授權計數、授權狀態、憑證引用名稱和非秘密帳戶標籤。
-- **提供者準備情況：** `ready`、`needs_credentials`、`needs_attention`、`checking`、`disabled` 或 `not_configured`（通過 `summarizeWorkspaceConnectionProviderReadiness()`）。
-- **來源狀態：**應用程式本機設定的來源、光標、同步狀態和下一步操作。
+- **提供者準備情況：** `ready`、`needs_credentials`、`needs_attention`、`checking`、`disabled` 或 `not_configured`（透過 `summarizeWorkspaceConnectionProviderReadiness()`）。
+- **來源狀態：**應用程式本機設定的來源、游標、同步狀態和下一步操作。
 
-Brain's Sources 頁面是參考實現。它在 Brain 來源紀錄旁邊顯示可重用的工作區連線提供程序，將授權狀態標記為 `connected`、`granted`、`needs_grant` 或 `not_connected`，並將提供程序的執行狀況顯示為就緒、缺少金鑰、需要授權、需要修複或僅元資料。
+Brain's Sources 頁面是參考實現。它在 Brain 來源紀錄旁邊顯示可重用的工作區連線提供者，將授權狀態標記為 `connected`、`granted`、`needs_grant` 或 `not_connected`，並將提供者的執行狀況顯示為就緒、缺少金鑰、需要授權、需要修復或僅中繼資料。
 
 ### 建置可重複使用的連線器
 
-當新的提供程序應跨多個範本工作時：
+當新的提供者應跨多個範本工作時：
 
-1. **提供者元資料：**在 `@agent-native/core/connections` 中新增或重用提供者。這是穩定 ID、顯示標籤、功能列表、推薦範本用途和憑證金鑰名稱。
-2. **工作區連線：** Dispatch 或其他工作區設定介面通過 `@agent-native/core/workspace-connections` 存儲連線帳戶的安全元資料、狀態、範圍、`credentialRefs` 和應用程式授權。
-3. **應用程式本機來源：** Brain、Analytics、Mail 或其他應用程式僅存儲其擁有的特定於應用程式的選取，例如 Slack 通道、GitHub 儲存庫、HubSpot 物件過濾器、同步游標或輪詢節奏。
+1. **提供者中繼資料：**在 `@agent-native/core/connections` 中新增或重用提供者。這是穩定 ID、顯示標籤、功能清單、推薦範本用途和憑證金鑰名稱。
+2. **工作區連線：** Dispatch 或其他工作區設定介面透過 `@agent-native/core/workspace-connections` 儲存連線帳戶的安全中繼資料、狀態、範圍、`credentialRefs` 和應用程式授權。
+3. **應用程式本機來源：** Brain、Analytics、Mail 或其他應用程式僅儲存其擁有的特定於應用程式的選取，例如 Slack 通道、GitHub 儲存庫、HubSpot 物件過濾器、同步游標或輪詢節奏。
 
-不要在每個應用程式中重複 OAuth/權杖存儲。連線紀錄顯示“這是 Acme Slack，其代幣位於 `SLACK_BOT_TOKEN`”；應用程式本機訊息來源稱“Brain 可能會從該 Slack 連線中攝取 `#product` 和 `#dev-fusion`。”
+不要在每個應用程式中重複 OAuth/權杖儲存。連線紀錄顯示“這是 Acme Slack，其代幣位於 `SLACK_BOT_TOKEN`”；應用程式本機訊息來源稱“Brain 可能會從該 Slack 連線中攝取 `#product` 和 `#dev-fusion`。”
 
 ### 調度控制平面設定
 
-Dispatch 公開了控制平面 actions，該控制平面編寫應用程式可以直接調用的相同共用存儲函數：
+Dispatch 公開了控制平面 actions，該控制平面編寫應用程式可以直接呼叫的相同共用儲存函式：
 
 ```ts
 // templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
@@ -289,7 +289,7 @@ await upsertWorkspaceConnectionGrant({
 
 ### 憑證解析
 
-應用程式執行程式碼通過活動請求範圍中的保管庫解析來自授予的 `credentialRefs` 的憑證值。 Brain 的 `source-credentials.ts` 是目前的參考實現：它列出了提供者的工作區連線，檢查 `getWorkspaceConnectionAppAccess` 中的 `appId: "brain"`，合並連線級別和授予級別的憑證引用，並讀取第一個匹配的作用域保管庫機密。其他應用程式應遵循該形狀，而不是達到 `process.env`。
+應用程式執行程式碼透過活動請求範圍中的保管庫解析來自授予的 `credentialRefs` 的憑證值。 Brain 的 `source-credentials.ts` 是目前的參考實現：它列出了提供者的工作區連線，檢查 `getWorkspaceConnectionAppAccess` 中的 `appId: "brain"`，合併連線層級和授予層級的憑證引用，並讀取第一個匹配的作用域保管庫機密。其他應用程式應遵循該形狀，而不是達到 `process.env`。
 
 ## 設計筆記 {#design-notes}
 
@@ -298,24 +298,24 @@ await upsertWorkspaceConnectionGrant({
 
 ### 應用程式本機邊界
 
-共用連線和應用程式本機來源之間的邊界是有意的。如今可重用的是提供者身分、憑證引用解析、每個應用程式授權、提供者準備情況、安全帳戶元資料以及標準化的提供者-讀者合約。尚未通用的是大多數實時提供者 API 讀取、OAuth 流所有權、攝取游標、來源過濾器、同步節奏和域解釋。除非將讀取器實現顯式提升為共用，否則它們將保留在擁有工作流程的應用程式中。
+共用連線和應用程式本機來源之間的邊界是有意的。如今可重用的是提供者身分、憑證引用解析、每個應用程式授權、提供者準備情況、安全帳戶中繼資料以及標準化的提供者-讀者合約。尚未通用的是大多數即時提供者 API 讀取、OAuth 流所有權、攝取游標、來源過濾器、同步節奏和域解釋。除非將讀取器實現顯式提升為共用，否則它們將保留在擁有工作流程的應用程式中。
 
 應用程式來源連線器不應讀取部署級環境變數作為使用者/組織來源憑證的後備。環境變數對於部署來說是全域的，並且不表達工作區授權。
 
-代理應遵循一個簡單的規則：如果使用者要求連線 Slack、GitHub、HubSpot、Gmail、Google Drive、Granola 或其他共用提供程序，請首先檢查工作區連線目錄。如果提供者是 `connected`，則使用它。如果是 `needs_grant`，請請求或執行應用程式授權。如果是 `needs_credentials`，請索要丟失的保管庫金鑰。僅當不存在可重用連線時才請求新的原始金鑰。
+代理應遵循一個簡單的規則：如果使用者要求連線 Slack、GitHub、HubSpot、Gmail、Google Drive、Granola 或其他共用提供者，請首先檢查工作區連線目錄。如果提供者是 `connected`，則使用它。如果是 `needs_grant`，請請求或執行應用程式授權。如果是 `needs_credentials`，請索要丟失的保管庫金鑰。僅當不存在可重用連線時才請求新的原始金鑰。
 
 ### “一次連線，隨處使用”之路
 
-提供者目錄和贈款存儲是更廣泛的工作空間層的基礎：
+提供者目錄和贈款儲存是更廣泛的工作空間層的基礎：
 
 - 共用提供者 ID 和功能名稱使範本保持一致。
-- 工作區級別的清單可以顯示在 Brain、Mail、Analytics、Dispatch 和未來應用程式中設定了哪些提供程序。
-- 連線行紀錄帳戶標籤、狀態、允許的應用、憑證引用和執行狀況檢查，而無需更改面向範本的提供程序 ID。
+- 工作區層級的清單可以顯示在 Brain、Mail、Analytics、Dispatch 和未來應用程式中設定了哪些提供者。
+- 連線行紀錄帳戶標籤、狀態、允許的應用、憑證引用和執行狀況檢查，而無需更改面向範本的提供者 ID。
 - 授予行讓工作區所有者連線一次，然後在工作區采用各個應用程式時啟用它們。
 - 代理可以在應用程式之間路由工作，了解哪些提供者已連線以及哪些應用程式已獲得授權。
-- 聯合搜尋可以請求具有 `search`、`docs`、`messages`、`meetings`、`crm` 或 `code` 功能的提供者，而不是對每個應用的連線器列表進行硬編碼。
-- 特定於提供者的讀取器、OAuth 刷新流、攝取檢查點和應用程式擁有的資料模型可以稍後共用，但今天的工作區連線並不暗示它們。
+- 聯合搜尋可以請求具有 `search`、`docs`、`messages`、`meetings`、`crm` 或 `code` 功能的提供者，而不是對每個應用的連線器清單進行硬編碼。
+- 特定於提供者的讀取器、OAuth 重新整理流、攝取檢查點和應用程式擁有的資料模型可以稍後共用，但今天的工作區連線並不暗示它們。
 
-保持嚴格的邊界：提供者元資料可以安全地顯示；憑證值保留在保管庫中。
+保持嚴格的邊界：提供者中繼資料可以安全地顯示；憑證值保留在保管庫中。
 
 </details>

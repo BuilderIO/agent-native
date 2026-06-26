@@ -1,55 +1,55 @@
 ---
-title: "適配器"
-description: "框架的兩個適配器接縫：沙箱適配器交換執行代理執行程式碼工具的後端，CLI適配器為代理提供對指令行工具的結構化存取。"
-search: "適配器沙箱適配器cli適配器執行程式碼SandboxAdapter CliAdapter ShellCliAdapter持久執行器遠端沙箱邊缘無伺服器child_process"
+title: "轉接器"
+description: "框架的兩個轉接器接縫：沙箱轉接器交換執行代理執行程式碼工具的後端，CLI 轉接器為代理提供對指令行工具的結構化存取。"
+search: "轉接器沙箱轉接器cli轉接器執行程式碼SandboxAdapter CliAdapter ShellCliAdapter持久執行器遠端沙箱邊緣無伺服器child_process"
 ---
 
-# 適配器
+# 轉接器
 
 > **這是誰的：**擴充功能執行時的主機作者。應用程式開發人員很少
 > 需要這個——預設值開箱即用。
 
-Agent-Native 有兩個適配器接縫，可消除狹窄後面的問題，
+Agent-Native 有兩個轉接器接縫，可消除狹窄後面的問題，
 可交換介面：
 
-- **沙盒適配器**交換執行代理的 `run-code` 工具的後端 -
-  預設為本機子進程，或 Docker/遠端/持久執行程序。
-- **CLI 適配器**為代理提供對指令行工具的結構化存取
+- **沙盒轉接器**交換執行代理的 `run-code` 工具的後端 -
+  預設為本機子行程，或 Docker/遠端/持久執行程式。
+- **CLI 轉接器**為代理提供對指令行工具的結構化存取
   （`gh`、`ffmpeg`、`stripe`），具有發現、可用性檢查和
   一致的結果形狀。
 
 兩者共用一個執行時約束：它們依賴於 Node.js 系統綁定並執行
-不在邊缘/工作執行時上執行 - 請參閱 [Edge and serverless](#edge-serverless)。
+不在邊緣/工作執行時上執行 - 請參閱 [Edge and serverless](#edge-serverless)。
 
 ## 我需要哪個編碼檔案？ {#which-doc}
 
-| 你想要……                                                 | 使用                                         |
-| -------------------------------------------------------- | -------------------------------------------- |
-| 交換執行代理 **`run-code` 工具**的後端                   | **沙盒適配器**（本頁面）                     |
-| 封裝一個CLI工具（`gh`、`ffmpeg`）供代理調用              | **CLI 適配器**（本頁面）                     |
-| 渲染 Claude-Code/Codex-style **編碼工作區 UI**           | [Agent-Native Code UI](/docs/code-agents-ui) |
-| 使用自己的循環+工具**作為代理**執行Claude程式碼/Codex/Pi | [Harness Agents](/docs/harness-agents)       |
+| 你想要……                                                   | 使用                                         |
+| ---------------------------------------------------------- | -------------------------------------------- |
+| 交換執行代理 **`run-code` 工具**的後端                     | **沙盒轉接器**（本頁面）                     |
+| 封裝一個 CLI 工具（`gh`、`ffmpeg`）供代理呼叫              | **CLI 轉接器**（本頁面）                     |
+| 渲染 Claude-Code/Codex-style **編碼工作區 UI**             | [Agent-Native Code UI](/docs/code-agents-ui) |
+| 使用自己的迴圈+工具**作為代理**執行 Claude 程式碼/Codex/Pi | [Harness Agents](/docs/harness-agents)       |
 
-# 沙盒適配器
+# 沙盒轉接器
 
-`run-code` 工具在隔離環境中執行代理提供的 JavaScript。 **沙箱適配器**將 _execution_ 問題從該工具中剔除，以便可以交換後端（預設情況下為本機子進程，或 Docker/遠端/持久執行程序），而無需觸及代理循環、`run-code.ts`、本機主機橋、環境清理或輸出格式。
+`run-code` 工具在隔離環境中執行代理提供的 JavaScript。 **沙箱轉接器**將 _execution_ 問題從該工具中剔除，以便可以交換後端（預設情況下為本機子行程，或 Docker/遠端/持久執行程式），而無需觸及代理迴圈、`run-code.ts`、本機主機橋、環境清理或輸出格式。
 
-## 為什么要接縫 {#why}
+## 為什麼要接縫 {#why}
 
-預設後端會生成一個鎖定的本機 Node 子進程。這受到託管進程的限制：在託管平台上，它共用代理循環的軟執行上限（超時/繼續衝擊之前約 40 秒）。遠端或持久適配器是超越該上限的杠杆 - 它獨立於請求生命週期執行大型資料作業直至完成。
+預設後端會產生一個鎖定的本機 Node 子行程。這受到託管行程的限制：在託管平台上，它共用代理迴圈的軟執行上限（超時/繼續衝擊之前約 40 秒）。遠端或持久轉接器是超越該上限的杠杆 - 它獨立於請求生命週期執行大型資料作業直至完成。
 
-保持契約範圍窄意味著遠端適配器繼承相同的安全狀態。父進程保留所有秘密的所有權：它建置沙箱模塊，執行本機主機橋（它儲存請求上下文並應用主機允許列表+ SSRF 防護），清理環境並格式化輸出。適配器僅接收已準備好的、**非秘密**模塊來源加上資源限制 - 它僅負責*執行*它並捕獲 stdout/stderr/exit 狀態。
+保持契約範圍窄意味著遠端轉接器繼承相同的安全狀態。父行程保留所有秘密的所有權：它建置沙箱模組，執行本機主機橋（它儲存請求脈絡並應用主機允許清單+ SSRF 防護），清理環境並格式化輸出。轉接器僅接收已準備好的、**非秘密**模組來源加上資源限制 - 它僅負責*執行*它並捕獲 stdout/stderr/exit 狀態。
 
-```an-diagram title="父母保守秘密；適配器僅執行程式碼" summary="run-code 建置模塊並執行環回橋；適配器接收非秘密模塊+限制並返回stdout/stderr/exit。"
+```an-diagram title="父母保守秘密；轉接器僅執行程式碼" summary="run-code 建置模組並執行環回橋；轉接器接收非秘密模組+限制並返回stdout/stderr/exit。"
 {
-  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>父進程</strong><small class=\"diagram-muted\">建置模塊 · loopback 橋 · 環境清理 · 輸出格式</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">本機子進程 · Docker · 遠端 · 持久</small></div></div>",
+  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>父行程</strong><small class=\"diagram-muted\">建置模組 · loopback 橋 · 環境清理 · 輸出格式</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">本機子行程 · Docker · 遠端 · 持久</small></div></div>",
   "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
 
 ## 介面 {#interface}
 
-接縫位於 `packages/core/src/coding-tools/sandbox/` 的核心 - `adapter.ts`（合約）、`index.ts`（選取：`getSandboxAdapter()` / `registerSandboxAdapter()`）和 `local-child-process-adapter.ts`（預設）。采用`run-code.ts`封裝內接線；主機通過 `index.ts` 註冊助手插入不同的後端（或者，對於 Docker 後端，通過直接編輯這些檔案的 [blueprint](/docs/blueprint-installer)）。
+接縫位於 `packages/core/src/coding-tools/sandbox/` 的核心 - `adapter.ts`（合約）、`index.ts`（選取：`getSandboxAdapter()` / `registerSandboxAdapter()`）和 `local-child-process-adapter.ts`（預設）。采用`run-code.ts`封裝內接線；主機透過 `index.ts` 註冊助手插入不同的後端（或者，對於 Docker 後端，透過直接編輯這些檔案的 [blueprint](/docs/blueprint-installer)）。
 
 ```an-file-tree title="core 中的 sandbox 接縫"
 {
@@ -57,7 +57,7 @@ Agent-Native 有兩個適配器接縫，可消除狹窄後面的問題，
   "entries": [
     { "path": "adapter.ts", "note": "SandboxAdapter 合約（SandboxRunRequest / SandboxRunResult）" },
     { "path": "index.ts", "note": "選取：getSandboxAdapter() / registerSandboxAdapter()" },
-    { "path": "local-child-process-adapter.ts", "note": "預設後端：受限的 Node 子進程" },
+    { "path": "local-child-process-adapter.ts", "note": "預設後端：受限的 Node 子行程" },
     { "path": "../run-code.ts", "note": "連線這個接縫；替換 backend 時永遠不變" }
   ]
 }
@@ -111,20 +111,20 @@ interface SandboxRunResult {
 
 ## 預設：`LocalChildProcessAdapter` {#default}
 
-開箱即用，`getSandboxAdapter()` 返回 `LocalChildProcessAdapter` (`id: "local-child-process"`)。它逐字節保留歷史 `run-code` 行為：
+開箱即用，`getSandboxAdapter()` 返回 `LocalChildProcessAdapter` (`id: "local-child-process"`)。它逐位元組保留歷史 `run-code` 行為：
 
-- 準備好的模塊來源被寫入新的臨時目錄。
-- 子進程使用清理後的環境（沒有秘密）執行，`TMPDIR`/`TEMP`/`TMP` 指向沙箱目錄內。
-- 當節點權限模型可用（節點 20 上的 `--permission` 或 `--experimental-permission`）時，子進程將被拒絕存取其臨時目錄之外的檔案系統，以及子進程、工作進程和本機外掛。出站網路不會被權限模型阻止，但環境清理意味著此類請求不攜帶憑證，並且所有經過驗證的調用都會通過父級的環回橋。
-- 超時發送 `SIGTERM`，然後在 2 秒寬限期後發送 `SIGKILL`。
+- 準備好的模組來源被寫入新的臨時目錄。
+- 子行程使用清理後的環境（沒有秘密）執行，`TMPDIR`/`TEMP`/`TMP` 指向沙箱目錄內。
+- 當節點權限模型可用（節點 20 上的 `--permission` 或 `--experimental-permission`）時，子行程將被拒絕存取其臨時目錄之外的檔案系統，以及子行程、工作行程和本機外掛。出站網路不會被權限模型阻止，但環境清理意味著此類請求不攜帶憑證，並且所有經過驗證的呼叫都會透過父級的環回橋。
+- 超時傳送 `SIGTERM`，然後在 2 秒寬限期後傳送 `SIGKILL`。
 - 執行後會盡力清理臨時檔案。
 
 > [!WARNING]
-> 預設適配器使用 `node:child_process`，該適配器在邊缘/工作執行時上不存在。在標準 Node.js 環境中執行 `run-code`，或註冊遠端適配器 - 請參閱 [Edge and serverless](#edge-serverless)。
+> 預設轉接器使用 `node:child_process`，該轉接器在邊緣/工作執行時上不存在。在標準 Node.js 環境中執行 `run-code`，或註冊遠端轉接器 - 請參閱 [Edge and serverless](#edge-serverless)。
 
-## 選取適配器 {#selection}
+## 選取轉接器 {#selection}
 
-解決順序——顯式註冊的適配器獲勝；否則環境變數選取內置的；否則使用本機預設值：
+解決順序——顯式註冊的轉接器獲勝；否則環境變數選取內建的；否則使用本機預設值：
 
 ```text
 registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
@@ -132,7 +132,7 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 
 ### `AGENT_NATIVE_SANDBOX` 環境變數 {#env}
 
-通過 id 選取內置適配器。目前僅有線`local`（預設）；未知值回退到本機而不是執行失敗。
+透過 id 選取內建轉接器。目前僅有線`local`（預設）；未知值回退到本機而不是執行失敗。
 
 ```bash
 AGENT_NATIVE_SANDBOX=local   # 預設值——顯式
@@ -140,7 +140,7 @@ AGENT_NATIVE_SANDBOX=local   # 預設值——顯式
 
 ### `registerSandboxAdapter()` {#register}
 
-主機進程通過接縫的 `index.ts` 覆蓋所有後續 `run-code` 調用的後端 - 例如，執行遠端容器中的每個調用：
+主機行程透過接縫的 `index.ts` 覆蓋所有後續 `run-code` 呼叫的後端 - 例如，執行遠端容器中的每個呼叫：
 
 ```ts
 import {
@@ -162,20 +162,20 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 
 ## 耐用跑鞋的接縫 {#durable}
 
-這個介面是特意為未來的遠端/持久沙箱做的接縫。遠端或持久適配器（Docker、Vercel-Sandbox 式執行程序或排隊後台工作程序）將：
+這個介面是特意為未來的遠端/持久沙箱做的接縫。遠端或持久轉接器（Docker、Vercel-Sandbox 式執行程式或排隊背景工作程式）將：
 
-1. 針對進程外執行時實現 `SandboxAdapter.run`。
-2. 通過隧道環回網橋（或代理網橋回調至父級）。
-3. 讓大資料作業獨立於請求生命週期執行直至完成 - 超過限制本機子進程適配器的託管約 40 秒程式碼執行上限。
+1. 針對行程外執行時實現 `SandboxAdapter.run`。
+2. 透過隧道環回網橋（或代理網橋回調至父級）。
+3. 讓大資料作業獨立於請求生命週期執行直至完成 - 超過限制本機子行程轉接器的託管約 40 秒程式碼執行上限。
 
-將其註冊為新的 `AGENT_NATIVE_SANDBOX` 值（例如 `remote`）和/或通過 `registerSandboxAdapter()`。代理循環和 `run-code.ts` 永遠不會改變。
+將其註冊為新的 `AGENT_NATIVE_SANDBOX` 值（例如 `remote`）和/或透過 `registerSandboxAdapter()`。代理迴圈和 `run-code.ts` 永遠不會改變。
 
 > [!TIP]
-> `agent-native add sandbox docker` 藍圖發出了一個完整的、獨立的配方，用於針對此接縫實現 Docker 適配器。參見[Blueprint Installer](/docs/blueprint-installer)。
+> `agent-native add sandbox docker` 藍圖發出了一個完整的、獨立的配方，用於針對此接縫實現 Docker 轉接器。參見[Blueprint Installer](/docs/blueprint-installer)。
 
-# CLI 適配器
+# CLI 轉接器
 
-另一個適配器接縫包裝單個指令行工具（`gh`、`ffmpeg`、`stripe`、`aws`），以便代理可以發現它，檢查它是否已安裝，並以一致的 stdout/stderr/exit-code 結果執行它。每個 CLI 適配器都實現 `CliAdapter`：
+另一個轉接器接縫包裝單一指令行工具（`gh`、`ffmpeg`、`stripe`、`aws`），以便代理可以發現它，檢查它是否已安裝，並以一致的 stdout/stderr/exit-code 結果執行它。每個 CLI 轉接器都實現 `CliAdapter`：
 
 ```ts
 import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
@@ -194,7 +194,7 @@ interface CliResult {
 }
 ```
 
-對於大多數 CLI，`ShellCliAdapter` 使用合理的預設值包裝任何二進制檔案，而 `CliRegistry` 收集適配器以進行執行時發現：
+對於大多數 CLI，`ShellCliAdapter` 使用合理的預設值包裝任何二進制檔案，而 `CliRegistry` 收集轉接器以進行執行時發現：
 
 ```ts
 import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
@@ -212,16 +212,16 @@ const gh = cliRegistry.get("gh");
 const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
 ```
 
-將 CLI 調用包裝在 `defineAction` 中以將其公開在操作介面上。請參閱 [CLI Adapters](/docs/cli-adapters) 快速參考，了解 `ShellCliAdapter` 選項、自訂適配器和操作包裝模式。
+將 CLI 呼叫包裝在 `defineAction` 中以將其公開在操作介面上。請參閱 [CLI Adapters](/docs/cli-adapters) 快速參考，了解 `ShellCliAdapter` 選項、自訂轉接器和操作包裝模式。
 
-## 邊缘和無伺服器 {#edge-serverless}
+## 邊緣和無伺服器 {#edge-serverless}
 
 > [!WARNING]
-> 兩個適配器接縫均依賴於 Node.js 系統綁定。沙箱 `LocalChildProcessAdapter` 和 CLI 適配器（`ShellCliAdapter` 和自訂適配器）使用 `node:child_process` (`execFile` / `spawn`)，這在 Cloudflare Workers 或 Netlify Edge Functions 等邊缘/工作線程執行時上**不存在**。如果將伺服器路由部署到這些邊缘預設，則執行這些適配器會引發執行時異常。在標準 Node.js 環境（傳統伺服器容器或無伺服器節點功能）中執行適配器端點和工作 - 或者，對於沙箱接縫，註冊一個在進程外傳送工作的遠端適配器。
+> 兩個轉接器接縫均依賴於 Node.js 系統綁定。沙箱 `LocalChildProcessAdapter` 和 CLI 轉接器（`ShellCliAdapter` 和自訂轉接器）使用 `node:child_process` (`execFile` / `spawn`)，這在 Cloudflare Workers 或 Netlify Edge Functions 等邊緣/工作對話串執行時上**不存在**。如果將伺服器路由部署到這些邊緣預設，則執行這些轉接器會引發執行時異常。在標準 Node.js 環境（傳統伺服器容器或無伺服器節點功能）中執行轉接器端點和工作 - 或者，對於沙箱接縫，註冊一個在行程外傳送工作的遠端轉接器。
 
-## 下一步是什么
+## 下一步是什麼
 
 - [**CLI Adapters**](/docs/cli-adapters) — CLI 接縫的快速參考
-- [**Blueprint Installer**](/docs/blueprint-installer) - `agent-native add sandbox docker` 列印 Docker 適配器配方
+- [**Blueprint Installer**](/docs/blueprint-installer) - `agent-native add sandbox docker` 列印 Docker 轉接器配方
 - [**Agent Teams**](/docs/agent-teams) — 將繁重的工作委派給子代理
 - [**Security**](/docs/security) — env 清理和橋允許名單姿勢

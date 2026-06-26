@@ -1,6 +1,6 @@
 ---
 title: "進度"
-description: "長時間執行的代理工作的實時進度信號 - 啟動、更新、完成"
+description: "長時間執行的代理工作的即時進度信號 - 啟動、更新、完成"
 ---
 
 # 進度
@@ -78,7 +78,7 @@ await updateRunProgress(run.id, run.owner, {
 });
 ```
 
-在事件總線上發出 `run.progress.updated`。返回更新的 `AgentRun`，如果執行不存在或不屬於調用者，則返回 `null`。
+在事件總線上發出 `run.progress.updated`。返回更新的 `AgentRun`，如果執行不存在或不屬於呼叫者，則返回 `null`。
 
 ### `completeRun(id, owner, status, extras?)` {#complete}
 
@@ -93,7 +93,7 @@ await completeRun(run.id, run.owner, "succeeded", {
 
 還發出帶有終端狀態的 `run.progress.updated`。
 
-### 列表 {#list}
+### 清單 {#list}
 
 ```ts
 import { listRuns, getRun, deleteRun } from "@agent-native/core/progress";
@@ -105,7 +105,7 @@ await deleteRun("run-id", "steve@builder.io");
 
 ## HTTP API {#http}
 
-通過 core-routes 外掛安裝在 `/_agent-native/runs/*`。 **在 HTTP 上唯讀** — 寫入通過代理工具進行，因為代理是規範寫入者。所有路由都是所有者範圍內的。
+透過 core-routes 外掛安裝在 `/_agent-native/runs/*`。 **在 HTTP 上唯讀** — 寫入透過代理工具進行，因為代理是規範寫入者。所有路由都是所有者範圍內的。
 
 | 方法     | 路徑                              |
 | -------- | --------------------------------- |
@@ -129,7 +129,7 @@ await deleteRun("run-id", "steve@builder.io");
 }
 ```
 
-## UI元件 {#ui}
+## UI 元件 {#ui}
 
 ```tsx
 import { RunsTray } from "@agent-native/core/client/progress";
@@ -144,7 +144,7 @@ export function HeaderBar() {
 }
 ```
 
-內聯標題小部件 - 將其安裝在通知鈴旁邊。當跑步處於活動狀態時，顯示旋轉圖標 + 計數徽章；點選將開啟一個下拉選單，每次執行都會顯示一個實時百分比欄。當沒有活動執行時完全隱藏觸發器。每 `pollMs` 輪詢一次 `/_agent-native/runs?active=true`（預設 3 秒）。使用shadcn語義標記，適應淺色和深色主題。
+行內標題小工具 - 將其安裝在通知鈴旁邊。當跑步處於活動狀態時，顯示旋轉圖示 + 計數徽章；點選將開啟一個下拉選單，每次執行都會顯示一個即時百分比欄。當沒有活動執行時完全隱藏觸發器。每 `pollMs` 輪詢一次 `/_agent-native/runs?active=true`（預設 3 秒）。使用shadcn語義標記，適應淺色和深色主題。
 
 ## 代理工具 {#agent-tool}
 
@@ -152,16 +152,16 @@ export function HeaderBar() {
 
 | 行動       | 目的                                             |
 | ---------- | ------------------------------------------------ |
-| `start`    | 在長工作的頂部調用。返回一個 runId。             |
-| `update`   | 在工作期間定期調用 `percent` 和/或 `step`。      |
+| `start`    | 在長工作的頂部呼叫。返回一個 runId。             |
+| `update`   | 在工作期間定期呼叫 `percent` 和/或 `step`。      |
 | `complete` | 終端 — `succeeded`、`failed`、`cancelled` 之一。 |
 | `list`     | 檢查最近的執行（按 `active=true` 過濾）。        |
 
 ### 何時開始跑步 {#when-to-start}
 
-- 用於任何>~5秒的事情。沒有上下文的旋轉器感覺凍結。
+- 用於任何>~5秒的事情。沒有脈絡的旋轉器感覺凍結。
 - 在自然檢查點更新，而不是每次迭代。每 5-10% 就足夠了。
-- **始終**使用 `action=complete` 調用 `manage-progress`，包括在錯誤路徑中。孤立的 `running` 行比沒有行更糟糕。
+- **始終**使用 `action=complete` 呼叫 `manage-progress`，包括在錯誤路徑中。孤立的 `running` 行比沒有行更糟糕。
 - 完成後與 `notify` 配對，以便使用者在沒有主動觀看托盤時也能看到結果。
 
 ## 事件總線 {#event-bus}
@@ -188,12 +188,12 @@ mode: agentic
 ## 它是如何工作的 {#internals}
 
 - **所有者範圍** — 每行都有一個 `owner` 列；每個查詢都會對其進行過濾。使用者只能看到自己的跑步。
-- **輪詢整合** - 每個突變都會調用 `recordChange()`，因此使用 [`useDbSync`](/docs/client) 的範本會自動失效，無需任何額外的接線。
-- **表名稱** — 該框架還有一個 `agent_runs` 表，用於內部代理聊天回合生命週期跟蹤。進度原語使用 `progress_runs` 將兩個關注點分開。
+- **輪詢整合** - 每個突變都會呼叫 `recordChange()`，因此使用 [`useDbSync`](/docs/client) 的範本會自動失效，無需任何額外的接線。
+- **表名稱** — 此框架還有一個 `agent_runs` 表，用於內部代理聊天回合生命週期跟蹤。進度原語使用 `progress_runs` 將兩個關注點分開。
 - **百分比限制** — 值被限制為 `[0, 100]` 並在寫入時四舍五入為整數。
 
-## 下一步是什么
+## 下一步是什麼
 
 - [**Notifications**](/docs/notifications) — 與 `manage-progress` (`action=complete`) 配對，告訴使用者工作何時完成
-- [**Automations**](/docs/automations) — 看門狗通過 `run.progress.updated` 緩慢執行
-- [**Client**](/docs/client) — `useDbSync` 用於實時快取失效
+- [**Automations**](/docs/automations) — 看門狗透過 `run.progress.updated` 緩慢執行
+- [**Client**](/docs/client) — `useDbSync` 用於即時快取失效
