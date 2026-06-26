@@ -1,7 +1,7 @@
 ---
 title: "Clips"
-description: "Async screen recording, calendar-synced meeting notes, and push-to-talk voice dictation — paste Clips links into agents and they can read transcripts, visuals, and summaries."
-search: "Clips browser logs developer logs console logs network logs fetch XHR Chrome extension diagnostics recorder desktop app"
+description: "Async screen recording, calendar-synced meeting notes, bug reports, and push-to-talk voice dictation — paste Clips links into agents and they can read transcripts, visuals, and summaries."
+search: "Clips browser logs developer logs console logs network logs fetch XHR Chrome extension diagnostics recorder desktop app bug report widget embed"
 ---
 
 # Clips
@@ -61,6 +61,50 @@ your Web Store listing is live. Set `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1`
 after approval to show the extension beside desktop-app download prompts. Set
 `VITE_CLIPS_CHROME_EXTENSION_URL` only if you need to override the default
 listing URL.
+
+## Embedded bug reports
+
+Clips can be embedded into an existing product as a lightweight bug-report
+launcher. The embedded page collects issue metadata, opens the real recorder in
+a top-level browser window, and then posts a completion message back to the host
+product when the recording is saved.
+
+Use `/bug-report` as the iframe URL. The page accepts either plain query
+parameters or the `bugReport*` prefixed parameters that the recorder stores:
+
+```html
+<iframe
+  src="https://clips.example.com/bug-report?projectId=web-app&sourceUrl=https%3A%2F%2Fapp.example.com%2Fsettings&pageTitle=Settings&appVersion=2026.06.26&environment=production&returnUrl=https%3A%2F%2Fapp.example.com%2Fsettings"
+  allow="display-capture; camera; microphone"
+  style="width: 420px; height: 560px; border: 0"
+></iframe>
+```
+
+Supported metadata fields are `projectId`, `title`, `description`, `severity`
+(`low`, `normal`, `high`, `urgent`), `sourceUrl`, `pageTitle`, `appVersion`,
+`environment`, `reporterEmail`, `reporterName`, `reporterId`, `metadata` (JSON
+object), and `returnUrl`. The recorder redirects to `/bug-report/done` after
+upload and sends this browser message to `window.opener` and the parent frame:
+
+```js
+window.addEventListener("message", (event) => {
+  if (event.data?.type !== "agent-native.clips.bug-report.submitted") return;
+  console.log(event.data.recordingId, event.data.recordingUrl);
+});
+```
+
+Bug-report recordings default to workspace visibility instead of public
+visibility. The saved `recording_bug_reports` sidecar includes the redacted host
+metadata, while the recording itself remains the canonical media/transcript
+resource. URLs have credentials, fragments, and query values removed before
+storage, and the browser-diagnostics pipeline still omits request/response
+bodies, headers, and cookies.
+
+This first version assumes the reporter can sign in to the Clips workspace that
+owns the recording. A fully anonymous customer intake should add a signed intake
+token that can create, upload, and finalize a recording without granting broad
+recording access; do not expose the existing owner-scoped upload endpoints
+directly to anonymous users.
 
 ## Agent-readable clips
 
@@ -319,6 +363,7 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/clips/server/db/schema
 | `recording_tags`                                | Free-form tags on a recording                                                                                                                                                 |
 | `recording_ctas`                                | Call-to-action buttons (label, url, color, placement) overlaid on a recording                                                                                                 |
 | `recording_comments`                            | Threaded, timestamped comments with emoji-reaction map and resolved flag                                                                                                      |
+| `recording_bug_reports`                         | Redacted host-product bug report metadata keyed by `recording_id`                                                                                                             |
 | `recording_reactions`                           | Emoji reactions pinned to a video timestamp (anonymous viewers allowed)                                                                                                       |
 | `recording_viewers` / `recording_events`        | View analytics: per-viewer watch time and completion, plus granular events (view-start, watch-progress, seek, pause, cta-click, reaction)                                     |
 | `clips_meetings`                                | Calendar-sourced or ad-hoc meetings — schedule/actual spans, platform, user notes, AI `summary_md`, `bullets_json`, `action_items_json`, and the link to its `recording_id`   |
@@ -338,6 +383,7 @@ Routes in the UI live under `templates/clips/app/routes/` — the authenticated 
 Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are ~80 actions; the useful groupings:
 
 - **Recording lifecycle** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
+- **Bug reports** — `save-bug-report-context` stores redacted host-product context for recordings launched from `/bug-report`; `get-recording-player-data` returns the sidecar to editors.
 - **Transcript & AI** — `request-transcript`, `cleanup-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`. (`cleanup-transcript` and `finalize-meeting` are server-side media-pipeline calls; most other AI features delegate to the agent chat.)
 - **Editing** — non-destructive `trim-recording`, `split-recording`, `remove-filler-words`, `remove-silences`, plus `stitch-recordings`, `undo-edit`, `clear-edits`. Edits accumulate in `edits_json`; the client concatenates/exports via ffmpeg.wasm.
 - **Meetings** — `create-meeting`, `start-meeting-recording` / `stop-meeting-recording`, `finalize-meeting`, `update-meeting`, `get-meeting`, `list-meetings`, plus calendar wiring `connect-calendar` / `disconnect-calendar` / `sync-calendars` / `list-calendar-accounts`.

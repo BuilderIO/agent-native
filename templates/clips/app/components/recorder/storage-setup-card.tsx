@@ -43,6 +43,10 @@ export interface StorageSetupCardProps {
   description?: string;
   connectDescription?: string;
   connectedDescription?: string;
+  /** Analytics source for the Builder connect popup. */
+  connectSource?: string;
+  /** Analytics flow for the Builder connect popup. */
+  connectFlow?: string;
 }
 
 export function StorageSetupCard({
@@ -51,6 +55,8 @@ export function StorageSetupCard({
   description = "Store recorded videos with Builder.io or S3-compatible storage.",
   connectDescription = "Builder.io's free tier includes video storage and AI credits.",
   connectedDescription = "You're all set. Starting recorder...",
+  connectSource = "clips_file_upload_storage_setup_card",
+  connectFlow = "file_upload",
 }: StorageSetupCardProps) {
   const t = useT();
   const [connecting, setConnecting] = useState(false);
@@ -79,8 +85,8 @@ export function StorageSetupCard({
     setErr(null);
 
     openBuilderConnectPopup({
-      source: "clips_file_upload_storage_setup_card",
-      flow: "file_upload",
+      source: connectSource,
+      flow: connectFlow,
     });
 
     const start = Date.now();
@@ -119,7 +125,7 @@ export function StorageSetupCard({
         // transient poll error
       }
     }, 2000);
-  }, [onConfigured]);
+  }, [onConfigured, connectSource, connectFlow]);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
