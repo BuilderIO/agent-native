@@ -18,8 +18,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ id }) => {
-    const library = await requireLibrary(id);
+  run: async ({ id }, ctx) => {
+    const library = await requireLibrary(id, ctx);
     const db = getDb();
     const [collections, folders, assets, runs] = await Promise.all([
       db
