@@ -37,39 +37,3 @@ registerShareableResource({
   requireOrgMemberForUserShares: true,
   getDb,
 });
-
-registerShareableResource({
-  type: "strategic-account",
-  resourceTable: schema.strategicAccounts,
-  sharesTable: schema.strategicAccountShares,
-  displayName: "Strategic Account",
-  titleColumn: "companyName",
-  getResourcePath: () => `/dashboards/strategic-accounts`,
-  allowPublic: false,
-  requireOrgMemberForUserShares: true,
-  getDb,
-});
-
-registerShareableResource({
-  type: "strategic-account-contact",
-  resourceTable: schema.strategicAccountContacts,
-  sharesTable: schema.strategicAccountContactShares,
-  displayName: "Strategic Account Contact",
-  titleColumn: "contactName",
-  getResourcePath: () => `/dashboards/strategic-account-coverage`,
-  allowPublic: false,
-  requireOrgMemberForUserShares: true,
-  getDb,
-});
-
-registerShareableResource({
-  type: "implementation-blocker",
-  resourceTable: schema.implementationBlockers,
-  sharesTable: schema.implementationBlockerShares,
-  displayName: "Implementation Blocker",
-  titleColumn: "summary",
-  getResourcePath: () => `/dashboards/implementation-blockers`,
-  allowPublic: false,
-  requireOrgMemberForUserShares: true,
-  getDb,
-});

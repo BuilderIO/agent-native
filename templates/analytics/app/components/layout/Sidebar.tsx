@@ -51,11 +51,6 @@ type SidebarDashboard = {
   subviews?: DashboardSubview[];
   source: "static" | "sql";
   visibility?: Visibility;
-  /** Parent dashboard id — when set and the parent is present, this dashboard
-   *  renders nested (indented) beneath it in the sidebar. */
-  parentId?: string;
-  /** Nesting depth in the rendered tree (0 = top level, 1 = child). */
-  depth?: number;
 };
 import {
   DevDatabaseLink,
@@ -343,7 +338,6 @@ type Visibility = "private" | "org" | "public";
 
 function SortableRow({
   id,
-  depth = 0,
   favoriteKey,
   name,
   href,
@@ -362,7 +356,6 @@ function SortableRow({
   children,
 }: {
   id: string;
-  depth?: number;
   favoriteKey: string;
   name: string;
   href: string;
@@ -529,18 +522,9 @@ function SortableRow({
   return (
     <div
       ref={setNodeRef}
-      style={{
-        ...style,
-        ...(depth > 0 ? { marginInlineStart: depth * 14 } : null),
-      }}
+      style={style}
       className="group/item relative min-w-0"
     >
-      {depth > 0 && (
-        <span
-          aria-hidden
-          className="absolute -start-2 top-0 bottom-0 w-px bg-border"
-        />
-      )}
       <button
         type="button"
         className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
@@ -756,7 +740,6 @@ function SortableRow({
 
 function SortableDashboardItem({
   d,
-  depth = 0,
   isActive,
   location,
   favoriteIds,
@@ -769,7 +752,6 @@ function SortableDashboardItem({
   onSetVisibility,
 }: {
   d: SidebarDashboard;
-  depth?: number;
   isActive: boolean;
   location: ReturnType<typeof useLocation>;
   favoriteIds: Set<string>;
@@ -825,7 +807,6 @@ function SortableDashboardItem({
   return (
     <SortableRow
       id={d.id}
-      depth={depth}
       favoriteKey={d.id}
       name={d.name}
       href={href}
@@ -1047,37 +1028,7 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
-  parentId?: string;
 };
-
-/**
- * Re-order a sorted dashboard list so children (parentId set + parent present)
- * render directly beneath their parent, tagging each with a `depth` for
- * indentation. Children whose parent isn't in the list stay top-level. This is
- * how the migrated "Strategic Accounts" children nest under their parent.
- */
-function nestDashboards(list: SidebarDashboard[]): SidebarDashboard[] {
-  const ids = new Set(list.map((d) => d.id));
-  const childrenByParent = new Map<string, SidebarDashboard[]>();
-  const topLevel: SidebarDashboard[] = [];
-  for (const d of list) {
-    if (d.parentId && d.parentId !== d.id && ids.has(d.parentId)) {
-      const arr = childrenByParent.get(d.parentId) ?? [];
-      arr.push(d);
-      childrenByParent.set(d.parentId, arr);
-    } else {
-      topLevel.push(d);
-    }
-  }
-  const out: SidebarDashboard[] = [];
-  for (const parent of topLevel) {
-    out.push({ ...parent, depth: 0 });
-    for (const child of childrenByParent.get(parent.id) ?? []) {
-      out.push({ ...child, depth: 1 });
-    }
-  }
-  return out;
-}
 
 async function fetchSqlDashboards(
   t: (key: string) => string,
@@ -1096,10 +1047,6 @@ async function fetchSqlDashboards(
           d.visibility === "org" || d.visibility === "public"
             ? (d.visibility as Visibility)
             : ("private" as Visibility),
-        parentId:
-          typeof d.parentId === "string" && d.parentId.length > 0
-            ? d.parentId
-            : undefined,
       }));
   } catch {
     return [];
@@ -1491,7 +1438,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: d.name,
       source: "sql",
       visibility: d.visibility,
-      parentId: d.parentId,
     }));
     const all = [...staticItems, ...sqlItems];
     let sorted: SidebarDashboard[];
@@ -1513,7 +1459,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         return a.name.localeCompare(b.name);
       });
     }
-    return nestDashboards(sorted);
+    return sorted;
   }, [
     hiddenIds,
     staticDashboardRenames,
@@ -2103,7 +2049,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       <SortableDashboardItem
                         key={d.id}
                         d={d}
-                        depth={d.depth ?? 0}
                         isActive={activeDashboardId === d.id}
                         location={location}
                         favoriteIds={favoriteIds}

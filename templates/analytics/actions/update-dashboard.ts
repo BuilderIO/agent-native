@@ -12,7 +12,6 @@ import {
 import { z } from "zod";
 
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
-import { validateAppSql } from "../server/lib/app-sql.js";
 import { dryRunQuery } from "../server/lib/bigquery";
 import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
 import { parseDemoDescriptor } from "../server/lib/demo-source";
@@ -313,7 +312,6 @@ export function validateDashboardConfig(
     "ga4",
     "amplitude",
     "first-party",
-    "app",
     "demo",
     "prometheus",
   ]);
@@ -347,7 +345,7 @@ export function validateDashboardConfig(
       }
     }
     if (!isSection && !validSources.has(p.source as string)) {
-      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'app', 'demo', or 'prometheus' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name in sql, not here.`;
+      return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', or 'prometheus' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name in sql, not here.`;
     }
     if (
       isSection &&
@@ -411,17 +409,6 @@ export async function validatePanelSql(
           parseDemoDescriptor(interpolate(raw, vars));
         } catch (e: any) {
           return `panel[${i}] "${p.title || p.id}" demo descriptor is invalid: ${e?.message ?? e}`;
-        }
-      }
-      continue;
-    }
-    if (p.source === "app") {
-      const raw = typeof p.sql === "string" ? p.sql : "";
-      if (raw.trim()) {
-        try {
-          validateAppSql(interpolate(raw, vars));
-        } catch (e: any) {
-          return `panel[${i}] "${p.title || p.id}" app SQL is invalid: ${e?.message ?? e}`;
         }
       }
       continue;
