@@ -850,7 +850,11 @@ export function SqlChart({
   const isSection = panel.chartType === "section";
   const shouldQuery = !isSection && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
-  const { data: result, isLoading } = useSqlQuery(
+  const {
+    data: result,
+    isLoading,
+    error: queryError,
+  } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
@@ -859,7 +863,14 @@ export function SqlChart({
   );
 
   const rawRows = result?.rows ?? [];
-  const error = result?.error;
+  const queryErrorMessage =
+    queryError instanceof Error
+      ? queryError.message
+      : queryError
+        ? String(queryError)
+        : undefined;
+  const error =
+    rawRows.length === 0 ? (result?.error ?? queryErrorMessage) : undefined;
 
   const { rows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {

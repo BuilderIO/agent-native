@@ -77,7 +77,7 @@ const arSA = {
       secondaryCta: "عرض الوثائق",
     },
     code: {
-      quickStartComment: "ابدأ بقالب تطبيق كامل",
+      quickStartComment: "أنشئ app بأمر واحد",
       skillInstallComment:
         "أضف تخطيط Agent-Native إلى coding agent تستخدمه بالفعل",
       frameworkComment: "يشغل action واحد agent و UI و HTTP و MCP و A2A و CLI.",
@@ -187,12 +187,12 @@ const arSA = {
       },
     },
     quickStart: {
-      title: "ابدأ مع Chat",
-      body: "ينشئ أمر واحد Chat app محلية مدعومة ب actions و durable threads و SQLite. استخدم `--headless` بدلا من ذلك عندما لا تريد UI في المتصفح بعد.",
+      title: "ابدأ مع أمر واحد",
+      body: "ينشئ أمر واحد app محلية مدعومة ب actions و durable threads و SQLite. استخدم `--headless` بدلا من ذلك عندما لا تريد UI في المتصفح بعد.",
     },
     finalCta: {
       title: "software تملكه، مبني لعصر agentic era",
-      body: "ابدأ مع Chat أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
+      body: "ابدأ مع أمر واحد أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
       primaryCta: "ابدأ مع Action",
       secondaryCta: "اقرأ الوثائق",
       githubCta: "عرض على GitHub",

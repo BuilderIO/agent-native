@@ -86,7 +86,7 @@ const enUS = {
       secondaryCta: "View the Docs",
     },
     code: {
-      quickStartComment: "Start with a full app template",
+      quickStartComment: "Create an app with one command",
       skillInstallComment:
         "Add agent-native planning to a coding agent you already use",
       frameworkComment:
@@ -197,12 +197,12 @@ const enUS = {
       },
     },
     quickStart: {
-      title: "Start with Chat",
-      body: "One command creates a local chat app backed by actions, durable threads, and SQLite. Use `--headless` instead when you want no browser UI yet.",
+      title: "Start with a Command",
+      body: "One command creates a local app backed by actions, durable threads, and SQLite. Use `--headless` instead when you want no browser UI yet.",
     },
     finalCta: {
       title: "Software you own, built for the agentic era",
-      body: "Start with chat or a durable action, run it through the app-agent loop, then grow it into UI, jobs, and collaboration without rewriting the operation. Open source. Forkable. Yours.",
+      body: "Start with a command or a durable action, run it through the app-agent loop, then grow it into UI, jobs, and collaboration without rewriting the operation. Open source. Forkable. Yours.",
       primaryCta: "Start with an Action",
       secondaryCta: "Read the Docs",
       githubCta: "View on GitHub",

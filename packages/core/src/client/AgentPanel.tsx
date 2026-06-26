@@ -687,6 +687,7 @@ function AgentPanelInner({
   );
   const closeTabHint = isMac ? "\u2303W" : "Alt+W";
   const closeAllTabsHint = isMac ? "\u2303\u2325W" : "Ctrl+Alt+W";
+  const toggleSidebarHint = isMac ? "\u2318\\" : "Ctrl+\\";
 
   const [execMode, setExecMode] = useState<ExecMode>(() => {
     try {
@@ -1125,6 +1126,9 @@ function AgentPanelInner({
                     className="shrink-0"
                   />
                   {t("agentPanel.collapseSidebar")}
+                  <DropdownMenuShortcut>
+                    {toggleSidebarHint}
+                  </DropdownMenuShortcut>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
               </>

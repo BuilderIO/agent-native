@@ -1,13 +1,18 @@
 # Permissions model
 
-This extension ships **activeTab-only**: it deliberately does **not** request the
-broad `<all_urls>` host permission, and it has **no declarative `content_scripts`**.
+This extension ships **activeTab-only for recording overlays**: it deliberately
+does **not** request the broad `<all_urls>` host permission for recording UI.
 
 ## Why
 
 A declarative content script on `<all_urls>` (and the matching `<all_urls>` host
 permission) triggers Chrome Web Store's **broad host permission in-depth review**,
 which significantly delays publishing and updates. We avoid that.
+
+The only declarative content script is scoped to `https://github.com/*`. It
+looks for Clips links in GitHub issue/PR markdown and replaces them with a
+playable preview iframe owned by the extension. That adds a narrow GitHub host
+disclosure, but does not grant broad access to every page.
 
 ## How the overlay gets on the page
 
@@ -24,6 +29,7 @@ Declared permissions: `activeTab`, `debugger`, `offscreen`, `scripting`,
 `storage`. Host permissions: only the configured Clips app + `forms.agent-native.com`
 
 - `localhost`/`127.0.0.1`.
+- `https://github.com/*` is content-script scoped for link previews only.
 
 ## What this costs
 
