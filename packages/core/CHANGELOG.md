@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.79.8
+
+### Patch Changes
+
+- 4984f2b: Fail A2A agent tasks that end on terminal run errors without a final response, and keep app-native artifact actions ahead of generic extension creation in agent prompts.
+- 4984f2b: Centralize agent chat request context resolution so foreground and durable background workers share owner, org, timezone, and background-run setup, harden hosted credential fallback detection, and support compressed session replay uploads.
+
 ## 0.79.7
 
 ### Patch Changes
