@@ -453,6 +453,12 @@ function DatabaseTable({
   const [builderReviewCheckedAt, setBuilderReviewCheckedAt] = useState<
     string | null
   >(null);
+  // Which Builder source the review dialog / push targets. null ⇒ the primary
+  // source (single-source behavior). Set when opening a non-primary source's
+  // writable leaf so review/push/write-mode scope to that collection.
+  const [builderReviewSourceId, setBuilderReviewSourceId] = useState<
+    string | null
+  >(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
   const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
@@ -570,16 +576,30 @@ function DatabaseTable({
     () => databaseSelectedItems(visibleItems, selectedItemIds),
     [visibleItems, selectedItemIds],
   );
+  // The review dialog operates on the source the user opened, which may be a
+  // non-primary row-union collection. Fall back to the primary when no
+  // explicit target is set (single-source behavior).
+  const activeReviewSource = useMemo(
+    () =>
+      (builderReviewSourceId
+        ? (sources.find((item) => item.id === builderReviewSourceId) ?? source)
+        : source),
+    [builderReviewSourceId, sources, source],
+  );
   const builderReviewChangeSets = useMemo(
-    () => builderReviewableChangeSets(source),
-    [source],
+    () => builderReviewableChangeSets(activeReviewSource),
+    [activeReviewSource],
   );
   const builderReviewPreview = useMemo(
     () =>
-      source?.sourceType === "builder-cms" && builderReviewChangeSets.length > 0
-        ? buildClientBuilderReviewPayload(source, builderReviewChangeSets)
+      activeReviewSource?.sourceType === "builder-cms" &&
+      builderReviewChangeSets.length > 0
+        ? buildClientBuilderReviewPayload(
+            activeReviewSource,
+            builderReviewChangeSets,
+          )
         : null,
-    [builderReviewChangeSets, source],
+    [builderReviewChangeSets, activeReviewSource],
   );
   const activeBuilderReview = builderReviewResult ?? builderReviewPreview;
 
@@ -897,6 +917,7 @@ function DatabaseTable({
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
+        sourceId: builderReviewSourceId ?? undefined,
       });
       let nextReview = prepared.review;
       let batchResult: ExecuteBuilderSourceBatchResponse | null = null;
@@ -915,6 +936,7 @@ function DatabaseTable({
         );
         batchResult = await executeBuilderBatch.mutateAsync({
           documentId: document.id,
+          sourceId: builderReviewSourceId ?? undefined,
           changeSetIds,
           transitions:
             Object.keys(scopedTransitions).length > 0
@@ -1447,17 +1469,28 @@ function DatabaseTable({
           })
         }
         onDisconnectSecondary={(sourceId) =>
-          disconnectSource.mutate({ documentId: document.id, sourceId })
+          disconnectSource.mutate(
+            { documentId: document.id, sourceId },
+            {
+              onSuccess: () => {
+                setBuilderReviewSourceId((current) =>
+                  current === sourceId ? null : current,
+                );
+              },
+            },
+          )
         }
-        onRefreshSource={() =>
+        onRefreshSource={(sourceId) =>
           refreshSource.mutate({
             documentId: document.id,
+            sourceId,
           })
         }
-        onDisconnectSource={() =>
+        onDisconnectSource={(sourceId) =>
           disconnectSource.mutate(
             {
               documentId: document.id,
+              sourceId,
             },
             {
               onSuccess: () => {
@@ -1466,6 +1499,7 @@ function DatabaseTable({
                 setBuilderReviewResult(null);
                 setBuilderBatchResult(null);
                 setBuilderReviewCheckedAt(null);
+                setBuilderReviewSourceId(null);
                 toast.success("Source disconnected", {
                   description:
                     "Database rows and local properties were kept intact.",
@@ -1480,16 +1514,18 @@ function DatabaseTable({
             },
           )
         }
-        onReviewBuilderUpdate={() => {
+        onReviewBuilderUpdate={(sourceId) => {
           setBuilderReviewResult(null);
           setBuilderBatchResult(null);
           setBuilderReviewCheckedAt(null);
+          setBuilderReviewSourceId(sourceId ?? null);
           setBuilderReviewOpen(true);
         }}
-        onSetBuilderLiveWrites={(settings) =>
+        onSetBuilderLiveWrites={(settings, sourceId) =>
           setSourceWriteMode.mutate(
             {
               documentId: document.id,
+              sourceId,
               writeMode: settings.writeMode,
               allowPublicationTransitions:
                 settings.writeMode === "publish_updates" &&
@@ -1543,7 +1579,7 @@ function DatabaseTable({
       <BuilderSourceReviewDialog
         open={builderReviewOpen}
         review={activeBuilderReview}
-        source={source}
+        source={activeReviewSource}
         canEdit={canEdit}
         pending={
           prepareBuilderReview.isPending || executeBuilderBatch.isPending
@@ -3436,10 +3472,13 @@ function DatabaseSettingsPanelSheet({
     join: ContentDatabaseSourceJoinRequest,
   ) => void;
   onDisconnectSecondary: (sourceId: string) => void;
-  onRefreshSource: () => void;
-  onDisconnectSource: () => void;
-  onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
+  onRefreshSource: (sourceId?: string) => void;
+  onDisconnectSource: (sourceId?: string) => void;
+  onReviewBuilderUpdate: (sourceId?: string) => void;
+  onSetBuilderLiveWrites: (
+    settings: BuilderSourceWriteSettingsInput,
+    sourceId?: string,
+  ) => void;
   sourceActionPending: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
@@ -3913,32 +3952,18 @@ function DatabaseSettingsSourcePanel({
     join: ContentDatabaseSourceJoinRequest,
   ) => void;
   onDisconnectSecondary: (sourceId: string) => void;
-  onRefreshSource: () => void;
-  onDisconnectSource: () => void;
-  onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
+  onRefreshSource: (sourceId?: string) => void;
+  onDisconnectSource: (sourceId?: string) => void;
+  onReviewBuilderUpdate: (sourceId?: string) => void;
+  onSetBuilderLiveWrites: (
+    settings: BuilderSourceWriteSettingsInput,
+    sourceId?: string,
+  ) => void;
   sourceActionPending: boolean;
 }) {
-  const outboundChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.direction === "outbound",
-    ) ?? [];
-  const reviewableBuilderChangeSets = outboundChangeSets.filter(
-    (changeSet) =>
-      changeSet.state === "pending_push" ||
-      changeSet.state === "staged_revision" ||
-      changeSet.state === "approved",
-  );
-  const pendingOutboundChangeSets = outboundChangeSets.filter(
-    (changeSet) => changeSet.state !== "applied",
-  );
-  const appliedOutboundChangeSets = outboundChangeSets.filter(
-    (changeSet) => changeSet.state === "applied",
-  );
-  const conflictChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.conflictState === "source_changed",
-    ) ?? [];
+  // Per-source change-set groups are computed where they're consumed: the
+  // Sources-list badge via reviewableCountForSource, and the attached-model
+  // leaf from the source it's viewing. Nothing is needed at panel scope.
   const { isCodeMode } = useCodeMode();
   const isBuilderSource = source?.sourceType === "builder-cms";
   const builderStatus = useBuilderStatus();
@@ -3959,10 +3984,6 @@ function DatabaseSettingsSourcePanel({
       void builderStatus.refetch();
     },
   });
-  const builderSyncFailed =
-    isBuilderSource &&
-    (source?.syncState === "error" || Boolean(source?.lastError));
-
   // Auto-sync: the manual Refresh button is gone, so pull the read-only
   // snapshot when the panel opens and whenever the window regains focus.
   // Throttled so rapid focus changes don't hammer Builder; the refresh
@@ -3993,7 +4014,6 @@ function DatabaseSettingsSourcePanel({
       <SourcesListView
         source={source}
         sources={sources}
-        reviewableCount={reviewableBuilderChangeSets.length}
         onOpenConnectedBuilder={(connected) =>
           onNavPush({
             kind: "model",
@@ -4129,9 +4149,9 @@ function DatabaseSettingsSourcePanel({
   if (top.kind === "space") {
     return (
       <BuilderSpaceModelsView
-        attachedModelName={
-          isBuilderSource ? (source?.sourceTable ?? null) : null
-        }
+        attachedModelNames={sources
+          .filter((item) => item.sourceType === "builder-cms")
+          .map((item) => item.sourceTable)}
         onOpenModel={(model) => onNavPush({ kind: "model", model })}
       />
     );
@@ -4139,12 +4159,21 @@ function DatabaseSettingsSourcePanel({
 
   // ── Model leaf ────────────────────────────────────────────────────────
   const model = top.model;
-  const isAttachedModel =
-    Boolean(source) && isBuilderSource && source?.sourceTable === model.name;
+  // Resolve the source this leaf operates on by the model being viewed, NOT by
+  // assuming the primary — a row-union database has multiple writable Builder
+  // sources, and opening any of them must land on its own writable leaf.
+  // Collection names are unique per database (duplicate-attach is guarded), so
+  // matching on sourceTable is unambiguous.
+  const leafSource =
+    sources.find(
+      (item) =>
+        item.sourceType === "builder-cms" && item.sourceTable === model.name,
+    ) ?? null;
+  const isAttachedModel = Boolean(leafSource);
 
   // Unattached model → the attach affordance (the model is already chosen by
   // drilling in, so there's no model picker here).
-  if (!isAttachedModel || !source) {
+  if (!isAttachedModel || !leafSource) {
     return (
       <div className="grid min-w-0 gap-3">
         <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
@@ -4182,66 +4211,77 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // Attached model → the minimal read-only leaf panel.
-  const liveWriteControl = builderSourceLiveWriteControlState(source);
+  // Attached model → the writable leaf panel for THIS source (primary or a
+  // row-union secondary). All derived state below is scoped to `leafSource`,
+  // never the component-level primary `source`.
+  const liveWriteControl = builderSourceLiveWriteControlState(leafSource);
   const builderLiveWritesDisabled = !canEdit || sourceActionPending;
   const builderWriteMode = liveWriteControl.writeMode;
+  const leafOutboundChangeSets = leafSource.changeSets.filter(
+    (changeSet) => changeSet.direction === "outbound",
+  );
+  const leafReviewableChangeSets = leafOutboundChangeSets.filter(
+    (changeSet) =>
+      changeSet.state === "pending_push" ||
+      changeSet.state === "staged_revision" ||
+      changeSet.state === "approved",
+  );
+  const leafPendingChangeSets = leafOutboundChangeSets.filter(
+    (changeSet) => changeSet.state !== "applied",
+  );
+  const leafAppliedChangeSets = leafOutboundChangeSets.filter(
+    (changeSet) => changeSet.state === "applied",
+  );
+  const leafSyncFailed =
+    leafSource.syncState === "error" || Boolean(leafSource.lastError);
 
   return (
     <div className="grid min-w-0 gap-4">
       <>
         <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="truncate font-medium" title={source.sourceName}>
-              {source.sourceName}
+            <span className="truncate font-medium" title={leafSource.sourceName}>
+              {leafSource.sourceName}
             </span>
-            {isBuilderSource ? (
-              !liveWriteControl.safeTarget ? (
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                  <IconLock className="size-3" />
-                  Read-only
-                </span>
-              ) : null
-            ) : (
-              <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                {source.syncState}
+            {!liveWriteControl.safeTarget ? (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                <IconLock className="size-3" />
+                Read-only
               </span>
-            )}
+            ) : null}
           </div>
-          {isBuilderSource && !liveWriteControl.safeTarget ? (
+          {!liveWriteControl.safeTarget ? (
             <div className="text-[11px] text-muted-foreground">
               Live writes are only available for the Agent Native test
               collection.
             </div>
           ) : null}
           <div className="min-w-0 break-words text-xs text-muted-foreground">
-            {builderSyncFailed ? (
+            {leafSyncFailed ? (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-destructive hover:underline disabled:opacity-60"
                 disabled={!canEdit || sourceActionPending}
-                onClick={onRefreshSource}
+                onClick={() => onRefreshSource(leafSource.id)}
               >
                 <IconRefresh className="size-3" />
                 Couldn’t sync · Retry
               </button>
-            ) : isBuilderSource ? (
+            ) : (
               [
                 builderConfigured ? (builderSpaceLabel ?? "Connected") : null,
-                source.lastRefreshedAt
+                leafSource.lastRefreshedAt
                   ? `synced ${
-                      formatRelativeSyncTime(source.lastRefreshedAt) ??
-                      source.freshness
+                      formatRelativeSyncTime(leafSource.lastRefreshedAt) ??
+                      leafSource.freshness
                     }`
-                  : source.freshness,
+                  : leafSource.freshness,
               ]
                 .filter(Boolean)
                 .join(" · ")
-            ) : (
-              `Local snapshot · ${source.freshness}`
             )}
           </div>
-          {isBuilderSource && liveWriteControl.safeTarget ? (
+          {liveWriteControl.safeTarget ? (
             <div className="grid min-w-0 gap-2 text-xs text-muted-foreground">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-medium text-foreground">
@@ -4269,13 +4309,16 @@ function DatabaseSettingsSourcePanel({
                           : "text-muted-foreground hover:bg-background hover:text-foreground",
                       )}
                       onClick={() =>
-                        onSetBuilderLiveWrites({
-                          writeMode: option.mode,
-                          allowPublicationTransitions:
-                            option.mode === "publish_updates"
-                              ? liveWriteControl.allowPublicationTransitions
-                              : false,
-                        })
+                        onSetBuilderLiveWrites(
+                          {
+                            writeMode: option.mode,
+                            allowPublicationTransitions:
+                              option.mode === "publish_updates"
+                                ? liveWriteControl.allowPublicationTransitions
+                                : false,
+                          },
+                          leafSource.id,
+                        )
                       }
                     >
                       <span className="block truncate">{option.label}</span>
@@ -4291,11 +4334,14 @@ function DatabaseSettingsSourcePanel({
                   disabled={builderLiveWritesDisabled}
                   className="flex min-w-0 items-start gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60 disabled:hover:bg-transparent"
                   onClick={() =>
-                    onSetBuilderLiveWrites({
-                      writeMode: "publish_updates",
-                      allowPublicationTransitions:
-                        !liveWriteControl.allowPublicationTransitions,
-                    })
+                    onSetBuilderLiveWrites(
+                      {
+                        writeMode: "publish_updates",
+                        allowPublicationTransitions:
+                          !liveWriteControl.allowPublicationTransitions,
+                      },
+                      leafSource.id,
+                    )
                   }
                 >
                   <span
@@ -4325,24 +4371,24 @@ function DatabaseSettingsSourcePanel({
           ) : null}
         </div>
 
-        {pendingOutboundChangeSets.length > 0 ||
-        appliedOutboundChangeSets.length > 0 ||
+        {leafPendingChangeSets.length > 0 ||
+        leafAppliedChangeSets.length > 0 ||
         isCodeMode ? (
           <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
             <div className="font-medium">Builder changes</div>
             <div className="text-xs text-muted-foreground">
-              {source.capabilities.liveWritesEnabled
+              {leafSource.capabilities.liveWritesEnabled
                 ? "Review local edits before they reach Builder."
                 : "Live writes are off — local edits are staged for review only."}
             </div>
 
-            {pendingOutboundChangeSets.length > 0 ? (
+            {leafPendingChangeSets.length > 0 ? (
               <div className="grid min-w-0 gap-2">
-                {pendingOutboundChangeSets.slice(0, 6).map((changeSet) => (
+                {leafPendingChangeSets.slice(0, 6).map((changeSet) => (
                   <SourceChangeSetReviewCard
                     key={changeSet.id}
                     changeSet={changeSet}
-                    source={source}
+                    source={leafSource}
                     showDetails={isCodeMode}
                   />
                 ))}
@@ -4353,13 +4399,13 @@ function DatabaseSettingsSourcePanel({
               </div>
             ) : null}
 
-            {reviewableBuilderChangeSets.length > 0 ? (
+            {leafReviewableChangeSets.length > 0 ? (
               <div className="flex justify-end">
                 <Button
                   type="button"
                   size="sm"
                   disabled={!canEdit || sourceActionPending}
-                  onClick={onReviewBuilderUpdate}
+                  onClick={() => onReviewBuilderUpdate(leafSource.id)}
                 >
                   <IconCheck className="mr-1.5 size-3.5" />
                   Review changes
@@ -4367,22 +4413,22 @@ function DatabaseSettingsSourcePanel({
               </div>
             ) : null}
 
-            {appliedOutboundChangeSets.length > 0 ? (
+            {leafAppliedChangeSets.length > 0 ? (
               <div className="mt-1 grid min-w-0 gap-1.5 border-t border-border/60 pt-2">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   Recently pushed
                 </div>
-                {appliedOutboundChangeSets.slice(0, 3).map((changeSet) => (
+                {leafAppliedChangeSets.slice(0, 3).map((changeSet) => (
                   <SourceChangeSetReviewCard
                     key={changeSet.id}
                     changeSet={changeSet}
-                    source={source}
+                    source={leafSource}
                     showDetails={isCodeMode}
                   />
                 ))}
-                {appliedOutboundChangeSets.length > 3 ? (
+                {leafAppliedChangeSets.length > 3 ? (
                   <div className="text-[11px] text-muted-foreground">
-                    +{appliedOutboundChangeSets.length - 3} more
+                    +{leafAppliedChangeSets.length - 3} more
                   </div>
                 ) : null}
               </div>
@@ -4402,7 +4448,7 @@ function DatabaseSettingsSourcePanel({
             variant="outline"
             className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
             disabled={!canEdit || sourceActionPending}
-            onClick={onDisconnectSource}
+            onClick={() => onDisconnectSource(leafSource.id)}
           >
             {sourceActionPending ? (
               <Spinner className="mr-1 size-3.5" />
@@ -4431,17 +4477,25 @@ function builderModelSummaryFromSource(
   };
 }
 
+function reviewableCountForSource(source: ContentDatabaseSource): number {
+  return source.changeSets.filter(
+    (changeSet) =>
+      changeSet.direction === "outbound" &&
+      (changeSet.state === "pending_push" ||
+        changeSet.state === "staged_revision" ||
+        changeSet.state === "approved"),
+  ).length;
+}
+
 function SourcesListView({
   source,
   sources,
-  reviewableCount,
   onOpenConnectedBuilder,
   onOpenSecondary,
   onAddSource,
 }: {
   source: ContentDatabaseSource | null;
   sources: ContentDatabaseSource[];
-  reviewableCount: number;
   onOpenConnectedBuilder: (source: ContentDatabaseSource) => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
@@ -4492,7 +4546,7 @@ function SourcesListView({
           badgeCount={
             connected.metadata.federation?.role !== "secondary" &&
             connected.sourceType === "builder-cms"
-              ? reviewableCount
+              ? reviewableCountForSource(connected)
               : 0
           }
           onClick={
@@ -4873,12 +4927,13 @@ function SecondarySourceLeaf({
 // A Builder space's data models, as drill-in rows. The attached model (if any)
 // is marked; selecting a row opens that model's leaf.
 function BuilderSpaceModelsView({
-  attachedModelName,
+  attachedModelNames,
   onOpenModel,
 }: {
-  attachedModelName: string | null;
+  attachedModelNames: string[];
   onOpenModel: (model: BuilderCmsModelSummary) => void;
 }) {
+  const attachedModelNameSet = new Set(attachedModelNames);
   const modelsQuery = useBuilderCmsModels(true);
   const models = modelsQuery.data?.models ?? [];
   const [query, setQuery] = useState("");
@@ -4949,15 +5004,15 @@ function BuilderSpaceModelsView({
     model.displayName.toLowerCase().includes(normalizedQuery) ||
     model.name.toLowerCase().includes(normalizedQuery);
   const filtered = models.filter(matchesQuery);
-  const attachedModels = filtered.filter(
-    (model) => attachedModelName === model.name,
+  const attachedModels = filtered.filter((model) =>
+    attachedModelNameSet.has(model.name),
   );
   const otherModels = filtered.filter(
-    (model) => attachedModelName !== model.name,
+    (model) => !attachedModelNameSet.has(model.name),
   );
 
   const renderRow = (model: BuilderCmsModelSummary) => {
-    const isAttached = attachedModelName === model.name;
+    const isAttached = attachedModelNameSet.has(model.name);
     return (
       <button
         key={model.id}
