@@ -329,6 +329,55 @@ describe("database source helpers", () => {
     ).toBeUndefined();
   });
 
+  it("does not create rows owned by another source (row-union scoping)", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [],
+      documentTitleById: new Map([
+        ["doc-mine", "My new row"],
+        ["doc-other", "Belongs to another collection"],
+      ]),
+      storedChangeSets: [],
+      databaseItems: [
+        { databaseItemId: "item-mine", documentId: "doc-mine" },
+        { databaseItemId: "item-other", documentId: "doc-other" },
+      ],
+      // doc-other is owned by a different source — it must not become a create
+      // candidate for this one, even though it isn't in this source's rowRows.
+      otherSourceDocumentIds: new Set(["doc-other"]),
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending.find((cs) => cs.documentId === "doc-mine")).toBeDefined();
+    expect(
+      pending.find((cs) => cs.documentId === "doc-other"),
+    ).toBeUndefined();
+  });
+
+  it("only the primary adopts unsourced rows as creates (allowUnsourcedCreates)", () => {
+    const args = {
+      source: { sourceType: "builder-cms" },
+      rowRows: [],
+      documentTitleById: new Map([["doc-local", "Unsourced local row"]]),
+      storedChangeSets: [],
+      databaseItems: [{ databaseItemId: "item-local", documentId: "doc-local" }],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0];
+
+    // A non-primary source leaves an unsourced "Local" row alone.
+    expect(
+      buildBuilderLocalOutboundChangeSets({
+        ...args,
+        allowUnsourcedCreates: false,
+      }),
+    ).toHaveLength(0);
+    // The primary (default) adopts it as a create_draft.
+    expect(
+      buildBuilderLocalOutboundChangeSets({
+        ...args,
+        allowUnsourcedCreates: true,
+      }).find((cs) => cs.documentId === "doc-local"),
+    ).toBeDefined();
+  });
+
   it("skips creates for titleless rows or rows that already have a stored change", () => {
     const pending = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms" },
