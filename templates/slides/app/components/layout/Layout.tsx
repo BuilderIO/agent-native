@@ -78,7 +78,7 @@ export function Layout({ children }: LayoutProps) {
         scope={deckScope}
         browserTabId={TAB_ID}
       >
-        <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
           {sidebarOpen && (
             <div
               className="fixed inset-0 z-40 bg-black/50 md:hidden"
@@ -87,7 +87,7 @@ export function Layout({ children }: LayoutProps) {
           )}
           <div
             className={cn(
-              "fixed inset-y-0 start-0 z-50 md:static md:z-auto",
+              "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 md:static md:z-auto",
               sidebarOpen
                 ? "translate-x-0"
                 : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
@@ -106,7 +106,7 @@ export function Layout({ children }: LayoutProps) {
               }
             />
           </div>
-          <div className="flex h-full flex-1 flex-col overflow-hidden">
+          <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
             {/* Mobile-only nav strip with hamburger — only when there's no page toolbar */}
             {!ownToolbar && (
               <div className="flex h-12 items-center border-b border-border px-4 md:hidden shrink-0">

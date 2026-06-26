@@ -64,8 +64,10 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen overflow-hidden">
-        <Sidebar />
+      <div className="agent-layout-shell flex h-screen overflow-hidden">
+        <div className="agent-layout-left-drawer flex shrink-0">
+          <Sidebar />
+        </div>
         <AgentSidebar
           position="right"
           defaultOpen

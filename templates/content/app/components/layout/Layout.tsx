@@ -110,7 +110,7 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen overflow-hidden bg-background">
+      <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
         {isMobile ? (
           <>
             <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
@@ -139,13 +139,15 @@ export function Layout({ children }: LayoutProps) {
             )}
           </>
         ) : (
-          <DocumentSidebar
-            activeDocumentId={activeDocumentId}
-            collapsed={sidebarCollapsed}
-            onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
-            width={sidebarWidth}
-            onResize={handleSidebarResize}
-          />
+          <div className="agent-layout-left-drawer flex shrink-0">
+            <DocumentSidebar
+              activeDocumentId={activeDocumentId}
+              collapsed={sidebarCollapsed}
+              onToggleCollapsed={() => setSidebarCollapsed((c) => !c)}
+              width={sidebarWidth}
+              onResize={handleSidebarResize}
+            />
+          </div>
         )}
         <AgentSidebar
           position="right"

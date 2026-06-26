@@ -156,9 +156,9 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
         {!hideAppNavigation && (
-          <div className="hidden md:block">
+          <div className="agent-layout-left-drawer hidden md:block">
             <Sidebar
               collapsed={effectiveSidebarCollapsed}
               onCollapsedChange={setEffectiveSidebarCollapsed}
@@ -177,7 +177,9 @@ export function Layout({ children }: LayoutProps) {
           </SheetContent>
         </Sheet>
         {chatRoute ? (
-          pageContent
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+            {pageContent}
+          </div>
         ) : (
           <AgentSidebar
             position="right"
