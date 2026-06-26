@@ -447,9 +447,7 @@ export async function claimDashboardReportSubscription(
       lastError: null,
       updatedAt: startedAt,
     })
-    .where(
-      and(ownerWhere(ctx, undefined, id), reportNotRunningWhere(now)),
-    )
+    .where(and(ownerWhere(ctx, undefined, id), reportNotRunningWhere(now)))
     .returning();
   return rows[0] ? rowToSubscription(rows[0]) : null;
 }
