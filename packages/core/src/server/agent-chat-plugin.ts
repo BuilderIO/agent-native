@@ -7779,6 +7779,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
           }
         }
+        // Cookieless durable background worker: getSession()/getOrgContext()
+        // resolve from the (absent) session, so org-scoped credential resolution
+        // (the Builder engine) would miss the owner's org and resolveEngine would
+        // fall back to the anthropic default — bailing on a missing key before
+        // the worker claims its run. The owner IS known here (seeded via
+        // OWNER_CONTEXT_KEY from the run's thread), so resolve the org directly
+        // from the owner email, the same active-org logic the foreground session
+        // would yield.
+        if (!resolvedOrgId && owner) {
+          try {
+            const { resolveOrgIdForEmail } = await import("../org/context.js");
+            resolvedOrgId = (await resolveOrgIdForEmail(owner)) ?? undefined;
+          } catch {
+            // org tables unavailable — proceed without org (foreground-equivalent)
+          }
+        }
 
         // Propagate the caller's IANA timezone from `x-user-timezone` so that
         // tool calls made by the agent (e.g. log-meal with no explicit date)
