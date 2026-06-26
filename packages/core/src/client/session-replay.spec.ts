@@ -263,6 +263,40 @@ describe("session replay", () => {
     );
   });
 
+  it("derives replay defaults from configureTracking key and endpoint", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    vi.resetModules();
+    const { configureTracking, stopSessionReplay } =
+      await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    expect(recordOptions).toBeDefined();
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    await stopSessionReplay();
+    await tick();
+
+    const replayCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    expect(replayCalls).toHaveLength(1);
+    const [url, init] = replayCalls[0] as [string, RequestInit];
+    expect(url).toBe("https://analytics.example.test/api/analytics/replay");
+    expect(init.headers).toMatchObject({
+      "X-Agent-Native-Analytics-Key": "anpk_configured",
+    });
+  });
+
   it("uses deterministic per-session sampling", async () => {
     const { shouldSampleSessionReplay, getSessionReplaySamplingScore } =
       await freshSessionReplay();

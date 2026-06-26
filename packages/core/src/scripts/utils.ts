@@ -8,26 +8,54 @@ export { parseArgs, camelCaseArgs } from "./parse-args.js";
 
 /**
  * Load .env files. In an enterprise workspace (detected via
- * `agent-native.workspaceCore` in a parent package.json) this also loads
- * the workspace root's .env first, so shared keys like ANTHROPIC_API_KEY
- * flow to every app without duplication. Per-app .env values win on
- * conflict (dotenv doesn't overwrite existing process.env values).
+ * `agent-native.workspaceCore` in a parent package.json) this also loads the
+ * workspace root's .env as a fallback, so shared keys like ANTHROPIC_API_KEY
+ * flow to every app without duplication. Shell values win, then app
+ * .env.local, app .env, workspace .env.local, and workspace .env.
  */
 export function loadEnv(envPath?: string): void {
   const appEnv = envPath ?? path.join(process.cwd(), ".env");
+  const shellKeys = new Set(Object.keys(process.env));
   // App-level .env first. Dotenv won't clobber already-set process.env, so
   // values that are already present (e.g. set by the shell) still win.
   // `quiet: true` suppresses the dotenv tip line on every load (v17+).
-  dotenv.config({ path: appEnv, quiet: true });
+  loadEnvFile(appEnv);
+  loadEnvLocalOverrides(localEnvPathFor(appEnv), shellKeys);
 
   // Then workspace root, if any — but only fill in keys the app didn't
   // define. Setting `override: false` is dotenv's default.
   const workspaceRoot = findWorkspaceRoot(path.dirname(appEnv));
   if (workspaceRoot) {
+    const beforeWorkspaceKeys = new Set(Object.keys(process.env));
     const wsEnv = path.join(workspaceRoot, ".env");
     if (fs.existsSync(wsEnv) && wsEnv !== appEnv) {
-      dotenv.config({ path: wsEnv, quiet: true });
+      loadEnvFile(wsEnv);
+      loadEnvLocalOverrides(localEnvPathFor(wsEnv), beforeWorkspaceKeys);
     }
+  }
+}
+
+function loadEnvFile(filePath: string): void {
+  if (fs.existsSync(filePath)) {
+    dotenv.config({ path: filePath, quiet: true });
+  }
+}
+
+function localEnvPathFor(envPath: string): string {
+  return path.basename(envPath) === ".env"
+    ? path.join(path.dirname(envPath), ".env.local")
+    : `${envPath}.local`;
+}
+
+function loadEnvLocalOverrides(
+  filePath: string,
+  protectedKeys: Set<string>,
+): void {
+  if (!fs.existsSync(filePath)) return;
+  const values = dotenv.parse(fs.readFileSync(filePath));
+  for (const [key, value] of Object.entries(values)) {
+    if (protectedKeys.has(key)) continue;
+    process.env[key] = value;
   }
 }
 

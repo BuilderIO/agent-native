@@ -113,4 +113,14 @@ describe("private blob registry", () => {
       reason: expect.stringContaining("not supported"),
     });
   });
+
+  it("can disable the encrypted public-upload fallback for local SQL storage", async () => {
+    process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
+    const registry = await freshRegistry();
+
+    await expect(
+      registry.putPrivateBlob({ data: new TextEncoder().encode("hello") }),
+    ).resolves.toBeNull();
+    expect(uploadFileMock).not.toHaveBeenCalled();
+  });
 });

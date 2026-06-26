@@ -232,9 +232,7 @@ function ownerWhere(ctx: AccessCtx, dashboardId?: string, id?: string) {
   const clauses = [
     sql`lower(${table.ownerEmail}) = ${ctx.email.toLowerCase()}`,
   ];
-  clauses.push(
-    ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId),
-  );
+  clauses.push(ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId));
   if (dashboardId) clauses.push(eq(table.dashboardId, dashboardId));
   if (id) clauses.push(eq(table.id, id));
   return and(...clauses);

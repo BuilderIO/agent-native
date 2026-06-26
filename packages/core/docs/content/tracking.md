@@ -134,29 +134,35 @@ This is distinct from the framework's internal browser telemetry (`trackEvent()`
 
 ## Session replay {#session-replay}
 
-Agent Native apps can opt into first-party browser session replay without adding a second analytics SDK. Template roots already call `configureTracking()`, so the usual production setup is just environment variables on the site you want to record:
-
-```bash
-VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
-VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
-VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
-```
-
-When `VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED` is truthy, the client dynamically imports `@rrweb/record` after startup and posts replay chunks to the replay endpoint. If `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` ends in `/api/analytics/track` or `/track`, the replay endpoint is derived automatically as `/api/analytics/replay`. Override it explicitly with `VITE_AGENT_NATIVE_ANALYTICS_REPLAY_ENDPOINT` when the replay collector lives somewhere else.
-
-For custom Vite/React apps, call `configureTracking()` once in the browser root:
+Agent Native apps can opt into first-party browser session replay without adding a second analytics SDK. Call `configureTracking()` once in the browser root and pass the Analytics public key plus collector endpoint:
 
 ```ts
 import { configureTracking } from "@agent-native/core/client";
 
 configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 1,
+  },
   getDefaultProps: (_event, props) => ({
     ...props,
     app: "my-app",
     template: "my-template",
   }),
 });
+```
+
+When `sessionReplay.enabled` is truthy, the client dynamically imports `@rrweb/record` after startup and posts replay chunks to the replay endpoint. If `endpoint` ends in `/api/analytics/track` or `/track`, the replay endpoint is derived automatically as `/api/analytics/replay`. Override it explicitly with `sessionReplay.endpoint` when the replay collector lives somewhere else.
+
+Agent Native template roots already call `configureTracking()`, so hosted template deployments can use Vite/Netlify environment variables instead of editing code:
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
 Privacy defaults are intentionally conservative but still useful for playback:

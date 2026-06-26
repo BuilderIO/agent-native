@@ -681,6 +681,7 @@ export {
   captureError,
   captureClientException,
   type ClientCaptureContext,
+  type ConfigureTrackingOptions,
   type FirstTouchAttribution,
   type SessionReplayOptions,
   type SessionReplayStartResult,

@@ -195,6 +195,9 @@ export async function putPrivateBlob(
 ): Promise<PrivateBlobHandle | null> {
   const provider = getActivePrivateBlobProvider();
   if (provider) return provider.put(input);
+  if (process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK === "0") {
+    return null;
+  }
   return putViaEncryptedPublicUpload(input);
 }
 

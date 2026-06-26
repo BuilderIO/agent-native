@@ -38,6 +38,21 @@ type PageviewTrackingState = {
   lastPageviewKey: string | null;
 };
 
+export type ConfigureTrackingOptions = {
+  /**
+   * Agent Native first-party analytics public key. This mirrors hosted
+   * analytics SDKs where consumers pass the key at setup time instead of
+   * relying on build-time environment variables.
+   */
+  key?: string;
+  /** Alias for `key`, matching the replay ingest payload name. */
+  publicKey?: string;
+  /** First-party analytics track endpoint. */
+  endpoint?: string;
+  getDefaultProps?: GetDefaultProps;
+  sessionReplay?: boolean | SessionReplayOptions;
+};
+
 type SentryUser = {
   id?: string;
   email?: string;
@@ -45,6 +60,8 @@ type SentryUser = {
 };
 
 let _getDefaultProps: GetDefaultProps | null = null;
+let _agentNativeAnalyticsPublicKey: string | null = null;
+let _agentNativeAnalyticsEndpoint: string | null = null;
 let _amplitudeInitialized = false;
 let _sentryInitialized = false;
 let _llmConnectionStatus: LlmConnectionStatus | null = null;
@@ -742,10 +759,14 @@ function getPageviewTrackingState(): PageviewTrackingState {
   return g[PAGEVIEW_TRACKING_STATE_KEY];
 }
 
-export function configureTracking(options: {
-  getDefaultProps?: GetDefaultProps;
-  sessionReplay?: boolean | SessionReplayOptions;
-}): void {
+export function configureTracking(options: ConfigureTrackingOptions): void {
+  const publicKey = options.key || options.publicKey;
+  if (publicKey) {
+    _agentNativeAnalyticsPublicKey = publicKey;
+  }
+  if (options.endpoint) {
+    _agentNativeAnalyticsEndpoint = options.endpoint;
+  }
   if (options.getDefaultProps) {
     _getDefaultProps = options.getDefaultProps;
   }
@@ -755,7 +776,10 @@ export function configureTracking(options: {
     captureFirstTouchAttribution();
     installLlmConnectionRefresh();
     installPageviewTracking();
-    maybeInstallSessionReplay(options.sessionReplay);
+    maybeInstallSessionReplay(options.sessionReplay, {
+      endpoint: options.endpoint,
+      publicKey,
+    });
   }
 }
 
@@ -769,20 +793,61 @@ function sessionReplayEnabledFromEnv(): boolean {
 
 function configuredSessionReplayOptions(
   config: boolean | SessionReplayOptions | undefined,
+  tracking: { endpoint?: string; publicKey?: string } = {},
 ): SessionReplayOptions | null {
-  if (config === true) return {};
+  const publicKey = tracking.publicKey || _agentNativeAnalyticsPublicKey;
+  const trackingEndpoint = tracking.endpoint || _agentNativeAnalyticsEndpoint;
+  const endpoint = trackingEndpoint
+    ? replayEndpointFromTrackingEndpoint(trackingEndpoint)
+    : undefined;
+  const withTrackingDefaults = (
+    options: SessionReplayOptions,
+  ): SessionReplayOptions => ({
+    ...(publicKey && !options.publicKey ? { publicKey } : {}),
+    ...(endpoint && !options.endpoint ? { endpoint } : {}),
+    ...options,
+  });
+
+  if (config === true) return withTrackingDefaults({});
   if (config && typeof config === "object") {
     if (config.enabled === false) return null;
-    return config;
+    return withTrackingDefaults(config);
   }
-  return sessionReplayEnabledFromEnv() ? {} : null;
+  return sessionReplayEnabledFromEnv() ? withTrackingDefaults({}) : null;
+}
+
+function replayEndpointFromTrackingEndpoint(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (url.pathname.endsWith("/api/analytics/track")) {
+      url.pathname = url.pathname.replace(
+        /\/api\/analytics\/track$/,
+        "/api/analytics/replay",
+      );
+      return url.toString();
+    }
+    if (url.pathname.endsWith("/track")) {
+      url.pathname = url.pathname.replace(/\/track$/, "/api/analytics/replay");
+      return url.toString();
+    }
+  } catch {
+    // Fall through to relative-path handling below.
+  }
+  if (value.endsWith("/api/analytics/track")) {
+    return value.replace(/\/api\/analytics\/track$/, "/api/analytics/replay");
+  }
+  if (value.endsWith("/track")) {
+    return value.replace(/\/track$/, "/api/analytics/replay");
+  }
+  return undefined;
 }
 
 function maybeInstallSessionReplay(
   config: boolean | SessionReplayOptions | undefined,
+  tracking?: { endpoint?: string; publicKey?: string },
 ): void {
   if (typeof window === "undefined") return;
-  const options = configuredSessionReplayOptions(config);
+  const options = configuredSessionReplayOptions(config, tracking);
   if (!options) return;
   import("./session-replay.js")
     .then((mod) => mod.startSessionReplay(options))
@@ -930,11 +995,14 @@ function sendAgentNativeAnalytics(
 ): void {
   if (isLocalAnalyticsHostname(window.location.hostname)) return;
 
-  const publicKey = (import.meta.env as Record<string, string | undefined>)
-    ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
+  const publicKey =
+    _agentNativeAnalyticsPublicKey ||
+    (import.meta.env as Record<string, string | undefined>)
+      ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
   if (!publicKey) return;
 
   const endpoint =
+    _agentNativeAnalyticsEndpoint ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT ||
     AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT;

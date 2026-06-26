@@ -15,7 +15,13 @@ type ReplaySeed = {
   action: string;
 };
 
-const scope = { userEmail: "local@localhost", orgId: null };
+const ownerEmail =
+  process.env.AGENT_NATIVE_SEED_OWNER_EMAIL ||
+  process.env.AGENT_USER_EMAIL ||
+  "local@localhost";
+const orgId =
+  process.env.AGENT_NATIVE_SEED_ORG_ID || process.env.AGENT_ORG_ID || null;
+const scope = { userEmail: ownerEmail, orgId };
 
 function nowPlus(base: number, offsetMs: number): string {
   return new Date(base + offsetMs).toISOString();
@@ -95,6 +101,9 @@ function createReplayEvents(seed: ReplaySeed, base: number) {
 }
 
 async function main() {
+  if (process.env.ANALYTICS_SESSION_REPLAY_SEED_BLOBS !== "1") {
+    process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
+  }
   await migrations({});
   const key = await createAnalyticsPublicKey(
     scope,
@@ -157,6 +166,7 @@ async function main() {
   }
 
   console.log("Seeded session replay public key:", publicKey);
+  console.log("Seeded session replay owner:", ownerEmail);
   for (const recording of recordings) {
     console.log(
       `- http://localhost:8080/sessions/${recording.recordingId} (${recording.sessionId})`,

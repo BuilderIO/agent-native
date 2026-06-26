@@ -767,9 +767,9 @@ const enUS = {
     metadataOnly: "Replay unavailable",
     noSessions: "No sessions found",
     noSessionsDescription:
-      "Create an Analytics public key, turn on session replay for an Agent Native app, then visit the app in a browser.",
+      "Create an Analytics public key, configure tracking with session replay enabled, then visit the app in a browser.",
     emptyStepKey: "Create key",
-    emptyStepEnv: "Set env vars",
+    emptyStepEnv: "Configure SDK",
     emptyStepVisit: "Visit app",
     installSnippetTitle: "Add session replay",
     backToSessions: "Back to sessions",

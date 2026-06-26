@@ -73,14 +73,16 @@ details live in `.agents/skills/`.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
 - Dashboard email reports live in SQL via the
-  `dashboard-report-subscriptions` actions. They send personal daily snapshots
-  of accessible SQL dashboards with saved URL filters; do not hand-wire custom
-  email routes around that action surface. Report PNGs are Playwright captures
-  of the real dashboard route in `reportScreenshot=1` mode, authenticated by a
-  short-lived embed-session token and embedded inline in email with a CID image.
-  Netlify builds emit a scheduled trigger plus a background worker from
+  `dashboard-report-subscriptions` actions. They send daily snapshots scoped to
+  the exact user/org context that created the subscription with saved URL
+  filters; do not hand-wire custom email routes around that action surface.
+  Report PNGs are Playwright captures of the real dashboard route in
+  `reportScreenshot=1` mode, authenticated by a short-lived embed-session token
+  and embedded inline in email with a CID image. Netlify builds emit a scheduled
+  trigger plus a background worker from
   `scripts/emit-netlify-dashboard-report-cron.ts`, using a per-deploy internal
-  token. External cron callers can still sweep due reports by POSTing
+  token and disabling the in-process interval scheduler on Netlify to avoid
+  duplicate sends. External cron callers can still sweep due reports by POSTing
   `/api/dashboard-reports/run` with
   `Authorization: Bearer $DASHBOARD_REPORTS_CRON_SECRET`. PNG rendering uses
   local Chrome in development and `playwright-core` plus

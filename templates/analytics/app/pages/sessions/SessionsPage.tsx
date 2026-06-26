@@ -1,3 +1,4 @@
+import { CodeSurface } from "@agent-native/core/blocks";
 import { useActionQuery, useT } from "@agent-native/core/client";
 import {
   IconCode,
@@ -6,6 +7,7 @@ import {
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
+import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
@@ -76,13 +78,14 @@ export default function SessionsPage() {
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
   const query = searchParams.get("q") ?? "";
+  const from = useMemo(() => rangeToFrom(range), [range]);
 
   const { data, isLoading, isFetching, refetch, error } = useActionQuery<
     SessionRecordingSummary[]
   >(
     "list-session-recordings",
     {
-      from: rangeToFrom(range) ?? undefined,
+      from: from ?? undefined,
       app: app || undefined,
       limit: 100,
     },
@@ -312,9 +315,12 @@ function EmptySessionsState() {
           <IconCode className="h-4 w-4" />
           {t("sessions.installSnippetTitle")}
         </div>
-        <pre className="max-h-[360px] overflow-auto p-4 text-xs leading-relaxed">
-          <code>{SESSION_REPLAY_SNIPPET}</code>
-        </pre>
+        <CodeSurface
+          code={SESSION_REPLAY_SNIPPET}
+          language="typescript"
+          maxLines={null}
+          className="mt-0 rounded-none border-0 bg-transparent"
+        />
       </div>
     </div>
   );
@@ -418,17 +424,16 @@ function formatNumber(value: number): string {
   return new Intl.NumberFormat().format(value);
 }
 
-const SESSION_REPLAY_SNIPPET = `# Agent Native apps already call configureTracking().
-# Add these env vars to the site you want to record:
-VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
-VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
-VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
-
-# Custom Vite/React site root:
+const SESSION_REPLAY_SNIPPET = `// Agent Native templates already call configureTracking().
 import { configureTracking } from "@agent-native/core/client";
 
 configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 1,
+  },
   getDefaultProps: (_event, props) => ({
     ...props,
     app: "my-app",
