@@ -10,6 +10,7 @@ import type {
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
 import {
+  ensureDatabaseSourceProperty,
   getExistingSource,
   getSourceRows,
   importBuilderCmsEntriesAsDatabaseItems,
@@ -133,6 +134,12 @@ export default defineAction({
       .describe(
         "When adding a SECOND source, the canonical-key join that federates it onto the primary (read-only overlay).",
       ),
+    mode: z
+      .enum(["replace", "add"])
+      .optional()
+      .describe(
+        "replace (default) re-links the primary source; add attaches an ADDITIONAL Builder source whose entries become their own rows (row-union, no join).",
+      ),
     limit: z.coerce.number().int().min(1).max(500).default(100),
     offset: z.coerce.number().int().min(0).default(0),
   }),
@@ -221,6 +228,82 @@ export default defineAction({
         ),
         now,
       });
+
+      return getContentDatabaseResponse(database.id, {
+        limit: args.limit,
+        offset: args.offset,
+      });
+    }
+
+    // Adding an ADDITIONAL writable Builder source (row-union): insert a new
+    // source and import its entries as their OWN rows, instead of replacing the
+    // primary. No canonical-key join — each row belongs to exactly one source.
+    if (args.mode === "add" && existingSource && sourceType === "builder-cms") {
+      const additionalRead = await readBuilderCmsContentEntries({
+        model: sourceTable,
+      });
+      const additionalModelFields = await readBuilderCmsModelFields({
+        model: sourceTable,
+      });
+      const additionalSourceId = await insertSecondarySource({
+        database,
+        sourceType,
+        sourceName,
+        sourceTable,
+        now,
+      });
+      if (additionalRead.state === "live") {
+        await importBuilderCmsEntriesAsDatabaseItems({
+          database,
+          entries: additionalRead.entries,
+          now,
+          sourceTable,
+          existingSourceRows: [],
+          skipTitleDedup: true,
+        });
+      }
+      const additionalSetup = await sourceSetupPayload(database.id);
+      const additionalEntriesByDocumentId =
+        additionalRead.state === "live"
+          ? mapBuilderCmsEntriesToLocalItems({
+              entries: additionalRead.entries,
+              items: additionalSetup.response.items,
+              sourceTable,
+              now,
+              existingRows: [],
+            })
+          : undefined;
+      await seedMockSourceFields({
+        sourceId: additionalSourceId,
+        ownerEmail: database.ownerEmail,
+        sourceType,
+        properties: additionalSetup.properties,
+        builderModelFields: additionalModelFields,
+        builderSampleEntries:
+          additionalRead.state === "live" ? additionalRead.entries : [],
+        now,
+      });
+      await seedMockSourceRows({
+        sourceId: additionalSourceId,
+        ownerEmail: database.ownerEmail,
+        sourceType,
+        sourceTable,
+        items: additionalSetup.response.items,
+        now,
+        builderEntriesByDocumentId: additionalEntriesByDocumentId,
+      });
+      await updateBuilderCmsSourceReadMetadata({
+        sourceId: additionalSourceId,
+        sourceTable,
+        readState: additionalRead.state,
+        entryCount: additionalRead.entries.length,
+        matchedRowCount: additionalEntriesByDocumentId?.size ?? 0,
+        fetchedAt: additionalRead.fetchedAt,
+        now,
+        message: additionalRead.message,
+        syncState: "linked",
+      });
+      await ensureDatabaseSourceProperty({ database, now });
 
       return getContentDatabaseResponse(database.id, {
         limit: args.limit,

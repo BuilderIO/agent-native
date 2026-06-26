@@ -1431,6 +1431,10 @@ function DatabaseTable({
             sourceType: "builder-cms",
             sourceName: model.displayName,
             sourceTable: model.name,
+            // A database that already has a source gets the new collection
+            // added as its own writable source (row-union); the first source
+            // replaces the empty binding.
+            mode: sources.length > 0 || source ? "add" : "replace",
           })
         }
         onFederateSource={(candidate, join) =>

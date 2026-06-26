@@ -667,6 +667,8 @@ export interface AttachContentDatabaseSourceRequest {
   sourceName?: string;
   sourceTable?: string;
   join?: ContentDatabaseSourceJoinRequest;
+  /** "add" attaches an additional row-union source; "replace" (default) re-links the primary. */
+  mode?: "replace" | "add";
   limit?: number;
   offset?: number;
 }

@@ -1,5 +1,11 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb, schema } from "../server/db/index.js";
+import {
+  parsePropertyOptions,
+  serializePropertyOptions,
+  serializePropertyValue,
+  type DocumentPropertyOptionColor,
+} from "../shared/properties.js";
 import type {
   ContentDatabase,
   ContentDatabaseItem,
@@ -1762,6 +1768,11 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   now: string;
   sourceTable: string;
   existingSourceRows?: ContentDatabaseSourceRecordRowDb[];
+  // When importing an ADDITIONAL source (row-union), two collections may share
+  // a title legitimately, so the cross-database title dedup must be skipped —
+  // per-source re-import idempotency is still handled by
+  // builderCmsEntryAlreadyRepresented (existingSourceRows).
+  skipTitleDedup?: boolean;
 }) {
   if (args.entries.length === 0) return 0;
   const db = getDb();
@@ -1814,7 +1825,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
 
     const title = entry.title.trim() || entry.id;
     const titleKey = title.toLowerCase();
-    if (existingTitles.has(titleKey)) continue;
+    if (!args.skipTitleDedup && existingTitles.has(titleKey)) continue;
     existingTitles.add(titleKey);
 
     const documentId = nanoid();
@@ -2327,6 +2338,164 @@ export async function getExistingSourceForWrite(
   return sourceId
     ? getExistingSourceById(databaseId, sourceId)
     : getExistingSource(databaseId);
+}
+
+export const SOURCE_PROPERTY_NAME = "Source";
+
+const SOURCE_OPTION_PALETTE: DocumentPropertyOptionColor[] = [
+  "blue",
+  "green",
+  "orange",
+  "purple",
+  "pink",
+  "yellow",
+  "brown",
+  "red",
+];
+
+/**
+ * Ensure a "Source" select property exists tagging each row with the collection
+ * it belongs to, and (re)set every item's value. Rows with no source binding are
+ * "Local" — the same first-class state a brand-new local row has. Only runs once
+ * a database has 2+ sources (row-union); a single-source database doesn't need
+ * the tag. Option ids are preserved across re-runs so colors/filters stay stable.
+ */
+export async function ensureDatabaseSourceProperty(args: {
+  database: ContentDatabaseRow;
+  now: string;
+}) {
+  const db = getDb();
+  const sources = await db
+    .select({
+      id: schema.contentDatabaseSources.id,
+      sourceName: schema.contentDatabaseSources.sourceName,
+    })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, args.database.id))
+    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+  if (sources.length < 2) return;
+
+  const optionNames = Array.from(
+    new Set([...sources.map((source) => source.sourceName), "Local"]),
+  );
+
+  const [existing] = await db
+    .select()
+    .from(schema.documentPropertyDefinitions)
+    .where(
+      and(
+        eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
+        eq(schema.documentPropertyDefinitions.name, SOURCE_PROPERTY_NAME),
+        eq(schema.documentPropertyDefinitions.type, "select"),
+      ),
+    );
+
+  const priorOptions = existing
+    ? (parsePropertyOptions(existing.optionsJson).options ?? [])
+    : [];
+  const priorByName = new Map(
+    priorOptions.map((option) => [option.name, option]),
+  );
+  const options = optionNames.map((name, index) => {
+    const prior = priorByName.get(name);
+    if (prior) return prior;
+    return {
+      id: crypto.randomUUID(),
+      name,
+      color:
+        name === "Local"
+          ? ("gray" as DocumentPropertyOptionColor)
+          : SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length],
+    };
+  });
+  const optionsJson = serializePropertyOptions({ options });
+
+  let propertyId: string;
+  if (existing) {
+    propertyId = existing.id;
+    await db
+      .update(schema.documentPropertyDefinitions)
+      .set({ optionsJson, updatedAt: args.now })
+      .where(eq(schema.documentPropertyDefinitions.id, existing.id));
+  } else {
+    const [maxPos] = await db
+      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
+      );
+    propertyId = crypto.randomUUID();
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: args.database.ownerEmail,
+      orgId: args.database.orgId,
+      databaseId: args.database.id,
+      name: SOURCE_PROPERTY_NAME,
+      type: "select",
+      visibility: "always_show",
+      optionsJson,
+      position: (maxPos?.max ?? -1) + 1,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+  }
+
+  const sourceNameById = new Map(
+    sources.map((source) => [source.id, source.sourceName]),
+  );
+  const rows = await db
+    .select({
+      documentId: schema.contentDatabaseSourceRows.documentId,
+      sourceId: schema.contentDatabaseSourceRows.sourceId,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      inArray(
+        schema.contentDatabaseSourceRows.sourceId,
+        sources.map((source) => source.id),
+      ),
+    );
+  const sourceNameByDocumentId = new Map<string, string>();
+  for (const row of rows) {
+    if (!row.documentId) continue;
+    const name = sourceNameById.get(row.sourceId);
+    if (name) sourceNameByDocumentId.set(row.documentId, name);
+  }
+
+  const items = await db
+    .select({ documentId: schema.contentDatabaseItems.documentId })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
+  for (const item of items) {
+    const valueJson = serializePropertyValue(
+      sourceNameByDocumentId.get(item.documentId) ?? "Local",
+    );
+    const [existingValue] = await db
+      .select({ id: schema.documentPropertyValues.id })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, item.documentId),
+          eq(schema.documentPropertyValues.propertyId, propertyId),
+        ),
+      );
+    if (existingValue) {
+      await db
+        .update(schema.documentPropertyValues)
+        .set({ valueJson, updatedAt: args.now })
+        .where(eq(schema.documentPropertyValues.id, existingValue.id));
+    } else {
+      await db.insert(schema.documentPropertyValues).values({
+        id: crypto.randomUUID(),
+        ownerEmail: args.database.ownerEmail,
+        documentId: item.documentId,
+        propertyId,
+        valueJson,
+        createdAt: args.now,
+        updatedAt: args.now,
+      });
+    }
+  }
 }
 
 export async function getSourceRows(sourceId: string) {
