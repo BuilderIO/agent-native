@@ -5,6 +5,10 @@ const arSA = {
     label: "اللغة",
     system: "النظام",
     systemDescription: "استخدم لغة المتصفح",
+    suggestionTitle: "هل تريد قراءة هذه الصفحة باللغة {{language}}؟",
+    suggestionDescription: "لغة متصفحك هي {{language}}.",
+    suggestionSwitch: "التبديل إلى {{language}}",
+    suggestionKeepEnglish: "إبقاء الإنجليزية",
   },
   header: {
     docs: "الوثائق",

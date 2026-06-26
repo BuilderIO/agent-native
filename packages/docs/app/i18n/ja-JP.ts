@@ -5,6 +5,10 @@ const jaJP = {
     label: "言語",
     system: "システム",
     systemDescription: "ブラウザーの言語を使用",
+    suggestionTitle: "このページを{{language}}で読みますか？",
+    suggestionDescription: "ブラウザーの言語は{{language}}です。",
+    suggestionSwitch: "{{language}}に切り替え",
+    suggestionKeepEnglish: "英語のままにする",
   },
   header: {
     docs: "ドキュメント",

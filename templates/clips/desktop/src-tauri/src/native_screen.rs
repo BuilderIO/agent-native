@@ -179,7 +179,7 @@ enum NativeFullscreenBackend {
 }
 
 /// `SCRecordingOutput` finalizes the MP4 *asynchronously*: after
-/// `stop_capture()` / `remove_recording_output()` it still has to flush its
+/// `remove_recording_output()` / `stop_capture()` it still has to flush its
 /// last buffered sample fragment and write the `moov` atom, then it calls
 /// `recording_did_finish` (or `recording_did_fail`). If we move the file
 /// before that callback we lose the trailing fragment — a consistent
@@ -770,7 +770,8 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         has_audio,
         has_camera,
     )?;
-    if let Err(stop_err) = &stop_outcome {
+    let stop_error = stop_outcome.err();
+    if let Some(stop_err) = &stop_error {
         saved.last_error = Some(stop_err.clone());
         // Only mark corrupt when the SCK delegate explicitly called recording_did_fail
         // (error contains "finalize failed"). Transient stop_capture /
@@ -779,11 +780,37 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         // "finalization callback failed" is unique to the delegate path;
         // "recording finalize failed" also appears on remove_recording_output errors.
         let is_definitive = stop_err.contains("finalization callback failed");
-        if is_definitive && mp4_has_moov(&saved.file_path) == Some(false) {
-            saved.corrupt = true;
-            eprintln!(
-                "[clips-tray] recording marked corrupt: definitive finalize error + missing moov atom"
-            );
+        match mp4_has_moov(&saved.file_path) {
+            Some(false) => {
+                if is_definitive {
+                    saved.corrupt = true;
+                    eprintln!(
+                        "[clips-tray] recording marked corrupt: definitive finalize error + missing moov atom"
+                    );
+                } else {
+                    eprintln!(
+                        "[clips-tray] native stop reported an error and MP4 is missing moov; saving for retry"
+                    );
+                }
+                write_saved_recording_metadata(&app, &saved)?;
+                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                let suffix = if saved.corrupt {
+                    "The local file is incomplete and cannot be recovered. Discard it from the Clips menu and record again."
+                } else {
+                    "The clip was saved locally and can be retried from the Clips menu."
+                };
+                return Err(format!("{stop_err}. {suffix}"));
+            }
+            Some(true) => {
+                eprintln!(
+                    "[clips-tray] native stop reported an error but MP4 metadata is present; continuing upload: {stop_err}"
+                );
+            }
+            None => {
+                eprintln!(
+                    "[clips-tray] native stop reported an error and MP4 metadata could not be verified; continuing upload: {stop_err}"
+                );
+            }
         }
     } else if mp4_has_moov(&saved.file_path) == Some(false) {
         // stop_outcome was Ok but the finalize callback timed out — SCK may still be
@@ -791,26 +818,19 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         // in the UI, then bail out before upload_recording_file re-checks moov and
         // permanently marks it corrupt.
         saved.last_error = Some(
-            "Recorded MP4 is missing playback metadata. Please retry the recording."
-                .to_string(),
+            "Recorded MP4 is missing playback metadata. Please retry the recording.".to_string(),
         );
         eprintln!("[clips-tray] recording missing moov after Ok stop outcome (likely finalize timeout) — saving as retryable, skipping upload");
         write_saved_recording_metadata(&app, &saved)?;
         emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
         return Err(
-            "Recorded MP4 is missing playback metadata. Please retry the recording."
-                .to_string(),
+            "Recorded MP4 is missing playback metadata. Please retry the recording.".to_string(),
         );
     } else if let Err(merge_err) = &consolidate_outcome {
         saved.last_error = Some(merge_err.clone());
     }
     write_saved_recording_metadata(&app, &saved)?;
     emit_native_upload_progress(&app, "preparing", "Optimizing clip", None, None);
-    if let Err(stop_err) = stop_outcome {
-        return Err(format!(
-            "{stop_err}. The clip was saved locally and can be retried from the Clips menu."
-        ));
-    }
     if multi_segment {
         if let Err(merge_err) = consolidate_outcome {
             return Err(format!(
@@ -2338,14 +2358,10 @@ fn stop_native_recording(
             finish,
             ..
         } => {
-            let stop_result = stream
-                .stop_capture()
-                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
-            // remove_recording_output() occasionally fails with
-            // StreamError("Failed due to an invalid parameter") when the audio
-            // tap or stream state hasn't fully drained yet. We retry once after
-            // a 200ms drain delay; the sleep is in the error branch only so
-            // healthy clips pay no extra stop latency.
+            // Removing the recording output is the clean "stop recording" path.
+            // It lets SCRecordingOutput finish while the stream is still alive;
+            // stopping the stream first can make ReplayKit report -5814 while
+            // writing the MP4's final metadata.
             let remove_result = stream
                 .remove_recording_output(recording)
                 .map_err(|e| format!("ScreenCaptureKit recording finalize failed: {e:?}"));
@@ -2361,27 +2377,41 @@ fn stop_native_recording(
                     })
                 }
             };
-            // stop_capture()/remove_recording_output() only *trigger* the
+            // remove_recording_output()/stop_capture() only *trigger* the
             // async finalize; the MP4 isn't complete until the delegate's
-            // recording_did_finish fires. Block on it before the caller moves
-            // the file — without this we move it mid-flush and lose the last
-            // buffered fragment (a consistent multi-second tail truncation).
-            // Skip the wait only when both teardown calls hard-failed (the
-            // delegate won't fire, so don't burn the timeout for nothing).
-            let waited_for_finalize =
-                wait_for_finalize && (stop_result.is_ok() || remove_result.is_ok());
-            let finalize_outcome = if waited_for_finalize {
+            // recording_did_finish fires. Prefer waiting after removal while
+            // the stream is alive, then stop the stream after the output has
+            // had a chance to flush.
+            let remove_ok = remove_result.is_ok();
+            let mut waited_for_finalize = false;
+            let mut finalize_outcome = if wait_for_finalize && remove_ok {
+                waited_for_finalize = true;
                 let outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
                 if outcome.is_none() {
                     eprintln!(
-                            "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s; saving file as-is",
-                            SCK_FINALIZE_TIMEOUT.as_secs()
-                        );
+                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after remove_recording_output; saving file as-is",
+                        SCK_FINALIZE_TIMEOUT.as_secs()
+                    );
                 }
                 outcome
             } else {
                 None
             };
+
+            let stop_result = stream
+                .stop_capture()
+                .map_err(|e| format!("ScreenCaptureKit stop failed: {e:?}"));
+
+            if wait_for_finalize && !waited_for_finalize && stop_result.is_ok() {
+                waited_for_finalize = true;
+                finalize_outcome = finish.wait(SCK_FINALIZE_TIMEOUT);
+                if finalize_outcome.is_none() {
+                    eprintln!(
+                        "[clips-tray] SCRecordingOutput finalize callback did not fire within {}s after stop_capture; saving file as-is",
+                        SCK_FINALIZE_TIMEOUT.as_secs()
+                    );
+                }
+            }
 
             // Check the delegate outcome BEFORE returning on stop_result. When
             // stop_capture() fails AND recording_did_fail fires, callers must see
@@ -2391,12 +2421,11 @@ fn stop_native_recording(
                 eprintln!("[clips-tray] SCK finalize failed: {err}");
                 // Use a unique prefix so callers can distinguish the SCK delegate
                 // reporting failure (recording_did_fail) from teardown API errors.
-                return Err(format!("ScreenCaptureKit finalization callback failed: {err}"));
+                return Err(format!(
+                    "ScreenCaptureKit finalization callback failed: {err}"
+                ));
             }
 
-            if let Err(err) = stop_result {
-                return Err(err);
-            }
             if waited_for_finalize && finalize_outcome.is_none() {
                 eprintln!(
                     "[clips-tray] SCK finalize timed out after {}s — moov atom may be missing",
@@ -2404,21 +2433,32 @@ fn stop_native_recording(
                 );
             }
 
+            let remove_recoverable = matches!(finalize_outcome.as_ref(), Some(Ok(())))
+                || (waited_for_finalize && finalize_outcome.is_none());
             match remove_result {
-                Ok(()) => Ok(()),
+                Ok(()) => {}
                 Err(remove_err) => {
-                    if matches!(finalize_outcome.as_ref(), Some(Ok(())))
-                        || (waited_for_finalize && finalize_outcome.is_none())
-                    {
+                    if remove_recoverable {
                         eprintln!(
                             "[clips-tray] ScreenCaptureKit recording output removal reported an error after finalize completed or timed out; continuing upload: {remove_err}"
                         );
-                        Ok(())
                     } else {
-                        Err(remove_err)
+                        return Err(remove_err);
                     }
                 }
             }
+
+            if let Err(stop_err) = stop_result {
+                if remove_ok || matches!(finalize_outcome.as_ref(), Some(Ok(()))) {
+                    eprintln!(
+                        "[clips-tray] ScreenCaptureKit stop_capture reported an error after recording output teardown; continuing upload: {stop_err}"
+                    );
+                } else {
+                    return Err(stop_err);
+                }
+            }
+
+            Ok(())
         }
     }
 }
@@ -2827,8 +2867,7 @@ fn is_moov_corrupt_error(err: &str) -> bool {
     // Matches both the native prepare_recording_file error and the server-side
     // finalize-recording.ts error so the corrupt flag is set regardless of
     // which layer first detected the missing moov atom.
-    err.contains("video is missing required metadata")
-        || err.contains("corrupted or incomplete")
+    err.contains("video is missing required metadata") || err.contains("corrupted or incomplete")
 }
 
 /// Walk the top-level ISO BMFF boxes of a file and return `Some(true)` when a
@@ -2925,9 +2964,7 @@ fn prepare_recording_file(
     // full chunked upload that the server will reject anyway.
     if mime_type == "video/mp4" || mime_type == "video/quicktime" {
         if mp4_has_moov(path) == Some(false) {
-            eprintln!(
-                "[clips-tray] native recording corrupt moov check failed — skipping upload"
-            );
+            eprintln!("[clips-tray] native recording corrupt moov check failed — skipping upload");
             return Err(
                 "Recorded file is corrupted or incomplete — the video is missing required \
                  metadata. Please record again."

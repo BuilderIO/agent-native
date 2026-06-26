@@ -5,6 +5,10 @@ const koKR = {
     label: "언어",
     system: "시스템",
     systemDescription: "브라우저 언어 사용",
+    suggestionTitle: "이 페이지를 {{language}}로 읽을까요?",
+    suggestionDescription: "브라우저 언어는 {{language}}입니다.",
+    suggestionSwitch: "{{language}}로 전환",
+    suggestionKeepEnglish: "영어 유지",
   },
   header: {
     docs: "문서",

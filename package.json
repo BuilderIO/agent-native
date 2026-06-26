@@ -51,6 +51,7 @@
     "guard:google-auth-redirects": "node scripts/guard-google-auth-redirects.mjs",
     "guard:db-tool-scoping": "node scripts/guard-db-tool-scoping.mjs",
     "guard:template-list": "node scripts/guard-template-list.mjs",
+    "guard:netlify-private-env": "tsx scripts/guard-netlify-private-env.ts",
     "guard:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts --check",
     "guard:public-packages": "tsx scripts/guard-public-packages.ts",
     "guard:no-generated-artifacts": "node scripts/guard-no-generated-artifacts.mjs",

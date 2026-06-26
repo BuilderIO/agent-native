@@ -1,4 +1,5 @@
 import { captureError } from "../server/capture-error.js";
+import { isLlmCredentialError } from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
 import {
   insertRun,
@@ -149,6 +150,9 @@ function getEngineRunErrorDetails(err: EngineError): string | undefined {
 function shouldCaptureRunError(err: unknown): boolean {
   if (!(err instanceof EngineError)) return true;
   const errorCode = getEngineRunErrorCode(err);
+  if (isLlmCredentialError(err, errorCode)) return false;
+  if (err.statusCode === 401 || err.statusCode === 403) return false;
+  if (/^40[13] status code\b/i.test(err.message)) return false;
   if (!errorCode) return true;
   const normalizedCode = errorCode.toLowerCase();
   return (
@@ -423,6 +427,8 @@ export function startRun(
   let pendingTerminalEvent: RunEvent | null = null;
 
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
+    const errorCode =
+      error instanceof EngineError ? getEngineRunErrorCode(error) : undefined;
     captureError(error, {
       route: "/_agent-native/agent-chat",
       tags: {
@@ -431,7 +437,7 @@ export function startRun(
         runStatus: run.status,
         softTimedOut: softTimedOut ? "true" : "false",
         abortReason: run.abortReason,
-        errorCode: error instanceof EngineError ? error.errorCode : undefined,
+        errorCode,
       },
       extra: {
         runId,

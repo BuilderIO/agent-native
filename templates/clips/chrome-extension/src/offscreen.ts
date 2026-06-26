@@ -23,6 +23,15 @@ import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("offscreen");
 
+const STORAGE_SETUP_REQUIRED_MESSAGE =
+  "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
+const STORAGE_SETUP_FAILURE_RE =
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+
+function isStorageSetupFailureMessage(message: string | null | undefined) {
+  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
+
 type CaptureMode = "screen" | "camera";
 
 type AcquireMessage = {
@@ -396,7 +405,14 @@ async function uploadChunk(
     body,
   });
   const text = await res.text().catch(() => "");
-  const data = text ? (JSON.parse(text) as UploadResult) : {};
+  let data: UploadResult = {};
+  if (text) {
+    try {
+      data = JSON.parse(text) as UploadResult;
+    } catch {
+      data = {};
+    }
+  }
   if (!res.ok) {
     console.error(
       "[clips-offscreen] chunk upload failed",
@@ -405,9 +421,17 @@ async function uploadChunk(
       Boolean(recording.authToken),
       text.slice(0, 200),
     );
+    const storageSetupRequired =
+      data?.storageSetupRequired === true ||
+      isStorageSetupFailureMessage(data?.error || text);
     const error = new Error(
-      data?.error || `Upload failed (${res.status}): ${text || res.statusText}`,
+      storageSetupRequired
+        ? STORAGE_SETUP_REQUIRED_MESSAGE
+        : data?.error ||
+            `Upload failed (${res.status}): ${text || res.statusText}`,
     );
+    (error as { storageSetupRequired?: boolean }).storageSetupRequired =
+      storageSetupRequired;
     captureExtensionError(error, {
       tags: {
         surface: "offscreen",
@@ -845,6 +869,8 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     reportStatus(recording.sessionId, "error", {
       recordingId: recording.recordingId,
       error: error.message,
+      storageSetupRequired: (error as { storageSetupRequired?: boolean })
+        .storageSetupRequired,
     });
     recording.rejectStopped(error);
   }

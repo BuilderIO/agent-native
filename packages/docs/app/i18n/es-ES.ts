@@ -5,6 +5,10 @@ const esES = {
     label: "Idioma",
     system: "Sistema",
     systemDescription: "Usar el idioma del navegador",
+    suggestionTitle: "¿Leer esta página en {{language}}?",
+    suggestionDescription: "El idioma de tu navegador es {{language}}.",
+    suggestionSwitch: "Cambiar a {{language}}",
+    suggestionKeepEnglish: "Mantener inglés",
   },
   header: {
     docs: "Documentos",

@@ -80,7 +80,7 @@ export function readDeployCredentialEnv(key: string): string | undefined {
  * key does not silently power another tenant's chat.
  */
 export function isDeployCredentialFallbackAllowed(): boolean {
-  if (process.env.NODE_ENV !== "production") return true;
+  if (!isProductionLikeRuntime()) return true;
   return isLocalDatabase();
 }
 
@@ -121,6 +121,22 @@ function isHostedWorkspaceRuntime(): boolean {
   );
 }
 
+function isProductionLikeRuntime(): boolean {
+  return (
+    process.env.NODE_ENV === "production" ||
+    /^(1|true)$/i.test(process.env.NETLIFY ?? "") ||
+    /^(1|true)$/i.test(process.env.VERCEL ?? "") ||
+    /^(1|true)$/i.test(process.env.CF_PAGES ?? "") ||
+    Boolean(
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.AWS_EXECUTION_ENV ||
+      process.env.FUNCTIONS_WORKER_RUNTIME ||
+      process.env.K_SERVICE ||
+      process.env.RENDER,
+    )
+  );
+}
+
 /**
  * Whether deployment-level Builder env keys may back the current request.
  *
@@ -143,18 +159,18 @@ function canUseBuilderDeployCredentialFallbackForRequest(): boolean {
   const email = getRequestUserEmail();
   if (!email) return true;
 
-  const isProduction = process.env.NODE_ENV === "production";
+  const isProductionRuntime = isProductionLikeRuntime();
   // Local dogfooding escape hatch: lets the env / root-`.env` Builder key back
   // a signed-in user so running the app locally doesn't require completing the
   // Builder connect flow first. Non-prod only.
   const localDevOptIn =
-    !isProduction &&
+    !isProductionRuntime &&
     /^(1|true)$/i.test(process.env.AGENT_NATIVE_LOCAL_BUILDER_ENV ?? "");
 
   if (isHostedWorkspaceRuntime() && !localDevOptIn) return false;
 
   // Deploy fallback is safe in non-prod or on a local/single-tenant database.
-  return !isProduction || isLocalDatabase();
+  return !isProductionRuntime || isLocalDatabase();
 }
 
 function shouldTraceCredentialResolve(): boolean {

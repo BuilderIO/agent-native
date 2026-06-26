@@ -15,6 +15,11 @@ export const DOCS_LOCALES = SUPPORTED_LOCALES;
 export const DOCS_LOCALE_METADATA = LOCALE_METADATA;
 export { localeDirection };
 
+export function docsLocaleOptionLabel(locale: DocsLocale) {
+  const metadata = DOCS_LOCALE_METADATA[locale];
+  return `${metadata.nativeName} (${locale})`;
+}
+
 function normalizePath(pathname: string) {
   return pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
 }

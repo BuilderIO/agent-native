@@ -5,6 +5,10 @@ const hiIN = {
     label: "भाषा",
     system: "सिस्टम",
     systemDescription: "ब्राउज़र की भाषा इस्तेमाल करें",
+    suggestionTitle: "{{language}} में यह पेज पढ़ें?",
+    suggestionDescription: "आपके ब्राउज़र की भाषा {{language}} है।",
+    suggestionSwitch: "{{language}} पर स्विच करें",
+    suggestionKeepEnglish: "अंग्रेज़ी रखें",
   },
   header: {
     docs: "दस्तावेज़",

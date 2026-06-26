@@ -585,7 +585,7 @@ function TranscriptSetupCard({
                   <p className="text-xs font-semibold">
                     {builderConfigured
                       ? "Builder.io connected"
-                      : "Connect Builder.io"}
+                      : "Use Builder.io (free)"}
                   </p>
                   {!builderConfigured && (
                     <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">

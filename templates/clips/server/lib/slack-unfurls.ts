@@ -172,13 +172,16 @@ export function extractShareLink(urlValue: string): {
 
   const parts = url.pathname.split("/").filter(Boolean);
   const shareIndex = parts.indexOf("share");
-  const id = shareIndex >= 0 ? parts[shareIndex + 1] : undefined;
+  const recordingIndex = parts.indexOf("r");
+  const resourceIndex = shareIndex >= 0 ? shareIndex : recordingIndex;
+  const id = resourceIndex >= 0 ? parts[resourceIndex + 1] : undefined;
   if (!id) return null;
 
   return {
     id: decodeURIComponent(id),
     origin: url.origin,
-    basePath: shareIndex > 0 ? `/${parts.slice(0, shareIndex).join("/")}` : "",
+    basePath:
+      resourceIndex > 0 ? `/${parts.slice(0, resourceIndex).join("/")}` : "",
   };
 }
 

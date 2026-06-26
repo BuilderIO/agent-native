@@ -13,6 +13,13 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
 function BuilderBMark({ className }: { className?: string }) {
   return (
     <svg
@@ -173,23 +180,44 @@ export function StorageSetupCard({
 
       {/* S3 — secondary option */}
       {!connected && (
-        <div className="flex items-center gap-3 border-t border-border pt-4">
-          <IconServer className="h-4 w-4 text-muted-foreground" />
-          <div className="flex-1">
-            <span className="text-sm text-muted-foreground">
-              Or{" "}
-              <a
-                href={appPath("/settings#video-storage")}
-                className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
-              >
-                {t("storageSetup.configureS3")}
-              </a>
-            </span>
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">
-              AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
-            </span>
+        <>
+          <div className="flex items-center gap-3 border-t border-border pt-4">
+            <IconServer className="h-4 w-4 text-muted-foreground" />
+            <div className="flex-1">
+              <span className="text-sm text-muted-foreground">
+                Or{" "}
+                <a
+                  href={appPath("/settings#video-storage")}
+                  className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+                >
+                  {t("storageSetup.configureS3")}
+                </a>
+              </span>
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
+              </span>
+            </div>
           </div>
-        </div>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="self-start text-xs text-muted-foreground underline decoration-muted-foreground/50 decoration-dotted underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {t("storageSetup.whyPrompt")}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                align="start"
+                className="max-w-80 whitespace-normal text-xs leading-relaxed"
+              >
+                {t("storageSetup.whyDescription")}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </>
       )}
     </div>
   );
