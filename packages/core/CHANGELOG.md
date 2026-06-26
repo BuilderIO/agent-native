@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.77.17
+
+### Patch Changes
+
+- 6c65e7f: Show a Plan signup note for switching `/visual-plan` to local-files mode.
+- 6c65e7f: Allow apps to filter the broad action-event query invalidation from `useDbSync`.
+- 6c65e7f: Keep standalone scaffold installs stable when fresh Sentry transitive packages are published.
+
 ## 0.77.16
 
 ### Patch Changes
