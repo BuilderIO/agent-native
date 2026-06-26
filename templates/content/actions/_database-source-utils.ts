@@ -467,6 +467,11 @@ export function buildBuilderLocalOutboundChangeSets(args: {
   // behavior when omitted (no other owners; creates allowed).
   otherSourceDocumentIds?: Set<string>;
   allowUnsourcedCreates?: boolean;
+  // Per-document ownership from the visible "Source" select tag (documentId →
+  // owning sourceId). A new, still-unlinked row tagged for a specific
+  // collection is adopted as a create_draft by THAT collection only; an
+  // untagged / "Local" row falls back to the primary (allowUnsourcedCreates).
+  taggedSourceByDocumentId?: Map<string, string>;
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
 
@@ -593,11 +598,20 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     const allowUnsourcedCreates = args.allowUnsourcedCreates ?? true;
     for (const item of args.databaseItems) {
       if (linkedDocumentIds.has(item.documentId)) continue;
-      // Owned by another collection in a row-union — not this source's to create.
+      // Owned by another collection's row identity — not this source's to create.
       if (args.otherSourceDocumentIds?.has(item.documentId)) continue;
-      // Unsourced "Local" row: only the primary adopts it as a create; other
-      // collections leave it alone until it's explicitly assigned to them.
-      if (!allowUnsourcedCreates) continue;
+      const taggedSourceId = args.taggedSourceByDocumentId?.get(
+        item.documentId,
+      );
+      if (taggedSourceId) {
+        // Explicitly tagged for a collection via the "Source" property: only
+        // that collection adopts it (regardless of primary/non-primary).
+        if (taggedSourceId !== args.source.id) continue;
+      } else if (!allowUnsourcedCreates) {
+        // Untagged / "Local": only the primary adopts it as a create; other
+        // collections leave it alone until it's explicitly assigned to them.
+        continue;
+      }
       if (documentIdsWithStoredChange.has(item.documentId)) continue;
       const title = args.documentTitleById.get(item.documentId)?.trim() ?? "";
       if (!title) continue;
@@ -915,10 +929,12 @@ async function loadSourceSnapshot(
   // sources ⇒ empty set, isPrimary ⇒ identical to the old behavior.
   let otherSourceDocumentIds = new Set<string>();
   let isPrimarySource = true;
+  let taggedSourceByDocumentId = new Map<string, string>();
   if (isBuilderSource) {
     const dbSources = await db
       .select({
         id: schema.contentDatabaseSources.id,
+        sourceName: schema.contentDatabaseSources.sourceName,
       })
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.databaseId, database.id))
@@ -943,6 +959,44 @@ async function loadSourceSnapshot(
         );
       otherSourceDocumentIds = new Set(ownedRows.map((row) => row.documentId));
     }
+    // Multi-source: map each row's visible "Source" tag (an option id) to the
+    // owning sourceId so a new, still-unlinked row tagged for a collection is
+    // created against THAT collection. Option name === source name (names are
+    // unique per database; "Local" maps to nothing).
+    if (dbSources.length > 1) {
+      const [sourceProp] = await db
+        .select({
+          id: schema.documentPropertyDefinitions.id,
+          optionsJson: schema.documentPropertyDefinitions.optionsJson,
+        })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
+            eq(schema.documentPropertyDefinitions.name, SOURCE_PROPERTY_NAME),
+            eq(schema.documentPropertyDefinitions.type, "select"),
+          ),
+        );
+      if (sourceProp) {
+        const options = parsePropertyOptions(sourceProp.optionsJson).options ?? [];
+        const sourceNameByOptionId = new Map(
+          options.map((option) => [option.id, option.name]),
+        );
+        const sourceIdByName = new Map(
+          dbSources.map((row) => [row.sourceName, row.id]),
+        );
+        for (const [documentId, byProperty] of localValuesByDocument) {
+          const optionId = byProperty.get(sourceProp.id);
+          if (typeof optionId !== "string") continue;
+          const name = sourceNameByOptionId.get(optionId);
+          if (!name) continue;
+          const taggedSourceId = sourceIdByName.get(name);
+          if (taggedSourceId) {
+            taggedSourceByDocumentId.set(documentId, taggedSourceId);
+          }
+        }
+      }
+    }
   }
   const localOutboundChangeSets = buildBuilderLocalOutboundChangeSets({
     source,
@@ -957,6 +1011,7 @@ async function loadSourceSnapshot(
     writableFields,
     otherSourceDocumentIds,
     allowUnsourcedCreates: isPrimarySource,
+    taggedSourceByDocumentId,
   });
   const rowByDocumentId = new Map(rowRows.map((row) => [row.documentId, row]));
   const changeSets = [...storedChangeSets, ...localOutboundChangeSets].map(

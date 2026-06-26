@@ -353,6 +353,34 @@ describe("database source helpers", () => {
     ).toBeUndefined();
   });
 
+  it("a non-primary source adopts a row tagged for it via the Source property", () => {
+    // A new, unlinked row tagged for "source-zz" must create against zz even
+    // though zz is not the primary (allowUnsourcedCreates: false).
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms", id: "source-zz" },
+      rowRows: [],
+      documentTitleById: new Map([
+        ["doc-zz", "New resource"],
+        ["doc-blog", "New blog row"],
+      ]),
+      storedChangeSets: [],
+      databaseItems: [
+        { databaseItemId: "item-zz", documentId: "doc-zz" },
+        { databaseItemId: "item-blog", documentId: "doc-blog" },
+      ],
+      allowUnsourcedCreates: false,
+      taggedSourceByDocumentId: new Map([
+        ["doc-zz", "source-zz"],
+        ["doc-blog", "source-blog"],
+      ]),
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    // zz adopts its own tagged row; the row tagged for another collection is
+    // left alone even though this is the non-primary source.
+    expect(pending.find((cs) => cs.documentId === "doc-zz")).toBeDefined();
+    expect(pending.find((cs) => cs.documentId === "doc-blog")).toBeUndefined();
+  });
+
   it("only the primary adopts unsourced rows as creates (allowUnsourcedCreates)", () => {
     const args = {
       source: { sourceType: "builder-cms" },
