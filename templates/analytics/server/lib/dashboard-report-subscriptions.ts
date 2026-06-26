@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { recordChange } from "@agent-native/core/server";
-import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { loadDashboardSeed } from "./dashboard-seeds";
@@ -233,9 +233,7 @@ function ownerWhere(ctx: AccessCtx, dashboardId?: string, id?: string) {
     sql`lower(${table.ownerEmail}) = ${ctx.email.toLowerCase()}`,
   ];
   clauses.push(
-    ctx.orgId
-      ? or(eq(table.orgId, ctx.orgId), isNull(table.orgId))!
-      : isNull(table.orgId),
+    ctx.orgId ? eq(table.orgId, ctx.orgId) : isNull(table.orgId),
   );
   if (dashboardId) clauses.push(eq(table.dashboardId, dashboardId));
   if (id) clauses.push(eq(table.id, id));
