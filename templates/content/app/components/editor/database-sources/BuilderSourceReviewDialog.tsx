@@ -59,6 +59,10 @@ export function builderReviewEffectiveRowEffect(
   baseEffect: BuilderCmsWriteEffect,
   selection?: BuilderReviewPublicationTransitionSelection,
 ): BuilderCmsWriteEffect {
+  // A create has no Builder entry yet, so a publish/unpublish transition can't
+  // apply — the adapter always writes a draft (create_draft) when there's no
+  // entry id. Never let a transition relabel a create.
+  if (baseEffect === "create_draft") return "create_draft";
   if (selection?.publicationTransition === "publish") return "publish";
   if (selection?.publicationTransition === "unpublish") return "unpublish";
   return baseEffect;
@@ -466,7 +470,8 @@ export function BuilderSourceReviewDialog({
                           </span>
                         </div>
                         <div className="mt-3 grid gap-2">
-                          {allowPublicationTransitionControls ? (
+                          {allowPublicationTransitionControls &&
+                          row.effect !== "create_draft" ? (
                             <div className="flex flex-wrap items-center gap-1.5 text-xs">
                               <Button
                                 type="button"

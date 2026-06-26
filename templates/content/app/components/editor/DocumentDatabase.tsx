@@ -4349,8 +4349,7 @@ function DatabaseSettingsSourcePanel({
               </div>
             ) : null}
 
-            {reviewableBuilderChangeSets.length > 0 ||
-            conflictChangeSets.length > 0 ? (
+            {reviewableBuilderChangeSets.length > 0 ? (
               <div className="flex justify-end">
                 <Button
                   type="button"
@@ -5066,15 +5065,23 @@ function SourceChangeSetReviewCard({
   // A change that already pushed is done — collapse it to a one-line
   // confirmation instead of repeating the full diff + gate ceremony.
   if (changeSet.state === "applied") {
-    // Use the effect that actually ran (recorded in the execution payload). The
-    // live resolver would now report update_in_place because the row is matched
-    // to its new entry, mislabeling a completed create as an update.
+    // Report the SUCCEEDED execution (a later blocked/stale gate row could
+    // otherwise overwrite the pushed result). Use the effect that actually ran
+    // (recorded in the payload) — the live resolver would now report
+    // update_in_place because the row is matched to its new entry, mislabeling
+    // a completed create as an update.
+    const succeededExecution =
+      [...changeSet.executions]
+        .reverse()
+        .find((execution) => execution.state === "succeeded") ??
+      latestExecution;
     const appliedEffect =
-      (latestExecution && builderExecutionEffect(latestExecution.payload)) ??
+      (succeededExecution &&
+        builderExecutionEffect(succeededExecution.payload)) ??
       effect;
     const when =
       formatRelativeSyncTime(
-        latestExecution?.updatedAt ?? changeSet.updatedAt,
+        succeededExecution?.updatedAt ?? changeSet.updatedAt,
       ) ?? formatSourceTimestamp(changeSet.updatedAt);
     return (
       <div className="flex min-w-0 items-start gap-2 rounded-md border border-border/70 px-2 py-1.5 text-xs">

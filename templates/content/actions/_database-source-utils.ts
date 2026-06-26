@@ -2293,7 +2293,11 @@ export async function getExistingSource(databaseId: string) {
   const [source] = await db
     .select()
     .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId))
+    // Oldest-first so "the source" is deterministically the primary, matching
+    // getContentDatabaseSourceSnapshot. Without this, a multi-source database
+    // could resolve a non-primary source when a caller omits sourceId.
+    .orderBy(asc(schema.contentDatabaseSources.createdAt));
   return source ?? null;
 }
 

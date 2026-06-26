@@ -448,10 +448,14 @@ export function buildBuilderCmsExecutionPlan(args: {
       : args.source.capabilities.liveWritesEnabled === true
         ? "ready"
         : "write_disabled";
+  // Key on the RAW resolved push mode (which may be "none" for a read-only
+  // tier), not the effective one. Collapsing "none" → "autosave" would let a
+  // read-only gate share a key with a stage-only gate for the same change-set,
+  // so enabling live writes could reuse a gate prepared under read-only.
   const idempotencyKey = builderCmsExecutionIdempotencyKey({
     sourceId: args.source.id,
     changeSetId: args.changeSet.id,
-    pushMode: effectivePushMode,
+    pushMode,
   });
   const summaryMode = pushMode === "none" ? "read-only" : pushMode;
   const summary =

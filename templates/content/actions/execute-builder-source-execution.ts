@@ -559,10 +559,14 @@ export async function executeBuilderSourceExecutionWithDeps(
       "Builder execution requires Autosave, Draft, or Publish push mode.",
     );
   }
+  // The gate key is keyed on the RAW resolved push mode (matching the plan in
+  // buildBuilderCmsExecutionPlan) — NOT on pushModeConfirmation. Keying on the
+  // confirmation would let a caller's confirmation diverge the key from the
+  // prepared gate; the confirmation is still validated inside the plan below.
   const expectedKey = builderCmsExecutionIdempotencyKey({
     sourceId: source.id,
     changeSetId: changeSet.id,
-    pushMode,
+    pushMode: resolvedPushMode,
   });
   if (args.idempotencyKey && args.idempotencyKey !== expectedKey) {
     throw new Error(

@@ -22,7 +22,6 @@ import {
 import {
   findOpenSourceChangeSet,
   getContentDatabaseSourceSnapshotForWrite,
-  getExistingSource,
   resolveDatabaseForSourceMutation,
   sourceChangeSetKey,
 } from "./_database-source-utils.js";
@@ -380,16 +379,13 @@ export default defineAction({
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
-    const sourceRecord = await getExistingSource(database.id);
-    if (!sourceRecord || sourceRecord.sourceType !== "builder-cms") {
-      throw new Error("Attach a Builder CMS source before reviewing updates.");
-    }
-
     const snapshot = await getContentDatabaseSourceSnapshotForWrite(
       database,
       args.sourceId,
     );
-    if (!snapshot) throw new Error("Attach a source before reviewing updates.");
+    if (!snapshot || snapshot.sourceType !== "builder-cms") {
+      throw new Error("Attach a Builder CMS source before reviewing updates.");
+    }
     const reviewableChanges = snapshot.changeSets.filter(
       (changeSet) =>
         changeSet.direction === "outbound" &&
@@ -408,7 +404,7 @@ export default defineAction({
     for (const changeSet of reviewableChanges) {
       approvedIds.push(
         await approveChangeSetForReview({
-          sourceId: sourceRecord.id,
+          sourceId: snapshot.id,
           ownerEmail: database.ownerEmail,
           changeSet,
           reviewerEmail,
@@ -439,19 +435,21 @@ export default defineAction({
     await getDb()
       .update(schema.contentDatabaseSources)
       .set({ updatedAt: now })
-      .where(eq(schema.contentDatabaseSources.id, sourceRecord.id));
+      .where(eq(schema.contentDatabaseSources.id, snapshot.id));
 
-    const response = await getContentDatabaseResponse(database.id);
-    const source = response.source;
-    if (!source) throw new Error("Builder source disappeared.");
-    const reviewedChangeSets = source.changeSets.filter((changeSet) =>
+    // Build the review payload from the TARGET source snapshot, not
+    // response.source (which is always the primary). For a non-primary
+    // sourceId the review rows/effects/live-write flags must reflect the
+    // source actually being reviewed.
+    const reviewedChangeSets = approvedSnapshot.changeSets.filter((changeSet) =>
       approvedIds.includes(changeSet.id),
     );
+    const response = await getContentDatabaseResponse(database.id);
 
     return {
       ...response,
       review: buildBuilderSourceReviewPayload({
-        source,
+        source: approvedSnapshot,
         changeSets: reviewedChangeSets,
       }),
     };
