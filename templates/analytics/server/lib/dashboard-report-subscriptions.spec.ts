@@ -14,6 +14,7 @@ vi.mock("../db/index.js", async () => {
 import {
   claimDashboardReportSubscription,
   nextDailyRunAt,
+  queueDashboardReportSubscriptionNow,
 } from "./dashboard-report-subscriptions";
 
 function createClaimDbMock(rows: unknown[]) {
@@ -104,5 +105,50 @@ describe("dashboard report subscriptions", () => {
 
     expect(returning).toHaveBeenCalledTimes(1);
     expect(claimed).toBeNull();
+  });
+
+  it("queues a subscription to run immediately", async () => {
+    const row = {
+      id: "sub_1",
+      dashboardId: "dash_1",
+      name: "Daily",
+      recipients: JSON.stringify(["person@example.com"]),
+      filters: "{}",
+      timeOfDay: "09:00",
+      timezone: "UTC",
+      enabled: true,
+      nextRunAt: "2026-01-01T12:00:00.000Z",
+      lastRunAt: "2026-01-01T11:00:00.000Z",
+      lastStatus: null,
+      lastError: null,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T12:00:00.000Z",
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    };
+    const { db, set, returning } = createClaimDbMock([row]);
+    getDbMock.mockReturnValue(db);
+
+    const queued = await queueDashboardReportSubscriptionNow(
+      "sub_1",
+      { email: "owner@example.com", orgId: "org_1" },
+      new Date("2026-01-01T12:34:00.000Z"),
+    );
+
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        nextRunAt: "2026-01-01T12:34:00.000Z",
+        lastStatus: null,
+        lastError: null,
+        updatedAt: "2026-01-01T12:34:00.000Z",
+      }),
+    );
+    expect(returning).toHaveBeenCalledTimes(1);
+    expect(queued).toMatchObject({
+      id: "sub_1",
+      ownerEmail: "owner@example.com",
+      orgId: "org_1",
+    });
   });
 });

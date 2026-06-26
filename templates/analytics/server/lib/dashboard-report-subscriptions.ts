@@ -452,6 +452,27 @@ export async function claimDashboardReportSubscription(
   return rows[0] ? rowToSubscription(rows[0]) : null;
 }
 
+export async function queueDashboardReportSubscriptionNow(
+  id: string,
+  ctx: AccessCtx,
+  now: Date = new Date(),
+): Promise<DashboardReportSubscription | null> {
+  const db = getDb() as any;
+  const queuedAt = now.toISOString();
+  const rows = await db
+    .update(schema.dashboardReportSubscriptions)
+    .set({
+      enabled: true,
+      nextRunAt: queuedAt,
+      lastStatus: null,
+      lastError: null,
+      updatedAt: queuedAt,
+    })
+    .where(ownerWhere(ctx, undefined, id))
+    .returning();
+  return rows[0] ? rowToSubscription(rows[0]) : null;
+}
+
 export async function markDashboardReportResult(
   sub: DashboardReportSubscription,
   status: "success" | "error",

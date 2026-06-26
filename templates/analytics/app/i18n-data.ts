@@ -410,6 +410,7 @@ const enUS = {
     reportSubscriptionSaved: "Email report subscription saved.",
     reportSubscriptionDeleted: "Email report subscription deleted.",
     reportSent: "Dashboard report sent.",
+    reportQueued: "Dashboard report queued.",
     reportSubscriptionSaveFailed: "Couldn't save subscription: {{message}}",
     reportSubscriptionDeleteFailed: "Couldn't delete subscription: {{message}}",
     reportSendFailed: "Couldn't send report: {{message}}",
@@ -7771,6 +7772,7 @@ const translatedDashboardReportTranslations = {
       reportSubscriptionSaved: "电子邮件报告订阅已保存。",
       reportSubscriptionDeleted: "电子邮件报告订阅已删除。",
       reportSent: "仪表板报告已发送。",
+      reportQueued: "仪表板报告已加入队列。",
       reportSubscriptionSaveFailed: "无法保存订阅：{{message}}",
       reportSubscriptionDeleteFailed: "无法删除订阅：{{message}}",
       reportSendFailed: "无法发送报告：{{message}}",
@@ -7803,6 +7805,7 @@ const translatedDashboardReportTranslations = {
       reportSubscriptionSaved: "Suscripción al informe guardada.",
       reportSubscriptionDeleted: "Suscripción al informe eliminada.",
       reportSent: "Informe del panel enviado.",
+      reportQueued: "Informe del panel en cola.",
       reportSubscriptionSaveFailed:
         "No se pudo guardar la suscripción: {{message}}",
       reportSubscriptionDeleteFailed:
@@ -7838,6 +7841,7 @@ const translatedDashboardReportTranslations = {
       reportSubscriptionSaved: "Abonnement au rapport enregistré.",
       reportSubscriptionDeleted: "Abonnement au rapport supprimé.",
       reportSent: "Rapport du tableau de bord envoyé.",
+      reportQueued: "Rapport du tableau de bord mis en file d'attente.",
       reportSubscriptionSaveFailed:
         "Impossible d'enregistrer l'abonnement : {{message}}",
       reportSubscriptionDeleteFailed:
@@ -7872,6 +7876,7 @@ const translatedDashboardReportTranslations = {
       reportSubscriptionSaved: "E-Mail-Bericht-Abonnement gespeichert.",
       reportSubscriptionDeleted: "E-Mail-Bericht-Abonnement gelöscht.",
       reportSent: "Dashboard-Bericht gesendet.",
+      reportQueued: "Dashboard-Bericht in die Warteschlange gestellt.",
       reportSubscriptionSaveFailed:
         "Abonnement konnte nicht gespeichert werden: {{message}}",
       reportSubscriptionDeleteFailed:
@@ -7906,6 +7911,7 @@ const translatedDashboardReportTranslations = {
       reportSubscriptionSaved: "メールレポートの購読を保存しました。",
       reportSubscriptionDeleted: "メールレポートの購読を削除しました。",
       reportSent: "ダッシュボードレポートを送信しました。",
+      reportQueued: "ダッシュボードレポートをキューに追加しました。",
       reportSubscriptionSaveFailed: "購読を保存できませんでした: {{message}}",
       reportSubscriptionDeleteFailed: "購読を削除できませんでした: {{message}}",
       reportSendFailed: "レポートを送信できませんでした: {{message}}",
@@ -7938,6 +7944,7 @@ const translatedDashboardReportTranslations = {
       reportSubscriptionSaved: "이메일 보고서 구독이 저장되었습니다.",
       reportSubscriptionDeleted: "이메일 보고서 구독이 삭제되었습니다.",
       reportSent: "대시보드 보고서가 전송되었습니다.",
+      reportQueued: "대시보드 보고서가 대기열에 추가되었습니다.",
       reportSubscriptionSaveFailed: "구독을 저장할 수 없음: {{message}}",
       reportSubscriptionDeleteFailed: "구독을 삭제할 수 없음: {{message}}",
       reportSendFailed: "보고서를 전송할 수 없음: {{message}}",
@@ -7970,6 +7977,7 @@ const translatedDashboardReportTranslations = {
       reportSubscriptionSaved: "Assinatura do relatório por e-mail salva.",
       reportSubscriptionDeleted: "Assinatura do relatório por e-mail excluída.",
       reportSent: "Relatório do painel enviado.",
+      reportQueued: "Relatório do painel enfileirado.",
       reportSubscriptionSaveFailed:
         "Não foi possível salvar a assinatura: {{message}}",
       reportSubscriptionDeleteFailed:
@@ -8003,6 +8011,7 @@ const translatedDashboardReportTranslations = {
       reportSubscriptionSaved: "ईमेल रिपोर्ट सब्सक्रिप्शन सहेजा गया।",
       reportSubscriptionDeleted: "ईमेल रिपोर्ट सब्सक्रिप्शन हटाया गया।",
       reportSent: "डैशबोर्ड रिपोर्ट भेजी गई।",
+      reportQueued: "डैशबोर्ड रिपोर्ट कतार में डाली गई।",
       reportSubscriptionSaveFailed: "सब्सक्रिप्शन सहेजा नहीं जा सका: {{message}}",
       reportSubscriptionDeleteFailed: "सब्सक्रिप्शन हटाया नहीं जा सका: {{message}}",
       reportSendFailed: "रिपोर्ट भेजी नहीं जा सकी: {{message}}",
@@ -8034,6 +8043,7 @@ const translatedDashboardReportTranslations = {
       reportSubscriptionSaved: "تم حفظ اشتراك تقرير البريد الإلكتروني.",
       reportSubscriptionDeleted: "تم حذف اشتراك تقرير البريد الإلكتروني.",
       reportSent: "تم إرسال تقرير لوحة المعلومات.",
+      reportQueued: "تمت إضافة تقرير لوحة المعلومات إلى قائمة الانتظار.",
       reportSubscriptionSaveFailed: "تعذر حفظ الاشتراك: {{message}}",
       reportSubscriptionDeleteFailed: "تعذر حذف الاشتراك: {{message}}",
       reportSendFailed: "تعذر إرسال التقرير: {{message}}",

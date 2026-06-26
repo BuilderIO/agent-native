@@ -231,7 +231,7 @@ export function EmailReportDialog({
     try {
       await sendNow.mutateAsync({ id: selectedId });
       await refetch();
-      toast.success(t("sqlDashboard.reportSent"));
+      toast.success(t("sqlDashboard.reportQueued"));
     } catch (err: any) {
       toast.error(
         t("sqlDashboard.reportSendFailed", {
