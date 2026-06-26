@@ -51,6 +51,14 @@ export interface RequestRunContext {
   engine?: import("../agent/engine/types.js").AgentEngine;
   /** Model name for this run (set by onEngineResolved). */
   model?: string;
+  /**
+   * True when this run is executing inside the durable background-function
+   * worker (the `_process-run` self-dispatch), not the synchronous foreground
+   * request. Template `extraContext` / system-prompt builders can read this to
+   * skip heavy, hang-prone enrichment (large data-dictionary DB reads, etc.)
+   * in the worker so it reliably claims its run within the setup budget.
+   */
+  isBackgroundWorker?: boolean;
   /** Tool calls made so far in the current agent loop. */
   toolCalls?: Array<{ name: string; input: unknown }>;
   /** Tool results returned so far in the current agent loop. */
