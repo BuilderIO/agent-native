@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.12
+
+### Patch Changes
+
+- aec5806: Keep Cloudflare Pages workers under the bundle size limit by serving app HTML from a build-time static shell.
+
 ## 0.79.11
 
 ### Patch Changes
