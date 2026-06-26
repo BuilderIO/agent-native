@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.78.5
+
+### Patch Changes
+
+- 2a5a74b: diag(agent): add a `worker_stage` column that records the durable background worker's last-reached setup stage independently of the foreground inline-recovery `setup_timings` write, plus early `engine_resolved` / `systemprompt_enter` / `systemprompt_done` markers. `/runs/active` now surfaces `workerStage`, so a worker that stalls before claiming its run is diagnosable (which exact step it reached) without the unreadable Netlify background-function logs.
+
 ## 0.78.4
 
 ### Patch Changes
