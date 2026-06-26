@@ -6948,6 +6948,55 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         }),
       );
 
+      // ─── DIAGNOSTIC: bg-worker breadcrumb sink ────────────────────────────
+      // Netlify doesn't surface background-function logs, and the worker's own DB
+      // diag writes stall past model_done — so the bg fn fire-and-forget POSTs its
+      // [bg-presend] breadcrumbs here, to the FOREGROUND (where the DB works), so
+      // the worker's setup progress is readable past model_done. Key-gated via
+      // AGENT_CHAT_BG_LOG_SINK_KEY. Remove once the analytics worker freeze is fixed.
+      getH3App(nitroApp).use(
+        `${routePath}/bg-log-sink`,
+        defineEventHandler(async (event) => {
+          const expected = process.env.AGENT_CHAT_BG_LOG_SINK_KEY || "";
+          const key = String(getQuery(event).key || "");
+          if (!expected || key !== expected) {
+            setResponseStatus(event, 403);
+            return { error: "forbidden" };
+          }
+          const { getDbExec } = await import("../db/client.js");
+          const db = getDbExec();
+          await db.execute(
+            `CREATE TABLE IF NOT EXISTS bg_log_sink (ts TEXT, msg TEXT)`,
+          );
+          const method = getMethod(event);
+          if (method === "POST") {
+            const body = (await readBody(event).catch(() => null)) as
+              | { msg?: string }
+              | string
+              | null;
+            const msg =
+              typeof body === "string"
+                ? body
+                : body && body.msg
+                  ? String(body.msg)
+                  : JSON.stringify(body);
+            await db.execute({
+              sql: `INSERT INTO bg_log_sink (ts, msg) VALUES (?, ?)`,
+              args: [String(Date.now()), String(msg).slice(0, 600)],
+            });
+            return { ok: true };
+          }
+          if (method === "DELETE") {
+            await db.execute(`DELETE FROM bg_log_sink`);
+            return { cleared: true };
+          }
+          const { rows } = await db.execute(
+            `SELECT ts, msg FROM bg_log_sink ORDER BY ts ASC LIMIT 500`,
+          );
+          return { rows };
+        }),
+      );
+
       // ─── Run management endpoints (for hot-reload resilience) ─────────────
 
       // GET /runs/active?threadId=X — check if there's an active run for a thread
