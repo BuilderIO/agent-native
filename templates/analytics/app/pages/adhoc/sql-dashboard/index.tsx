@@ -13,6 +13,7 @@ import {
   useT,
   type CollabUser,
 } from "@agent-native/core/client";
+import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
   useDroppable,
   DndContext,
@@ -246,6 +247,10 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
         filters: data.filters,
         variables: data.variables,
         columns: typeof data.columns === "number" ? data.columns : undefined,
+        embedExtensionId:
+          typeof data.embedExtensionId === "string" && data.embedExtensionId
+            ? data.embedExtensionId
+            : undefined,
         panels: data.panels ?? [],
       },
       archivedAt: typeof data.archivedAt === "string" ? data.archivedAt : null,
@@ -1238,8 +1243,18 @@ export default function SqlDashboardPage() {
         </button>
       ) : null}
 
+      {/* Embedded extension — renders in place of panels when configured */}
+      {dashboard.embedExtensionId ? (
+        <EmbeddedExtension
+          extensionId={dashboard.embedExtensionId}
+          slotId={dashboardId ?? dashboard.name}
+          className="rounded-lg border border-border"
+          initialHeight={640}
+        />
+      ) : null}
+
       {/* Tabs */}
-      {tabs.length > 0 && activeTab && (
+      {!dashboard.embedExtensionId && tabs.length > 0 && activeTab && (
         <div className="space-y-2">
           {groupedTabs.hasNestedTabs && groupedTabs.groups.length > 1 ? (
             <Tabs
@@ -1279,15 +1294,17 @@ export default function SqlDashboardPage() {
       )}
 
       {/* Filters */}
-      {dashboard.filters && dashboard.filters.length > 0 && (
-        <DashboardFilterBar
-          filters={dashboard.filters}
-          onSaveView={canEdit ? handleSaveView : undefined}
-        />
-      )}
+      {!dashboard.embedExtensionId &&
+        dashboard.filters &&
+        dashboard.filters.length > 0 && (
+          <DashboardFilterBar
+            filters={dashboard.filters}
+            onSaveView={canEdit ? handleSaveView : undefined}
+          />
+        )}
 
       {/* Panels grid */}
-      {dashboard.panels.length === 0 ? (
+      {dashboard.embedExtensionId ? null : dashboard.panels.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center h-64 text-muted-foreground text-sm gap-3">
             <p>{t("sqlDashboard.noPanels")}</p>
