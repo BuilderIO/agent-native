@@ -7,6 +7,7 @@ import {
   retryOnDdlRace,
   type DbExec,
 } from "../db/client.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import {
   canUseLocalWorkspaceResourcePath,
@@ -751,37 +752,71 @@ async function ensureTable(): Promise<void> {
 
 async function _doEnsureTable(): Promise<void> {
   const client = getDbExec();
-  await retryOnDdlRace(() =>
-    client.execute(`
-      CREATE TABLE IF NOT EXISTS resources (
-        id TEXT PRIMARY KEY,
-        path TEXT NOT NULL,
-        owner TEXT NOT NULL,
-        content TEXT NOT NULL DEFAULT '',
-        mime_type TEXT NOT NULL DEFAULT 'text/markdown',
-        size ${intType()} NOT NULL DEFAULT 0,
-        created_at ${intType()} NOT NULL,
-        updated_at ${intType()} NOT NULL,
-        created_by TEXT NOT NULL DEFAULT 'user',
-        visibility TEXT NOT NULL DEFAULT 'workspace',
-        thread_id TEXT,
-        run_id TEXT,
-        expires_at ${intType()},
-        metadata TEXT,
-        UNIQUE(path, owner)
-      )
-    `),
-  );
+  const createSql = `
+    CREATE TABLE IF NOT EXISTS resources (
+      id TEXT PRIMARY KEY,
+      path TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      content TEXT NOT NULL DEFAULT '',
+      mime_type TEXT NOT NULL DEFAULT 'text/markdown',
+      size ${intType()} NOT NULL DEFAULT 0,
+      created_at ${intType()} NOT NULL,
+      updated_at ${intType()} NOT NULL,
+      created_by TEXT NOT NULL DEFAULT 'user',
+      visibility TEXT NOT NULL DEFAULT 'workspace',
+      thread_id TEXT,
+      run_id TEXT,
+      expires_at ${intType()},
+      metadata TEXT,
+      UNIQUE(path, owner)
+    )
+  `;
 
-  await ensureResourceColumn(client, "created_by TEXT NOT NULL DEFAULT 'user'");
-  await ensureResourceColumn(
-    client,
-    "visibility TEXT NOT NULL DEFAULT 'workspace'",
-  );
-  await ensureResourceColumn(client, "thread_id TEXT");
-  await ensureResourceColumn(client, "run_id TEXT");
-  await ensureResourceColumn(client, `expires_at ${intType()}`);
-  await ensureResourceColumn(client, "metadata TEXT");
+  if (isPostgres()) {
+    // Hot path: the `resources` table and its additive columns are virtually
+    // always already present in production. Issuing `CREATE TABLE`/`ALTER
+    // TABLE` still takes an ACCESS EXCLUSIVE lock that, in a fresh
+    // background-worker process behind a concurrent connection on the shared
+    // Neon DB, can block ~indefinitely. The ensure* wrappers probe
+    // `information_schema` first (plain reads, no lock) and run DDL ONLY for
+    // what is actually missing, bounded by a transaction-scoped `lock_timeout`.
+    // If a swallowed lock-timeout leaves the schema still missing they RE-PROBE
+    // and THROW rather than letting init memoize success against absent schema.
+    await ensureTableExists("resources", createSql);
+    // Additive columns — guarded so the hot path (columns already present)
+    // skips the ACCESS EXCLUSIVE ALTER entirely.
+    const pgColumns: Array<[string, string]> = [
+      ["created_by", "TEXT NOT NULL DEFAULT 'user'"],
+      ["visibility", "TEXT NOT NULL DEFAULT 'workspace'"],
+      ["thread_id", "TEXT"],
+      ["run_id", "TEXT"],
+      ["expires_at", intType()],
+      ["metadata", "TEXT"],
+    ];
+    for (const [col, def] of pgColumns) {
+      await ensureColumnExists(
+        "resources",
+        col,
+        `ALTER TABLE resources ADD COLUMN IF NOT EXISTS ${col} ${def}`,
+      );
+    }
+  } else {
+    // SQLite (local dev): no lock problem — keep the original behaviour using
+    // `retryOnDdlRace` + `ensureResourceColumn` (duplicate-column catch).
+    await retryOnDdlRace(() => client.execute(createSql));
+    await ensureResourceColumn(
+      client,
+      "created_by TEXT NOT NULL DEFAULT 'user'",
+    );
+    await ensureResourceColumn(
+      client,
+      "visibility TEXT NOT NULL DEFAULT 'workspace'",
+    );
+    await ensureResourceColumn(client, "thread_id TEXT");
+    await ensureResourceColumn(client, "run_id TEXT");
+    await ensureResourceColumn(client, `expires_at ${intType()}`);
+    await ensureResourceColumn(client, "metadata TEXT");
+  }
 
   // Older deployments have 32-bit timestamp columns; on Postgres the
   // `Date.now()` written on insert/update overflows int4. Widen in place

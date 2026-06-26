@@ -21,6 +21,7 @@ import {
   isDurableBackgroundDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   runNitroBuildPipeline,
+  sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
 } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
@@ -774,6 +775,81 @@ describe("findInstalledFfmpegStaticPackage", () => {
     expect(shouldBundleFfmpegStaticForServerless("win32", "x64", "x64")).toBe(
       false,
     );
+  });
+});
+
+describe("sanitizeServerlessFunctionPackageManifest", () => {
+  const dirs: string[] = [];
+
+  afterEach(() => {
+    for (const d of dirs.splice(0)) {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+
+  function setupFunctionDir() {
+    const root = fs.mkdtempSync(
+      path.join(process.cwd(), ".tmp-function-manifest-"),
+    );
+    dirs.push(root);
+    const functionDir = path.join(root, "server");
+    fs.mkdirSync(path.join(functionDir, "node_modules"), { recursive: true });
+    fs.writeFileSync(
+      path.join(functionDir, "package.json"),
+      JSON.stringify(
+        {
+          name: "traced-node-modules",
+          type: "module",
+          dependencies: {
+            "@libsql/linux-x64-gnu": "0.5.29",
+            electron: "41.9.0",
+            "node-pty": "1.1.0",
+            "playwright-core": "1.61.1",
+          },
+          optionalDependencies: {
+            fsevents: "2.3.2",
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    for (const packageName of ["electron", "node-pty", "playwright-core"]) {
+      fs.mkdirSync(path.join(functionDir, "node_modules", packageName), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(functionDir, "node_modules", packageName, "package.json"),
+        "{}",
+      );
+    }
+
+    return functionDir;
+  }
+
+  it("removes desktop-only packages but keeps serverless runtime packages", () => {
+    const functionDir = setupFunctionDir();
+
+    sanitizeServerlessFunctionPackageManifest(functionDir);
+
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(functionDir, "package.json"), "utf8"),
+    );
+    expect(packageJson.dependencies).toEqual({
+      "@libsql/linux-x64-gnu": "0.5.29",
+      "playwright-core": "1.61.1",
+    });
+    expect(packageJson.optionalDependencies).toBeUndefined();
+    expect(
+      fs.existsSync(path.join(functionDir, "node_modules", "electron")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(functionDir, "node_modules", "node-pty")),
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.join(functionDir, "node_modules", "playwright-core")),
+    ).toBe(true);
   });
 });
 

@@ -102,6 +102,11 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("../server/lib/recordings.js", () => ({
   getCurrentOwnerEmail: vi.fn(() => "owner@example.com"),
+  ownerEmailMatches: (column: unknown, email: string) => ({
+    column,
+    email,
+    kind: "ownerEmailMatches",
+  }),
 }));
 
 vi.mock("./regenerate-title.js", () => ({

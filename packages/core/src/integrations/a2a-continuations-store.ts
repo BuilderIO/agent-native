@@ -4,6 +4,11 @@ import {
   intType,
   retryOnDdlRace,
 } from "../db/client.js";
+import {
+  ensureTableExists,
+  ensureColumnExists,
+  ensureIndexExists,
+} from "../db/ddl-guard.js";
 import { isDuplicateColumnError } from "../db/migrations.js";
 import type { IncomingMessage } from "./types.js";
 
@@ -11,36 +16,74 @@ let _initPromise: Promise<void> | undefined;
 const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const PROCESSING_NEXT_CHECK_STALE_AFTER_MS = 60 * 1000;
 
+// Build the CREATE SQL lazily (not at module scope) so intType() runs at
+// RUNTIME, not import time — a module-scope call breaks any consumer whose
+// db/client mock doesn't stub intType (e.g. db-admin specs).
+function buildCreateSql(): string {
+  return `
+  CREATE TABLE IF NOT EXISTS integration_a2a_continuations (
+    id TEXT PRIMARY KEY,
+    integration_task_id TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    external_thread_id TEXT NOT NULL,
+    incoming_payload TEXT NOT NULL,
+    placeholder_ref TEXT,
+    owner_email TEXT NOT NULL,
+    org_id TEXT,
+    agent_name TEXT NOT NULL,
+    agent_url TEXT NOT NULL,
+    dedupe_key TEXT,
+    a2a_task_id TEXT NOT NULL,
+    a2a_auth_token TEXT,
+    status TEXT NOT NULL,
+    attempts ${intType()} NOT NULL DEFAULT 0,
+    next_check_at ${intType()} NOT NULL,
+    error_message TEXT,
+    created_at ${intType()} NOT NULL,
+    updated_at ${intType()} NOT NULL,
+    completed_at ${intType()}
+  )
+`;
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
-        CREATE TABLE IF NOT EXISTS integration_a2a_continuations (
-          id TEXT PRIMARY KEY,
-          integration_task_id TEXT NOT NULL,
-          platform TEXT NOT NULL,
-          external_thread_id TEXT NOT NULL,
-          incoming_payload TEXT NOT NULL,
-          placeholder_ref TEXT,
-          owner_email TEXT NOT NULL,
-          org_id TEXT,
-          agent_name TEXT NOT NULL,
-          agent_url TEXT NOT NULL,
-          dedupe_key TEXT,
-          a2a_task_id TEXT NOT NULL,
-          a2a_auth_token TEXT,
-          status TEXT NOT NULL,
-          attempts ${intType()} NOT NULL DEFAULT 0,
-          next_check_at ${intType()} NOT NULL,
-          error_message TEXT,
-          created_at ${intType()} NOT NULL,
-          updated_at ${intType()} NOT NULL,
-          completed_at ${intType()}
-        )
-      `),
-      );
+      const createSql = buildCreateSql();
+      if (isPostgres()) {
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("integration_a2a_continuations", createSql);
+        await ensureIndexExists(
+          "idx_a2a_continuations_status_next",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_integration_task",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_integration_task ON integration_a2a_continuations(integration_task_id)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_remote_task",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_remote_task ON integration_a2a_continuations(integration_task_id, agent_url, a2a_task_id)`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "a2a_auth_token",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS a2a_auth_token TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "dedupe_key",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_dedupe_key",
+          `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        );
+        return;
+      }
+      // SQLite (local dev): keep existing behavior
+      await retryOnDdlRace(() => client.execute(createSql));
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_status_next ON integration_a2a_continuations(status, next_check_at)`,

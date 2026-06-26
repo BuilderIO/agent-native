@@ -180,6 +180,26 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("accepts the first-party public key and endpoint at configure time", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+    });
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(1);
+    const [url, init] = analyticsCalls[0];
+    expect(url).toBe("https://analytics.example.test/api/analytics/track");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      publicKey: "anpk_configured",
+      event: "pageview",
+    });
+  });
+
   it("tracks client-side URL changes once per URL", async () => {
     const { history } = installBrowser();
     const { analyticsCalls } = installFetch();
@@ -260,6 +280,22 @@ describe("browser analytics pageviews", () => {
       }),
     );
     expect(sentryMock.setTag).toHaveBeenCalledWith("runtime", "browser");
+  });
+
+  it("initializes browser Sentry from Vite key/project/host env vars", async () => {
+    installBrowser();
+    vi.stubEnv("VITE_SENTRY_CLIENT_KEY", "public_key");
+    vi.stubEnv("VITE_SENTRY_PROJECT_ID", "4511270423822336");
+    vi.stubEnv("VITE_SENTRY_INGEST_HOST", "o1.ingest.us.sentry.io");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+
+    expect(sentryMock.init).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dsn: "https://public_key@o1.ingest.us.sentry.io/4511270423822336",
+      }),
+    );
   });
 
   it("drops blocked Amplitude fetch noise from browser Sentry", async () => {
@@ -385,6 +421,33 @@ describe("browser analytics pageviews", () => {
       },
       request: {
         url: "https://www.agent-native.com/docs",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("drops reasonless signal abort browser requests from Sentry", async () => {
+    installBrowser("https://www.agent-native.com/templates");
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "AbortError",
+            value: "signal is aborted without reason",
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/templates",
       },
     });
 

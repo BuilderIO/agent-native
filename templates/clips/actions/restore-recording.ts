@@ -11,7 +11,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 
 export default defineAction({
   description: "Restore a recording from archive or trash back to the library.",
@@ -28,7 +31,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.recordings.id, args.id),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
     if (!existing) throw new Error(`Recording not found: ${args.id}`);

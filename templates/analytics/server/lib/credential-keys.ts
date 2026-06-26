@@ -8,6 +8,7 @@ export interface CredentialProviderConfig {
   provider: string;
   label: string;
   requiredKeys: string[];
+  requiredMode?: "all" | "any";
   optionalKeys?: string[];
 }
 
@@ -217,7 +218,8 @@ export const credentialProviderConfigs: CredentialProviderConfig[] = [
   {
     provider: "hubspot",
     label: "HubSpot",
-    requiredKeys: ["HUBSPOT_ACCESS_TOKEN"],
+    requiredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
+    requiredMode: "any",
   },
   {
     provider: "gong",

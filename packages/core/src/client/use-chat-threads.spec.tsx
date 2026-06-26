@@ -119,6 +119,69 @@ describe("useChatThreads", () => {
     ]);
   });
 
+  it("loads older chat history pages into All Chats", async () => {
+    const firstPage: ChatThreadSummary[] = Array.from(
+      { length: 50 },
+      (_, index) => ({
+        id: `thread-${index}`,
+        title: `Thread ${index}`,
+        preview: `Preview ${index}`,
+        messageCount: 1,
+        createdAt: 1_000 - index,
+        updatedAt: 1_000 - index,
+        scope: null,
+      }),
+    );
+    const olderThread: ChatThreadSummary = {
+      id: "thread-50",
+      title: "Older thread",
+      preview: "older preview",
+      messageCount: 1,
+      createdAt: 900,
+      updatedAt: 900,
+      scope: null,
+    };
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/chat/threads" && !init) {
+        return jsonResponse({ threads: firstPage });
+      }
+      if (url === "/chat/threads?offset=50" && !init) {
+        return jsonResponse({ threads: [olderThread] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let hook: ReturnType<typeof useChatThreads> | null = null;
+    function Harness() {
+      hook = useChatThreads("/chat", "paged-history", null, {
+        autoCreate: false,
+      });
+      return null;
+    }
+
+    await act(async () => {
+      root.render(<Harness />);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(hook!.threads).toHaveLength(50);
+    expect(hook!.hasMoreThreads).toBe(true);
+
+    await act(async () => {
+      await hook!.loadMoreThreads();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith("/chat/threads?offset=50");
+    expect(hook!.threads.map((thread) => thread.id)).toContain("thread-50");
+    expect(hook!.threads).toHaveLength(51);
+    expect(hook!.hasMoreThreads).toBe(false);
+  });
+
   it("does not reclassify a saved thread as new when the initial thread list fails", async () => {
     window.localStorage.setItem(
       "agent-chat-active-thread:thread-list-failure",

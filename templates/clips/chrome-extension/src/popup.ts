@@ -1,3 +1,7 @@
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("popup");
+
 type CaptureSurface = "browser" | "window" | "monitor" | "camera";
 type RecordingModeChoice = "screen-camera" | "screen" | "camera";
 
@@ -1032,6 +1036,9 @@ async function init(): Promise<void> {
         1400,
       );
     } catch (err) {
+      captureExtensionError(err, {
+        tags: { surface: "popup", action: "submit-feedback" },
+      });
       feedbackSubmit.disabled = !feedbackTextarea.value.trim();
       feedbackSubmit.textContent = FEEDBACK_SUBMIT_TEXT;
       feedbackHint.textContent =
@@ -1065,51 +1072,67 @@ async function init(): Promise<void> {
     start.disabled = true;
     signIn.hidden = true;
     setStatus(""); // no chatty "Checking…/Starting…" text — the disabled button is enough
-    authStatus = await readAuthStatus(settings);
-    if (authStatus === "signed-out") {
+    try {
+      authStatus = await readAuthStatus(settings);
+      if (authStatus === "signed-out") {
+        start.disabled = false;
+        start.hidden = true;
+        signIn.hidden = false;
+        setStatus("");
+        return;
+      }
+      const storageConfigured = await readVideoStorageConfigured(settings);
+      if (!storageConfigured) {
+        start.disabled = false;
+        setStatus(
+          "Connect Builder.io or S3 storage in Clips, then start recording.",
+          "error",
+        );
+        await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`);
+        window.close();
+        return;
+      }
+      // Gate at record time: if the user wants camera/mic but hasn't granted the
+      // extension access yet, send them to the onboarding page first. Requesting
+      // there (a real extension page) is the only place Chrome reliably shows the
+      // permission dialog and persists the grant for the offscreen recorder + bubble.
+      if (!(await ensureMediaPermission(settings))) {
+        start.disabled = false;
+        setStatus("Allow camera & microphone, then start recording.", "error");
+        await createTab(chrome.runtime.getURL("src/permission.html"));
+        window.close();
+        return;
+      }
+      await saveSettings(settings);
+      const response = await sendStartMessage(settings);
+      if (response.ok) {
+        window.close();
+        return;
+      }
       start.disabled = false;
-      start.hidden = true;
-      signIn.hidden = false;
-      setStatus("");
-      return;
-    }
-    const storageConfigured = await readVideoStorageConfigured(settings);
-    if (!storageConfigured) {
+      const message = response.error || "Could not start Clips.";
+      if (isSignInError(message)) {
+        start.hidden = true;
+        signIn.hidden = false;
+        setStatus("");
+        return;
+      }
+      setStatus(message, "error");
+    } catch (err) {
+      captureExtensionError(err, {
+        tags: { surface: "popup", action: "start-recording" },
+        extra: {
+          captureSurface: settings.captureSurface,
+          includeCamera: settings.includeCamera,
+          includeMicrophone: settings.includeMicrophone,
+        },
+      });
       start.disabled = false;
       setStatus(
-        "Connect Builder.io or S3 storage in Clips, then start recording.",
+        err instanceof Error ? err.message : "Could not start Clips.",
         "error",
       );
-      await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`);
-      window.close();
-      return;
     }
-    // Gate at record time: if the user wants camera/mic but hasn't granted the
-    // extension access yet, send them to the onboarding page first. Requesting
-    // there (a real extension page) is the only place Chrome reliably shows the
-    // permission dialog and persists the grant for the offscreen recorder + bubble.
-    if (!(await ensureMediaPermission(settings))) {
-      start.disabled = false;
-      setStatus("Allow camera & microphone, then start recording.", "error");
-      await createTab(chrome.runtime.getURL("src/permission.html"));
-      window.close();
-      return;
-    }
-    await saveSettings(settings);
-    const response = await sendStartMessage(settings);
-    if (response.ok) {
-      window.close();
-      return;
-    }
-    start.disabled = false;
-    const message = response.error || "Could not start Clips.";
-    if (isSignInError(message)) {
-      start.hidden = true;
-      signIn.hidden = false;
-      setStatus("");
-      return;
-    }
-    setStatus(message, "error");
   });
 
   signIn.addEventListener("click", async () => {
@@ -1173,6 +1196,9 @@ async function init(): Promise<void> {
 }
 
 void init().catch((err) => {
+  captureExtensionError(err, {
+    tags: { surface: "popup", action: "init" },
+  });
   setStatus(
     err instanceof Error ? err.message : "Could not load popup.",
     "error",

@@ -15,12 +15,12 @@ function resolveScope() {
 
 export default defineAction({
   description:
-    "Query first-party analytics events recorded through this app's analytics collector endpoint (/track). Use this for questions about app/site traffic, product events, template/app usage, conversions, and other first-party event data in the analytics_events table when the user is asking about data collected by this analytics app. Use source-specific actions such as BigQuery, GA4, Mixpanel, PostHog, or Amplitude when the user asks for those sources or the relevant data lives there. SQL may read analytics_events only; reads are automatically scoped to the current user/org.",
+    "Query first-party analytics events recorded through this app's analytics collector endpoint (/track) and session replay summaries recorded through /api/analytics/replay. Use this for questions about app/site traffic, product events, template/app usage, conversions, session recordings, and other first-party data collected by this analytics app. Use source-specific actions such as BigQuery, GA4, Mixpanel, PostHog, or Amplitude when the user asks for those sources or the relevant data lives there. SQL may read analytics_events and session_recordings only; session_replay_chunks is intentionally unavailable, and reads are automatically scoped to the current user/org.",
   schema: z.object({
     sql: z
       .string()
       .describe(
-        "Read-only SQL over analytics_events, e.g. SELECT event_name, COUNT(*) AS events FROM analytics_events WHERE timestamp >= '2026-05-01T04:00:00Z' AND timestamp < '2026-05-02T04:00:00Z' GROUP BY event_name ORDER BY events DESC",
+        "Read-only SQL over analytics_events and session_recordings, e.g. SELECT event_name, COUNT(*) AS events FROM analytics_events WHERE timestamp >= '2026-05-01T04:00:00Z' AND timestamp < '2026-05-02T04:00:00Z' GROUP BY event_name ORDER BY events DESC",
       ),
   }),
   http: false,

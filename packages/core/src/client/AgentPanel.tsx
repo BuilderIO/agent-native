@@ -164,6 +164,12 @@ const CLI_DEFAULT = "claude";
 const EXEC_MODE_KEY = "agent-native-exec-mode";
 type ExecMode = "build" | "plan";
 type PanelMode = "chat" | "cli" | "resources" | "settings";
+export function normalizeAgentPanelModeForSurface(
+  mode: PanelMode,
+  allowSettingsMode: boolean,
+): PanelMode {
+  return mode === "settings" && !allowSettingsMode ? "chat" : mode;
+}
 const AGENT_PANEL_FONT_FAMILY =
   'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
 const AGENT_PANEL_ROOT_STYLE = {
@@ -173,6 +179,7 @@ const AGENT_PANEL_ROOT_STYLE = {
 } satisfies React.CSSProperties;
 type AgentPanelStyle = React.CSSProperties & {
   "--agent-sidebar-closed-transform"?: string;
+  "--agent-sidebar-inner-closed-transform"?: string;
   "--agent-sidebar-width"?: string;
 };
 const AGENT_PANEL_HEADER_CLASS =
@@ -381,11 +388,11 @@ export function shouldShowAgentPanelPageNewChatButton(
   activeTabId: string,
   activeTabMessageCount: number,
 ) {
+  if (!activeTabId) return false;
+  if (activeTabMessageCount > 0) return true;
+
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  return (
-    Boolean(activeTabId) &&
-    (activeTabMessageCount > 0 || activeTab?.status === "running")
-  );
+  return activeTab?.status === "running" || activeTab?.status === "completed";
 }
 
 export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
@@ -548,6 +555,8 @@ export interface AgentPanelProps extends Omit<
   showTabBar?: boolean;
   /** Show a compact New chat action in page chat when the main header is hidden. */
   showPageNewChatButton?: boolean;
+  /** Allow the sidebar settings view to render inside this panel. Default: true. */
+  allowSettingsMode?: boolean;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
@@ -666,6 +675,7 @@ function AgentPanelInner({
   chatNotice,
   showTabBar = true,
   showPageNewChatButton = false,
+  allowSettingsMode = true,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
@@ -682,6 +692,7 @@ function AgentPanelInner({
   );
   const closeTabHint = isMac ? "\u2303W" : "Alt+W";
   const closeAllTabsHint = isMac ? "\u2303\u2325W" : "Ctrl+Alt+W";
+  const toggleSidebarHint = isMac ? "\u2318\\" : "Ctrl+\\";
 
   const [execMode, setExecMode] = useState<ExecMode>(() => {
     try {
@@ -715,9 +726,9 @@ function AgentPanelInner({
         saved === "resources" ||
         saved === "settings"
       )
-        return saved;
+        return normalizeAgentPanelModeForSurface(saved, allowSettingsMode);
     } catch {}
-    return defaultMode;
+    return normalizeAgentPanelModeForSurface(defaultMode, allowSettingsMode);
   });
   useEffect(() => {
     try {
@@ -728,9 +739,18 @@ function AgentPanelInner({
     section: string | null;
     requestKey: number;
   }>({ section: null, requestKey: 0 });
-  const switchMode = useCallback((m: PanelMode) => {
-    startTransition(() => setMode(m));
-  }, []);
+  const switchMode = useCallback(
+    (m: PanelMode) => {
+      startTransition(() =>
+        setMode(normalizeAgentPanelModeForSurface(m, allowSettingsMode)),
+      );
+    },
+    [allowSettingsMode],
+  );
+  useEffect(() => {
+    const nextMode = normalizeAgentPanelModeForSurface(mode, allowSettingsMode);
+    if (nextMode !== mode) switchMode(nextMode);
+  }, [mode, allowSettingsMode, switchMode]);
   const openRunThread = useCallback(
     (threadId: string, run?: AgentRun) => {
       switchMode("chat");
@@ -794,6 +814,10 @@ function AgentPanelInner({
         section: section ?? null,
         requestKey: prev.requestKey + 1,
       }));
+      if (!allowSettingsMode) {
+        switchMode("chat");
+        return;
+      }
       switchMode("settings");
     }
     window.addEventListener(
@@ -805,7 +829,7 @@ function AgentPanelInner({
         AGENT_PANEL_OPEN_SETTINGS_EVENT,
         handleOpenSettings,
       );
-  }, [switchMode]);
+  }, [allowSettingsMode, switchMode]);
 
   // CLI terminal tabs (ephemeral — not persisted to SQL)
   const [cliTabs, setCliTabs] = useState<string[]>(["cli-1"]);
@@ -1107,6 +1131,9 @@ function AgentPanelInner({
                     className="shrink-0"
                   />
                   {t("agentPanel.collapseSidebar")}
+                  <DropdownMenuShortcut>
+                    {toggleSidebarHint}
+                  </DropdownMenuShortcut>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
               </>
@@ -1151,15 +1178,17 @@ function AgentPanelInner({
                 <DropdownMenuSeparator />
               </>
             )}
-            <DropdownMenuItem
-              onSelect={() => switchMode("settings")}
-              className={cn(
-                mode === "settings" ? "font-medium" : "text-muted-foreground",
-              )}
-            >
-              <IconSettings size={14} className="shrink-0" />
-              {t("agentPanel.settings")}
-            </DropdownMenuItem>
+            {allowSettingsMode && (
+              <DropdownMenuItem
+                onSelect={() => switchMode("settings")}
+                className={cn(
+                  mode === "settings" ? "font-medium" : "text-muted-foreground",
+                )}
+              >
+                <IconSettings size={14} className="shrink-0" />
+                {t("agentPanel.settings")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onSelect={() => setFeedbackOpen(true)}>
               <IconMessageDots size={14} className="shrink-0" />
               {t("agentPanel.feedback")}
@@ -1241,6 +1270,7 @@ function AgentPanelInner({
     [
       activeCliTab,
       addCliTab,
+      allowSettingsMode,
       availableClis,
       canUseCodeTools,
       closeAllCliTabs,
@@ -1287,7 +1317,7 @@ function AgentPanelInner({
             data-agent-page-new-chat=""
             aria-label={t("agentPanel.newChat")}
             onClick={() => {
-              addTab();
+              void addTab();
             }}
             className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
@@ -2241,9 +2271,16 @@ export interface AgentChatSurfaceProps extends AgentPanelProps {
 
 export function shouldDefaultAgentChatSurfacePageNewChatButton(
   mode: AgentChatSurfaceMode | undefined,
-  showTabBar: boolean | undefined,
+  _showTabBar: boolean | undefined,
 ): boolean {
-  return mode === "page" && showTabBar !== false;
+  return mode === "page";
+}
+
+export function shouldAllowAgentChatSurfaceSettingsMode(
+  mode: AgentChatSurfaceMode | undefined,
+  allowSettingsMode: boolean | undefined,
+): boolean {
+  return allowSettingsMode ?? mode !== "page";
 }
 
 /**
@@ -2272,6 +2309,10 @@ export function AgentChatSurface({
       {...props}
       defaultMode={defaultMode}
       isFullscreen={isFullscreen ?? pageMode}
+      allowSettingsMode={shouldAllowAgentChatSurfaceSettingsMode(
+        mode,
+        props.allowSettingsMode,
+      )}
       showPageNewChatButton={
         showPageNewChatButton ?? defaultShowPageNewChatButton
       }
@@ -2819,6 +2860,7 @@ export function AgentSidebar({
     panelStyle = {
       ...AGENT_PANEL_ROOT_STYLE,
       "--agent-sidebar-width": `${width}px`,
+      "--agent-sidebar-inner-closed-transform": `translateX(${isLeft ? "-" : ""}100%)`,
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "100vh",
       borderLeft:
@@ -2864,23 +2906,25 @@ export function AgentSidebar({
         inert={sidebarAnimationEnabled && !panelOpen ? true : undefined}
         aria-hidden={sidebarAnimationEnabled && !panelOpen ? true : undefined}
       >
-        <AgentPanel
-          emptyStateText={emptyStateText}
-          suggestions={suggestions}
-          dynamicSuggestions={dynamicSuggestions}
-          composerToolbarSlot={composerToolbarSlot}
-          threadFooterSlot={threadFooterSlot}
-          missingApiKeySetupLayout="sidebar"
-          onCollapse={() => setOpenPersisted(false)}
-          isFullscreen={effectiveFullscreen}
-          onToggleFullscreen={
-            isMobile ? undefined : (onFullscreenRequest ?? toggleFullscreen)
-          }
-          storageKey={storageKey}
-          scope={scope}
-          browserTabId={browserTabId}
-          threadUrlSync={threadUrlSync}
-        />
+        <div className="agent-sidebar-panel-inner flex min-h-0 flex-1 flex-col">
+          <AgentPanel
+            emptyStateText={emptyStateText}
+            suggestions={suggestions}
+            dynamicSuggestions={dynamicSuggestions}
+            composerToolbarSlot={composerToolbarSlot}
+            threadFooterSlot={threadFooterSlot}
+            missingApiKeySetupLayout="sidebar"
+            onCollapse={() => setOpenPersisted(false)}
+            isFullscreen={effectiveFullscreen}
+            onToggleFullscreen={
+              isMobile ? undefined : (onFullscreenRequest ?? toggleFullscreen)
+            }
+            storageKey={storageKey}
+            scope={scope}
+            browserTabId={browserTabId}
+            threadUrlSync={threadUrlSync}
+          />
+        </div>
       </div>
       {showResizeHandle && isLeft && (
         <ResizeHandle position={position} onDrag={handleDrag} />

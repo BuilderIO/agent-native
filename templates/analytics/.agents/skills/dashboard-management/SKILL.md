@@ -25,6 +25,12 @@ Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*
 
 Use `update-dashboard` for dashboard edits. It resolves the current user/org context, validates the config, applies JSON-pointer operations when provided, writes the SQL-backed record, and preserves sharing semantics.
 
+Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
+dashboard config. Those bypass the dashboard action's access checks, SQL
+validation, collab sync, and proof-of-done return. If an `update-dashboard`
+call fails because the argument shape was wrong, fix the `update-dashboard`
+arguments and retry once — do not switch tools.
+
 ## Valid Panel Sources
 
 `panel.source` is a backend selector, not a table name. It must be one of:
@@ -174,6 +180,73 @@ pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
 
 After a mutation, navigate to the dashboard if the user is elsewhere. The app syncs through the framework's polling/query invalidation path.
 
+### Existing Dashboard Edits
+
+When the user asks to change existing panels:
+
+1. Read the current dashboard config through the dashboard/action surface.
+2. Find panel indexes by `panel.id` from the current config you just read. Do
+   not rely on seed-file order, stale memory, or screenshots.
+3. Build one `ops` array that includes every change.
+4. Call `update-dashboard` once.
+5. Verify the returned `panelCount`, `appliedOps`, and `summary`. If possible,
+   read the affected panels back and confirm the exact fields changed.
+
+For native production tools, pass `ops` as a native array:
+
+```json
+{
+  "dashboardId": "weekly-metrics",
+  "ops": [
+    {
+      "op": "replace",
+      "path": "/panels/3/sql",
+      "value": "SELECT COUNT(*) AS value FROM analytics_events"
+    },
+    {
+      "op": "replace",
+      "path": "/panels/3/config/description",
+      "value": "Updated definition."
+    }
+  ]
+}
+```
+
+The quoted JSON examples in this skill are for shell commands only. In native
+tool calls, do not pass `ops` as a string. If the tool complains about the
+shape, retry `update-dashboard` with a native array and continue from the same
+dashboard config.
+
+For SQL-only panel edits, replacing `/panels/<index>/sql` is enough. If the
+metric semantics changed, also replace `/panels/<index>/config/description` so
+the visible dashboard explains the new definition. If the title, source, chart
+type, width, or config shape changes together, replace the whole panel object at
+`/panels/<index>` in the same `ops` array.
+
+### First-Party User Metrics
+
+For first-party `/track` events, be precise about identity:
+
+| Metric intent                                | Identity expression                                      |
+| -------------------------------------------- | -------------------------------------------------------- |
+| Account users, DAU, WAU, retention, cohorts  | `NULLIF(user_id, '')` plus `NULLIF(user_id, '') IS NOT NULL`, but only on events that actually represent the activity being measured |
+| Signed-in visitor activity                   | `event_name = 'session status' AND signed_in = 'true'` keyed by `COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))`, labeled as signed-in visitors rather than account users |
+| Public traffic, visitors, clip/share viewers | `COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))` |
+
+Do not call anonymous visitors "users" in dashboard labels or descriptions.
+When a user asks for DAU, WAU, retention, repeat users, or account cohorts,
+exclude logged-out traffic unless they explicitly ask for visitor metrics. If
+the active/session events do not include account identity, do not substitute
+signup or identify events and call that DAU/WAU. Either update instrumentation to
+send account identity on active events, or label the dashboard metric as
+signed-in visitor activity.
+
+For template/app activity metrics, exclude `docs` from DAU, WAU, retention, and
+repeat-user panels. A docs event may carry `signed_in = true` from shared auth
+state or tracker context, but docs traffic is not app usage and should not appear
+as an app/template series. Use a minimum cohort-size threshold for retention
+rates so one or two identities cannot create misleading 100% or 0% spikes.
+
 ## Building Large First-Party Dashboards (compose-dashboard)
 
 For a **first-party analytics** dashboard, prefer `compose-dashboard` over hand-authoring a big `update-dashboard` config. You name the metrics; the SERVER expands each into a full, validated panel (SQL + chart config) from the shipped metric catalog and saves them in ONE atomic call. This avoids the failure mode where the agent must stream a giant multi-panel `update-dashboard` argument inside the ~40s budget — that big tool-call can't be resumed mid-stream and is all-or-nothing on validation, so the agent thrashes (repeated update-dashboard + tool-search, never landing).
@@ -184,7 +257,7 @@ For a **first-party analytics** dashboard, prefer `compose-dashboard` over hand-
 - Each metric accepts an optional per-metric `window` of `'30d' | '90d' | 'all'` (only affects windowed virality/time metrics) and `title` / `chartType` / `width` overrides.
 - Returns `{ dashboardId, panelCount, createdMetrics, unknownMetrics, invalidMetrics, skippedExistingIds }` — report `panelCount` as proof-of-done.
 
-Available metric keys: `total-signups`, `signups-over-time`, `signups-by-template`, `sessions-by-app`, `sessions-over-time`, `signed-in-vs-anon`, `total-template-clicks`, `total-demo-clicks`, `total-cli-copies`, `template-interest-over-time`, `clicks-by-template`, `demo-clicks-by-template`, `cli-copies-by-template`, `cli-copies-over-time`, `pageviews-over-time`, `top-referrer-domains`, `referred-signups-30d`, `viral-signup-share-30d`, `clip-share-signups-30d`, `signups-by-referral-source`, `referred-signups-over-time`, `top-referrers`, `share-funnel-30d`, `viral-participation-rate-90d`, `viral-coefficient-90d`, `activated-referrers-90d`.
+Available metric keys: `total-signups`, `signups-over-time`, `signups-by-template`, `sessions-by-app`, `sessions-over-time`, `replay-sessions`, `replay-chunks-over-time`, `recent-replay-sessions`, `signed-in-vs-anon`, `total-template-clicks`, `total-demo-clicks`, `total-cli-copies`, `template-interest-over-time`, `clicks-by-template`, `demo-clicks-by-template`, `cli-copies-by-template`, `cli-copies-over-time`, `pageviews-over-time`, `top-referrer-domains`, `referred-signups-30d`, `viral-signup-share-30d`, `clip-share-signups-30d`, `signups-by-referral-source`, `referred-signups-over-time`, `top-referrers`, `share-funnel-30d`, `viral-participation-rate-90d`, `viral-coefficient-90d`, `activated-referrers-90d`.
 
 ```bash
 # Build a large first-party dashboard in ONE call (server generates the panels)
@@ -202,6 +275,7 @@ Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` cal
 - **Batch ALL changes into ONE `update-dashboard` call.** A single `update-dashboard` is atomic: it applies every op to an in-memory config, validates all panel SQL, then upserts once. Never loop the action.
   - To add N panels, pass N ops in one call: `ops: [{op:"insert", path:"/panels/-", value:<panel>}, … ]` (`/panels/-` appends to the end).
   - The `ops` format needs no discovery: each op is `{ op, path, from?, value? }`, `op ∈ set | replace | remove | insert | move | move-before`, and `path` is a JSON Pointer (e.g. `/panels/3`, `/panels/3/title`, `/name`).
+  - In native tool calls, `ops` is an array, not a JSON string. Shell commands quote JSON only because shells need strings.
 - **To add a shipped template's panels, prefer `install-dashboard-template` with `mergePanels: true`** and the existing `dashboardId`. It appends only the template panels whose id is not already present (preserving existing panels and order) in one atomic save — you don't author each panel yourself.
 - **Always verify the returned proof-of-done and report it.** `update-dashboard` returns `panelCount`, `appliedOps`, and a `summary` string; `install-dashboard-template --mergePanels` returns `addedPanelIds`, `skippedExistingIds`, and `panelCount`. Tell the user the resulting panel count instead of assuming success.
 
@@ -243,6 +317,8 @@ Writes require editor access; deletes require admin access. Owners always satisf
 
 - Never fabricate data or create a dashboard from guessed schema. A panel's SQL must hit a real source; do not present figures you did not actually query.
 - Never write dashboard configs into the settings table.
+- Never use `db-patch` as a fallback for dashboard config edits. Use
+  `update-dashboard` and fix the action arguments.
 - Never set `panel.source` to a table name or unsupported backend.
 - Use `first-party` for `/track` data and `query-agent-native-analytics` for ad-hoc first-party event questions.
 - Use `update-dashboard` for creates and edits.

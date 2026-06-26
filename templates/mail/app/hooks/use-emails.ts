@@ -1,4 +1,5 @@
 import { appApiPath, callAction, useT } from "@agent-native/core/client";
+import { archiveFailureToastMessage } from "@shared/archive-errors";
 import { markdownPreviewSnippet } from "@shared/markdown";
 import type {
   ComposeAttachment,
@@ -809,10 +810,12 @@ export function useArchiveEmail() {
       );
       return { previous, threadId };
     },
-    onError: (_err, _vars, context) => {
+    onError: (err, _vars, context) => {
       if (context?.threadId) unsuppressThread(context.threadId);
       context?.previous.forEach(([key, data]) => qc.setQueryData(key, data));
-      toast.error(t("mail.toasts.archiveFailed"));
+      toast.error(
+        archiveFailureToastMessage(err, t("mail.toasts.archiveFailed")),
+      );
     },
     onSettled: () => delayedInvalidate(qc, [["emails"], ["labels"]]),
   });

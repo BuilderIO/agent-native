@@ -24,7 +24,10 @@ import {
 
 import { parseEdits } from "../../../../../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../../../../db/index.js";
-import { getEventOwnerContext } from "../../../../lib/recordings.js";
+import {
+  getEventOwnerContext,
+  ownerEmailMatches,
+} from "../../../../lib/recordings.js";
 
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 
@@ -85,7 +88,7 @@ export default defineEventHandler(async (event: H3Event) => {
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
 

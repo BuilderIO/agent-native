@@ -1,15 +1,17 @@
 import { useT } from "@agent-native/core/client";
-import { useSortable } from "@dnd-kit/sortable";
+import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
   IconGripVertical,
   IconDotsVertical,
   IconMaximize,
   IconPencil,
+  IconRefresh,
   IconTrash,
   IconCode,
   IconDownload,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
@@ -43,6 +45,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { serializePanelSql } from "./panel-sql";
 import type { SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
@@ -55,6 +58,7 @@ interface SqlChartCardProps {
    *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
+  eagerLoad?: boolean;
 }
 
 export function SqlChartCard({
@@ -64,22 +68,18 @@ export function SqlChartCard({
   onEdit,
   onSaveSql,
   editable = true,
+  eagerLoad = false,
 }: SqlChartCardProps) {
   const t = useT();
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: panel.id, disabled: !editable });
+  const queryClient = useQueryClient();
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({ id: panel.id, disabled: !editable });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
-    panel.chartType === "section",
+    eagerLoad || panel.chartType === "section",
   );
   const cardRef = useRef<HTMLDivElement | null>(null);
 
@@ -95,7 +95,23 @@ export function SqlChartCard({
     setExportCsv(handler ? () => handler : null);
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    setShouldLoadData(true);
+    void queryClient.invalidateQueries({
+      queryKey: [
+        "sql-chart",
+        panel.id,
+        serializePanelSql(resolvedSql ?? panel.sql),
+        panel.source,
+      ],
+    });
+  }, [panel.id, panel.source, panel.sql, queryClient, resolvedSql]);
+
   useEffect(() => {
+    if (eagerLoad) {
+      setShouldLoadData(true);
+      return;
+    }
     if (panel.chartType === "section") {
       setShouldLoadData(true);
       return;
@@ -116,13 +132,13 @@ export function SqlChartCard({
         }
       },
       {
-        rootMargin: "800px 0px",
+        rootMargin: "320px 0px",
         threshold: 0.01,
       },
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [panel.chartType, panel.id]);
+  }, [eagerLoad, panel.chartType, panel.id]);
 
   useEffect(() => {
     setExportCsv(null);
@@ -130,7 +146,6 @@ export function SqlChartCard({
 
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition,
     zIndex: isDragging ? 50 : undefined,
     opacity: isDragging ? 0.7 : 1,
   };
@@ -310,6 +325,11 @@ export function SqlChartCard({
                       {t("sidebar.edit")}
                     </DropdownMenuItem>
                   )}
+                  {!editable ? <DropdownMenuSeparator /> : null}
+                  <DropdownMenuItem onSelect={handleRefresh}>
+                    <IconRefresh className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.refresh")}
+                  </DropdownMenuItem>
                   {editable ? (
                     <DropdownMenuItem
                       onSelect={(e) => {

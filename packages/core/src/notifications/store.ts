@@ -3,9 +3,11 @@ import { randomUUID } from "node:crypto";
 import {
   getDbExec,
   intType,
+  isPostgres,
   retryOnDdlRace,
   safeJsonParse,
 } from "../db/client.js";
+import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
 
@@ -24,8 +26,7 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
+      const createSql = `
           CREATE TABLE IF NOT EXISTS notifications (
             id TEXT PRIMARY KEY,
             owner TEXT NOT NULL,
@@ -37,8 +38,23 @@ async function ensureTable(): Promise<void> {
             created_at ${intType()} NOT NULL,
             read_at ${intType()}
           )
-        `),
-      );
+        `;
+
+      if (isPostgres()) {
+        // PG-guard: probe information_schema / pg_indexes first (no lock) and
+        // only issue DDL when the table/index is actually missing, wrapped in
+        // a transaction-scoped lock_timeout so a contended lock fails fast.
+        await ensureTableExists("notifications", createSql);
+        await ensureIndexExists(
+          "idx_notifications_owner_unread",
+          `CREATE INDEX IF NOT EXISTS idx_notifications_owner_unread ON notifications (owner, read_at)`,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no ACCESS EXCLUSIVE lock problem — keep existing
+      // retryOnDdlRace behaviour.
+      await retryOnDdlRace(() => client.execute(createSql));
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_notifications_owner_unread ON notifications (owner, read_at)`,

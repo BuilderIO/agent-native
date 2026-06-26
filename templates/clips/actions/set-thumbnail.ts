@@ -26,7 +26,10 @@ import { z } from "zod";
 
 import { parseEdits, serializeEdits } from "../app/lib/timestamp-mapping.js";
 import { getDb, schema } from "../server/db/index.js";
-import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
+import {
+  getCurrentOwnerEmail,
+  ownerEmailMatches,
+} from "../server/lib/recordings.js";
 import { assertNativeRecordingMedia } from "./lib/native-media.js";
 
 function decodeDataUrl(dataUrl: string): { bytes: Uint8Array; mime: string } {
@@ -88,7 +91,7 @@ export default defineAction({
       .where(
         and(
           eq(schema.recordings.id, args.recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
     if (!existing) {

@@ -562,6 +562,20 @@ const messages = {
     languageDescription:
       "Choisissez la langue de l’interface pour ce compte. Clips s’en souviendra sur tous vos appareils.",
     languageLabel: "Langue de l’interface",
+    whatsNew: "Nouveautés",
+    changelogEmpty: "Aucune mise à jour pour le moment.",
+    viewAllUpdates: "Voir toutes les mises à jour",
+    expand: "Développer",
+    collapse: "Replier",
+    changelogMarkdown: `# Journal des modifications
+
+Tous les changements visibles par les utilisateurs de Clips sont documentés ici. Vous pouvez l’ouvrir à tout moment depuis le menu de commandes (Cmd+K -> "Nouveautés") ou depuis les paramètres.
+
+## 2026-06-23
+
+### Ajouté
+
+- Vous pouvez maintenant voir les nouveautés directement dans Clips. Le journal des modifications est disponible dans le menu de commandes (Cmd+K) et dans les paramètres.`,
     profile: "Profil",
     email: "E-mail",
     displayName: "Nom affiché",

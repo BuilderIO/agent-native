@@ -85,6 +85,15 @@ const LARGE_METRICS = [
   "clip-share-signups-30d",
 ];
 
+const SIGNED_IN_ACTIVITY_METRICS = [
+  "repeat-users",
+  "retention-over-time",
+  "one-day-retention-by-template",
+  "seven-day-retention-by-template",
+  "dau-over-time",
+  "wau-over-time",
+];
+
 beforeEach(() => {
   store.clear();
   vi.clearAllMocks();
@@ -179,10 +188,12 @@ describe("compose-dashboard", () => {
     expect(topReferrers.sql).not.toContain("$1");
     // Windowed metric retains its default 30d window when none requested.
     const referred = panels.find((p) => p.id === "referred-signups-30d")!;
-    expect(referred.sql).toContain("interval '30 days'");
+    expect(referred.sql).toContain(
+      "event_date >= to_char(CURRENT_DATE - INTERVAL '30 days'",
+    );
   });
 
-  it("uses portable date expressions for daily first-party panels", () => {
+  it("uses indexed event-date expressions for daily first-party panels", () => {
     for (const metric of [
       "signups-over-time",
       "pageviews-over-time",
@@ -191,7 +202,8 @@ describe("compose-dashboard", () => {
       "one-day-retention-by-template",
     ]) {
       const panel = buildPanel(metric)!;
-      expect(panel.sql).toContain("substr(timestamp, 1, 10)");
+      expect(panel.sql).toContain("event_date");
+      expect(panel.sql).not.toContain("substr(timestamp, 1, 10)");
       expect(panel.sql).toContain("CURRENT_DATE");
       expect(panel.sql).not.toContain("AT TIME ZONE");
       expect(panel.sql).not.toContain("now() AT TIME ZONE");
@@ -219,6 +231,42 @@ describe("compose-dashboard", () => {
       const panel = buildPanel(metric)!;
       expect(panel.sql).toContain("<> 'unknown'");
     }
+  });
+
+  it("counts retention and active-user panels from signed-in session activity", () => {
+    for (const metric of SIGNED_IN_ACTIVITY_METRICS) {
+      const panel = buildPanel(metric)!;
+      expect(panel.sql).toContain("event_name = 'session status'");
+      expect(panel.sql).toContain("signed_in = 'true'");
+      expect(panel.sql).not.toContain(
+        "COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))",
+      );
+      expect(panel.sql).not.toContain("NULLIF(user_id, '') IS NOT NULL");
+      expect(panel.sql).toContain("NULLIF(user_key");
+      expect(panel.sql).toContain("lower(COALESCE");
+      expect(panel.sql).toContain("<> 'docs'");
+    }
+  });
+
+  it("smooths retention panels with rolling minimum-size cohorts", () => {
+    const overall = buildPanel("retention-over-time")!;
+    expect(overall.title).toContain("7d Rolling");
+    expect(overall.chartType).toBe("line");
+    expect(overall.sql).toContain("cohort_windows");
+    expect(overall.sql).toContain("cs.users >= 5");
+    expect(overall.sql).toContain("'1-7d return'");
+    expect(overall.sql).toContain("'7-14d return'");
+    expect(overall.sql).toContain("b.event_date > cw.cohort_date");
+
+    const byTemplate = buildPanel("one-day-retention-by-template")!;
+    expect(byTemplate.chartType).toBe("bar");
+    expect(byTemplate.title).not.toContain("Rolling");
+    expect(byTemplate.title).toContain("Starting Template");
+    expect(byTemplate.sql).toContain("ROW_NUMBER() OVER");
+    expect(byTemplate.sql).toContain("cohorts AS");
+    expect(byTemplate.sql).toContain("users >= 20");
+    expect(byTemplate.sql).not.toContain("b.template = cw.template");
+    expect(byTemplate.sql).not.toContain("cohort_windows");
   });
 
   it("adds shared filters when appending filtered panels to an existing dashboard", async () => {

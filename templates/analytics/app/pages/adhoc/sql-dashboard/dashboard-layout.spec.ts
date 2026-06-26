@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDashboardPanelGroups,
+  isDropSlotAvailable,
   movePanelToDropSlot,
   removePanelFromLayout,
   type DashboardDropSlot,
@@ -78,5 +79,48 @@ describe("dashboard layout rows", () => {
     const [group] = buildDashboardPanelGroups(next, 4);
 
     expect(ids(group.rows)).toEqual([["a", "d", "b", "c"]]);
+  });
+
+  it("does not move a single-panel row through its own column slot", () => {
+    const panels = [panel("a", 3), panel("b"), panel("c")];
+    const slot: DashboardDropSlot = {
+      type: "column",
+      groupKey: "intro",
+      rowIndex: 0,
+      columnIndex: 1,
+    };
+
+    const next = movePanelToDropSlot(panels, "a", slot, 3);
+
+    expect(next).toBe(panels);
+  });
+
+  it("keeps invalid full-row column slots out of drag targeting", () => {
+    const panels = [panel("a"), panel("b"), panel("c"), panel("d", 3)];
+    const [group] = buildDashboardPanelGroups(panels, 3);
+
+    expect(
+      isDropSlotAvailable([group], "d", {
+        type: "column",
+        groupKey: "intro",
+        rowIndex: 0,
+        columnIndex: 1,
+      }),
+    ).toBe(false);
+    expect(
+      isDropSlotAvailable([group], "b", {
+        type: "column",
+        groupKey: "intro",
+        rowIndex: 0,
+        columnIndex: 1,
+      }),
+    ).toBe(true);
+    expect(
+      isDropSlotAvailable([group], "d", {
+        type: "row",
+        groupKey: "intro",
+        rowIndex: 1,
+      }),
+    ).toBe(true);
   });
 });

@@ -6,6 +6,7 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   Mail: "mail",
   CalendarDays: "calendar",
   FileText: "file-text",
+  LayoutBoard: "trello",
   Contract: "edit-3",
   BarChart2: "bar-chart-2",
   GalleryHorizontal: "layout",
@@ -15,6 +16,7 @@ const ICON_MAP: Record<string, keyof typeof Feather.glyphMap> = {
   Code: "code",
   Database: "database",
   MessageSquare: "message-square",
+  Route: "shuffle",
   Settings: "settings",
 };
 

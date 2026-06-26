@@ -74,6 +74,7 @@ export interface UseChatThreadsOptions {
 
 const ACTIVE_THREAD_KEY = "agent-chat-active-thread";
 const THREADS_UPDATED_EVENT = "agent-chat:threads-updated";
+const THREADS_PAGE_SIZE = 50;
 
 function emitThreadsUpdated() {
   if (typeof window === "undefined") return;
@@ -215,6 +216,10 @@ export function useChatThreads(
   }
 
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
+  const [hasMoreThreads, setHasMoreThreads] = useState(false);
+  const [isLoadingMoreThreads, setIsLoadingMoreThreads] = useState(false);
+  const [threadsLoadError, setThreadsLoadError] = useState<string | null>(null);
+  const nextThreadsOffsetRef = useRef(0);
   const threadsRef = useRef<ChatThreadSummary[]>(threads);
   threadsRef.current = threads;
 
@@ -414,66 +419,106 @@ export function useChatThreads(
     threads,
   ]);
 
-  const fetchThreads = useCallback(async () => {
-    try {
-      const res = await fetch(`${apiUrl}/threads`);
-      if (!res.ok) return;
-      const data = await res.json();
-      setThreads((prev) => {
-        const loaded = (data.threads ?? []) as ChatThreadSummary[];
-        const loadedIds = new Set(loaded.map((t) => t.id));
-        // Preserve any optimistic threads we've created this session that
-        // haven't shown up in the server list yet — the server only learns
-        // about a thread when the user actually sends a message and the
-        // agent run's `persistSubmittedUserMessage` writes the row.
-        const optimisticOnly = prev.filter(
-          (t) => newlyCreatedRef.current.has(t.id) && !loadedIds.has(t.id),
+  const fetchThreads = useCallback(
+    async (options?: { append?: boolean }) => {
+      try {
+        const offset = options?.append ? nextThreadsOffsetRef.current : 0;
+        const res = await fetch(
+          offset > 0
+            ? `${apiUrl}/threads?offset=${offset}`
+            : `${apiUrl}/threads`,
         );
-        // Reconcile each server thread against our local copy. If the local
-        // copy has a newer updatedAt or higher messageCount, keep those
-        // fields — the server probably hasn't observed the user's latest
-        // send yet, and naively replacing makes the recent-chats list
-        // visibly jump back to older timestamps right after a send.
-        const merged = loaded.map((server) => {
-          const local = prev.find((t) => t.id === server.id);
-          if (!local) return server;
-          const next = { ...server };
-          if (local.updatedAt > server.updatedAt) {
-            next.updatedAt = local.updatedAt;
+        if (!res.ok) {
+          if (!options?.append) {
+            setThreadsLoadError("Could not load chat history.");
           }
-          if (userRenamedThreadIdsRef.current.has(server.id) && local.title) {
-            next.title = local.title;
+          return;
+        }
+        const data = await res.json();
+        setThreadsLoadError(null);
+        const loaded = (data.threads ?? []) as ChatThreadSummary[];
+        if (!options?.append) {
+          nextThreadsOffsetRef.current = loaded.length;
+        } else {
+          nextThreadsOffsetRef.current += loaded.length;
+        }
+        setHasMoreThreads(loaded.length >= THREADS_PAGE_SIZE);
+        setThreads((prev) => {
+          const loadedIds = new Set(loaded.map((t) => t.id));
+          // Preserve any optimistic threads we've created this session that
+          // haven't shown up in the server list yet — the server only learns
+          // about a thread when the user actually sends a message and the
+          // agent run's `persistSubmittedUserMessage` writes the row.
+          const optimisticOnly = prev.filter(
+            (t) => newlyCreatedRef.current.has(t.id) && !loadedIds.has(t.id),
+          );
+          // Reconcile each server thread against our local copy. If the local
+          // copy has a newer updatedAt or higher messageCount, keep those
+          // fields — the server probably hasn't observed the user's latest
+          // send yet, and naively replacing makes the recent-chats list
+          // visibly jump back to older timestamps right after a send.
+          const merged = loaded.map((server) => {
+            const local = prev.find((t) => t.id === server.id);
+            if (!local) return server;
+            const next = { ...server };
+            if (local.updatedAt > server.updatedAt) {
+              next.updatedAt = local.updatedAt;
+            }
+            if (userRenamedThreadIdsRef.current.has(server.id) && local.title) {
+              next.title = local.title;
+            }
+            if (pendingPinnedAtRef.current.has(server.id)) {
+              next.pinnedAt = pendingPinnedAtRef.current.get(server.id) ?? null;
+            }
+            if (pendingArchivedAtRef.current.has(server.id)) {
+              next.archivedAt =
+                pendingArchivedAtRef.current.get(server.id) ?? null;
+            }
+            if (local.messageCount > server.messageCount) {
+              next.messageCount = local.messageCount;
+              if (local.preview) next.preview = local.preview;
+              if (local.title) next.title = local.title;
+            }
+            // Preserve optimistic scope: when the server creates the row
+            // on first message it does so without scope, and the next PUT
+            // (saveThreadData) writes the local scope back. In the brief
+            // window between those, the server list returns scope: null
+            // while the user is clearly working inside a deck — keep the
+            // local value so the tab bar doesn't blink unscoped.
+            if (local.scope && !server.scope) {
+              next.scope = local.scope;
+            }
+            return next;
+          });
+          if (options?.append) {
+            const existingIds = new Set(prev.map((t) => t.id));
+            return sortThreadSummaries([
+              ...prev,
+              ...merged.filter((t) => !existingIds.has(t.id)),
+            ]);
           }
-          if (pendingPinnedAtRef.current.has(server.id)) {
-            next.pinnedAt = pendingPinnedAtRef.current.get(server.id) ?? null;
-          }
-          if (pendingArchivedAtRef.current.has(server.id)) {
-            next.archivedAt =
-              pendingArchivedAtRef.current.get(server.id) ?? null;
-          }
-          if (local.messageCount > server.messageCount) {
-            next.messageCount = local.messageCount;
-            if (local.preview) next.preview = local.preview;
-            if (local.title) next.title = local.title;
-          }
-          // Preserve optimistic scope: when the server creates the row
-          // on first message it does so without scope, and the next PUT
-          // (saveThreadData) writes the local scope back. In the brief
-          // window between those, the server list returns scope: null
-          // while the user is clearly working inside a deck — keep the
-          // local value so the tab bar doesn't blink unscoped.
-          if (local.scope && !server.scope) {
-            next.scope = local.scope;
-          }
-          return next;
+          return [...optimisticOnly, ...merged];
         });
-        return [...optimisticOnly, ...merged];
-      });
-      return data.threads as ChatThreadSummary[];
-    } catch {
-      return undefined;
+        return data.threads as ChatThreadSummary[];
+      } catch {
+        if (!options?.append) {
+          setThreadsLoadError("Could not load chat history.");
+        }
+        return undefined;
+      }
+    },
+    [apiUrl],
+  );
+
+  const loadMoreThreads = useCallback(async (): Promise<void> => {
+    if (isLoadingMoreThreads || !hasMoreThreads) return;
+    setIsLoadingMoreThreads(true);
+    try {
+      await fetchThreads({ append: true });
+    } finally {
+      setIsLoadingMoreThreads(false);
     }
-  }, [apiUrl]);
+  }, [fetchThreads, hasMoreThreads, isLoadingMoreThreads]);
 
   // Initial load: load threads from server, then reconcile against the
   // saved active thread.
@@ -1158,10 +1203,14 @@ export function useChatThreads(
     saveThreadData,
     generateTitle,
     searchThreads,
+    loadMoreThreads,
     getThreadShareState,
     createThreadShareLink,
     revokeThreadShareLink,
     refreshThreads,
+    hasMoreThreads,
+    isLoadingMoreThreads,
+    threadsLoadError,
     isNewThread,
   };
 }

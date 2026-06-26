@@ -9,6 +9,7 @@ import {
   getCurrentOwnerEmail,
   parseSpaceIds,
   requireActiveOrganizationId,
+  sameOwnerEmail,
 } from "../server/lib/recordings.js";
 
 const moveRecordingSchema = z
@@ -69,7 +70,10 @@ export default defineAction({
         )
         .limit(1);
 
-      if (!folder || (!folder.spaceId && folder.ownerEmail !== ownerEmail)) {
+      if (
+        !folder ||
+        (!folder.spaceId && !sameOwnerEmail(folder.ownerEmail, ownerEmail))
+      ) {
         throw new Error(`Folder not found: ${folderId}`);
       }
 

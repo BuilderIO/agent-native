@@ -63,6 +63,12 @@ describe("credential key lookup", () => {
       requiredKeys: ["GONG_ACCESS_KEY", "GONG_ACCESS_SECRET"],
       optionalKeys: ["GONG_API_BASE"],
     });
+    expect(
+      credentialProviderConfigs.find((cfg) => cfg.provider === "hubspot"),
+    ).toMatchObject({
+      requiredKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
+      requiredMode: "any",
+    });
   });
 });
 

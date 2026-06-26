@@ -735,6 +735,7 @@ interface VisualEditorProps {
    */
   contentUpdatedAt?: string | null;
   onChange: (markdown: string) => void;
+  onSaveContent?: (markdown: string) => boolean | Promise<boolean>;
   /** Yjs document for collaborative editing. */
   ydoc?: YDoc | null;
   /** Shared awareness instance for collaborative cursors/presence. */
@@ -868,6 +869,17 @@ export function shouldPersistLocalFileEditorUpdate({
   if (editorFocused) return true;
   if (recentUserEditIntent) return true;
   return Boolean(transactionUiEvent);
+}
+
+function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
+  const { state } = editor;
+  if (!state.selection.empty) return false;
+  const { from, $from } = state.selection;
+  if (!$from.parent.isTextblock) return false;
+
+  const blockStart = $from.start();
+  const textBefore = state.doc.textBetween(blockStart, from, "\n");
+  return /^\s*\/[a-zA-Z0-9]*$/.test(textBefore);
 }
 
 interface VisualEditorExtensionOptions {
@@ -1550,6 +1562,7 @@ export function VisualEditor({
   content,
   contentUpdatedAt,
   onChange,
+  onSaveContent,
   ydoc,
   awareness,
   user,
@@ -1569,6 +1582,8 @@ export function VisualEditor({
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onSaveContentRef = useRef(onSaveContent);
+  onSaveContentRef.current = onSaveContent;
   const notionPageLinksRef = useRef(notionPageLinks);
   notionPageLinksRef.current = notionPageLinks;
   const resolveNotionPageLink = useCallback((notionPageId: string) => {
@@ -1576,6 +1591,7 @@ export function VisualEditor({
     return (
       notionPageLinksRef.current.find(
         (link) =>
+          link.notionPageId === notionPageId ||
           link.notionPageId.replace(/-/g, "").toLowerCase() === normalized,
       ) ?? null
     );
@@ -1604,9 +1620,10 @@ export function VisualEditor({
   // Clean up awareness on unmount
   useEffect(() => {
     return () => {
+      localAwareness?.setLocalState(null);
       fallbackAwareness?.destroy();
     };
-  }, [fallbackAwareness]);
+  }, [fallbackAwareness, localAwareness]);
 
   const extensions = useMemo(
     () =>
@@ -1643,6 +1660,36 @@ export function VisualEditor({
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
   }, []);
+  const persistEditorContent = useCallback(
+    (
+      editorToPersist: CoreEditor,
+      options?: { markdown?: string; immediate?: boolean },
+    ) => {
+      const guards = guardsRef.current;
+      if (!guards) return false;
+      try {
+        const normalized =
+          options?.markdown ?? docToNfm(editorToPersist.getJSON() as any);
+        if (localFileMode && normalized === content) return true;
+        if (options?.immediate && onSaveContentRef.current) {
+          return onSaveContentRef.current(normalized);
+        }
+        // Don't persist an empty doc before Collaboration has seeded (would
+        // clobber DB content with an empty string). `registerEmitted` records
+        // this as the last-emitted value and returns false to skip the save.
+        if (!guards.registerEmitted(normalized)) return true;
+        queueMicrotask(() => onChangeRef.current(normalized));
+        return true;
+      } catch (err: any) {
+        toast.error(
+          t("editor.markdownSerializationError", { message: err.message }),
+        );
+        console.error("Markdown serialization error:", err);
+        return false;
+      }
+    },
+    [content, localFileMode, t],
+  );
 
   const editor = useEditor({
     extensions,
@@ -1796,20 +1843,8 @@ export function VisualEditor({
       ) {
         return;
       }
-      try {
-        const normalized = docToNfm(editor.getJSON() as any);
-        if (localFileMode && normalized === content) return;
-        // Don't persist an empty doc before Collaboration has seeded (would
-        // clobber DB content with an empty string). `registerEmitted` records
-        // this as the last-emitted value and returns false to skip the save.
-        if (!guards.registerEmitted(normalized)) return;
-        queueMicrotask(() => onChangeRef.current(normalized));
-      } catch (err: any) {
-        toast.error(
-          t("editor.markdownSerializationError", { message: err.message }),
-        );
-        console.error("Markdown serialization error:", err);
-      }
+      if (isActiveSlashCommandDraft(editor)) return;
+      persistEditorContent(editor);
     },
   });
 
@@ -2038,6 +2073,12 @@ export function VisualEditor({
           editor={editor}
           documentId={documentId}
           notionPageId={notionPageId}
+          onDraftCommitted={() => {
+            void persistEditorContent(editor);
+          }}
+          onDraftPersisted={(markdown) =>
+            persistEditorContent(editor, { markdown, immediate: true })
+          }
         />
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />

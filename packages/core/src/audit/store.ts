@@ -7,7 +7,8 @@
  * `agent_audit_log`; reads are scoped to the caller's identity in SQL (no
  * shares table — audit rows are never individually shared).
  */
-import { getDbExec, intType, retryOnDdlRace } from "../db/client.js";
+import { getDbExec, intType, isPostgres } from "../db/client.js";
+import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 import type {
   AuditEvent,
   AuditQueryFilters,
@@ -20,9 +21,7 @@ export async function ensureAuditTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-
-      await retryOnDdlRace(() =>
-        client.execute(`
+      const createSql = `
         CREATE TABLE IF NOT EXISTS agent_audit_log (
           id TEXT PRIMARY KEY,
           created_at ${intType()} NOT NULL,
@@ -42,9 +41,41 @@ export async function ensureAuditTables(): Promise<void> {
           owner_email TEXT,
           visibility TEXT NOT NULL DEFAULT 'private'
         )
-      `),
-      );
+      `;
 
+      if (isPostgres()) {
+        // PG-guard: probe information_schema / pg_indexes before issuing DDL to
+        // avoid ACCESS EXCLUSIVE lock contention in fresh background-worker processes.
+        await ensureTableExists("agent_audit_log", createSql);
+        await ensureIndexExists(
+          "idx_audit_owner",
+          `CREATE INDEX IF NOT EXISTS idx_audit_owner ON agent_audit_log (owner_email, created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_audit_org",
+          `CREATE INDEX IF NOT EXISTS idx_audit_org ON agent_audit_log (org_id, created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_audit_target",
+          `CREATE INDEX IF NOT EXISTS idx_audit_target ON agent_audit_log (target_type, target_id, created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_audit_turn",
+          `CREATE INDEX IF NOT EXISTS idx_audit_turn ON agent_audit_log (turn_id)`,
+        );
+        await ensureIndexExists(
+          "idx_audit_actor",
+          `CREATE INDEX IF NOT EXISTS idx_audit_actor ON agent_audit_log (actor_email, created_at)`,
+        );
+        await ensureIndexExists(
+          "idx_audit_created",
+          `CREATE INDEX IF NOT EXISTS idx_audit_created ON agent_audit_log (created_at)`,
+        );
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await client.execute(createSql);
       const indexes = [
         `CREATE INDEX IF NOT EXISTS idx_audit_owner ON agent_audit_log (owner_email, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_audit_org ON agent_audit_log (org_id, created_at)`,

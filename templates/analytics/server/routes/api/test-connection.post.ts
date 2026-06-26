@@ -5,7 +5,11 @@ import {
   resolveCredential,
   withRequestContextFromEvent,
 } from "../../lib/credentials";
-import { resolveAnalyticsGongCredentials } from "../../lib/provider-credentials";
+import {
+  HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
+  resolveAnalyticsGongCredentials,
+  resolveAnalyticsProviderCredential,
+} from "../../lib/provider-credentials";
 
 export default defineEventHandler(async (event) => {
   const body = await readBody(event);
@@ -91,8 +95,13 @@ export default defineEventHandler(async (event) => {
         }
 
         case "hubspot": {
-          const token = await resolveCredential("HUBSPOT_ACCESS_TOKEN", ctx);
-          if (!token) return { ok: false, error: "Missing access token" };
+          const credential = await resolveAnalyticsProviderCredential({
+            provider: "hubspot",
+            keys: HUBSPOT_ANALYTICS_CREDENTIAL_KEYS,
+            ctx,
+          });
+          const token = credential?.value;
+          if (!token) return { ok: false, error: "Missing HubSpot token" };
           const res = await fetch(
             "https://api.hubapi.com/crm/v3/objects/contacts?limit=1",
             {

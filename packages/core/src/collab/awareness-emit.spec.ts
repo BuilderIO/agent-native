@@ -93,6 +93,50 @@ describe("postAwareness SSE fast-path", () => {
     expect(clientIds).toEqual([10, 99]);
   });
 
+  it("emits event without the cleared client when state is null", async () => {
+    const map = getDocAwareness("emit-doc");
+    map.set(10, {
+      clientId: 10,
+      state: JSON.stringify({ user: { name: "Alice", email: "alice@ex.com" } }),
+      lastSeen: Date.now(),
+    });
+    map.set(99, {
+      clientId: 99,
+      state: JSON.stringify({ user: { name: "Bob", email: "bob@ex.com" } }),
+      lastSeen: Date.now(),
+    });
+
+    const received: AwarenessChangeEvent[] = [];
+    getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, (evt) => {
+      received.push(evt);
+    });
+
+    mockReadBody.mockResolvedValue({ clientId: 10, state: null });
+
+    await postAwareness(event({ docId: "emit-doc" }) as any);
+    getAwarenessEmitter().removeAllListeners(AWARENESS_CHANGE_EVENT);
+
+    expect(received[0].states).toHaveLength(1);
+    expect(received[0].states[0].clientId).toBe(99);
+  });
+
+  it("accepts null state as a valid clear instead of a validation failure", async () => {
+    mockReadBody.mockResolvedValue({ clientId: 5, state: null });
+
+    const received: AwarenessChangeEvent[] = [];
+    getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, (evt) => {
+      received.push(evt);
+    });
+
+    const ev = event({ docId: "emit-doc" }) as any;
+    await postAwareness(ev);
+
+    getAwarenessEmitter().removeAllListeners(AWARENESS_CHANGE_EVENT);
+    expect(ev._status).toBe(200);
+    expect(received).toHaveLength(1);
+    expect(received[0].states).toEqual([]);
+  });
+
   it("does not emit when docId is missing (validation failure)", async () => {
     const received: AwarenessChangeEvent[] = [];
     getAwarenessEmitter().on(AWARENESS_CHANGE_EVENT, (evt) => {

@@ -5,6 +5,10 @@
 // the grant for the whole chrome-extension:// origin — so the offscreen recorder
 // (mic) and the camera-bubble iframe both work afterward.
 
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("permission");
+
 const enableBtn = document.getElementById("enable") as HTMLButtonElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
 const successEl = document.getElementById("success-state") as HTMLDivElement;
@@ -71,7 +75,10 @@ async function requestOne(kind: "mic" | "cam"): Promise<boolean> {
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     for (const track of stream.getTracks()) track.stop();
     return true;
-  } catch {
+  } catch (err) {
+    captureExtensionError(err, {
+      tags: { surface: "permission", permission: kind },
+    });
     return false;
   }
 }
