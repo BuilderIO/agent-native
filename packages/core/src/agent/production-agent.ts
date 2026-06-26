@@ -83,7 +83,10 @@ import type {
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
 import {
+  type AgentLoopSettings,
   getDefaultMaxIterations,
+  MAX_AGENT_MAX_ITERATIONS,
+  MIN_AGENT_MAX_ITERATIONS,
   normalizeMaxIterations,
   readAgentLoopSettings,
 } from "./loop-settings.js";
@@ -4442,6 +4445,45 @@ export function createProductionAgentHandler(
       return filesContext;
     })();
 
+    // Durable bg worker: a pre-send DB read that HANGS (rather than erroring)
+    // would otherwise stall the worker until the foreground inline-recovery
+    // grace (~16s) — wasting the entire 15-min durable budget and leaving the
+    // run un-claimed (the exact analytics symptom: diag stuck at model_done,
+    // preStart≈18s). Cap each pre-send step so a hang degrades to a safe default
+    // and the worker proceeds to claim + run. The cap fires only when the event
+    // loop is free, so it also distinguishes an async hang (cap fires → worker
+    // claims) from an event-loop block (cap can't fire → still frozen). The
+    // foreground keeps the un-capped path, so its behaviour is unchanged. On a
+    // rejection (e.g. enrichMessage has no .catch) the cap also resolves to the
+    // fallback rather than rejecting the whole Promise.all.
+    const presendCap = <T>(
+      p: Promise<T>,
+      fallback: T,
+      ms: number,
+    ): Promise<T> => {
+      if (!isBackgroundWorker) return p;
+      return new Promise<T>((resolve) => {
+        const timer = setTimeout(() => resolve(fallback), ms);
+        p.then(
+          (v) => {
+            clearTimeout(timer);
+            resolve(v);
+          },
+          () => {
+            clearTimeout(timer);
+            resolve(fallback);
+          },
+        );
+      });
+    };
+    const fallbackLoopSettings: AgentLoopSettings = {
+      maxIterations: getDefaultMaxIterations(),
+      defaultMaxIterations: getDefaultMaxIterations(),
+      minMaxIterations: MIN_AGENT_MAX_ITERATIONS,
+      maxMaxIterations: MAX_AGENT_MAX_ITERATIONS,
+      scope: "default",
+      source: "default",
+    };
     const [
       systemPrompt,
       screenBlock,
@@ -4451,13 +4493,13 @@ export function createProductionAgentHandler(
       loopSettings,
       enrichedMessage,
     ] = await Promise.all([
-      systemPromptPromise,
-      screenContextPromise,
-      urlContextPromise,
-      selectionContextPromise,
-      filesContextPromise,
-      loopSettingsPromise,
-      enrichedMessagePromise,
+      presendCap(systemPromptPromise, "", 13000),
+      presendCap(screenContextPromise, "", 9000),
+      presendCap(urlContextPromise, "", 9000),
+      presendCap(selectionContextPromise, "", 9000),
+      presendCap(filesContextPromise, "", 12000),
+      presendCap(loopSettingsPromise, fallbackLoopSettings, 9000),
+      presendCap(enrichedMessagePromise, requestMessage, 9000),
     ]);
     setupMark("ctxAll");
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
