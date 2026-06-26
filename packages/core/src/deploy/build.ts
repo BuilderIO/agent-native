@@ -101,6 +101,34 @@ export const CLOUDFLARE_WORKER_ESBUILD_EXTERNALS = [
   "fsevents",
 ];
 
+export interface GenerateWorkerEntryOptions {
+  includeReactRouterSsr?: boolean;
+}
+
+interface ReactRouterAssetManifest {
+  entry: ReactRouterAssetManifestEntry;
+  routes: Record<string, ReactRouterAssetManifestRoute>;
+  url: string;
+}
+
+interface ReactRouterAssetManifestEntry {
+  module: string;
+  imports?: string[];
+  css?: string[];
+}
+
+interface ReactRouterAssetManifestRoute {
+  id: string;
+  module: string;
+  imports?: string[];
+  css?: string[];
+  hasLoader?: boolean;
+  clientActionModule?: string;
+  clientLoaderModule?: string;
+  clientMiddlewareModule?: string;
+  hydrateFallbackModule?: string;
+}
+
 function normalizeConfiguredAppBasePath(): string {
   return normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
@@ -200,7 +228,9 @@ export function generateWorkerEntry(
   workspaceCore: WorkspaceCoreExports | null = null,
   immutableAssetPaths: string[] = [],
   builtAppBasePath = normalizeConfiguredAppBasePath(),
+  options: GenerateWorkerEntryOptions = {},
 ): string {
+  const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -322,8 +352,8 @@ export function generateWorkerEntry(
   return `
 // Auto-generated worker entry point for ${preset}
 import { H3, defineEventHandler, readBody, toResponse } from "h3";
-import { createRequestHandler } from "react-router";
-import * as serverBuild from "./server-build.js";
+${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
+${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 
 function normalizeAppBasePath(value) {
   if (!value || value === "/") return "";
@@ -653,6 +683,52 @@ function requestWithPathname(request, pathname) {
   return new Request(url, request);
 }
 
+function isStaticAppShellRequest(request) {
+  if (request.method !== "GET" && request.method !== "HEAD") return false;
+  const p = stripAppBasePath(new URL(request.url).pathname);
+  if (
+    p.startsWith("/.well-known/") ||
+    p.startsWith("/_agent-native/") ||
+    isApiPath(p) ||
+    p === "/favicon.ico" ||
+    p === "/favicon.png" ||
+    /\\.\\w+$/.test(p)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+async function fetchStaticAppShell(request, env) {
+  if (!env?.ASSETS || !isStaticAppShellRequest(request)) return null;
+  const basePath = getAppBasePath();
+  const p = stripAppBasePath(new URL(request.url).pathname);
+  const shellRequest = requestWithPathname(
+    requestWithMethod(request, "GET"),
+    "/index.html",
+  );
+  let response;
+  try {
+    response = await env.ASSETS.fetch(shellRequest);
+  } catch {
+    return null;
+  }
+  if (response.status === 404) return null;
+  if (request.method === "HEAD") {
+    return rewriteMountedResponse(
+      new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      }),
+      basePath,
+      p,
+      request,
+    );
+  }
+  return rewriteMountedResponse(response, basePath, p, request);
+}
+
 // API route handlers
 ${routeImports.join("\n")}
 
@@ -708,7 +784,9 @@ ${routeRegistrations.join("\n")}
   // Register action routes (/_agent-native/actions/*)
 ${actionRegistrations.join("\n")}
 
-  // SSR catch-all for React Router
+${
+  includeReactRouterSsr
+    ? `  // SSR catch-all for React Router
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
@@ -739,7 +817,9 @@ ${actionRegistrations.join("\n")}
       );
     }
     return rewriteMountedResponse(await rrHandler(request), basePath, p, request);
-  }));
+  }));`
+    : ""
+}
 
   _handler = app.fetch.bind(app);
   return _handler;
@@ -778,10 +858,225 @@ export default {
     }
 
     const handler = await getHandler();
-    return handler(requestWithMountedApiPrefixStripped(request));
+    const response = await handler(requestWithMountedApiPrefixStripped(request));
+${
+  includeReactRouterSsr
+    ? "    return response;"
+    : `    if (response.status === 404) {
+      const shellResponse = await fetchStaticAppShell(request, env);
+      if (shellResponse) return shellResponse;
+    }
+    return response;`
+}
   }
 };
 `;
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function findReactRouterManifest(distDir: string): ReactRouterAssetManifest {
+  const assetsDir = path.join(distDir, "assets");
+  const manifestFile = fs
+    .readdirSync(assetsDir)
+    .find((file) => /^manifest-[\w-]+\.js$/.test(file));
+  if (!manifestFile) {
+    throw new Error(`React Router client manifest not found in ${assetsDir}`);
+  }
+
+  const source = fs.readFileSync(path.join(assetsDir, manifestFile), "utf8");
+  const match = source.match(/^window\.__reactRouterManifest=(.*);?\s*$/);
+  if (!match) {
+    throw new Error(`Could not parse React Router manifest ${manifestFile}`);
+  }
+
+  return JSON.parse(match[1].replace(/;$/, "")) as ReactRouterAssetManifest;
+}
+
+function collectModulePreloads(
+  manifest: ReactRouterAssetManifest,
+  route: ReactRouterAssetManifestRoute,
+): string[] {
+  const paths = new Set<string>();
+  const add = (value: string | undefined) => {
+    if (value) paths.add(value);
+  };
+  add(manifest.url);
+  add(manifest.entry.module);
+  manifest.entry.imports?.forEach(add);
+  add(route.module);
+  route.imports?.forEach(add);
+  add(route.clientActionModule);
+  add(route.clientLoaderModule);
+  add(route.clientMiddlewareModule);
+  add(route.hydrateFallbackModule);
+  return [...paths];
+}
+
+function collectStylesheetLinks(
+  manifest: ReactRouterAssetManifest,
+  route: ReactRouterAssetManifestRoute,
+): string[] {
+  return [...new Set([...(manifest.entry.css ?? []), ...(route.css ?? [])])];
+}
+
+function generateRouteModuleImportScript(
+  manifest: ReactRouterAssetManifest,
+  route: ReactRouterAssetManifestRoute,
+): string {
+  const modules = [
+    ["route0", route.module],
+    ["route0_clientAction", route.clientActionModule],
+    ["route0_clientLoader", route.clientLoaderModule],
+    ["route0_clientMiddleware", route.clientMiddlewareModule],
+    ["route0_hydrateFallback", route.hydrateFallbackModule],
+  ] as const;
+  const imports = modules
+    .filter(([, modulePath]) => modulePath)
+    .map(
+      ([name, modulePath]) =>
+        `import * as ${name} from ${JSON.stringify(modulePath)};`,
+    );
+  const parts = modules
+    .filter(([, modulePath]) => modulePath)
+    .map(([name]) => `...${name}`);
+
+  return [
+    `import ${JSON.stringify(manifest.url)};`,
+    ...imports,
+    `window.__reactRouterRouteModules = {${JSON.stringify(route.id)}:{${parts.join(",")}}};`,
+    `import(${JSON.stringify(manifest.entry.module)});`,
+  ].join("\n");
+}
+
+const EMPTY_REACT_ROUTER_TURBO_STREAM =
+  '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{},"actionData","errors"]\n';
+
+// Manifest fallbacks cannot execute server loaders, so root loaders get the
+// framework's default locale shape to keep hydration from reading undefined.
+const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
+  '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
+
+export function generateCloudflarePagesStaticShellFromManifest(
+  manifest: ReactRouterAssetManifest,
+  basePath = normalizeConfiguredAppBasePath(),
+): string {
+  const rootRoute = manifest.routes.root;
+  if (!rootRoute) {
+    throw new Error("React Router manifest is missing the root route");
+  }
+
+  const modulePreloads = collectModulePreloads(manifest, rootRoute)
+    .map(
+      (href) =>
+        `<link rel="modulepreload" href="${escapeHtmlAttribute(href)}"/>`,
+    )
+    .join("");
+  const stylesheets = collectStylesheetLinks(manifest, rootRoute)
+    .map(
+      (href) => `<link rel="stylesheet" href="${escapeHtmlAttribute(href)}"/>`,
+    )
+    .join("");
+  const routeModuleScript = generateRouteModuleImportScript(
+    manifest,
+    rootRoute,
+  );
+  const context = {
+    basename: basePath || "/",
+    future: { unstable_optimizeDeps: false },
+    routeDiscovery: { mode: "initial" },
+    ssr: true,
+    isSpaMode: true,
+  };
+  const encodedInitialState = rootRoute.hasLoader
+    ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
+    : EMPTY_REACT_ROUTER_TURBO_STREAM;
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><style>@keyframes an-spin { to { transform: rotate(360deg) } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+}
+
+function writeCloudflarePagesStaticShell({
+  serverDir,
+  distDir,
+  tmpDir,
+}: {
+  serverDir: string;
+  distDir: string;
+  tmpDir: string;
+}): void {
+  const serverEntry = path.join(serverDir, "index.js");
+  if (!fs.existsSync(serverEntry)) {
+    throw new Error(`React Router server build not found at ${serverEntry}`);
+  }
+
+  const outFile = path.join(distDir, "index.html");
+  const renderScript = path.join(tmpDir, "render-cloudflare-static-shell.mjs");
+  const basePath = normalizeConfiguredAppBasePath();
+  fs.writeFileSync(
+    renderScript,
+    `
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+
+const cwd = ${JSON.stringify(cwd)};
+const serverEntry = ${JSON.stringify(serverEntry)};
+const outFile = ${JSON.stringify(outFile)};
+const basePath = ${JSON.stringify(basePath)};
+
+const requireFromApp = createRequire(cwd + "/package.json");
+const reactRouterEntry = requireFromApp.resolve("react-router");
+const { createRequestHandler } = await import(pathToFileURL(reactRouterEntry).href);
+const serverBuild = await import(pathToFileURL(serverEntry).href);
+const handler = createRequestHandler(serverBuild, "production");
+const pathname = basePath ? basePath + "/" : "/";
+const response = await handler(
+  new Request(new URL(pathname, "https://agent-native.local"), {
+    headers: { "X-React-Router-SPA-Mode": "yes" },
+  }),
+);
+const html = await response.text();
+
+if (!html || !html.includes("__reactRouterContext") || !html.includes("entry.client")) {
+  throw new Error("React Router did not render a usable Cloudflare Pages static shell");
+}
+
+fs.writeFileSync(outFile, html);
+process.exit(0);
+`,
+  );
+
+  try {
+    execFileSync(process.execPath, [renderScript], {
+      cwd,
+      env: {
+        ...process.env,
+        NODE_ENV: process.env.NODE_ENV || "production",
+        IS_RR_BUILD_REQUEST: "yes",
+      },
+      stdio: "inherit",
+    });
+    console.log("[deploy] Wrote Cloudflare Pages static app shell.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[deploy] React Router static shell render failed; using manifest fallback. ${message}`,
+    );
+    fs.writeFileSync(
+      outFile,
+      generateCloudflarePagesStaticShellFromManifest(
+        findReactRouterManifest(distDir),
+        basePath,
+      ),
+    );
+    console.log("[deploy] Wrote Cloudflare Pages static app shell fallback.");
+  }
 }
 
 /**
@@ -816,6 +1111,10 @@ async function buildCloudflarePages() {
   // Copy client assets to dist/
   copyDir(clientDir, distDir);
 
+  const tmpDir = path.join(cwd, ".deploy-tmp");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  writeCloudflarePagesStaticShell({ serverDir, distDir, tmpDir });
+
   // Exclude _worker.js from being served as a public asset
   fs.writeFileSync(path.join(distDir, ".assetsignore"), "_worker.js\n");
 
@@ -841,6 +1140,7 @@ async function buildCloudflarePages() {
   const actions = await discoverActionFiles(cwd);
   const missingDefaults = await getMissingDefaultPlugins(cwd);
   const workspaceCore = await getWorkspaceCoreExports(cwd);
+  const includeReactRouterSsr = false;
 
   const workspaceSlotCount = workspaceCore
     ? Object.keys(workspaceCore.plugins).length
@@ -858,6 +1158,8 @@ async function buildCloudflarePages() {
     actions,
     workspaceCore,
     immutableAssetPaths,
+    normalizeConfiguredAppBasePath(),
+    { includeReactRouterSsr },
   );
 
   // Create _worker.js output directory
@@ -867,23 +1169,27 @@ async function buildCloudflarePages() {
   // Write the worker entry
   const entryFile = path.join(workerOutDir, "index.js");
 
-  // Rewrite the server-build import to point at the copied files
-  const adjustedEntry = entrySource.replace(
-    `import * as serverBuild from "./server-build.js";`,
-    `import * as serverBuild from "./server/index.js";`,
-  );
+  // Rewrite the server-build import to point at the copied files when this
+  // worker intentionally includes React Router SSR.
+  const adjustedEntry = includeReactRouterSsr
+    ? entrySource.replace(
+        `import * as serverBuild from "./server-build.js";`,
+        `import * as serverBuild from "./server/index.js";`,
+      )
+    : entrySource;
 
   // Write a temp file for esbuild to bundle everything into a single worker entry.
-  // The server build (React Router SSR) is copied to tmp so esbuild can resolve it.
-  const tmpDir = path.join(cwd, ".deploy-tmp");
-  fs.mkdirSync(tmpDir, { recursive: true });
+  // When React Router SSR is enabled, the server build is copied to tmp so
+  // esbuild can resolve it. Cloudflare Pages currently uses a static app shell
+  // instead so the worker stays under the platform bundle size limit.
   // Name the entry "index.js" so esbuild outputs index.js in the outdir,
   // matching the _worker.js/index.js entry point that Cloudflare Pages expects.
   const tmpEntry = path.join(tmpDir, "index.js");
   fs.writeFileSync(tmpEntry, adjustedEntry);
 
-  // Copy server build files so esbuild can resolve the import
-  copyDir(serverDir, path.join(tmpDir, "server"));
+  if (includeReactRouterSsr) {
+    copyDir(serverDir, path.join(tmpDir, "server"));
+  }
 
   // Create a require shim so CJS require("fs") calls resolve via ESM imports.
   // This is injected via esbuild --inject to replace its broken __require shim.
