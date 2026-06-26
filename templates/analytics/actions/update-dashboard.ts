@@ -416,6 +416,7 @@ export default defineAction({
     "it resolves org vs. user scope correctly so the edit lands on the row the UI actually renders. " +
     "BATCH ALL EDITS INTO A SINGLE CALL. Never call this action repeatedly in a loop: hosted agent runs have a ~40s budget, and many sequential update-dashboard calls time out mid-way and leave the dashboard in a partial state even though earlier calls looked like they succeeded. Put every change you want to make into one `ops` array (or one `config`). " +
     "`ops` is an array of { op, path, from?, value? } applied in order in a single atomic save. " +
+    "When calling this as a native tool, pass `ops` as a real array, not a JSON string; the shell examples quote JSON only for CLI parsing. If a call fails because `ops` was stringified, retry this action with a native array instead of switching to db-patch or settings writes. " +
     "`op` is one of: set | replace | remove | insert | move | move-before. " +
     "`path` is a JSON Pointer into the config (e.g. `/panels/3` is the 4th panel, `/panels/3/title` is its title, `/name` is the dashboard name). The special index `-` means the end of an array: `/panels/-` appends. " +
     "`value` is the panel or object to set/insert. `from` is the source JSON Pointer for move / move-before. " +

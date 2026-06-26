@@ -347,6 +347,7 @@ const enUS = {
     sectionOptions: "Section options",
     panelOptions: "Panel options",
     fullScreen: "Full screen",
+    refresh: "Refresh",
     downloadCsv: "Download CSV",
     viewSql: "View SQL",
     dragToReorder: "Drag to reorder",
@@ -4969,6 +4970,7 @@ const translatedAnalyticsDebtTranslations = {
       failedToSave: "保存失败",
       formatSql: "格式 SQL",
       fullScreen: "全屏",
+      refresh: "刷新",
       hiddenDescription:
         "该仪表板在常规列表中是隐藏的。它仍然可以通过直接链接搜索和打开。",
       noActiveFilters: "当前没有活动的过滤器 - 此视图将应用默认过滤器状态。",
@@ -5142,6 +5144,7 @@ const translatedAnalyticsDebtTranslations = {
       failedToSave: "No se pudo guardar",
       formatSql: "Formato SQL",
       fullScreen: "Pantalla completa",
+      refresh: "Actualizar",
       hiddenDescription:
         "Este panel está oculto de las listas habituales. Se puede buscar y abrir mediante enlace directo.",
       noActiveFilters:
@@ -5318,6 +5321,7 @@ const translatedAnalyticsDebtTranslations = {
       failedToSave: "Échec de l'enregistrement",
       formatSql: "Format SQL",
       fullScreen: "Plein écran",
+      refresh: "Actualiser",
       hiddenDescription:
         "Ce tableau de bord est masqué dans les listes régulières. Il reste consultable et ouvrable par lien direct.",
       noActiveFilters:
@@ -5495,6 +5499,7 @@ const translatedAnalyticsDebtTranslations = {
       failedToSave: "Speichern fehlgeschlagen",
       formatSql: "Formatieren Sie SQL",
       fullScreen: "Vollbild",
+      refresh: "Aktualisieren",
       hiddenDescription:
         "Dieses Dashboard ist vor regulären Listen verborgen. Es bleibt durchsuchbar und kann über einen direkten Link geöffnet werden.",
       noActiveFilters:
@@ -5667,6 +5672,7 @@ const translatedAnalyticsDebtTranslations = {
       failedToSave: "保存に失敗しました",
       formatSql: "形式 SQL",
       fullScreen: "全画面表示",
+      refresh: "更新",
       hiddenDescription:
         "このダッシュボードは通常のリストには表示されません。引き続き検索可能で、直接リンクで開くことができます。",
       noActiveFilters:
@@ -5838,6 +5844,7 @@ const translatedAnalyticsDebtTranslations = {
       failedToSave: "저장하지 못했습니다.",
       formatSql: "SQL 형식",
       fullScreen: "전체 화면",
+      refresh: "새로고침",
       hiddenDescription:
         "이 대시보드는 일반 목록에서 숨겨져 있습니다. 직접 링크를 통해 검색 및 열 수 있습니다.",
       noActiveFilters:
@@ -6013,6 +6020,7 @@ const translatedAnalyticsDebtTranslations = {
       failedToSave: "Falha ao salvar",
       formatSql: "Formato SQL",
       fullScreen: "Tela cheia",
+      refresh: "Atualizar",
       hiddenDescription:
         "Este painel está oculto nas listas regulares. Ele permanece pesquisável e aberto por link direto.",
       noActiveFilters:
@@ -6184,6 +6192,7 @@ const translatedAnalyticsDebtTranslations = {
       failedToSave: "सहेजने में विफल",
       formatSql: "प्रारूप SQL",
       fullScreen: "पूर्ण स्क्रीन",
+      refresh: "रीफ़्रेश करें",
       hiddenDescription:
         "यह डैशबोर्ड नियमित सूचियों से छिपा हुआ है. यह सीधे लिंक द्वारा खोजने योग्य और खोलने योग्य रहता है।",
       noActiveFilters:
@@ -6355,6 +6364,7 @@ const translatedAnalyticsDebtTranslations = {
       failedToSave: "فشل الحفظ",
       formatSql: "تنسيق SQL",
       fullScreen: "شاشة كاملة",
+      refresh: "تحديث",
       hiddenDescription:
         "لوحة التحكم هذه مخفية من القوائم العادية. يظل قابلاً للبحث والفتح عن طريق الرابط المباشر.",
       noActiveFilters:

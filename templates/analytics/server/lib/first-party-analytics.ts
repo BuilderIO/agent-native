@@ -185,6 +185,10 @@ function normalizeTimestamp(value: unknown): string {
   return nowIso();
 }
 
+function eventDateFromTimestamp(timestamp: string): string {
+  return timestamp.slice(0, 10);
+}
+
 function urlParts(url: string | null): {
   url: string | null;
   path: string | null;
@@ -320,18 +324,24 @@ export async function recordAnalyticsEvents(
       asString((properties as any).signedIn) ||
       asString((context as any).signed_in) ||
       asString((context as any).signedIn);
+    const userId = event.userId ?? asString((properties as any).userId);
+    const anonymousId =
+      event.anonymousId ??
+      asString((properties as any).anonymousId) ??
+      asString((properties as any).distinctId);
+    const userKey = userId || anonymousId;
+    const timestamp = normalizeTimestamp(event.timestamp);
 
     return {
       id: id("evt"),
       publicKeyId: key.id,
       eventName: event.event,
-      userId: event.userId ?? asString((properties as any).userId),
-      anonymousId:
-        event.anonymousId ??
-        asString((properties as any).anonymousId) ??
-        asString((properties as any).distinctId),
+      userId,
+      anonymousId,
+      userKey,
       sessionId: event.sessionId ?? asString((properties as any).sessionId),
-      timestamp: normalizeTimestamp(event.timestamp),
+      timestamp,
+      eventDate: eventDateFromTimestamp(timestamp),
       receivedAt,
       url: parts.url,
       path: parts.path ?? asString(properties.path),

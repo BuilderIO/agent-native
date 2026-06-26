@@ -77,7 +77,7 @@ const frFR = {
       secondaryCta: "Voir la documentation",
     },
     code: {
-      quickStartComment: "Commencez avec un modèle d’app complet",
+      quickStartComment: "Créez une app avec une commande",
       skillInstallComment:
         "Ajoutez la planification Agent-Native à un coding agent que vous utilisez déjà",
       frameworkComment:
@@ -188,12 +188,12 @@ const frFR = {
       },
     },
     quickStart: {
-      title: "Commencer avec Chat",
-      body: "Une commande crée une Chat app locale adossée à actions, durable threads et SQLite. Utilisez plutôt `--headless` quand vous ne voulez pas encore d'UI navigateur.",
+      title: "Commencez avec une commande",
+      body: "Une commande crée une app locale adossée à actions, durable threads et SQLite. Utilisez plutôt `--headless` quand vous ne voulez pas encore d'UI navigateur.",
     },
     finalCta: {
       title: "Un logiciel qui vous appartient, conçu pour l'ère agentic",
-      body: "Commencez avec Chat ou un durable action, passez-le dans l'app-agent loop, puis faites-le évoluer en UI, jobs et collaboration sans réécrire l'opération. Open source. Forkable. À vous.",
+      body: "Commencez avec une commande ou un durable action, passez-le dans l'app-agent loop, puis faites-le évoluer en UI, jobs et collaboration sans réécrire l'opération. Open source. Forkable. À vous.",
       primaryCta: "Commencer avec un Action",
       secondaryCta: "Lire la documentation",
       githubCta: "Voir sur GitHub",

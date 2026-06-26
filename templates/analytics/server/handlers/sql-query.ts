@@ -369,7 +369,7 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
     } catch (error: any) {
       const message = error?.message || String(error);
       console.error(`SQL query error (${source}):`, message);
-      setResponseStatus(event, 400);
+      setResponseStatus(event, /DB query timed out/i.test(message) ? 504 : 400);
       return { error: message };
     }
   });

@@ -134,8 +134,10 @@ export default runMigrations(
       event_name TEXT NOT NULL,
       user_id TEXT,
       anonymous_id TEXT,
+      user_key TEXT,
       session_id TEXT,
       timestamp TEXT NOT NULL,
+      event_date TEXT,
       received_at TEXT NOT NULL DEFAULT (datetime('now')),
       url TEXT,
       path TEXT,
@@ -218,6 +220,77 @@ export default runMigrations(
     {
       version: 38,
       sql: `SELECT 1`,
+    },
+    {
+      version: 39,
+      sql: `ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS event_date TEXT`,
+    },
+    {
+      version: 40,
+      sql: `ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS user_key TEXT`,
+    },
+    {
+      version: 41,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_event_date_idx; CREATE INDEX CONCURRENTLY analytics_events_org_event_date_idx ON analytics_events (org_id, event_date)`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_event_date_idx ON analytics_events (org_id, event_date)`,
+      },
+    },
+    {
+      version: 42,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_event_name_date_idx; CREATE INDEX CONCURRENTLY analytics_events_org_event_name_date_idx ON analytics_events (org_id, event_name, event_date)`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_event_name_date_idx ON analytics_events (org_id, event_name, event_date)`,
+      },
+    },
+    {
+      version: 43,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_date_user_idx; CREATE INDEX CONCURRENTLY analytics_events_org_date_user_idx ON analytics_events (org_id, event_date, user_key)`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_date_user_idx ON analytics_events (org_id, event_date, user_key)`,
+      },
+    },
+    {
+      version: 44,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_date_template_idx; CREATE INDEX CONCURRENTLY analytics_events_org_date_template_idx ON analytics_events (org_id, event_date, template)`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_date_template_idx ON analytics_events (org_id, event_date, template)`,
+      },
+    },
+    {
+      version: 45,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_event_date_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_event_date_idx ON analytics_events (owner_email, event_date) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_event_date_idx ON analytics_events (owner_email, event_date) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 46,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_event_name_date_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_event_name_date_idx ON analytics_events (owner_email, event_name, event_date) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_event_name_date_idx ON analytics_events (owner_email, event_name, event_date) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 47,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_date_user_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_date_user_idx ON analytics_events (owner_email, event_date, user_key) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_date_user_idx ON analytics_events (owner_email, event_date, user_key) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 48,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_date_template_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_date_template_idx ON analytics_events (owner_email, event_date, template) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_date_template_idx ON analytics_events (owner_email, event_date, template) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 49,
+      sql: {
+        postgres: `UPDATE analytics_events SET event_date = COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)), user_key = COALESCE(NULLIF(user_key, ''), NULLIF(user_id, ''), NULLIF(anonymous_id, '')) WHERE (event_date IS NULL OR event_date = '' OR user_key IS NULL OR user_key = '') AND timestamp >= to_char(CURRENT_DATE - INTERVAL '400 days', 'YYYY-MM-DD')`,
+        sqlite: `UPDATE analytics_events SET event_date = COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)), user_key = COALESCE(NULLIF(user_key, ''), NULLIF(user_id, ''), NULLIF(anonymous_id, '')) WHERE (event_date IS NULL OR event_date = '' OR user_key IS NULL OR user_key = '') AND timestamp >= date('now', '-400 days')`,
+      },
     },
   ],
   { table: "analytics_migrations" },

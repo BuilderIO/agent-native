@@ -79,6 +79,11 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   the Chrome debugger API only on the tab the user launched from, only while a
   recording is active, and returns the same redacted diagnostics shape saved by
   `save-browser-diagnostics`.
+- The Chrome extension also enhances GitHub issue and PR markdown: a narrow
+  `github.com` content script detects Clips `/r/`, `/share/`, and `/embed/`
+  links, then renders the existing `/embed/:id` player in an extension-owned
+  preview iframe so the video is playable without leaving GitHub. Keep this
+  scoped to GitHub unless there is a deliberate permission review.
 - After mutations, rely on the app refresh/polling path; do not invent a second
   sync mechanism.
 

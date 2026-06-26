@@ -6,10 +6,12 @@ import {
   IconDotsVertical,
   IconMaximize,
   IconPencil,
+  IconRefresh,
   IconTrash,
   IconCode,
   IconDownload,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
@@ -43,6 +45,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { serializePanelSql } from "./panel-sql";
 import type { SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
@@ -66,6 +69,7 @@ export function SqlChartCard({
   editable = true,
 }: SqlChartCardProps) {
   const t = useT();
+  const queryClient = useQueryClient();
   const {
     attributes,
     listeners,
@@ -95,6 +99,18 @@ export function SqlChartCard({
     setExportCsv(handler ? () => handler : null);
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    setShouldLoadData(true);
+    void queryClient.invalidateQueries({
+      queryKey: [
+        "sql-chart",
+        panel.id,
+        serializePanelSql(resolvedSql ?? panel.sql),
+        panel.source,
+      ],
+    });
+  }, [panel.id, panel.source, panel.sql, queryClient, resolvedSql]);
+
   useEffect(() => {
     if (panel.chartType === "section") {
       setShouldLoadData(true);
@@ -116,7 +132,7 @@ export function SqlChartCard({
         }
       },
       {
-        rootMargin: "800px 0px",
+        rootMargin: "320px 0px",
         threshold: 0.01,
       },
     );
@@ -310,6 +326,11 @@ export function SqlChartCard({
                       {t("sidebar.edit")}
                     </DropdownMenuItem>
                   )}
+                  {!editable ? <DropdownMenuSeparator /> : null}
+                  <DropdownMenuItem onSelect={handleRefresh}>
+                    <IconRefresh className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.refresh")}
+                  </DropdownMenuItem>
                   {editable ? (
                     <DropdownMenuItem
                       onSelect={(e) => {

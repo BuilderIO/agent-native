@@ -77,7 +77,7 @@ const zhCN = {
       secondaryCta: "查看文档",
     },
     code: {
-      quickStartComment: "从完整应用模板开始",
+      quickStartComment: "用一条命令创建 app",
       skillInstallComment: "把 Agent-Native 规划加入你已经使用的 coding agent",
       frameworkComment: "一个 action 驱动 agent、UI、HTTP、MCP、A2A 和 CLI。",
       frameworkDescription: "从本地 app-agent loop 打招呼。",
@@ -183,12 +183,12 @@ const zhCN = {
       },
     },
     quickStart: {
-      title: "从 Chat 开始",
-      body: "一条命令会创建一个本地 Chat app，背后有 actions、durable threads 和 SQLite 支撑。还没有浏览器 UI 需求时，可以改用 `--headless`。",
+      title: "从一条命令开始",
+      body: "一条命令会创建一个本地 app，背后有 actions、durable threads 和 SQLite 支撑。还没有浏览器 UI 需求时，可以改用 `--headless`。",
     },
     finalCta: {
       title: "你拥有的软件，为 agentic 时代而建",
-      body: "从 Chat 或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。可 fork。属于你。",
+      body: "从一条命令或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。可 fork。属于你。",
       primaryCta: "从 Action 开始",
       secondaryCta: "阅读文档",
       githubCta: "在 GitHub 查看",
