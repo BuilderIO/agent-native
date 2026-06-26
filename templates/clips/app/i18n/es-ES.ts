@@ -355,7 +355,7 @@ const messages = {
     cleanupBuilderFailed:
       "La limpieza no pudo finalizar aunque Builder.io esté conectado. Se mantuvo la transcripción nativa.",
     cleanupPaused:
-      "La limpieza está en pausa. Conecte Builder.io en Configuración para habilitarlo.",
+      "La limpieza está en pausa. Conecte IA en Configuración: Builder.io (créditos gratis) o su propia clave LLM.",
     builderNoResponse:
       "No recibí respuesta del constructor. Permita ventanas emergentes e inténtelo de nuevo.",
     saveFailed: "Error al guardar ({{status}})",
@@ -600,7 +600,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Builder.io es la ruta principal de almacenamiento para las subidas de Clips. S3 está disponible si necesitas usar tu propio bucket.",
     checkingBuilder: "Comprobando Builder.io",
     builderConnected: "Builder.io conectado",
-    connectBuilder: "Conectar Builder.io",
+    connectBuilder: "Usar Builder.io (gratis)",
     builderConnectedFor: "Usando Builder.io para {{orgName}}.",
     builderConnectedGeneric:
       "Los clips nuevos usan el proveedor Builder.io conectado.",
@@ -627,12 +627,12 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     s3PublicBaseUrlLabel: "URL base pública",
     apiSetup: "Configuración de IA",
     apiSetupDescription:
-      "Builder.io es la ruta predeterminada para créditos de IA gestionados. Las claves de proveedor son opcionales y pueden añadirse aquí.",
-    builderEasySetup: "Builder.io es la configuración más sencilla",
+      "Conecta IA con créditos gratis de Builder.io o tus propias claves LLM.",
+    builderEasySetup: "Créditos gratis de Builder.io",
     builderAiAvailable:
       "Los créditos de IA incluidos y la transcripción gestionada están disponibles para Clips.",
     builderAiDescription:
-      "Conecta Builder primero para usar créditos de IA incluidos, almacenamiento de objetos, subidas y transcripción gestionada.",
+      "Usa Builder.io primero para créditos de IA incluidos, almacenamiento de objetos, subidas y transcripción gestionada.",
     providerKeyTitle: "Usar tu propia clave de proveedor",
     providerKeyDescription:
       "Añade claves de Anthropic, OpenAI, Gemini, Groq u OpenRouter para uso facturado por proveedor.",
@@ -780,7 +780,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     videoUrlMissing:
       "Una o más grabaciones aún no tienen una URL de video lista",
     connectStorage:
-      "Conecta Builder.io o almacenamiento compatible con S3 antes de unir grabaciones.",
+      "Conecta almacenamiento antes de unir grabaciones: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3.",
     created: "Grabación unida creada",
     failed: "No se pudieron unir las grabaciones",
     noOtherRecordings: "No hay otras grabaciones disponibles.",
@@ -1010,9 +1010,12 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "No hubo respuesta de Builder en 5 minutos. Revisa la ventana emergente e inténtalo de nuevo.",
     builderConnected: "Builder.io conectado",
     waitingForBuilder: "Esperando a Builder...",
-    connectBuilder: "Conectar Builder.io",
+    connectBuilder: "Usar Builder.io (gratis)",
     free: "Gratis",
     configureS3: "configurar almacenamiento compatible con S3",
+    whyPrompt: "¿Por qué veo esto?",
+    whyDescription:
+      "Clips es 100% gratis y de código abierto, así que necesitas conectar una forma de almacenar clips. Conecta almacenamiento con Builder.io para almacenamiento e IA en el plan gratuito, o usa almacenamiento compatible con S3 y tus propias claves LLM.",
   },
   captureInstall: {
     title: "Choose your recorder (Localizado)",
@@ -1215,9 +1218,9 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     downloadRecording: "Download recording (Localizado)",
     openRecorderInTab: "Open recorder in tab (Localizado)",
     connectStorageToFinish:
-      "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it. (Localizado)",
+      "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips terminará de guardarlo.",
     connectStorageToRetryLoom:
-      "Connect Builder.io or S3 storage on the next screen and Clips will retry the import. (Localizado)",
+      "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips reintentará la importación.",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Localizado)",
@@ -1311,6 +1314,38 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     spacePageTitle: "Espacio · Clips",
     spacesPageTitle: "Espacios · Clips",
     trashPageTitle: "Papelera · Clips",
+  },
+  bugReportRoute: {
+    pageTitle: "Informe de error · Clips",
+    donePageTitle: "Informe de error enviado · Clips",
+    eyebrow: "Informe de error",
+    title: "Grabar un informe de error",
+    description:
+      "Captura una reproducción breve con pantalla, voz y contexto del navegador redactado para tu equipo.",
+    issueTitleLabel: "Título del problema",
+    issueTitlePlaceholder: "¿Qué salió mal?",
+    detailsLabel: "Detalles",
+    detailsPlaceholder: "¿Qué esperabas que ocurriera?",
+    emailLabel: "Tu correo electrónico",
+    emailPlaceholder: "tu@example.com",
+    severityLabel: "Severidad",
+    severityLow: "Baja",
+    severityNormal: "Normal",
+    severityHigh: "Alta",
+    severityUrgent: "Urgente",
+    sourceLabel: "Origen",
+    sourceUnknown: "Página actual del producto",
+    startRecording: "Grabar informe de pantalla",
+    privacyNote:
+      "Clips guarda la grabación con acceso de espacio de trabajo de forma predeterminada. Las URL y los metadatos se redactan antes de guardarse.",
+    doneTitle: "Informe de error enviado",
+    doneDescription:
+      "La grabación se guardó en Clips y se notificó al producto anfitrión.",
+    openRecording: "Abrir grabación",
+    copyLink: "Copiar enlace",
+    copied: "Copiado",
+    returnToProduct: "Volver al producto",
+    missingRecording: "No se encontró la grabación",
   },
   meetingsRoute: {
     pageTitle: "Meetings · Clips (Localizado)",

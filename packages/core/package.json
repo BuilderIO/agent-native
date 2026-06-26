@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.77.8",
+  "version": "0.79.14",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -40,6 +40,7 @@
     },
     "./vite": "./dist/vite/index.js",
     "./server": "./dist/server/index.js",
+    "./server/edge": "./dist/server/edge.js",
     "./server/entry-server": "./dist/server/entry-server.js",
     "./server/ssr-handler": "./dist/server/ssr-handler.js",
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
@@ -101,6 +102,7 @@
     "./tools/url-safety": "./dist/extensions/url-safety.js",
     "./file-upload": "./dist/file-upload/index.js",
     "./file-upload/actions/upload-image": "./dist/file-upload/actions/upload-image.js",
+    "./private-blob": "./dist/private-blob/index.js",
     "./agent/context-xray/actions/context-manifest-get": "./dist/agent/context-xray/actions/context-manifest-get.js",
     "./agent/context-xray/actions/context-pin": "./dist/agent/context-xray/actions/context-pin.js",
     "./agent/context-xray/actions/context-evict": "./dist/agent/context-xray/actions/context-evict.js",
@@ -178,7 +180,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo && tsgo -p tsconfig.cli.json && node scripts/finalize-build.mjs",
+    "build": "tsgo && tsgo -p tsconfig.cli.json && node scripts/finalize-build.mjs && node scripts/check-dist-imports.mjs",
     "dev": "tsgo --watch",
     "typecheck": "tsgo --noEmit",
     "test": "vitest --run src",
@@ -211,8 +213,9 @@
     "@react-router/dev": "^8.0.1",
     "@react-router/fs-routes": "^8.0.1",
     "@resvg/resvg-js": "^2.6.2",
-    "@sentry/browser": "^10.61.0",
-    "@sentry/node": "^10.61.0",
+    "@rrweb/record": "2.0.1",
+    "@sentry/browser": "10.60.0",
+    "@sentry/node": "10.60.0",
     "@standard-schema/spec": "^1.1.0",
     "@tanstack/react-table": "^8.21.3",
     "@tiptap/core": "3.27.1",

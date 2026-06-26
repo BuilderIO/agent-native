@@ -68,8 +68,50 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.agent-frame-shell {
+  --agent-native-lower-surface: hsl(var(--background));
+  --agent-native-raised-radius: 18px;
+  --agent-native-raised-shadow-right: 12px 0 28px rgb(0 0 0 / 0.18);
+  background: var(--agent-native-lower-surface);
+}
+
+@supports (background: color-mix(in srgb, white, black)) {
+  .agent-frame-shell {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--background)) 86%,
+      black
+    );
+  }
+}
+
+.agent-frame-main-surface {
+  z-index: 1;
+  background: hsl(var(--background));
+  transition:
+    border-radius 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-frame-sidebar {
+  background: var(--agent-native-lower-surface);
+}
+
+.agent-frame-sidebar > .agent-frame-sidebar-inner {
+  background: inherit;
+}
+
+@media (min-width: 768px) {
+  .agent-frame-main-surface[data-agent-frame-main-state="open"] {
+    border-start-end-radius: var(--agent-native-raised-radius);
+    border-end-end-radius: var(--agent-native-raised-radius);
+    box-shadow: var(--agent-native-raised-shadow-right);
+  }
+}
+
 .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"] {
   width: 0;
+  overflow: clip;
   will-change: width;
   transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
@@ -78,14 +120,37 @@ body {
   width: var(--agent-frame-sidebar-width);
 }
 
+.agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"]
+  > .agent-frame-sidebar-inner {
+  width: var(--agent-frame-sidebar-width);
+  min-width: var(--agent-frame-sidebar-width);
+  max-width: var(--agent-frame-sidebar-width);
+  height: 100%;
+  transform: translateX(100%);
+  will-change: transform;
+  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"]
+  > .agent-frame-sidebar-inner {
+  transform: translateX(0);
+}
+
 @starting-style {
   .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"] {
     width: 0;
   }
+
+  .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"][data-agent-frame-sidebar-state="open"]
+    > .agent-frame-sidebar-inner {
+    transform: translateX(100%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agent-frame-sidebar[data-agent-frame-sidebar-animation] {
+  .agent-frame-sidebar[data-agent-frame-sidebar-animation],
+  .agent-frame-sidebar[data-agent-frame-sidebar-animation="desktop"]
+    > .agent-frame-sidebar-inner {
     transition: none;
   }
 }

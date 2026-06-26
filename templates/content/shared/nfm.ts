@@ -1798,3 +1798,19 @@ function parseLeafTag(
 export function canonicalizeNfm(nfm: string | null | undefined): string {
   return docToNfm(nfmToDoc(nfm ?? ""));
 }
+
+export function collapseExactRepeatedNfm(
+  nfm: string,
+  options: { requiredText: string },
+): string {
+  if (!options.requiredText || !nfm.includes(options.requiredText)) return nfm;
+
+  const lines = nfm.split("\n");
+  if (lines.length < 2 || lines.length % 2 !== 0) return nfm;
+
+  const midpoint = lines.length / 2;
+  for (let index = 0; index < midpoint; index += 1) {
+    if (lines[index] !== lines[index + midpoint]) return nfm;
+  }
+  return lines.slice(0, midpoint).join("\n");
+}

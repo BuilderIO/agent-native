@@ -4,6 +4,11 @@ import {
   isPostgres,
   retryOnDdlRace,
 } from "../db/client.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import type { PublicRemoteDevice, RemoteDevice } from "./remote-types.js";
 
 let _initPromise: Promise<void> | undefined;
@@ -12,26 +17,65 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE TABLE IF NOT EXISTS integration_remote_devices (
-            id TEXT PRIMARY KEY,
-            owner_email TEXT NOT NULL,
-            org_id TEXT,
-            label TEXT NOT NULL,
-            platform TEXT,
-            app_version TEXT,
-            host_name TEXT,
-            metadata_json TEXT,
-            device_token_hash TEXT NOT NULL,
-            last_seen_at ${intType()},
-            status TEXT NOT NULL,
-            revoked_at ${intType()},
-            created_at ${intType()} NOT NULL,
-            updated_at ${intType()} NOT NULL
-          )
-        `),
-      );
+      const createSql = `
+        CREATE TABLE IF NOT EXISTS integration_remote_devices (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT,
+          label TEXT NOT NULL,
+          platform TEXT,
+          app_version TEXT,
+          host_name TEXT,
+          metadata_json TEXT,
+          device_token_hash TEXT NOT NULL,
+          last_seen_at ${intType()},
+          status TEXT NOT NULL,
+          revoked_at ${intType()},
+          created_at ${intType()} NOT NULL,
+          updated_at ${intType()} NOT NULL
+        )
+      `;
+
+      if (isPostgres()) {
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("integration_remote_devices", createSql);
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "platform",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS platform TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "app_version",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS app_version TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "host_name",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS host_name TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "metadata_json",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS metadata_json TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_remote_devices",
+          "revoked_at",
+          `ALTER TABLE integration_remote_devices ADD COLUMN IF NOT EXISTS revoked_at ${intType()}`,
+        );
+        await ensureIndexExists(
+          "idx_remote_devices_token_hash",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_devices_token_hash ON integration_remote_devices(device_token_hash)`,
+        );
+        await ensureIndexExists(
+          "idx_remote_devices_owner",
+          `CREATE INDEX IF NOT EXISTS idx_remote_devices_owner ON integration_remote_devices(owner_email, org_id)`,
+        );
+        return;
+      }
+      // SQLite (local dev): keep existing behavior verbatim
+      await retryOnDdlRace(() => client.execute(createSql));
       await addColumnIfMissing("platform", "TEXT");
       await addColumnIfMissing("app_version", "TEXT");
       await addColumnIfMissing("host_name", "TEXT");

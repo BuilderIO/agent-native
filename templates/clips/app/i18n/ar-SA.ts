@@ -344,7 +344,7 @@ const messages = {
     cleanupBuilderFailed:
       "تعذر إنهاء عملية التنظيف على الرغم من اتصال Builder.io. تم الاحتفاظ بالنص الأصلي.",
     cleanupPaused:
-      "تم إيقاف عملية التنظيف مؤقتًا. قم بتوصيل Builder.io في الإعدادات لتمكينه.",
+      "التنظيف متوقف مؤقتًا. صِل الذكاء الاصطناعي من الإعدادات: Builder.io (أرصدة مجانية) أو مفتاح LLM الخاص بك.",
     builderNoResponse:
       "لم أتلق ردًا من Builder. اسمح بالنوافذ المنبثقة وحاول مرة أخرى.",
     saveFailed: "فشل الحفظ ({{status}})",
@@ -584,7 +584,7 @@ const messages = {
       "Builder.io هو مسار التخزين الأساسي لعمليات رفع Clips. يتوفر S3 عندما تحتاج إلى استخدام حاويتك الخاصة.",
     checkingBuilder: "جار فحص Builder.io",
     builderConnected: "Builder.io متصل",
-    connectBuilder: "اتصال Builder.io",
+    connectBuilder: "استخدام Builder.io (مجاني)",
     builderConnectedFor: "يتم استخدام Builder.io لـ {{orgName}}.",
     builderConnectedGeneric: "تستخدم المقاطع الجديدة مزود Builder.io المتصل.",
     builderIncludes:
@@ -610,12 +610,12 @@ const messages = {
     s3PublicBaseUrlLabel: "عنوان URL الأساسي العام",
     apiSetup: "إعداد الذكاء الاصطناعي",
     apiSetupDescription:
-      "Builder.io هو المسار الافتراضي لاعتمادات الذكاء الاصطناعي المُدارة. مفاتيح المزود اختيارية ويمكن إضافتها هنا.",
-    builderEasySetup: "Builder.io هو أسهل إعداد",
+      "صِل الذكاء الاصطناعي باستخدام أرصدة Builder.io المجانية أو مفاتيح LLM الخاصة بك.",
+    builderEasySetup: "أرصدة Builder.io مجانية",
     builderAiAvailable:
       "تتوفر اعتمادات الذكاء الاصطناعي المضمنة والنسخ المُدار لـ Clips.",
     builderAiDescription:
-      "اتصل بـ Builder أولًا لاستخدام اعتمادات الذكاء الاصطناعي المضمنة وتخزين الكائنات والرفع والنسخ المُدار.",
+      "استخدم Builder.io أولًا لاعتمادات الذكاء الاصطناعي المضمنة وتخزين الكائنات والرفع والنسخ المُدار.",
     providerKeyTitle: "استخدام مفتاح مزود خاص بك",
     providerKeyDescription:
       "أضف مفاتيح Anthropic أو OpenAI أو Gemini أو Groq أو OpenRouter للاستخدام المفوتر من المزود.",
@@ -762,7 +762,7 @@ const messages = {
     pickAtLeastTwo: "اختر تسجيلين على الأقل لدمجهما",
     videoUrlMissing: "واحد أو أكثر من التسجيلات لا يحتوي بعد على رابط فيديو جاهز",
     connectStorage:
-      "قم بتوصيل Builder.io أو تخزين متوافق مع S3 قبل دمج التسجيلات.",
+      "صِل التخزين قبل دمج التسجيلات: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3.",
     created: "تم إنشاء التسجيل المدمج",
     failed: "فشل دمج التسجيلات",
     noOtherRecordings: "لا توجد تسجيلات أخرى متاحة.",
@@ -988,9 +988,12 @@ const messages = {
       "لم يصل رد من Builder خلال 5 دقائق. تحقق من النافذة المنبثقة وحاول مرة أخرى.",
     builderConnected: "Builder.io متصل",
     waitingForBuilder: "بانتظار Builder...",
-    connectBuilder: "اتصال بـ Builder.io",
+    connectBuilder: "استخدام Builder.io (مجاني)",
     free: "مجاني",
     configureS3: "تكوين تخزين متوافق مع S3",
+    whyPrompt: "لماذا أرى هذا؟",
+    whyDescription:
+      "Clips تطبيق مجاني ومفتوح المصدر 100%، لذلك تحتاج إلى توصيل طريقة لتخزين المقاطع. صِل التخزين عبر Builder.io لتخزين وذكاء اصطناعي ضمن الخطة المجانية، أو استخدم تخزين كائنات متوافقًا مع S3 ومفاتيح LLM الخاصة بك.",
   },
   captureInstall: {
     title: "Choose your recorder (مترجم)",
@@ -1193,9 +1196,9 @@ const messages = {
     downloadRecording: "Download recording (مترجم)",
     openRecorderInTab: "Open recorder in tab (مترجم)",
     connectStorageToFinish:
-      "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it. (مترجم)",
+      "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
-      "Connect Builder.io or S3 storage on the next screen and Clips will retry the import. (مترجم)",
+      "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (مترجم)",
@@ -1287,6 +1290,37 @@ const messages = {
     spacePageTitle: "المساحة · Clips",
     spacesPageTitle: "المساحات · Clips",
     trashPageTitle: "المهملات · Clips",
+  },
+  bugReportRoute: {
+    pageTitle: "تقرير خطأ · Clips",
+    donePageTitle: "تم إرسال تقرير الخطأ · Clips",
+    eyebrow: "تقرير خطأ",
+    title: "تسجيل تقرير خطأ",
+    description:
+      "سجّل إعادة إنتاج قصيرة تتضمن الشاشة والصوت وسياق المتصفح بعد تنقيحه لفريقك.",
+    issueTitleLabel: "عنوان المشكلة",
+    issueTitlePlaceholder: "ما الذي حدث بشكل خاطئ؟",
+    detailsLabel: "التفاصيل",
+    detailsPlaceholder: "ماذا كنت تتوقع أن يحدث؟",
+    emailLabel: "بريدك الإلكتروني",
+    emailPlaceholder: "you@example.com",
+    severityLabel: "الخطورة",
+    severityLow: "منخفضة",
+    severityNormal: "عادية",
+    severityHigh: "عالية",
+    severityUrgent: "عاجلة",
+    sourceLabel: "المصدر",
+    sourceUnknown: "صفحة المنتج الحالية",
+    startRecording: "تسجيل تقرير الشاشة",
+    privacyNote:
+      "يحفظ Clips التسجيل بإمكانية وصول مساحة العمل افتراضيًا. تتم تنقيح عناوين URL والبيانات الوصفية قبل حفظها.",
+    doneTitle: "تم إرسال تقرير الخطأ",
+    doneDescription: "تم حفظ التسجيل في Clips وإبلاغ المنتج المضيف.",
+    openRecording: "فتح التسجيل",
+    copyLink: "نسخ الرابط",
+    copied: "تم النسخ",
+    returnToProduct: "العودة إلى المنتج",
+    missingRecording: "لم يتم العثور على التسجيل",
   },
   meetingsRoute: {
     pageTitle: "Meetings · Clips (مترجم)",

@@ -117,7 +117,7 @@ const messages = {
     backToLibrary: "Back to library",
     storageStillDisconnected: "Storage still isn't connected",
     finishBuilderOrS3:
-      "Finish the Builder.io popup or configure S3 storage, then try again.",
+      "Finish the Builder.io popup or configure S3-compatible storage, then try again.",
     loomImportResumed: "Loom import resumed",
     clipUploadResumed: "Clip upload resumed",
     couldNotRetryLoom: "Couldn't retry Loom import",
@@ -151,9 +151,9 @@ const messages = {
     savingWentWrong: "Something went wrong while saving this clip.",
     finishingClip: "Finishing up your clip…",
     loomSourcePreserved:
-      "The Loom source link is preserved. Connect Builder.io or S3 storage and Clips will retry saving its own copy.",
+      "The Loom source link is preserved. Connect storage with Builder.io (free tier storage + AI) or S3-compatible storage, and Clips will retry saving its own copy.",
     clipDataPreserved:
-      "Your clip data is still preserved. Connect Builder.io or S3 storage and Clips will upload it automatically.",
+      "Your clip data is still preserved. Connect storage with Builder.io (free tier storage + AI) or S3-compatible storage, and Clips will upload it automatically.",
     details: "Details",
     importingLoom: "Importing Loom...",
     uploadingSavedClip: "Uploading saved clip…",
@@ -230,13 +230,13 @@ const messages = {
     savingWentWrong: "Something went wrong while saving this clip.",
     finishingClip: "Finishing up this clip...",
     loomPreservedManage:
-      "The Loom source link is preserved. Connect Builder.io or S3 storage, then retry the import.",
+      "The Loom source link is preserved. Connect storage with Builder.io (free tier storage + AI) or S3-compatible storage, then retry the import.",
     videoPreservedManage:
-      "The video is preserved. Connect Builder.io or S3 storage and Clips will finish uploading it.",
+      "The video is preserved. Connect storage with Builder.io (free tier storage + AI) or S3-compatible storage, and Clips will finish uploading it.",
     creatorNeedsStorage:
-      "The creator needs to connect Builder.io or S3 storage before this clip can finish.",
+      "The creator needs to connect storage before this clip can finish: Builder.io (free tier storage + AI) or S3-compatible storage.",
     signInStorage:
-      "If this is your clip, sign in here to connect Builder.io or S3 storage and finish the upload.",
+      "If this is your clip, sign in here to connect storage with Builder.io (free tier storage + AI) or S3-compatible storage and finish the upload.",
     uploadNotCompleteSession:
       "The upload has not completed yet. Open the dashboard for this clip or ask the creator to check storage.",
     uploadNotCompleteSignIn:
@@ -343,7 +343,7 @@ const messages = {
     cleanupBuilderFailed:
       "Cleanup could not finish even though Builder.io is connected. Native transcript was kept.",
     cleanupPaused:
-      "Cleanup is paused. Connect Builder.io in Settings to enable it.",
+      "Cleanup is paused. Connect AI in Settings: Builder.io (free credits) or your own LLM key.",
     builderNoResponse:
       "Didn't hear back from Builder. Allow popups and try again.",
     saveFailed: "Save failed ({{status}})",
@@ -584,7 +584,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Builder.io is the primary storage path for Clips uploads. S3 is available when you need to bring your own bucket.",
     checkingBuilder: "Checking Builder.io",
     builderConnected: "Builder.io connected",
-    connectBuilder: "Connect Builder.io",
+    connectBuilder: "Use Builder.io (free)",
     builderConnectedFor: "Using Builder.io for {{orgName}}.",
     builderConnectedGeneric: "New clips use the connected Builder.io provider.",
     builderIncludes:
@@ -610,12 +610,12 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     s3PublicBaseUrlLabel: "Public base URL",
     apiSetup: "AI setup",
     apiSetupDescription:
-      "Builder.io is the default path for managed AI credits. Provider keys are optional and can be added here.",
-    builderEasySetup: "Builder.io is the easiest setup",
+      "Connect AI with Builder.io free credits or your own LLM keys.",
+    builderEasySetup: "Builder.io free credits",
     builderAiAvailable:
       "Included AI credits and managed transcription are available for Clips.",
     builderAiDescription:
-      "Connect Builder first for included AI credits, object storage, uploads, and managed transcription.",
+      "Use Builder.io first for included AI credits, object storage, uploads, and managed transcription.",
     providerKeyTitle: "Bring your own provider key",
     providerKeyDescription:
       "Add Anthropic, OpenAI, Gemini, Groq, or OpenRouter keys for provider-billed usage.",
@@ -760,7 +760,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     pickAtLeastTwo: "Pick at least 2 recordings to stitch together",
     videoUrlMissing: "One or more recordings don't have a ready video URL yet",
     connectStorage:
-      "Connect Builder.io or S3-compatible storage before stitching recordings.",
+      "Connect storage before stitching recordings: Builder.io (free tier storage + AI) or S3-compatible storage.",
     created: "Stitched recording created",
     failed: "Failed to stitch recordings",
     noOtherRecordings: "No other recordings available.",
@@ -988,9 +988,12 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Didn't hear back from Builder in 5 minutes. Check the popup and try again.",
     builderConnected: "Builder.io connected",
     waitingForBuilder: "Waiting for Builder...",
-    connectBuilder: "Connect Builder.io",
+    connectBuilder: "Use Builder.io (free)",
     free: "Free",
     configureS3: "configure S3-compatible storage",
+    whyPrompt: "Why am I seeing this?",
+    whyDescription:
+      "Clips is 100% free and open source, so you need to hook up a way to store clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.",
   },
   captureInstall: {
     title: "Choose your recorder",
@@ -1187,9 +1190,9 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     downloadRecording: "Download recording",
     openRecorderInTab: "Open recorder in tab",
     connectStorageToFinish:
-      "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it.",
+      "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
-      "Connect Builder.io or S3 storage on the next screen and Clips will retry the import.",
+      "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips",
@@ -1280,6 +1283,38 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     spacePageTitle: "Space · Clips",
     spacesPageTitle: "Spaces · Clips",
     trashPageTitle: "Trash · Clips",
+  },
+  bugReportRoute: {
+    pageTitle: "Bug report · Clips",
+    donePageTitle: "Bug report submitted · Clips",
+    eyebrow: "Bug report",
+    title: "Record a bug report",
+    description:
+      "Capture a short repro with screen, voice, and redacted browser context for your team.",
+    issueTitleLabel: "Issue title",
+    issueTitlePlaceholder: "What went wrong?",
+    detailsLabel: "Details",
+    detailsPlaceholder: "What did you expect to happen?",
+    emailLabel: "Your email",
+    emailPlaceholder: "you@example.com",
+    severityLabel: "Severity",
+    severityLow: "Low",
+    severityNormal: "Normal",
+    severityHigh: "High",
+    severityUrgent: "Urgent",
+    sourceLabel: "Source",
+    sourceUnknown: "Current product page",
+    startRecording: "Record screen report",
+    privacyNote:
+      "Clips stores the recording with workspace access by default. URLs and metadata are redacted before they are saved.",
+    doneTitle: "Bug report submitted",
+    doneDescription:
+      "The recording is saved in Clips and the host product has been notified.",
+    openRecording: "Open recording",
+    copyLink: "Copy link",
+    copied: "Copied",
+    returnToProduct: "Return to product",
+    missingRecording: "Recording not found",
   },
   meetingsRoute: {
     pageTitle: "Meetings · Clips",

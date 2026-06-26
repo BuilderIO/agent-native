@@ -43,6 +43,7 @@ const SITE_URL = "https://www.agent-native.com";
 const LOCALE_INIT_SCRIPT_SELECTOR = "script[data-agent-native-locale-init]";
 
 configureTracking({
+  sessionReplay: false,
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "agent-native-docs",

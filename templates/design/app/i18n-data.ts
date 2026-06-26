@@ -1,5 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import zhTW from "./i18n/zh-TW";
+
 const enUS = {
   root: {
     commandActions: "Actions",
@@ -576,6 +578,7 @@ function mergePartialMessages(
 }
 
 const designLocaleOverrides = {
+  "zh-TW": zhTW,
   "zh-CN": {
     common: {
       genericError: "出了点问题",
@@ -3853,6 +3856,7 @@ const designLocaleOverrides = {
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
 const designRawLiteralOverrides = {
+  "zh-TW": {},
   "zh-CN": {
     pages: {
       presentExitHint: "按 Esc 退出",
@@ -5098,6 +5102,7 @@ const designRawLiteralOverrides = {
 } satisfies Record<Exclude<LocaleCode, "en-US">, PartialMessages>;
 
 const designExactEnglishOverrides = {
+  "zh-TW": {},
   "zh-CN": {
     pages: {
       presentExitHint: "按 Esc 退出",
@@ -5767,6 +5772,7 @@ const designExactEnglishOverrides = {
 
 export const messagesByLocale = {
   "en-US": enUS,
+  "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages(
     mergePartialMessages(
       designLocaleOverrides["zh-CN"],

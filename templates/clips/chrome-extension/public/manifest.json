@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Agent-Native Clips",
   "short_name": "Clips",
-  "version": "0.1.3",
-  "description": "Start Clips recordings from Chrome with optional redacted console and network diagnostics.",
+  "version": "0.1.6",
+  "description": "Start Clips recordings from Chrome, capture optional diagnostics, and preview Clips links on GitHub.",
   "minimum_chrome_version": "116",
   "action": {
     "default_title": "Record with Clips",
@@ -18,17 +18,36 @@
     "32": "icons/icon-32.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["activeTab", "debugger", "offscreen", "scripting", "storage"],
+  "permissions": [
+    "activeTab",
+    "debugger",
+    "downloads",
+    "offscreen",
+    "scripting",
+    "storage"
+  ],
   "host_permissions": [
     "https://clips.agent-native.com/*",
     "https://forms.agent-native.com/*",
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["assets/github-preview-content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
   "web_accessible_resources": [
     {
       "resources": ["src/overlay.html", "assets/*", "icons/*"],
       "matches": ["<all_urls>"]
+    },
+    {
+      "resources": ["src/github-preview.html"],
+      "matches": ["https://github.com/*"]
     }
   ],
   "externally_connectable": {

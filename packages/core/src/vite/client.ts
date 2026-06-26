@@ -1,10 +1,9 @@
 import fs from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
-import { createRequire } from "module";
+import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import { nitro as nitroVitePlugin } from "nitro/vite";
 import type { ConfigEnv, Plugin, UserConfig } from "vite";
 
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
@@ -31,6 +30,59 @@ import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let nitroFsWatchGuardInstalled = false;
+
+function installNitroFsWatchGuard(): void {
+  if (nitroFsWatchGuardInstalled) return;
+  nitroFsWatchGuardInstalled = true;
+
+  const originalWatch = fs.watch.bind(fs) as (...args: any[]) => fs.FSWatcher;
+  (fs as typeof fs & { watch: (...args: any[]) => fs.FSWatcher }).watch = (
+    ...args: any[]
+  ) => {
+    let watcher: fs.FSWatcher;
+    try {
+      watcher = originalWatch(...args);
+    } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code !== "EMFILE" && err.code !== "ENOSPC") throw error;
+      console.warn(
+        `[agent-native] Disabled Nitro fs.watch for ${String(args[0])}: ${err.message}`,
+      );
+      return {
+        close() {},
+        on() {
+          return this as fs.FSWatcher;
+        },
+      } as unknown as fs.FSWatcher;
+    }
+
+    const originalEmit = watcher.emit.bind(watcher);
+    watcher.emit = ((eventName: string | symbol, ...eventArgs: any[]) => {
+      const err = eventArgs[0] as NodeJS.ErrnoException | undefined;
+      if (
+        eventName === "error" &&
+        (err?.code === "EMFILE" || err?.code === "ENOSPC")
+      ) {
+        console.warn(
+          `[agent-native] Disabled Nitro fs.watch for ${String(args[0])}: ${err.message}`,
+        );
+        watcher.close();
+        return false;
+      }
+      return originalEmit(eventName, ...eventArgs);
+    }) as fs.FSWatcher["emit"];
+    return watcher;
+  };
+  syncBuiltinESMExports();
+}
+
+function nitroVitePlugin(
+  ...args: Parameters<typeof import("nitro/vite").nitro>
+) {
+  installNitroFsWatchGuard();
+  return require("nitro/vite").nitro(...args);
+}
 
 /**
  * Sync discovery for the workspace-core in an enterprise monorepo.
@@ -105,6 +157,88 @@ function findWorkspaceCoreSync(
         // ignore malformed package.json
       }
     }
+  }
+  return null;
+}
+
+function findLocalWorkspacePackageDeps(
+  startDir: string,
+  workspaceRoot: string | null,
+): Array<{ packageName: string; packageDir: string }> {
+  if (!workspaceRoot) return [];
+  const pkgPath = path.join(startDir, "package.json");
+  if (!fs.existsSync(pkgPath)) return [];
+
+  try {
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+    const deps = {
+      ...(pkg.dependencies ?? {}),
+      ...(pkg.devDependencies ?? {}),
+      ...(pkg.peerDependencies ?? {}),
+    } as Record<string, string>;
+    const req = createRequire(pkgPath);
+    const seen = new Set<string>();
+    const packages: Array<{ packageName: string; packageDir: string }> = [];
+
+    for (const [packageName, range] of Object.entries(deps)) {
+      if (!range.startsWith("workspace:")) continue;
+      if (seen.has(packageName)) continue;
+      seen.add(packageName);
+
+      try {
+        const packageJsonPath =
+          findInstalledPackageJsonPath(pkgPath, packageName) ??
+          findPackageJsonFromEntry(req.resolve(packageName));
+        if (!packageJsonPath) continue;
+        const packageDir = fs.realpathSync(path.dirname(packageJsonPath));
+        if (!packageDir.startsWith(path.join(workspaceRoot, "packages")))
+          continue;
+        packages.push({ packageName, packageDir });
+      } catch {
+        // Dependency may not have been installed yet; ignore it for dev config.
+      }
+    }
+
+    return packages;
+  } catch {
+    return [];
+  }
+}
+
+function findInstalledPackageJsonPath(
+  pkgPath: string,
+  packageName: string,
+): string | null {
+  const candidate = path.join(
+    path.dirname(pkgPath),
+    "node_modules",
+    ...packageName.split("/"),
+    "package.json",
+  );
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+function findPackageJsonFromEntry(entryPath: string): string | null {
+  let dir = fs.statSync(entryPath).isDirectory()
+    ? entryPath
+    : path.dirname(entryPath);
+  for (let i = 0; i < 20; i++) {
+    const candidate = path.join(dir, "package.json");
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+function findPnpmWorkspaceRoot(startDir: string): string | null {
+  let dir = path.resolve(startDir);
+  for (let i = 0; i < 20; i++) {
+    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
   return null;
 }
@@ -557,6 +691,7 @@ function getCoreSourceAliases(
   const entries: Record<string, string> = {
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
+    "@agent-native/core/server/edge": path.join(coreSrc, "server/edge.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
     "@agent-native/core/client/chat": path.join(
       coreSrc,
@@ -1710,6 +1845,51 @@ function arrayFrom<T>(value: T | T[] | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
+function localWorkspacePackageAliases(
+  packages: Array<{ packageName: string; packageDir: string }>,
+): any[] {
+  const aliases: any[] = [];
+
+  for (const { packageName, packageDir } of packages) {
+    const pkgPath = path.join(packageDir, "package.json");
+    if (!fs.existsSync(pkgPath)) continue;
+
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      const exportsMap = pkg.exports as Record<string, unknown> | undefined;
+      if (!exportsMap || typeof exportsMap !== "object") continue;
+
+      for (const [exportPath, target] of Object.entries(exportsMap)) {
+        if (typeof target !== "string") continue;
+        const importPath =
+          exportPath === "."
+            ? packageName
+            : `${packageName}${exportPath.slice(1)}`;
+        const replacement = path.resolve(packageDir, target);
+
+        if (importPath.includes("*") || replacement.includes("*")) {
+          aliases.push({
+            find: new RegExp(
+              `^${escapeRegex(importPath).replace("\\*", "(.+)")}$`,
+            ),
+            replacement: replacement.replace("*", "$1"),
+          });
+          continue;
+        }
+
+        aliases.push({
+          find: new RegExp(`^${escapeRegex(importPath)}$`),
+          replacement,
+        });
+      }
+    } catch {
+      // Ignore malformed package metadata; normal package resolution can handle it.
+    }
+  }
+
+  return aliases;
+}
+
 function aliasArrayFrom(alias: unknown): any[] {
   if (!alias) return [];
   if (Array.isArray(alias)) return alias;
@@ -1720,6 +1900,19 @@ function aliasArrayFrom(alias: unknown): any[] {
   }
   return [];
 }
+
+const DEFAULT_VITE_WATCH_IGNORES = [
+  "**/.git/**",
+  "**/node_modules/**",
+  "**/.react-router/**",
+  "**/.generated/**",
+  "**/.agents/**",
+  "**/.claude/**",
+  "**/changelog/**",
+  "**/data/**",
+  "**/dist/**",
+  "**/build/**",
+];
 
 function forceServeOnly(pluginOrPreset: any): any {
   if (Array.isArray(pluginOrPreset)) return pluginOrPreset.map(forceServeOnly);
@@ -1829,9 +2022,26 @@ function createAgentNativeConfig(
   const workspaceNodeModulesAllow = isWorkspaceChild
     ? [path.resolve(cwd, "../../node_modules")]
     : [];
+  const packageWorkspaceRoot = workspaceRoot ?? findPnpmWorkspaceRoot(cwd);
+  const localWorkspacePackageDeps = findLocalWorkspacePackageDeps(
+    cwd,
+    packageWorkspaceRoot,
+  );
+  const localWorkspacePackageAllow = localWorkspacePackageDeps.map(
+    (pkg) => pkg.packageDir,
+  );
+  const localWorkspacePackageResolveAliases = localWorkspacePackageAliases(
+    localWorkspacePackageDeps,
+  );
   const workspaceCoreNoExternal = workspaceCore
     ? [new RegExp(`^${escapeRegex(workspaceCore.packageName)}(/.*)?$`)]
     : [];
+  const localWorkspacePackageNoExternal = localWorkspacePackageDeps.map(
+    (pkg) => new RegExp(`^${escapeRegex(pkg.packageName)}(/.*)?$`),
+  );
+  const forcePollingWatch = process.env.CHOKIDAR_USEPOLLING === "1";
+  const pollingWatchInterval = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
+  const userWatch = userConfig.server?.watch ?? {};
 
   return {
     logLevel:
@@ -1865,6 +2075,21 @@ function createAgentNativeConfig(
           ".ngrok.io",
           ".trycloudflare.com",
         ],
+      watch: {
+        ...userWatch,
+        ignored: [
+          ...DEFAULT_VITE_WATCH_IGNORES,
+          ...arrayFrom((userWatch as { ignored?: any })?.ignored),
+        ],
+        ...(forcePollingWatch
+          ? {
+              usePolling: true,
+              interval: Number.isFinite(pollingWatchInterval)
+                ? pollingWatchInterval
+                : 1000,
+            }
+          : {}),
+      },
       fs: {
         ...(userConfig.server?.fs ?? {}),
         allow: [
@@ -1872,6 +2097,7 @@ function createAgentNativeConfig(
           ...monorepoCoreAllow,
           ...monorepoNodeModulesAllow,
           ...workspaceCoreFsAllow,
+          ...localWorkspacePackageAllow,
           ...workspaceNodeModulesAllow,
           ...(userConfig.server?.fs?.allow ?? []),
           ...(options.fsAllow ?? []),
@@ -1951,6 +2177,7 @@ function createAgentNativeConfig(
               ? [/^@agent-native\/scheduling(\/.*)?$/]
               : []),
             ...workspaceCoreNoExternal,
+            ...localWorkspacePackageNoExternal,
             ...arrayFrom((userConfig.ssr as { noExternal?: any })?.noExternal),
           ],
           external: [
@@ -2000,6 +2227,7 @@ function createAgentNativeConfig(
         // Uses regex with $ anchor for exact matching to prevent
         // @agent-native/core from prefix-matching @agent-native/core/client.
         ...getCoreSourceAliases(cwd),
+        ...localWorkspacePackageResolveAliases,
         // Standard path aliases (prefix matching is fine here)
         { find: "@", replacement: path.resolve(cwd, "./app") },
         { find: "@shared", replacement: path.resolve(cwd, "./shared") },

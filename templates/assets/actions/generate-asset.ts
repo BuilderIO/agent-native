@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -116,16 +117,19 @@ const action = defineAction({
       view: "picker",
     };
   },
-  run: async (args) => {
+  run: async (args, context?: ActionRunContext) => {
     if (args.mediaType === "video") {
-      const picker = (await openAssetPicker.run({
-        mediaType: "video",
-        prompt: args.prompt,
-        libraryId: args.libraryId,
-        libraryHint: args.libraryHint,
-        count: args.count,
-        callerAppId: args.callerAppId,
-      })) as Record<string, unknown>;
+      const picker = (await openAssetPicker.run(
+        {
+          mediaType: "video",
+          prompt: args.prompt,
+          libraryId: args.libraryId,
+          libraryHint: args.libraryHint,
+          count: args.count,
+          callerAppId: args.callerAppId,
+        },
+        context,
+      )) as Record<string, unknown>;
       return {
         ...picker,
         generated: false,
@@ -134,20 +138,23 @@ const action = defineAction({
       };
     }
 
-    const picker = (await openAssetPicker.run({
-      mediaType: "image",
-      prompt: args.prompt,
-      libraryId: args.libraryId,
-      libraryHint: args.libraryHint,
-      aspectRatio: args.aspectRatio,
-      presetId: args.presetId,
-      count: args.count,
-      autoGenerate: true,
-      tier: args.tier,
-      styleStrength: args.styleStrength,
-      includeLogo: args.includeLogo,
-      callerAppId: args.callerAppId,
-    })) as Record<string, unknown>;
+    const picker = (await openAssetPicker.run(
+      {
+        mediaType: "image",
+        prompt: args.prompt,
+        libraryId: args.libraryId,
+        libraryHint: args.libraryHint,
+        aspectRatio: args.aspectRatio,
+        presetId: args.presetId,
+        count: args.count,
+        autoGenerate: true,
+        tier: args.tier,
+        styleStrength: args.styleStrength,
+        includeLogo: args.includeLogo,
+        callerAppId: args.callerAppId,
+      },
+      context,
+    )) as Record<string, unknown>;
     return {
       ...picker,
       generated: false,

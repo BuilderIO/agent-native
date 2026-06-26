@@ -73,12 +73,23 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   sanitized URL with query values redacted, status, duration), plus
   `consoleIssues` and `failedNetworkRequests` highlights. All bounded; page
   URL, headers, bodies, and cookies stay omitted.
+- Embedded bug reports use `/bug-report` as an iframe-friendly launcher and
+  `/record?intent=bug-report` for the actual top-level capture flow. The
+  launcher stores redacted host metadata through `save-bug-report-context`; the
+  recording remains the canonical resource and defaults to workspace visibility.
+  Do not present this as anonymous customer intake until a signed intake/upload
+  token flow exists, because the current upload endpoints are owner-scoped.
 - The Chrome extension lives in `chrome-extension/`. It launches `/record` with
   `clipsExtensionId` and `clipsCaptureSessionId`, then the recorder sends
   `CLIPS_CAPTURE_START/STOP/CANCEL` back to the extension. The extension uses
   the Chrome debugger API only on the tab the user launched from, only while a
   recording is active, and returns the same redacted diagnostics shape saved by
   `save-browser-diagnostics`.
+- The Chrome extension also enhances GitHub issue and PR markdown: a narrow
+  `github.com` content script detects Clips `/r/`, `/share/`, and `/embed/`
+  links, then renders the existing `/embed/:id` player in an extension-owned
+  preview iframe so the video is playable without leaving GitHub. Keep this
+  scoped to GitHub unless there is a deliberate permission review.
 - After mutations, rely on the app refresh/polling path; do not invent a second
   sync mechanism.
 

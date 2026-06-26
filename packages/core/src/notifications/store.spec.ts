@@ -27,6 +27,7 @@ const recordChange = vi.fn();
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
   intType: () => "INTEGER",
+  isPostgres: () => false,
   retryOnDdlRace: <T>(fn: () => Promise<T>) => fn(),
   safeJsonParse: (value: unknown, fallback: unknown) => {
     if (value == null) return fallback;

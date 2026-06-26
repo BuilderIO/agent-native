@@ -5,6 +5,10 @@ const esES = {
     label: "Idioma",
     system: "Sistema",
     systemDescription: "Usar el idioma del navegador",
+    suggestionTitle: "¿Leer esta página en {{language}}?",
+    suggestionDescription: "El idioma de tu navegador es {{language}}.",
+    suggestionSwitch: "Cambiar a {{language}}",
+    suggestionKeepEnglish: "Mantener inglés",
   },
   header: {
     docs: "Documentos",
@@ -77,7 +81,7 @@ const esES = {
       secondaryCta: "Ver la documentación",
     },
     code: {
-      quickStartComment: "Empieza con una plantilla de app completa",
+      quickStartComment: "Crea una app con un comando",
       skillInstallComment:
         "Añade planificación Agent-Native a un coding agent que ya uses",
       frameworkComment:
@@ -188,12 +192,12 @@ const esES = {
       },
     },
     quickStart: {
-      title: "Empieza con Chat",
-      body: "Un comando crea una Chat app local respaldada por actions, durable threads y SQLite. Usa `--headless` cuando aún no quieras UI de navegador.",
+      title: "Empieza con un comando",
+      body: "Un comando crea una app local respaldada por actions, durable threads y SQLite. Usa `--headless` cuando aún no quieras UI de navegador.",
     },
     finalCta: {
       title: "Software que es tuyo, construido para la era agentic",
-      body: "Empieza con Chat o un durable action, pásalo por el app-agent loop y luego hazlo crecer hasta UI, jobs y colaboración sin reescribir la operación. Open source. Forkable. Tuyo.",
+      body: "Empieza con un comando o un durable action, pásalo por el app-agent loop y luego hazlo crecer hasta UI, jobs y colaboración sin reescribir la operación. Open source. Forkable. Tuyo.",
       primaryCta: "Empezar con un Action",
       secondaryCta: "Leer la documentación",
       githubCta: "Ver en GitHub",
@@ -233,6 +237,7 @@ const esES = {
       workspaces: "Espacios de trabajo",
       voiceInput: "Entrada de voz",
       mcpApps: "MCP aplicaciones",
+      generativeUi: "Interfaz generativa",
       toolCalls: "Llamadas a herramientas",
       agentSidebar: "Barra lateral del agente",
       sharedActions: "Acciones compartidas",
@@ -1402,6 +1407,7 @@ const esES = {
     dropInAgent: "Agent embebible",
     componentApi: "API de componentes",
     nativeChatUi: "UI de chat nativa",
+    generativeUi: "Interfaz generativa",
     realTimeCollaboration: "Colaboración en tiempo real",
     workspaceOverview: "Visión general del workspace",
     skills: "Habilidades",

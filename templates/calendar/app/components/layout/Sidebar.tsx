@@ -659,7 +659,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       <aside
         data-open={open ? "true" : "false"}
         className={cn(
-          "calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full w-56 min-w-0 flex-col overflow-hidden border-e border-border bg-card transition-transform duration-200 lg:static",
+          "agent-layout-left-drawer calendar-app-sidebar fixed start-0 top-0 z-50 flex h-full w-56 min-w-0 flex-col overflow-hidden border-e border-border bg-card transition-transform duration-200 lg:static",
         )}
       >
         {/* Logo */}

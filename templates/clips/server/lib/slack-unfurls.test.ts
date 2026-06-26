@@ -92,6 +92,19 @@ describe("Clips Slack unfurls", () => {
     });
   });
 
+  it("parses recording dashboard links pasted into Slack", () => {
+    expect(extractShareLink("https://clips.example.com/r/rec-1")).toEqual({
+      id: "rec-1",
+      origin: "https://clips.example.com",
+      basePath: "",
+    });
+    expect(extractShareLink("https://apps.example.com/clips/r/rec-2")).toEqual({
+      id: "rec-2",
+      origin: "https://apps.example.com",
+      basePath: "/clips",
+    });
+  });
+
   it("builds a Slack video block for ready public clips", () => {
     expect(
       buildSlackVideoBlock({

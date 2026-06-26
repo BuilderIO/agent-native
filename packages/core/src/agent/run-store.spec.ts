@@ -132,6 +132,7 @@ describe("run store", () => {
       dispatchMode: "background",
       status: "running",
       diagStage: '{"stage":"route_entered"}',
+      workerStage: null,
       lastLivenessAt: 1000, // COALESCE(heartbeat_at, started_at)
     });
 
@@ -147,6 +148,7 @@ describe("run store", () => {
       dispatchMode: "background-processing",
       status: "running",
       diagStage: null,
+      workerStage: null,
       lastLivenessAt: 2500, // heartbeat_at wins over started_at
     });
 

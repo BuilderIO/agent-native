@@ -5,6 +5,10 @@ const deDE = {
     label: "Sprache",
     system: "System",
     systemDescription: "Browsersprache verwenden",
+    suggestionTitle: "Diese Seite auf {{language}} lesen?",
+    suggestionDescription: "Ihre Browsersprache ist {{language}}.",
+    suggestionSwitch: "Zu {{language}} wechseln",
+    suggestionKeepEnglish: "Englisch behalten",
   },
   header: {
     docs: "Dokumente",
@@ -77,7 +81,7 @@ const deDE = {
       secondaryCta: "Docs ansehen",
     },
     code: {
-      quickStartComment: "Starte mit einem vollständigen App-Template",
+      quickStartComment: "Erstelle eine App mit einem Befehl",
       skillInstallComment:
         "Füge Agent-Native-Planung zu einem coding agent hinzu, den du bereits nutzt",
       frameworkComment:
@@ -188,12 +192,12 @@ const deDE = {
       },
     },
     quickStart: {
-      title: "Mit Chat starten",
-      body: "Ein Befehl erstellt eine lokale Chat app mit actions, durable threads und SQLite. Nutze stattdessen `--headless`, wenn du noch keine Browser-UI willst.",
+      title: "Mit einem Befehl starten",
+      body: "Ein Befehl erstellt eine lokale App mit actions, durable threads und SQLite. Nutze stattdessen `--headless`, wenn du noch keine Browser-UI willst.",
     },
     finalCta: {
       title: "Software, die dir gehört, gebaut für die agentic era",
-      body: "Starte mit Chat oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
+      body: "Starte mit einem Befehl oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
       primaryCta: "Mit einem Action starten",
       secondaryCta: "Docs lesen",
       githubCta: "Auf GitHub ansehen",
@@ -233,6 +237,7 @@ const deDE = {
       workspaces: "Arbeitsbereiche",
       voiceInput: "Spracheingabe",
       mcpApps: "MCP Apps",
+      generativeUi: "Generative Oberfläche",
       toolCalls: "Werkzeugaufrufe",
       agentSidebar: "Agenten-Seitenleiste",
       sharedActions: "Geteilte Aktionen",
@@ -1400,6 +1405,7 @@ const deDE = {
     dropInAgent: "Drop-in-Agent",
     componentApi: "Komponenten-API",
     nativeChatUi: "Native Chat-UI",
+    generativeUi: "Generative Oberfläche",
     realTimeCollaboration: "Echtzeit-Zusammenarbeit",
     workspaceOverview: "Workspace-Überblick",
     skills: "Fähigkeiten",

@@ -133,11 +133,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           t("agent.suggestionRun"),
         ]}
       >
-        <div className="flex flex-1 overflow-hidden">
+        <div className="agent-layout-shell flex flex-1 overflow-hidden">
           {/* Desktop sidebar */}
           <aside
             className={cn(
-              "hidden shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
+              "agent-layout-left-drawer hidden shrink-0 flex-col border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex",
               desktopSidebarCollapsed ? "w-14" : "w-56",
             )}
           >
@@ -161,7 +161,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </Sheet>
 
           {/* Page content */}
-          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 flex-col overflow-hidden">
             <Header onOpenSidebar={() => setSidebarOpen(true)} />
             <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
           </div>

@@ -27,10 +27,7 @@ const STANDALONE_EXACT_DEPENDENCY_OVERRIDES: Record<string, string> = {
   "@react-router/fs-routes": "8.0.1",
   "react-router": "8.0.1",
 };
-const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = [
-  '"@sentry/browser"',
-  '"@sentry/node"',
-];
+const SENTRY_MINIMUM_RELEASE_AGE_EXCLUDES = ['"@sentry/*"'];
 const FIRST_PARTY_TARBALL_SYMLINK_EXCLUDES = [
   "*/CLAUDE.md",
   "*/.claude/skills",
@@ -969,6 +966,7 @@ function postProcessStandalone(
   const appTitle = appTitleForScaffold(name);
   replacePlaceholders(targetDir, name, appTitle);
   rewriteTrackingAppId(targetDir, name, templateName);
+  rewriteAgentChatAppId(targetDir, name, templateName);
   fixPackageJsonName(targetDir, name, templateName);
   fixWebManifestName(targetDir, name, templateName);
   rewriteNetlifyToml(targetDir, name, "standalone");
@@ -1069,7 +1067,37 @@ function postProcessStandalone(
     }
   } catch {}
 
+  fixStandaloneTsconfig(targetDir, templateName);
+
   setupAgentSymlinks(targetDir);
+}
+
+function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
+  const tsconfigPath = path.join(targetDir, "tsconfig.json");
+  if (!fs.existsSync(tsconfigPath)) return;
+  try {
+    const tsconfig = JSON.parse(fs.readFileSync(tsconfigPath, "utf-8")) as {
+      compilerOptions?: Record<string, unknown>;
+    };
+    tsconfig.compilerOptions ??= {};
+    const hasUiApp =
+      templateName !== "headless" && fs.existsSync(path.join(targetDir, "app"));
+    const paths = {
+      ...((tsconfig.compilerOptions.paths as Record<string, string[]>) ?? {}),
+    };
+    paths["*"] ??= ["./*"];
+    if (hasUiApp) {
+      paths["@/*"] ??= ["./app/*"];
+      paths["@shared/*"] ??= ["./shared/*"];
+    }
+    // baseUrl is deprecated/errors in TS 6 (TS5101/TS5102) and removed in TS 7
+    // (tsgo, which CI runs). paths already resolve relative to this tsconfig,
+    // and the "*": ["./*"] entry replaces baseUrl's bare-specifier resolution,
+    // so never emit baseUrl into scaffolds.
+    delete tsconfig.compilerOptions.baseUrl;
+    tsconfig.compilerOptions.paths = paths;
+    fs.writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
+  } catch {}
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -1725,7 +1753,7 @@ function rewriteNetlifyToml(
 
   try {
     let content = fs.readFileSync(netlifyPath, "utf-8");
-    const originalCommand = content.match(/^  command = "([^"]*)"$/m)?.[1];
+    const originalCommand = content.match(/^\s*command = "([^"]*)"$/m)?.[1];
     const usesUnpooledDatabase =
       originalCommand?.includes("NETLIFY_DATABASE_URL_UNPOOLED") ?? false;
     const buildCommand =
@@ -1745,7 +1773,7 @@ function rewriteNetlifyToml(
         : ".netlify/functions-internal";
 
     content = content
-      .replace(/^  command = ".*"$/m, `  command = "${command}"`)
+      .replace(/^(\s*)command = ".*"$/m, `$1command = "${command}"`)
       .replace(
         /publish = "templates\/[^"]+\/dist"/g,
         `publish = "${publishPath}"`,
@@ -1764,6 +1792,36 @@ function rewriteNetlifyToml(
     }
 
     fs.writeFileSync(netlifyPath, content);
+  } catch {}
+}
+
+function rewriteAgentChatAppId(
+  appDir: string,
+  appName: string,
+  templateName?: string,
+): void {
+  const pluginPath = path.join(appDir, "server", "plugins", "agent-chat.ts");
+  if (!fs.existsSync(pluginPath)) return;
+
+  try {
+    const content = fs.readFileSync(pluginPath, "utf-8");
+    const sourceAppIds = ["chat", "starter"];
+    if (templateName && templateName !== appName) {
+      sourceAppIds.push(templateName);
+    }
+    const pattern = new RegExp(
+      `(appId:\\s*)(["'])(${sourceAppIds.map(escapeRegExp).join("|")})\\2`,
+    );
+    if (!pattern.test(content)) return;
+
+    const next = content.replace(
+      pattern,
+      (_match, prefix: string, quote: string) =>
+        `${prefix}${quote}${appName}${quote}`,
+    );
+    if (next !== content) {
+      fs.writeFileSync(pluginPath, next);
+    }
   } catch {}
 }
 

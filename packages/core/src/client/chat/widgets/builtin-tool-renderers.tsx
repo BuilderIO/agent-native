@@ -3,6 +3,7 @@ import {
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
 } from "../../../action-ui.js";
 import {
   registerReservedActionChatRenderer,
@@ -21,6 +22,10 @@ import {
 import { DataChartWidget } from "./DataChartWidget.js";
 import { DataInsightsWidget } from "./DataInsightsWidget.js";
 import { DataTableWidget } from "./DataTableWidget.js";
+import {
+  InlineExtensionWidget,
+  normalizeInlineExtensionToolResult,
+} from "./InlineExtensionWidget.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -101,6 +106,11 @@ function renderDataWidget(context: ToolRendererContext) {
 const BuiltinDataWidgetRenderer: ToolRendererComponent = ({ context }) =>
   renderDataWidget(context);
 
+const BuiltinInlineExtensionRenderer: ToolRendererComponent = ({ context }) =>
+  normalizeInlineExtensionToolResult(context) ? (
+    <InlineExtensionWidget context={context} />
+  ) : null;
+
 export function isBuiltinDataWidgetActionRenderer(
   context: ToolRendererContext,
 ): boolean {
@@ -117,6 +127,12 @@ export function resolveBuiltinActionChatRenderer(
   context: ToolRendererContext,
 ): ToolRendererComponent | null {
   if (
+    context.chatUI?.renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER &&
+    normalizeInlineExtensionToolResult(context)
+  ) {
+    return BuiltinInlineExtensionRenderer;
+  }
+  if (
     isBuiltinDataWidgetActionRenderer(context) &&
     normalizeActionDataWidgetResult(context)
   ) {
@@ -128,6 +144,12 @@ export function resolveBuiltinActionChatRenderer(
 export function resolveBuiltinFallbackToolRenderer(
   context: ToolRendererContext,
 ): ToolRendererComponent | null {
+  if (
+    context.chatUI?.renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER &&
+    normalizeInlineExtensionToolResult(context)
+  ) {
+    return BuiltinInlineExtensionRenderer;
+  }
   return normalizeActionDataWidgetResult(context) !== null
     ? BuiltinDataWidgetRenderer
     : null;
@@ -138,11 +160,15 @@ for (const [id, renderer] of [
   ["core.data-chart", ACTION_CHAT_UI_DATA_CHART_RENDERER],
   ["core.data-insights", ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER],
   ["core.data-widget", ACTION_CHAT_UI_DATA_WIDGET_RENDERER],
+  ["core.inline-extension", ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER],
 ] as const) {
   registerReservedActionChatRenderer({
     id,
     renderer,
-    Component: BuiltinDataWidgetRenderer,
+    Component:
+      renderer === ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER
+        ? BuiltinInlineExtensionRenderer
+        : BuiltinDataWidgetRenderer,
   });
 }
 

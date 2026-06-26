@@ -91,6 +91,11 @@ pnpm install
 pnpm dev
 ```
 
+The Analytics template's dev script pins `DATABASE_URL` to the local SQLite
+file at `./data/app.db`, so a production `DATABASE_URL` in `.env` will not be
+used during local development. To intentionally point local dev at another
+database, run `ANALYTICS_DATABASE_URL=<your dev database url> pnpm dev`.
+
 The CLI prints the local dev URL. Sign in with Google, then open the **Data Sources** page to connect BigQuery, GA4, first-party tracking, HubSpot, Jira, and the rest.
 
 ### Key features

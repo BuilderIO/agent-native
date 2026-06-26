@@ -16,6 +16,7 @@ import {
   useTranslation,
 } from "react-i18next";
 
+import defaultEnglishMessages from "../localization/default-messages.js";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -31,7 +32,6 @@ import {
   type LocalePreference,
   type LocalizationPreference,
 } from "../localization/shared.js";
-import defaultEnglishMessages from "../templates/default/app/i18n/en-US.js";
 import { setClientAppState } from "./application-state.js";
 import { callAction } from "./use-action.js";
 
@@ -110,6 +110,11 @@ const LANGUAGE_PICKER_COPY: Record<
     label: "语言",
     system: "系统",
     systemDescription: "使用浏览器语言",
+  },
+  "zh-TW": {
+    label: "語言",
+    system: "系統",
+    systemDescription: "使用瀏覽器語言",
   },
   "es-ES": {
     label: "Idioma",

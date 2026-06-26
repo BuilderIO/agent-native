@@ -1,38 +1,36 @@
 import { defineAction } from "@agent-native/core";
-import {
-  deleteAppState,
-  readAppState,
-  writeAppState,
-} from "@agent-native/core/application-state";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import type { AssetVariantState } from "../shared/api.js";
+import {
+  deleteVariantState,
+  readVariantState,
+  writeVariantState,
+} from "./variant-slots.js";
 
 export default defineAction({
   description:
-    "Clear one or more live candidate slots from application_state.asset-variants. Use slotId for a single slot, scope='failed' to drop every failed slot, or scope='all' to clear the panel. Any underlying asset rows for cleared slots are deleted (requires editor access on the library).",
+    "Clear one or more live candidate slots from application_state.asset-variants. Uses the current chat thread when available. Use slotId for a single slot, scope='failed' to drop every failed slot, or scope='all' to clear the panel. Any underlying asset rows for cleared slots are deleted (requires editor access on the library).",
   schema: z
     .object({
       slotId: z.string().optional(),
       scope: z.enum(["failed", "all"]).optional(),
+      threadId: z.string().nullable().optional(),
     })
     .refine((v) => Boolean(v.slotId) !== Boolean(v.scope), {
       message: "Provide exactly one of `slotId` or `scope`.",
     }),
-  run: async ({ slotId, scope }) => {
-    const raw = (await readAppState("asset-variants")) as unknown | null;
-    const legacyRaw =
-      raw ??
-      ((await readAppState("image-variants").catch(() => null)) as
-        | unknown
-        | null);
-    const state = (legacyRaw ?? null) as AssetVariantState | null;
+  run: async ({ slotId, scope, threadId }, context?: ActionRunContext) => {
+    const effectiveThreadId = threadId ?? context?.threadId ?? null;
+    const state = await readVariantState(effectiveThreadId);
     if (!state || !Array.isArray(state.slots) || state.slots.length === 0) {
       return { dismissed: 0, assetsDeleted: 0, cleared: true };
     }
+    const stateThreadId =
+      effectiveThreadId ?? state.variantScopeId ?? state.threadId ?? null;
 
     await assertAccess("asset-library", state.libraryId, "editor");
 
@@ -64,8 +62,7 @@ export default defineAction({
     const remaining = state.slots.filter((s) => !removed.has(s.slotId));
 
     if (remaining.length === 0) {
-      await deleteAppState("asset-variants");
-      await deleteAppState("image-variants").catch(() => {});
+      await deleteVariantState(stateThreadId);
       return {
         dismissed: toRemove.length,
         assetsDeleted,
@@ -75,11 +72,7 @@ export default defineAction({
 
     state.slots = remaining;
     state.updatedAt = new Date().toISOString();
-    await writeAppState(
-      "asset-variants",
-      state as unknown as Record<string, unknown>,
-    );
-    await deleteAppState("image-variants").catch(() => {});
+    await writeVariantState(state, stateThreadId);
     return {
       dismissed: toRemove.length,
       assetsDeleted,

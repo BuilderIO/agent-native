@@ -8,6 +8,10 @@ const MAX_CONSOLE_LOGS = 400;
 const MAX_NETWORK_REQUESTS = 400;
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_URL_LENGTH = 1_000;
+const STORAGE_SETUP_REQUIRED_MESSAGE =
+  "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
+const STORAGE_SETUP_FAILURE_RE =
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
 const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
 const AUTHORIZATION_SCHEME_RE =
@@ -142,6 +146,10 @@ type NativeRecording = {
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
+  // When an upload fails, the recording is saved to the user's Downloads as a
+  // fallback so it is never lost; these describe that saved file.
+  savedToDisk?: boolean;
+  savedFilename?: string;
 };
 
 type OffscreenStatusMessage = {
@@ -151,6 +159,9 @@ type OffscreenStatusMessage = {
   recordingId?: string;
   result?: Record<string, unknown>;
   error?: string;
+  storageSetupRequired?: boolean;
+  savedToDisk?: boolean;
+  savedFilename?: string;
 };
 
 type ExtensionErrorMessage = {
@@ -161,6 +172,16 @@ type ExtensionErrorMessage = {
   stack?: string;
   context?: Record<string, unknown>;
 };
+
+function isStorageSetupFailureMessage(message: string | null | undefined) {
+  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
+
+function friendlyRecordingError(message: string | null | undefined): string {
+  return isStorageSetupFailureMessage(message)
+    ? STORAGE_SETUP_REQUIRED_MESSAGE
+    : message || "Could not stop recording.";
+}
 
 type PendingNetworkRequest = {
   requestId: string;
@@ -1369,8 +1390,9 @@ async function stopRecording() {
     };
   } catch (err) {
     recording.status = "error";
-    recording.error =
-      err instanceof Error ? err.message : "Could not stop recording.";
+    recording.error = friendlyRecordingError(
+      err instanceof Error ? err.message : null,
+    );
     resetOverlay();
     await broadcastUnmount();
     broadcastOverlayState();
@@ -2016,6 +2038,36 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
     return { ok: true };
   }
 
+  // The offscreen recorder asks us to save a recording to disk when its upload
+  // fails (storage not connected, network drop, size cap), so the recording is
+  // never lost. The offscreen document holds the blob URL alive until its next
+  // acquire(); we only need the download to be accepted, not fully written.
+  if (type === "CLIPS_SAVE_RECORDING_TO_DISK") {
+    const { url, filename } = message as { url?: string; filename?: string };
+    if (typeof url !== "string" || !url) {
+      return { ok: false, error: "Missing recording URL." };
+    }
+    try {
+      const options: chrome.downloads.DownloadOptions = {
+        url,
+        saveAs: false,
+        conflictAction: "uniquify",
+      };
+      if (typeof filename === "string" && filename) options.filename = filename;
+      const downloadId = await chrome.downloads.download(options);
+      return { ok: typeof downloadId === "number" && downloadId >= 0 };
+    } catch (err) {
+      console.error("[clips-bg] save-to-disk download failed", err);
+      captureExtensionError(err, {
+        tags: { surface: "background", messageType: type },
+      });
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Download failed.",
+      };
+    }
+  }
+
   // Status updates streamed from the offscreen recorder.
   if (type === "CLIPS_NATIVE_STATUS") {
     const status = message as OffscreenStatusMessage;
@@ -2032,12 +2084,24 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
     ) {
       activeNativeRecording.status = status.status;
       activeNativeRecording.error =
-        typeof status.error === "string" ? status.error : null;
+        typeof status.error === "string"
+          ? status.storageSetupRequired === true ||
+            isStorageSetupFailureMessage(status.error)
+            ? STORAGE_SETUP_REQUIRED_MESSAGE
+            : status.error
+          : null;
       if (typeof status.recordingId === "string") {
         activeNativeRecording.recordingId = status.recordingId;
         activeNativeRecording.recordingUrl = recordingUrl(
           activeNativeRecording,
         );
+      }
+      if (status.status === "error") {
+        activeNativeRecording.savedToDisk = status.savedToDisk === true;
+        activeNativeRecording.savedFilename =
+          typeof status.savedFilename === "string"
+            ? status.savedFilename
+            : undefined;
       }
       await saveActiveNativeRecording();
       // The offscreen recorder finished its pre-roll and actually started —

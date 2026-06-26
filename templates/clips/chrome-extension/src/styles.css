@@ -574,6 +574,80 @@ svg {
   color: var(--danger);
 }
 
+.storage-help {
+  position: relative;
+  display: flex;
+  min-height: 18px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--fg-subtle);
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.storage-help[hidden] {
+  display: none;
+}
+
+.storage-help-open,
+.storage-help-why {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.storage-help-open {
+  cursor: pointer;
+}
+
+.storage-help-why {
+  position: relative;
+  cursor: help;
+}
+
+.storage-help-open:hover,
+.storage-help-open:focus-visible,
+.storage-help-why:hover,
+.storage-help-why:focus-visible {
+  color: var(--fg);
+  outline: none;
+}
+
+.storage-help-details {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 70;
+  width: 310px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  box-shadow: var(--shadow-md);
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  transform: translateY(3px);
+  transition:
+    opacity 120ms ease-out,
+    transform 120ms ease-out;
+}
+
+.storage-help-why:hover .storage-help-details,
+.storage-help-why:focus-visible .storage-help-details {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .bottom-row {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

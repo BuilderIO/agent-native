@@ -5,6 +5,10 @@ const frFR = {
     label: "Langue",
     system: "Système",
     systemDescription: "Utiliser la langue du navigateur",
+    suggestionTitle: "Lire cette page en {{language}} ?",
+    suggestionDescription: "La langue de votre navigateur est {{language}}.",
+    suggestionSwitch: "Passer à {{language}}",
+    suggestionKeepEnglish: "Garder l'anglais",
   },
   header: {
     docs: "Documents",
@@ -77,7 +81,7 @@ const frFR = {
       secondaryCta: "Voir la documentation",
     },
     code: {
-      quickStartComment: "Commencez avec un modèle d’app complet",
+      quickStartComment: "Créez une app avec une commande",
       skillInstallComment:
         "Ajoutez la planification Agent-Native à un coding agent que vous utilisez déjà",
       frameworkComment:
@@ -188,12 +192,12 @@ const frFR = {
       },
     },
     quickStart: {
-      title: "Commencer avec Chat",
-      body: "Une commande crée une Chat app locale adossée à actions, durable threads et SQLite. Utilisez plutôt `--headless` quand vous ne voulez pas encore d'UI navigateur.",
+      title: "Commencez avec une commande",
+      body: "Une commande crée une app locale adossée à actions, durable threads et SQLite. Utilisez plutôt `--headless` quand vous ne voulez pas encore d'UI navigateur.",
     },
     finalCta: {
       title: "Un logiciel qui vous appartient, conçu pour l'ère agentic",
-      body: "Commencez avec Chat ou un durable action, passez-le dans l'app-agent loop, puis faites-le évoluer en UI, jobs et collaboration sans réécrire l'opération. Open source. Forkable. À vous.",
+      body: "Commencez avec une commande ou un durable action, passez-le dans l'app-agent loop, puis faites-le évoluer en UI, jobs et collaboration sans réécrire l'opération. Open source. Forkable. À vous.",
       primaryCta: "Commencer avec un Action",
       secondaryCta: "Lire la documentation",
       githubCta: "Voir sur GitHub",
@@ -233,6 +237,7 @@ const frFR = {
       workspaces: "Espaces de travail",
       voiceInput: "Saisie vocale",
       mcpApps: "MCP applications",
+      generativeUi: "Interface générative",
       toolCalls: "Appels d'outils",
       agentSidebar: "Barre latérale de l'agent",
       sharedActions: "Actions partagées",
@@ -1402,6 +1407,7 @@ const frFR = {
     dropInAgent: "Agent intégrable",
     componentApi: "API de composants",
     nativeChatUi: "UI de chat native",
+    generativeUi: "Interface générative",
     realTimeCollaboration: "Collaboration temps réel",
     workspaceOverview: "Vue d'ensemble du workspace",
     skills: "Compétences",

@@ -717,7 +717,7 @@ function continuationRepeatSignature(content: ContentPart[]): string {
     .map((segment) => segment.replace(/[^a-z0-9]+/g, " ").trim())
     .filter((segment) => segment.length > 0);
   if (segments.length === 0) return "";
-  return Array.from(new Set(segments)).sort().join(" ");
+  return Array.from(new Set(segments)).sort().join("\u0000");
 }
 
 /**
@@ -771,7 +771,7 @@ function inFlightToolInputSignature(
   part: Extract<ContentPart, { type: "tool-call" }>,
 ): string {
   const raw = part.argsText ?? stableJson(part.args);
-  return `${raw.length} ${raw.slice(0, 256)}`;
+  return `${raw.length}\u0000${raw.slice(0, 256)}`;
 }
 
 function toolContinuationKey(
@@ -962,6 +962,10 @@ function retryDelay(attempt: number, abortSignal: AbortSignal): Promise<void> {
   const jitter = base * 0.2;
   const ms = Math.max(0, base + (Math.random() * 2 - 1) * jitter);
   return delay(ms, abortSignal);
+}
+
+function shouldCaptureRecoveryHttpStatus(status: number): boolean {
+  return status < 500 || status >= 600;
 }
 
 function generateTurnId(): string {
@@ -1518,15 +1522,17 @@ export function createAgentChatAdapter(
                 lastReconnectError = new Error(
                   `Reconnect failed: ${reconnectRes.status}`,
                 );
-                captureChatClientError(
-                  lastReconnectError,
-                  "reconnect-current-response",
-                  {
-                    status: reconnectRes.status,
-                    hasBody: Boolean(reconnectRes.body),
-                    attempt,
-                  },
-                );
+                if (shouldCaptureRecoveryHttpStatus(reconnectRes.status)) {
+                  captureChatClientError(
+                    lastReconnectError,
+                    "reconnect-current-response",
+                    {
+                      status: reconnectRes.status,
+                      hasBody: Boolean(reconnectRes.body),
+                      attempt,
+                    },
+                  );
+                }
                 reconnectErrorCaptured = true;
                 break;
               }
@@ -1610,11 +1616,13 @@ export function createAgentChatAdapter(
                 lastActiveRunError = new Error(
                   `Active run lookup failed: ${activeRes.status}`,
                 );
-                captureChatClientError(
-                  lastActiveRunError,
-                  "reconnect-active-response",
-                  { status: activeRes.status, attempt },
-                );
+                if (shouldCaptureRecoveryHttpStatus(activeRes.status)) {
+                  captureChatClientError(
+                    lastActiveRunError,
+                    "reconnect-active-response",
+                    { status: activeRes.status, attempt },
+                  );
+                }
                 return false;
               }
               const active = await activeRes.json();

@@ -5,6 +5,10 @@ const ptBR = {
     label: "Idioma",
     system: "Sistema",
     systemDescription: "Usar o idioma do navegador",
+    suggestionTitle: "Ler esta página em {{language}}?",
+    suggestionDescription: "O idioma do seu navegador é {{language}}.",
+    suggestionSwitch: "Mudar para {{language}}",
+    suggestionKeepEnglish: "Manter em inglês",
   },
   header: {
     docs: "Documentos",
@@ -77,7 +81,7 @@ const ptBR = {
       secondaryCta: "Ver a documentação",
     },
     code: {
-      quickStartComment: "Comece com um template completo de app",
+      quickStartComment: "Crie uma app com um comando",
       skillInstallComment:
         "Adicione planejamento Agent-Native a um coding agent que você já usa",
       frameworkComment: "Um action impulsiona agent, UI, HTTP, MCP, A2A e CLI.",
@@ -187,12 +191,12 @@ const ptBR = {
       },
     },
     quickStart: {
-      title: "Comece com Chat",
-      body: "Um comando cria uma Chat app local com suporte em actions, durable threads e SQLite. Use `--headless` quando ainda não quiser UI no navegador.",
+      title: "Comece com um comando",
+      body: "Um comando cria uma app local com suporte em actions, durable threads e SQLite. Use `--headless` quando ainda não quiser UI no navegador.",
     },
     finalCta: {
       title: "Software que é seu, feito para a era agentic",
-      body: "Comece com Chat ou um durable action, rode pelo app-agent loop e depois expanda para UI, jobs e colaboração sem reescrever a operação. Open source. Forkable. Seu.",
+      body: "Comece com um comando ou um durable action, rode pelo app-agent loop e depois expanda para UI, jobs e colaboração sem reescrever a operação. Open source. Forkable. Seu.",
       primaryCta: "Começar com um Action",
       secondaryCta: "Ler a documentação",
       githubCta: "Ver no GitHub",
@@ -232,6 +236,7 @@ const ptBR = {
       workspaces: "Espaços de trabalho",
       voiceInput: "Entrada de voz",
       mcpApps: "MCP aplicativos",
+      generativeUi: "UI generativa",
       toolCalls: "Chamadas de ferramentas",
       agentSidebar: "Barra lateral do agente",
       sharedActions: "Ações compartilhadas",
@@ -1400,6 +1405,7 @@ const ptBR = {
     dropInAgent: "Agent drop-in",
     componentApi: "API de componentes",
     nativeChatUi: "UI de chat nativa",
+    generativeUi: "UI generativa",
     realTimeCollaboration: "Colaboração em tempo real",
     workspaceOverview: "Visão geral do workspace",
     skills: "Habilidades",

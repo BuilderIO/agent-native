@@ -3,6 +3,7 @@ import {
   IconArrowLeft,
   IconCircleCheck,
   IconDownload,
+  IconExternalLink,
   IconFolderOpen,
   IconPencil,
   IconInfoCircle,
@@ -103,6 +104,7 @@ interface PendingNativeUpload {
   lastAttemptAt?: string | null;
   lastError?: string | null;
   retryCount: number;
+  corrupt?: boolean;
 }
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
@@ -116,6 +118,15 @@ type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
 type VideoStorageStatus = "checking" | "configured" | "missing";
+
+const STORAGE_SETUP_HELP_TEXT =
+  "Clips is 100% free and open source, so you need to hook up a way to store your clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.";
+const STORAGE_SETUP_FAILURE_RE =
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+
+function isStorageSetupFailureMessage(message: string | null | undefined) {
+  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
 
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
@@ -193,8 +204,20 @@ function serverUrlForPendingUpload(
   return normalizedCurrent || normalizeServerUrl(upload.serverUrl || "");
 }
 
-async function hasConfiguredVideoStorage(serverUrl: string): Promise<boolean> {
+// "configured"/"missing" are definitive answers from the server; "unknown"
+// means the check could not be completed (network error, unreachable server, or
+// an unparseable/non-OK response). An "unknown" result must never downgrade an
+// already-connected user to the setup flow.
+type VideoStorageProbe = "configured" | "missing" | "unknown";
+
+async function hasConfiguredVideoStorage(
+  serverUrl: string,
+): Promise<VideoStorageProbe> {
   const base = serverUrl.replace(/\/+$/, "");
+
+  // Track whether any endpoint gave a definitive answer. If both checks throw
+  // or return non-OK/unparseable responses, we can't tell and return "unknown".
+  let sawDefinitiveAnswer = false;
 
   try {
     const uploadStatus = await fetch(
@@ -204,12 +227,15 @@ async function hasConfiguredVideoStorage(serverUrl: string): Promise<boolean> {
         cache: "no-store",
       },
     );
-    const body = uploadStatus.ok
-      ? ((await uploadStatus.json().catch(() => null)) as {
-          configured?: boolean;
-        } | null)
-      : null;
-    if (body?.configured) return true;
+    if (uploadStatus.ok) {
+      const body = (await uploadStatus.json().catch(() => null)) as {
+        configured?: boolean;
+      } | null;
+      if (body) {
+        sawDefinitiveAnswer = true;
+        if (body.configured) return "configured";
+      }
+    }
   } catch {
     // Fall through to the Builder status endpoint.
   }
@@ -219,15 +245,20 @@ async function hasConfiguredVideoStorage(serverUrl: string): Promise<boolean> {
       credentials: "include",
       cache: "no-store",
     });
-    const body = builderStatus.ok
-      ? ((await builderStatus.json().catch(() => null)) as {
-          configured?: boolean;
-        } | null)
-      : null;
-    return !!body?.configured;
+    if (builderStatus.ok) {
+      const body = (await builderStatus.json().catch(() => null)) as {
+        configured?: boolean;
+      } | null;
+      if (body) {
+        sawDefinitiveAnswer = true;
+        if (body.configured) return "configured";
+      }
+    }
   } catch {
-    return false;
+    // Network error or unreachable server — treat as indeterminate below.
   }
+
+  return sawDefinitiveAnswer ? "missing" : "unknown";
 }
 
 function authTokenStorageKey(serverUrl: string): string {
@@ -647,10 +678,21 @@ export function App() {
       return true;
     }
 
-    setVideoStorageStatus("checking");
-    const configured = await hasConfiguredVideoStorage(serverUrl);
-    setVideoStorageStatus(configured ? "configured" : "missing");
-    return configured;
+    setVideoStorageStatus((prev) => (prev === "missing" ? prev : "checking"));
+    const probe = await hasConfiguredVideoStorage(serverUrl);
+    if (probe === "unknown") {
+      // The check couldn't be completed (offline/unreachable). Never downgrade
+      // an already-connected user to "missing" on an indeterminate result;
+      // preserve the last known status and let the poll retry. If we never
+      // determined a status, fall back to "checking" so the poll keeps trying
+      // rather than hard-blocking the record button.
+      setVideoStorageStatus((prev) =>
+        prev === "configured" || prev === "missing" ? prev : "checking",
+      );
+      return false;
+    }
+    setVideoStorageStatus(probe);
+    return probe === "configured";
   }, [authStatus, localRecordingMode, serverUrl]);
 
   useEffect(() => {
@@ -661,7 +703,10 @@ export function App() {
     if (
       authStatus !== "authed" ||
       localRecordingMode !== "off" ||
-      videoStorageStatus !== "missing"
+      // Re-poll while storage is "missing" (server may become configured) and
+      // while still "checking" (an indeterminate/unreachable first probe should
+      // keep retrying instead of hard-blocking the record button).
+      (videoStorageStatus !== "missing" && videoStorageStatus !== "checking")
     ) {
       return;
     }
@@ -1558,7 +1603,11 @@ export function App() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[clips-tray] retry saved upload failed:", err);
-      setRecError(message);
+      setRecError(
+        isStorageSetupFailureMessage(message)
+          ? "Connect storage to finish uploading this saved clip: Builder.io (free tier storage + AI) or S3-compatible storage."
+          : message,
+      );
       await loadPendingUploads();
     } finally {
       setRetryingUploadId(null);
@@ -1635,20 +1684,23 @@ export function App() {
     });
   }
 
-  const openVideoStorageSetup = useCallback(() => {
-    const base = serverUrl.replace(/\/+$/, "");
-    setRecError(
-      "Connect Builder.io or S3-compatible storage before recording from desktop. Opening storage setup...",
-    );
-    void openExternal(`${base}/record`).catch((err) => {
+  const openVideoStorageSetup = useCallback(
+    (targetServerUrl?: string) => {
+      const base = (targetServerUrl?.trim() || serverUrl).replace(/\/+$/, "");
       setRecError(
-        err instanceof Error
-          ? err.message
-          : "Could not open Clips storage setup.",
+        "Connect storage before recording from desktop: Builder.io (free tier storage + AI) or S3-compatible storage. Opening storage setup...",
       );
-    });
-    void refreshVideoStorageStatus();
-  }, [refreshVideoStorageStatus, serverUrl]);
+      void openExternal(`${base}/record`).catch((err) => {
+        setRecError(
+          err instanceof Error
+            ? err.message
+            : "Could not open Clips storage setup.",
+        );
+      });
+      void refreshVideoStorageStatus();
+    },
+    [refreshVideoStorageStatus, serverUrl],
+  );
 
   async function handleStartRecording(options?: {
     ignoreActiveRecorder?: boolean;
@@ -2147,6 +2199,7 @@ export function App() {
           onRetry={retryPendingUpload}
           onDiscard={discardPendingUpload}
           onOpenFolder={openPendingUploadFolder}
+          onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
         />
       ) : null}
 
@@ -2406,6 +2459,7 @@ function PendingUploadBanner({
   onRetry,
   onDiscard,
   onOpenFolder,
+  onConnectStorage,
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
@@ -2415,11 +2469,13 @@ function PendingUploadBanner({
   onRetry: (upload: PendingDesktopUpload) => void;
   onDiscard: (upload: PendingDesktopUpload) => void;
   onOpenFolder: (upload: PendingDesktopUpload) => void;
+  onConnectStorage: (upload: PendingDesktopUpload) => void;
 }) {
   const latest = uploads[0];
   if (!latest) return null;
 
   const retrying = retryingUploadId === latest.recordingId;
+  const storageSetupFailure = isStorageSetupFailureMessage(latest.lastError);
   const exporting = exportingUploadId === latest.recordingId;
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const canExport = latest.kind === "browser";
@@ -2429,6 +2485,16 @@ function PendingUploadBanner({
     uploads.length === 1
       ? "1 Clip saved locally"
       : `${uploads.length} Clips saved locally`;
+  const nativeCorrupt = latest.kind === "native" && !!latest.corrupt;
+  const title = nativeCorrupt
+    ? uploads.length === 1
+      ? "Clip could not be finalized"
+      : "Some Clips could not be finalized"
+    : storageSetupFailure
+      ? uploads.length === 1
+        ? "Connect storage to upload saved Clip"
+        : "Connect storage to upload saved Clips"
+      : savedLabel;
   const details = [
     latest.savedAt ? `saved ${formatAgo(latest.savedAt)}` : null,
     formatFileSize(latest.bytes),
@@ -2443,11 +2509,36 @@ function PendingUploadBanner({
         <IconUpload size={17} stroke={1.8} />
       </div>
       <div className="pending-upload-copy">
-        <div className="pending-upload-title">{savedLabel}</div>
-        <div className="pending-upload-sub">
-          {details.join(" · ")}
-          {errorText ? ` · ${errorText}` : ""}
+        <div className="pending-upload-title">{title}</div>
+        <div
+          className={
+            storageSetupFailure
+              ? "pending-upload-sub pending-upload-sub-wrap"
+              : "pending-upload-sub"
+          }
+        >
+          {nativeCorrupt
+            ? `${details.join(" · ")} · discard and record again`
+            : storageSetupFailure
+              ? `${details.join(" · ")} · your clip is safe locally`
+              : `${details.join(" · ")}${errorText ? ` · ${errorText}` : ""}`}
         </div>
+        {storageSetupFailure ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" className="pending-upload-why">
+                Why am I seeing this?
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              align="start"
+              className="tooltip-content-wide"
+            >
+              {STORAGE_SETUP_HELP_TEXT}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
       <div className="pending-upload-actions">
         {canOpenFolder ? (
@@ -2474,25 +2565,51 @@ function PendingUploadBanner({
             <IconDownload size={14} stroke={2} />
           </button>
         ) : null}
-        <button
-          type="button"
-          className="pending-upload-retry"
-          disabled={actionsDisabled}
-          onClick={() => onRetry(latest)}
-        >
-          <IconRefresh size={14} stroke={2} />
-          {retrying ? "Retrying" : "Retry"}
-        </button>
-        <button
-          type="button"
-          className="pending-upload-discard"
-          disabled={actionsDisabled}
-          onClick={() => onDiscard(latest)}
-          aria-label="Discard saved local clip"
-          title="Discard saved local clip"
-        >
-          <IconTrash size={14} stroke={2} />
-        </button>
+        {latest.kind === "native" && latest.corrupt ? (
+          <button
+            type="button"
+            className="pending-upload-discard"
+            disabled={actionsDisabled}
+            onClick={() => onDiscard(latest)}
+            aria-label="Discard corrupted clip"
+            title="This clip is corrupted and cannot be recovered. Discard it and record again."
+          >
+            <IconTrash size={14} stroke={2} />
+          </button>
+        ) : (
+          <>
+            {storageSetupFailure ? (
+              <button
+                type="button"
+                className="pending-upload-connect"
+                disabled={actionsDisabled}
+                onClick={() => onConnectStorage(latest)}
+              >
+                <IconExternalLink size={14} stroke={2} />
+                Connect
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="pending-upload-retry"
+              disabled={actionsDisabled}
+              onClick={() => onRetry(latest)}
+            >
+              <IconRefresh size={14} stroke={2} />
+              {retrying ? "Retrying" : "Retry"}
+            </button>
+            <button
+              type="button"
+              className="pending-upload-discard"
+              disabled={actionsDisabled}
+              onClick={() => onDiscard(latest)}
+              aria-label="Discard saved local clip"
+              title="Discard saved local clip"
+            >
+              <IconTrash size={14} stroke={2} />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -3689,7 +3806,7 @@ function Setup({
                 className="secondary"
                 onClick={connectBuilder}
               >
-                Connect Builder.io
+                Use Builder.io (free)
               </button>
             ) : null}
           </div>

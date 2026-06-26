@@ -1,0 +1,178 @@
+---
+title: "表格"
+description: "Agent-Native 表單生成器 - 透過自然語言和視覺化編輯器建立、編輯、發布和路由表單提交。"
+---
+
+# 表格
+
+Forms 是一個 Agent-Native 表單建置器。描述您想要的表單，在編輯器中對其進行完善，然後發布一個公開表單，將提交內容儲存在您自己的 SQL 資料庫中。
+
+```an-wireframe
+{
+  "surface": "desktop",
+  "html": "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta 註冊</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>分享</button><button class='primary'>取消發布</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>編輯</span><span class='wf-pill'>結果 187</span><span class='wf-pill'>設定</span><span class='wf-pill'>整合</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta 註冊</h2><p class='wf-muted' style='margin:0'>預留即將開始的私密 beta 名額。</p><div class='wf-card'><strong>姓名</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>工作信箱</strong><input value='you@company.com'/></div><div class='wf-card'><strong>你的角色</strong><input value='Select...'/></div><div class='wf-card'><strong>團隊規模</strong><input value='Select...'/></div></div></div>"
+}
+```
+
+當您開啟應用程式時，您會看到表單、目前編輯器和即時預覽。代理可以根據提示建立表單、更新欄位標籤和選項、更改驗證以及使用 UI 使用的相同 actions 連線提交目的地。
+
+```an-diagram title="建置、發布、收集" summary="代理和視覺化編輯器編輯一個 SQL-backed 表單定義。公開填寫頁面未經驗證，提交內容將透過伺服器端路由到您的目的地。"
+{
+  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">代理提示詞<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">視覺化編輯器<br><small class=\"diagram-muted\">標籤、校驗、順序</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">欄位 JSON，設定 JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">透過 Drizzle 使用 SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">公開填寫頁面<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / 表格</small></div></div></div>",
+  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+}
+```
+
+## 你可以用它做什麼
+
+- **以對話方式建置表單。**“建立聯絡表單”、“新增 NPS 分數問題”、“將電子郵件欄位設為必填”。代理更新表單架構，並從 SQL 支援的狀態更新預覽。
+- **視覺上進行微調。**當您需要直接控制時，可以從建置器 UI 編輯標籤、預留位置、所需狀態、選項和欄位順序。
+- **使用附帶的欄位型別。**開箱即用地支援文字、電子郵件、數字、長文字、選取、多選、核取方塊、單選、日期、評級和比例欄位。
+- **收集回覆。**每次提交都儲存在 SQL 中，並帶有每個回覆的詳細資訊檢視和用於審核條目的儀表板。
+- **路由提交。**使用內建整合將提交有效負載傳送到 webhooks、Slack、Discord 或 Google 表格。
+- **發布公開表單。**分享公開表單 URL 並在提交後顯示感謝訊息。
+
+## 開始使用
+
+線上示範：[forms.agent-native.com](https://forms.agent-native.com)。
+
+1. **根據提示建立表單。**詢問您想要的表單，包括
+   受眾以及提交後會發生什麼。
+2. **在編輯器中最佳化。**調整標籤、驗證、選取和順序
+   直接編輯時的視覺生成器速度更快。
+3. **發布並分享。**使用受訪者公開表單 URL，然後觀看
+   結果到達回應檢視。
+4. **連線目的地。**將新提交內容路由至 Slack、Discord、Google
+   工作表、webhooks 或您自己的擴充功能點。
+
+### 有用的提示
+
+- “建立包含角色、團隊規模和優先用例的測試版註冊表單。”
+- “新增必填的 NPS 問題和自由文字後續問題。”
+- “將每個新回覆發布到產品 Slack 頻道。”
+- “總結本週提交的內容並按客戶細分進行分組。”
+- “在不丟失路由所需欄位的情況下縮短此表單。”
+
+## 對於開發者
+
+本檔案的其餘部分適用於任何分叉表單範本或擴充功能它的人。
+
+### 快速入門
+
+```bash
+npx @agent-native/core@latest create my-forms --standalone --template forms
+cd my-forms
+pnpm install
+pnpm dev
+```
+
+對於包含 Forms 和其他應用程式的工作區：
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+在工作區設定過程中選取您想要的表單和任何其他範本。
+
+### 主要功能 {#key-features}
+
+**JSON 表單定義。** 欄位位於一個 `fields` JSON 列中，因此代理可以進行外科手術編輯，而無需更改每種欄位型別的架構。
+
+**公開填寫頁面。**受訪者可以提交未經驗證的表單，而私人設定會在資料到達瀏覽器之前被刪除。
+
+**伺服器端目標。** Slack、Discord、Google Sheets 和 Webhook 整合存在於表單設定中並在提交後執行。
+
+### 資料模型
+
+所有資料透過 Drizzle ORM 儲存在 SQL 中。架構：`templates/forms/server/db/schema.ts`。表單攜帶標準 `ownableColumns` 和匹配的框架共用表，因此它們可以插入每使用者/每組織共用模型。
+
+| 表            | 它包含什麼                                                                                                                                                                                     |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `forms`       | 表單定義 - `title`、`description`、唯一 `slug`、`fields`（`FormField` 的 JSON 陣列）、`settings`（JSON `FormSettings`）、`status`（`draft` / `published` / `closed`），以及軟刪除 `deleted_at` |
+| `responses`   | 每行一次提交 - `form_id`、`data` (JSON `{ fieldId: value }`)、`submitted_at`、可選的 `ip` 和 `submitter_email`                                                                                 |
+| `form_shares` | 框架共用每個表單將主體（使用者或組織）對應到角色（檢視者、編輯者、管理員）的表                                                                                                                 |
+
+`fields` 和 `settings` JSON 形狀在 `templates/forms/shared/types.ts`（`FormField`、`FormSettings`）中定義。在任何資料透過 `toPublicFormSettings` 到達公開填充頁面之前，所有者私人設定（例如整合 Webhook URL 和允許的來源）都會被刪除。
+
+```an-schema title="表單資料模型" summary="三張桌子。欄位和整合是表單上的 JSON 列，因此代理的編輯是外科手術補丁，而不是跨表行更改。"
+{
+  "entities": [
+    {
+      "id": "forms",
+      "name": "forms",
+      "note": "A form definition (ownable)",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "title", "type": "string" },
+        { "name": "description", "type": "string", "nullable": true },
+        { "name": "slug", "type": "string", "note": "unique; public URL" },
+        { "name": "fields", "type": "json", "note": "FormField[] — 所有欄位型別" },
+        { "name": "settings", "type": "json", "note": "FormSettings — 整合等" },
+        { "name": "status", "type": "enum", "note": "草稿|發表 |關閉" },
+        { "name": "deleted_at", "type": "datetime", "nullable": true, "note": "soft delete" },
+        { "name": "owner_email", "type": "string" },
+        { "name": "org_id", "type": "id", "nullable": true }
+      ]
+    },
+    {
+      "id": "responses",
+      "name": "responses",
+      "note": "每行一次提交",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "form_id", "type": "id", "fk": "forms.id" },
+        { "name": "data", "type": "json", "note": "{ fieldId: value }" },
+        { "name": "submitted_at", "type": "datetime" },
+        { "name": "ip", "type": "string", "nullable": true },
+        { "name": "submitter_email", "type": "string", "nullable": true }
+      ]
+    },
+    {
+      "id": "form_shares",
+      "name": "form_shares",
+      "note": "框架份額表——每個表格的角色原則",
+      "fields": [
+        { "name": "id", "type": "id", "pk": true },
+        { "name": "form_id", "type": "id", "fk": "forms.id" },
+        { "name": "principal", "type": "string", "note": "user or org" },
+        { "name": "role", "type": "enum", "note": "觀眾|編輯|行政" }
+      ]
+    }
+  ],
+  "relations": [
+    { "from": "forms", "to": "responses", "kind": "1-n", "label": "has responses" },
+    { "from": "forms", "to": "form_shares", "kind": "1-n", "label": "has share grants" }
+  ]
+}
+```
+
+### 金鑰actions
+
+每個操作都是`templates/forms/actions/`中的一個TypeScript檔案，自動掛載在`POST /_agent-native/actions/:name`：
+
+- `create-form` — 建立一個新表單（標題、描述、欄位、設定）
+- `update-form` — 更新欄位、設定或狀態
+- `get-form` — 透過 id 或 slug 檢索表單
+- `list-forms` — 列出可存取的表單
+- `delete-form` — 軟刪除（設定 `deleted_at`）
+- `restore-form` — 恢復軟刪除的表單
+- `list-responses` — 列出帶有可選過濾器的表單提交內容
+- `export-responses` — 將回應匯出為 CSV 或 JSON
+
+### 自訂
+
+首先向代理詢問發貨行為：
+
+- “為首選聯絡方式新增必填單選欄位。”
+- “將每個新提交發布到 Slack。”先透過[Messaging](/docs/messaging)連線 Slack。
+- “為我們的 CRM 新增 Webhook 目標。”
+- “建立一個具有 1-10 等級和長文字跟進的客戶意見回饋表。”
+- “將某些表單設為公開，其他表單僅供登入。”
+
+如果您需要檔案上傳、簽名或自訂欄位小工具等新功能，請將它們視為範本擴充功能：將 SQL 形狀、actions、UI 編輯器控制項、公開渲染器支援和代理指令新增在一起。請參閱 [Creating Templates](/docs/creating-templates) 了解目前的建置模式。
+
+## 下一步是什麼
+
+- [**Templates**](/docs/cloneable-saas) — 克隆自有模型
+- [**Actions**](/docs/actions) — 為建置器提供動力的動作系統
+- [**Messaging**](/docs/messaging) — Slack 和其他提交目的地

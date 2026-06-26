@@ -11,6 +11,7 @@ import { IconPhoto, IconSparkles, IconVideo } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 
+import { GenerationResults } from "@/components/generation/GenerationResults";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 
 // The composer's model picker shows the chat LLM (Claude/OpenAI/Gemini). The
@@ -137,6 +138,9 @@ export default function CreatePage() {
           navigate,
         }}
         browserTabId={getBrowserTabId()}
+        threadFooterSlot={({ threadId }) => (
+          <GenerationResults threadId={threadId} />
+        )}
         imageModelMenu={{
           value: imageModel,
           options: IMAGE_MODEL_OPTIONS.map((option) => ({

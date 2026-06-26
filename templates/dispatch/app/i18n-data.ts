@@ -1,5 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import zhTW from "./i18n/zh-TW";
+
 const enUS = {
   root: {
     commandActions: "Actions",
@@ -241,6 +243,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
 
 export const messagesByLocale = {
   "en-US": enUS,
+  "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     routeTitles: {
       chat: "聊天 — Dispatch",

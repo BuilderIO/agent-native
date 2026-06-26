@@ -74,6 +74,14 @@ beforeEach(() => {
   delete process.env.FUSION_ENVIRONMENT;
   delete process.env.FUSION_ENV_ORIGIN;
   delete process.env.VITE_FUSION_ENV_ORIGIN;
+  delete process.env.NETLIFY;
+  delete process.env.VERCEL;
+  delete process.env.CF_PAGES;
+  delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  delete process.env.AWS_EXECUTION_ENV;
+  delete process.env.FUNCTIONS_WORKER_RUNTIME;
+  delete process.env.K_SERVICE;
+  delete process.env.RENDER;
   delete process.env.BUILDER_PRIVATE_KEY;
   delete process.env.BUILDER_PUBLIC_KEY;
   delete process.env.BUILDER_USER_ID;
@@ -437,6 +445,22 @@ describe("resolveBuilderCredential", () => {
     mockReadAppSecret.mockResolvedValue(null);
 
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
+  });
+
+  it("does not use deploy-level Builder keys for signed-in Netlify users even without NODE_ENV=production", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.NETLIFY = "true";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    process.env.BUILDER_PUBLIC_KEY = "space-id";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(await resolveBuilderCredentialSource()).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
   });
 

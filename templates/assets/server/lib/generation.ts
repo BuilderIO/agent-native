@@ -65,6 +65,17 @@ export interface GenerateProviderOutput {
 const MANAGED_PROVIDER_MAX_ATTEMPTS = 3;
 const MANAGED_PROVIDER_RETRY_DELAY_MS =
   process.env.NODE_ENV === "test" ? 0 : 2500;
+// A single managed image generation can legitimately run longer than one
+// request's abort window (pro models routinely exceed 90s). The request always
+// carries the run id as an idempotency key, so re-POSTing the same key replays
+// the finished result (or answers 409 "request in progress") instead of
+// starting a second, double-charged generation. When a request aborts client
+// side, hits an upstream gateway timeout, or reports in-progress, we poll the
+// same key until it resolves rather than failing. ~40 polls * 6s ≈ 4 min.
+const MANAGED_PROVIDER_INFLIGHT_MAX_POLLS =
+  process.env.NODE_ENV === "test" ? 6 : 40;
+const MANAGED_PROVIDER_INFLIGHT_POLL_MS =
+  process.env.NODE_ENV === "test" ? 0 : 6000;
 
 export async function getGeminiApiKey(): Promise<string> {
   const key = await resolveSecret("GEMINI_API_KEY");
@@ -135,12 +146,19 @@ function isRetryableProviderError(err: unknown): boolean {
 class BuilderImageGenerationError extends Error {
   readonly status?: number;
   readonly detail?: string;
+  readonly code?: string;
 
-  constructor(message: string, status?: number, detail?: string) {
+  constructor(
+    message: string,
+    status?: number,
+    detail?: string,
+    code?: string,
+  ) {
     super(message);
     this.name = "BuilderImageGenerationError";
     this.status = status;
     this.detail = detail;
+    this.code = code;
   }
 }
 
@@ -151,9 +169,29 @@ function isRetryableBuilderImageGenerationError(err: unknown): boolean {
   );
 }
 
+// A client-side abort, an upstream gateway timeout, or the service's explicit
+// 409 "request_in_progress" all mean the generation is still running under this
+// idempotency key. Re-POSTing the same key replays the finished result once the
+// service completes, so these are polled rather than surfaced as failures.
+function isInFlightImageGenerationError(err: unknown): boolean {
+  if (!(err instanceof BuilderImageGenerationError)) return false;
+  return (
+    err.code === "client_timeout" ||
+    err.code === "request_in_progress" ||
+    err.status === 504 ||
+    err.status === 409
+  );
+}
+
 function generationRetryDelay(attempt: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, attempt * MANAGED_PROVIDER_RETRY_DELAY_MS);
+  });
+}
+
+function generationPollDelay(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, MANAGED_PROVIDER_INFLIGHT_POLL_MS);
   });
 }
 
@@ -231,9 +269,14 @@ export async function generateWithBuilderImageApi(
     signal: AbortSignal.timeout(90_000),
   }).catch((err) => {
     if ((err as Error)?.name === "AbortError") {
+      // The socket aborted, but the service keeps generating under this
+      // idempotency key. Flag it so the retry loop polls the key instead of
+      // starting a fresh (double-charged) generation.
       throw new BuilderImageGenerationError(
         "Builder-managed image generation timed out.",
         504,
+        undefined,
+        "client_timeout",
       );
     }
     throw err;
@@ -242,10 +285,12 @@ export async function generateWithBuilderImageApi(
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     const detail = extractBuilderErrorDetail(text);
+    const code = extractBuilderErrorCode(text);
     throw new BuilderImageGenerationError(
       `Builder-managed image generation failed (${response.status})${detail ? `: ${detail}` : "."}`,
       response.status,
       detail,
+      code,
     );
   }
 
@@ -286,28 +331,41 @@ export async function generateWithBuilderImageApi(
 async function generateWithRetryingBuilderImageApi(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < MANAGED_PROVIDER_MAX_ATTEMPTS; attempt += 1) {
+  let transientAttempts = 0;
+  let inFlightPolls = 0;
+  for (;;) {
     try {
-      if (attempt > 0) {
-        await generationRetryDelay(attempt);
-      }
       return await generateWithBuilderImageApi(input);
     } catch (err) {
-      lastError = err;
-      if (
-        !isRetryableBuilderImageGenerationError(err) ||
-        attempt === MANAGED_PROVIDER_MAX_ATTEMPTS - 1
-      ) {
-        throw err;
+      // The generation is still running under this idempotency key. Poll the
+      // same key — a pending request returns 409 immediately and the final
+      // poll returns the stored image as an idempotent replay (no re-charge) —
+      // until it resolves or we exhaust the polling budget.
+      if (isInFlightImageGenerationError(err)) {
+        if (inFlightPolls >= MANAGED_PROVIDER_INFLIGHT_MAX_POLLS) {
+          throw new BuilderImageGenerationError(
+            "Builder-managed image generation is still running after the wait budget. It may finish shortly — try again to pick up the result.",
+            504,
+            err instanceof BuilderImageGenerationError ? err.detail : undefined,
+            "client_timeout",
+          );
+        }
+        inFlightPolls += 1;
+        await generationPollDelay();
+        continue;
       }
+      // Fresh transient server errors get a few quick retries with backoff.
+      if (
+        isRetryableBuilderImageGenerationError(err) &&
+        transientAttempts < MANAGED_PROVIDER_MAX_ATTEMPTS - 1
+      ) {
+        transientAttempts += 1;
+        await generationRetryDelay(transientAttempts);
+        continue;
+      }
+      throw err;
     }
   }
-  throw lastError instanceof Error
-    ? lastError
-    : new BuilderImageGenerationError(
-        "Builder-managed image generation failed.",
-      );
 }
 
 export async function generateWithManagedImageProvider(
@@ -390,6 +448,19 @@ function extractBuilderErrorDetail(text: string): string {
     // Fall back to the raw response text below.
   }
   return trimmed.slice(0, 300);
+}
+
+// The managed service tags errors with a stable machine code (e.g.
+// "request_in_progress") in the JSON body. It drives retry vs. poll decisions.
+function extractBuilderErrorCode(text: string): string | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed) as { code?: unknown };
+    return typeof parsed?.code === "string" ? parsed.code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readProviderErrorDetail(value: unknown): string | null {

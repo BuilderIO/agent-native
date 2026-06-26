@@ -114,6 +114,9 @@ export default runMigrations(
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       last_used_at TEXT,
       revoked_at TEXT,
+      replay_allowed_origins TEXT NOT NULL DEFAULT '[]',
+      replay_max_bytes_per_day INTEGER NOT NULL DEFAULT 104857600,
+      replay_max_requests_per_minute INTEGER NOT NULL DEFAULT 120,
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
       org_id TEXT
     )`,
@@ -134,8 +137,10 @@ export default runMigrations(
       event_name TEXT NOT NULL,
       user_id TEXT,
       anonymous_id TEXT,
+      user_key TEXT,
       session_id TEXT,
       timestamp TEXT NOT NULL,
+      event_date TEXT,
       received_at TEXT NOT NULL DEFAULT (datetime('now')),
       url TEXT,
       path TEXT,
@@ -219,11 +224,279 @@ export default runMigrations(
       version: 38,
       sql: `SELECT 1`,
     },
-    // --- v39+: Strategic Accounts curated roster (migrated from
+    {
+      version: 39,
+      sql: `ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS event_date TEXT`,
+    },
+    {
+      version: 40,
+      sql: `ALTER TABLE analytics_events ADD COLUMN IF NOT EXISTS user_key TEXT`,
+    },
+    {
+      version: 41,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_event_date_idx; CREATE INDEX CONCURRENTLY analytics_events_org_event_date_idx ON analytics_events (org_id, event_date)`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_event_date_idx ON analytics_events (org_id, event_date)`,
+      },
+    },
+    {
+      version: 42,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_event_name_date_idx; CREATE INDEX CONCURRENTLY analytics_events_org_event_name_date_idx ON analytics_events (org_id, event_name, event_date)`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_event_name_date_idx ON analytics_events (org_id, event_name, event_date)`,
+      },
+    },
+    {
+      version: 43,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_date_user_idx; CREATE INDEX CONCURRENTLY analytics_events_org_date_user_idx ON analytics_events (org_id, event_date, user_key)`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_date_user_idx ON analytics_events (org_id, event_date, user_key)`,
+      },
+    },
+    {
+      version: 44,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_date_template_idx; CREATE INDEX CONCURRENTLY analytics_events_org_date_template_idx ON analytics_events (org_id, event_date, template)`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_date_template_idx ON analytics_events (org_id, event_date, template)`,
+      },
+    },
+    {
+      version: 45,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_event_date_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_event_date_idx ON analytics_events (owner_email, event_date) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_event_date_idx ON analytics_events (owner_email, event_date) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 46,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_event_name_date_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_event_name_date_idx ON analytics_events (owner_email, event_name, event_date) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_event_name_date_idx ON analytics_events (owner_email, event_name, event_date) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 47,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_date_user_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_date_user_idx ON analytics_events (owner_email, event_date, user_key) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_date_user_idx ON analytics_events (owner_email, event_date, user_key) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 48,
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_date_template_idx; CREATE INDEX CONCURRENTLY analytics_events_owner_date_template_idx ON analytics_events (owner_email, event_date, template) WHERE org_id IS NULL`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_owner_date_template_idx ON analytics_events (owner_email, event_date, template) WHERE org_id IS NULL`,
+      },
+    },
+    {
+      version: 49,
+      sql: {
+        postgres: `UPDATE analytics_events SET event_date = COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)), user_key = COALESCE(NULLIF(user_key, ''), NULLIF(user_id, ''), NULLIF(anonymous_id, '')) WHERE (event_date IS NULL OR event_date = '' OR user_key IS NULL OR user_key = '') AND timestamp >= to_char(CURRENT_DATE - INTERVAL '400 days', 'YYYY-MM-DD')`,
+        sqlite: `UPDATE analytics_events SET event_date = COALESCE(NULLIF(event_date, ''), substr(timestamp, 1, 10)), user_key = COALESCE(NULLIF(user_key, ''), NULLIF(user_id, ''), NULLIF(anonymous_id, '')) WHERE (event_date IS NULL OR event_date = '' OR user_key IS NULL OR user_key = '') AND timestamp >= date('now', '-400 days')`,
+      },
+    },
+    {
+      version: 50,
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS dashboard_report_subscriptions (
+      id TEXT PRIMARY KEY,
+      dashboard_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      recipients TEXT NOT NULL DEFAULT '[]',
+      filters TEXT NOT NULL DEFAULT '{}',
+      frequency TEXT NOT NULL DEFAULT 'daily',
+      time_of_day TEXT NOT NULL DEFAULT '09:00',
+      timezone TEXT NOT NULL DEFAULT 'UTC',
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      next_run_at TEXT,
+      last_run_at TEXT,
+      last_status TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (now()::text),
+      updated_at TEXT NOT NULL DEFAULT (now()::text),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT
+    )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS dashboard_report_subscriptions (
+      id TEXT PRIMARY KEY,
+      dashboard_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      recipients TEXT NOT NULL DEFAULT '[]',
+      filters TEXT NOT NULL DEFAULT '{}',
+      frequency TEXT NOT NULL DEFAULT 'daily',
+      time_of_day TEXT NOT NULL DEFAULT '09:00',
+      timezone TEXT NOT NULL DEFAULT 'UTC',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      next_run_at TEXT,
+      last_run_at TEXT,
+      last_status TEXT,
+      last_error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT
+    )`,
+      },
+    },
+    {
+      version: 51,
+      sql: `CREATE INDEX IF NOT EXISTS dashboard_report_subscriptions_due_idx ON dashboard_report_subscriptions (enabled, next_run_at)`,
+    },
+    {
+      version: 52,
+      sql: `CREATE INDEX IF NOT EXISTS dashboard_report_subscriptions_owner_dashboard_idx ON dashboard_report_subscriptions (owner_email, org_id, dashboard_id)`,
+    },
+    {
+      version: 53,
+      sql: `CREATE TABLE IF NOT EXISTS session_recordings (
+      id TEXT PRIMARY KEY,
+      public_key_id TEXT NOT NULL,
+      client_recording_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      user_id TEXT,
+      anonymous_id TEXT,
+      user_key TEXT,
+      started_at TEXT NOT NULL,
+      ended_at TEXT,
+      duration_ms INTEGER,
+      chunk_count INTEGER NOT NULL DEFAULT 0,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      total_bytes INTEGER NOT NULL DEFAULT 0,
+      page_count INTEGER NOT NULL DEFAULT 0,
+      error_count INTEGER NOT NULL DEFAULT 0,
+      rage_click_count INTEGER NOT NULL DEFAULT 0,
+      privacy_mode TEXT NOT NULL DEFAULT 'unknown',
+      first_url TEXT,
+      last_url TEXT,
+      path TEXT,
+      hostname TEXT,
+      referrer TEXT,
+      app TEXT,
+      template TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      metadata TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_ingested_at TEXT,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+    },
+    {
+      version: 54,
+      sql: `CREATE TABLE IF NOT EXISTS session_replay_chunks (
+      id TEXT PRIMARY KEY,
+      recording_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      checksum TEXT NOT NULL,
+      byte_length INTEGER NOT NULL DEFAULT 0,
+      event_count INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT,
+      ended_at TEXT,
+      storage_kind TEXT NOT NULL,
+      storage_ref TEXT,
+      inline_data TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT
+    )`,
+    },
+    {
+      version: 55,
+      sql: `CREATE TABLE IF NOT EXISTS session_recording_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 56,
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS session_recordings_key_client_idx ON session_recordings (public_key_id, client_recording_id)`,
+    },
+    {
+      version: 57,
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS session_replay_chunks_recording_seq_idx ON session_replay_chunks (recording_id, seq)`,
+    },
+    {
+      version: 58,
+      sql: `CREATE INDEX IF NOT EXISTS session_recordings_scope_started_idx ON session_recordings (org_id, owner_email, started_at)`,
+    },
+    {
+      version: 59,
+      sql: `CREATE INDEX IF NOT EXISTS session_recordings_session_idx ON session_recordings (session_id)`,
+    },
+    {
+      version: 60,
+      sql: `CREATE INDEX IF NOT EXISTS session_recording_shares_resource_idx ON session_recording_shares (resource_id)`,
+    },
+    {
+      version: 61,
+      sql: `ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS page_count INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 62,
+      sql: `ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS error_count INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 63,
+      sql: `ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS rage_click_count INTEGER NOT NULL DEFAULT 0`,
+    },
+    {
+      version: 64,
+      sql: `ALTER TABLE session_recordings ADD COLUMN IF NOT EXISTS privacy_mode TEXT NOT NULL DEFAULT 'unknown'`,
+    },
+    {
+      version: 65,
+      sql: `ALTER TABLE analytics_public_keys ADD COLUMN IF NOT EXISTS replay_allowed_origins TEXT NOT NULL DEFAULT '[]'`,
+    },
+    {
+      version: 66,
+      sql: `ALTER TABLE analytics_public_keys ADD COLUMN IF NOT EXISTS replay_max_bytes_per_day INTEGER NOT NULL DEFAULT 104857600`,
+    },
+    {
+      version: 67,
+      sql: `ALTER TABLE analytics_public_keys ADD COLUMN IF NOT EXISTS replay_max_requests_per_minute INTEGER NOT NULL DEFAULT 120`,
+    },
+    {
+      version: 68,
+      sql: {
+        postgres: `
+        ALTER TABLE dashboard_report_subscriptions ALTER COLUMN enabled DROP DEFAULT;
+        ALTER TABLE dashboard_report_subscriptions ALTER COLUMN enabled TYPE boolean USING (enabled::text IN ('true', 't', '1'));
+        ALTER TABLE dashboard_report_subscriptions ALTER COLUMN enabled SET DEFAULT true;
+      `,
+      },
+    },
+    {
+      version: 69,
+      sql: `CREATE TABLE IF NOT EXISTS session_replay_ingests (
+      id TEXT PRIMARY KEY,
+      public_key_id TEXT NOT NULL,
+      recording_id TEXT NOT NULL,
+      byte_length INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT
+    )`,
+    },
+    {
+      version: 70,
+      sql: `CREATE INDEX IF NOT EXISTS session_replay_ingests_public_key_created_at_idx ON session_replay_ingests (public_key_id, created_at)`,
+    },
+    {
+      version: 71,
+      sql: `CREATE INDEX IF NOT EXISTS session_replay_ingests_recording_idx ON session_replay_ingests (recording_id)`,
+    },
+    // --- v72+: Strategic Accounts curated roster (migrated from
     //   fusion-analytics). Org-scoped source of truth for the overview
     //   dashboard + extension. Account names live only here, never in source.
     {
-      version: 39,
+      version: 72,
       sql: `CREATE TABLE IF NOT EXISTS strategic_accounts (
       id TEXT PRIMARY KEY,
       company_name TEXT NOT NULL,
@@ -239,7 +512,7 @@ export default runMigrations(
     )`,
     },
     {
-      version: 40,
+      version: 73,
       sql: `CREATE TABLE IF NOT EXISTS strategic_account_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
@@ -251,18 +524,18 @@ export default runMigrations(
     )`,
     },
     {
-      version: 41,
+      version: 74,
       sql: `CREATE INDEX IF NOT EXISTS strategic_accounts_owner_org_idx ON strategic_accounts (owner_email, org_id, sort_order)`,
     },
     {
-      version: 42,
+      version: 75,
       sql: `CREATE INDEX IF NOT EXISTS strategic_account_shares_resource_idx ON strategic_account_shares (resource_id)`,
     },
-    // --- v43+: Strategic Account Coverage contacts + Implementation Blockers
+    // --- v76+: Strategic Account Coverage contacts + Implementation Blockers
     //   (migrated from fusion-analytics children). Org-scoped curated tables;
     //   sensitive contact/customer details live only here, never in source.
     {
-      version: 43,
+      version: 76,
       sql: `CREATE TABLE IF NOT EXISTS strategic_account_contacts (
       id TEXT PRIMARY KEY,
       company_name TEXT NOT NULL,
@@ -281,7 +554,7 @@ export default runMigrations(
     )`,
     },
     {
-      version: 44,
+      version: 77,
       sql: `CREATE TABLE IF NOT EXISTS strategic_account_contact_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
@@ -293,15 +566,15 @@ export default runMigrations(
     )`,
     },
     {
-      version: 45,
+      version: 78,
       sql: `CREATE INDEX IF NOT EXISTS strategic_account_contacts_owner_org_idx ON strategic_account_contacts (owner_email, org_id, sort_order)`,
     },
     {
-      version: 46,
+      version: 79,
       sql: `CREATE INDEX IF NOT EXISTS strategic_account_contact_shares_resource_idx ON strategic_account_contact_shares (resource_id)`,
     },
     {
-      version: 47,
+      version: 80,
       sql: `CREATE TABLE IF NOT EXISTS implementation_blockers (
       id TEXT PRIMARY KEY,
       company_name TEXT NOT NULL,
@@ -318,7 +591,7 @@ export default runMigrations(
     )`,
     },
     {
-      version: 48,
+      version: 81,
       sql: `CREATE TABLE IF NOT EXISTS implementation_blocker_shares (
       id TEXT PRIMARY KEY,
       resource_id TEXT NOT NULL,
@@ -330,11 +603,11 @@ export default runMigrations(
     )`,
     },
     {
-      version: 49,
+      version: 82,
       sql: `CREATE INDEX IF NOT EXISTS implementation_blockers_owner_org_idx ON implementation_blockers (owner_email, org_id, sort_order)`,
     },
     {
-      version: 50,
+      version: 83,
       sql: `CREATE INDEX IF NOT EXISTS implementation_blocker_shares_resource_idx ON implementation_blocker_shares (resource_id)`,
     },
   ],

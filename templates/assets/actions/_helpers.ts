@@ -12,8 +12,21 @@ import type {
   StyleBrief,
 } from "../shared/api.js";
 
-export async function requireLibrary(id: string) {
-  const access = await resolveAccess("asset-library", id);
+type AccessCtx = {
+  userEmail?: string;
+  orgId?: string | null;
+};
+
+function accessContext(ctx?: AccessCtx) {
+  if (!ctx) return undefined;
+  return {
+    userEmail: ctx.userEmail,
+    orgId: ctx.orgId ?? undefined,
+  };
+}
+
+export async function requireLibrary(id: string, ctx?: AccessCtx) {
+  const access = await resolveAccess("asset-library", id, accessContext(ctx));
   if (!access) throw new Error("Asset library not found or not accessible.");
   return access.resource;
 }

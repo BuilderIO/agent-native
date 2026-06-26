@@ -1,4 +1,10 @@
-import { getDbExec, intType, retryOnDdlRace } from "../db/client.js";
+import {
+  getDbExec,
+  isPostgres,
+  intType,
+  retryOnDdlRace,
+} from "../db/client.js";
+import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 import type {
   PublicRemotePushRegistration,
   RemotePushNotification,
@@ -7,29 +13,77 @@ import type {
 
 let _initPromise: Promise<void> | undefined;
 
+// Build the CREATE SQL lazily (not at module scope) so intType() runs at
+// RUNTIME, not import time — a module-scope call breaks any consumer whose
+// db/client mock doesn't stub intType (e.g. db-admin specs).
+function buildCreateRegistrationsSql(): string {
+  return `
+  CREATE TABLE IF NOT EXISTS integration_remote_push_registrations (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    org_id TEXT,
+    provider TEXT NOT NULL,
+    platform TEXT,
+    client_device_id TEXT,
+    label TEXT,
+    token TEXT NOT NULL,
+    token_hash TEXT NOT NULL,
+    status TEXT NOT NULL,
+    last_seen_at ${intType()},
+    created_at ${intType()} NOT NULL,
+    updated_at ${intType()} NOT NULL
+  )
+`;
+}
+
+function buildCreateNotificationsSql(): string {
+  return `
+  CREATE TABLE IF NOT EXISTS integration_remote_push_notifications (
+    id TEXT PRIMARY KEY,
+    owner_email TEXT NOT NULL,
+    org_id TEXT,
+    registration_id TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts ${intType()} NOT NULL DEFAULT 0,
+    created_at ${intType()} NOT NULL,
+    updated_at ${intType()} NOT NULL
+  )
+`;
+}
+
 async function ensureTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE TABLE IF NOT EXISTS integration_remote_push_registrations (
-            id TEXT PRIMARY KEY,
-            owner_email TEXT NOT NULL,
-            org_id TEXT,
-            provider TEXT NOT NULL,
-            platform TEXT,
-            client_device_id TEXT,
-            label TEXT,
-            token TEXT NOT NULL,
-            token_hash TEXT NOT NULL,
-            status TEXT NOT NULL,
-            last_seen_at ${intType()},
-            created_at ${intType()} NOT NULL,
-            updated_at ${intType()} NOT NULL
-          )
-        `),
-      );
+      const createRegistrationsSql = buildCreateRegistrationsSql();
+      const createNotificationsSql = buildCreateNotificationsSql();
+      if (isPostgres()) {
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists(
+          "integration_remote_push_registrations",
+          createRegistrationsSql,
+        );
+        await ensureIndexExists(
+          "idx_remote_push_token_hash",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_push_token_hash ON integration_remote_push_registrations(token_hash)`,
+        );
+        await ensureIndexExists(
+          "idx_remote_push_owner",
+          `CREATE INDEX IF NOT EXISTS idx_remote_push_owner ON integration_remote_push_registrations(owner_email, org_id, status)`,
+        );
+        await ensureTableExists(
+          "integration_remote_push_notifications",
+          createNotificationsSql,
+        );
+        await ensureIndexExists(
+          "idx_remote_push_notifications_owner",
+          `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_owner ON integration_remote_push_notifications(owner_email, org_id, status, created_at)`,
+        );
+        return;
+      }
+      // SQLite (local dev): keep existing behavior
+      await retryOnDdlRace(() => client.execute(createRegistrationsSql));
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_push_token_hash ON integration_remote_push_registrations(token_hash)`,
@@ -41,21 +95,7 @@ async function ensureTables(): Promise<void> {
         ),
       );
 
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE TABLE IF NOT EXISTS integration_remote_push_notifications (
-            id TEXT PRIMARY KEY,
-            owner_email TEXT NOT NULL,
-            org_id TEXT,
-            registration_id TEXT NOT NULL,
-            payload_json TEXT NOT NULL,
-            status TEXT NOT NULL,
-            attempts ${intType()} NOT NULL DEFAULT 0,
-            created_at ${intType()} NOT NULL,
-            updated_at ${intType()} NOT NULL
-          )
-        `),
-      );
+      await retryOnDdlRace(() => client.execute(createNotificationsSql));
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_remote_push_notifications_owner ON integration_remote_push_notifications(owner_email, org_id, status, created_at)`,

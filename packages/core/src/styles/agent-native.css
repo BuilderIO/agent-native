@@ -41,17 +41,127 @@
    zoom-in/out, slide-in-from-*, spin-in, etc.). */
 @import "tw-animate-css";
 
+/* Shared shell depth.
+   Use these classes on app layouts that have a persistent left nav:
+
+   <div className="agent-layout-shell ...">
+     <aside className="agent-layout-left-drawer ...">...</aside>
+     <main className="agent-layout-main-surface ...">...</main>
+   </div>
+
+   AgentSidebar applies the same classes internally for the right agent drawer. */
+.agent-sidebar-shell,
+.agent-layout-shell {
+  --agent-native-lower-surface: hsl(
+    var(--sidebar-background, var(--background))
+  );
+  --agent-native-raised-radius: 18px;
+  --agent-native-raised-shadow-left: -12px 0 28px rgb(0 0 0 / 0.1);
+  --agent-native-raised-shadow-right: 12px 0 28px rgb(0 0 0 / 0.1);
+  background: var(--agent-native-lower-surface);
+}
+
+@supports (background: color-mix(in srgb, white, black)) {
+  .agent-sidebar-shell,
+  .agent-layout-shell {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--sidebar-background, var(--background))) 94%,
+      black
+    );
+  }
+
+  .dark .agent-sidebar-shell,
+  .dark .agent-layout-shell,
+  .dark.agent-sidebar-shell,
+  .dark.agent-layout-shell {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--sidebar-background, var(--background))) 86%,
+      black
+    );
+    --agent-native-raised-shadow-left: -14px 0 32px rgb(0 0 0 / 0.22);
+    --agent-native-raised-shadow-right: 14px 0 32px rgb(0 0 0 / 0.22);
+  }
+}
+
+.agent-layout-left-drawer,
+.agent-sidebar-panel[data-agent-sidebar-layout="desktop"],
+.agent-sidebar-panel[data-agent-sidebar-layout="mobile"] {
+  background: var(--agent-native-lower-surface);
+}
+
+.agent-layout-left-drawer {
+  background: var(--agent-native-lower-surface) !important;
+}
+
+.agent-layout-left-drawer .bg-sidebar {
+  background: var(--agent-native-lower-surface) !important;
+}
+
+.agent-sidebar-panel > .agent-sidebar-panel-inner {
+  background: inherit;
+}
+
+.agent-layout-main-surface,
+.agent-sidebar-main-surface {
+  position: relative;
+  z-index: 1;
+  background: hsl(var(--background));
+  transition:
+    border-radius 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (min-width: 768px) {
+  .agent-layout-main-surface,
+  .agent-layout-shell > .agent-sidebar-shell {
+    border-start-start-radius: var(--agent-native-raised-radius);
+    border-end-start-radius: var(--agent-native-raised-radius);
+    box-shadow: var(--agent-native-raised-shadow-left);
+  }
+
+  .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="right"] {
+    border-start-end-radius: var(--agent-native-raised-radius);
+    border-end-end-radius: var(--agent-native-raised-radius);
+    box-shadow: var(--agent-native-raised-shadow-right);
+  }
+
+  .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="left"] {
+    border-start-start-radius: var(--agent-native-raised-radius);
+    border-end-start-radius: var(--agent-native-raised-radius);
+    box-shadow: var(--agent-native-raised-shadow-left);
+  }
+}
+
 /* Shared agent sidebar entry/exit transitions.
    `@starting-style` gives newly-mounted panels a real before-change style, so
    opening animates in as reliably as closing animates out. */
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"] {
   width: 0;
+  overflow: clip;
   will-change: width;
   transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
   width: var(--agent-sidebar-width);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-animation="desktop"]
+  > .agent-sidebar-panel-inner {
+  width: var(--agent-sidebar-width);
+  min-width: var(--agent-sidebar-width);
+  max-width: var(--agent-sidebar-width);
+  height: 100%;
+  transform: var(--agent-sidebar-inner-closed-transform, translateX(100%));
+  will-change: transform;
+  transition: transform 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"]
+  > .agent-sidebar-panel-inner {
+  transform: translateX(0);
 }
 
 .agent-sidebar-panel[data-agent-sidebar-animation="mobile"] {
@@ -81,6 +191,11 @@
     width: 0;
   }
 
+  .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"]
+    > .agent-sidebar-panel-inner {
+    transform: var(--agent-sidebar-inner-closed-transform, translateX(100%));
+  }
+
   .agent-sidebar-panel[data-agent-sidebar-animation="mobile"][data-agent-sidebar-state="open"] {
     transform: var(
       --agent-sidebar-closed-transform,
@@ -95,6 +210,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .agent-sidebar-panel[data-agent-sidebar-animation],
+  .agent-sidebar-panel[data-agent-sidebar-animation="desktop"]
+    > .agent-sidebar-panel-inner,
   .agent-sidebar-backdrop[data-agent-sidebar-animation] {
     transition: none;
   }

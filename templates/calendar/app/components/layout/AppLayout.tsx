@@ -258,7 +258,7 @@ export function AppLayout({ children }: AppLayoutProps) {
         open={shortcutsHelpOpen}
         onClose={() => setShortcutsHelpOpen(false)}
       />
-      <div className="flex h-screen overflow-hidden bg-background">
+      <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <AgentSidebar
           position="right"

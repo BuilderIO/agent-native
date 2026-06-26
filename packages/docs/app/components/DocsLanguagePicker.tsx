@@ -14,18 +14,14 @@ import {
   DOCS_LOCALES,
   DEFAULT_DOCS_LOCALE,
   browserDocsLocale,
+  docsLocaleOptionLabel,
   sitePathForLocale,
   type DocsLocale,
 } from "./docs-locale";
 
-function localeOptionLabel(locale: DocsLocale) {
-  const metadata = DOCS_LOCALE_METADATA[locale];
-  return `${metadata.nativeName} (${locale})`;
-}
-
 function preferenceLabel(preference: string) {
   if (preference in DOCS_LOCALE_METADATA) {
-    return localeOptionLabel(preference as DocsLocale);
+    return docsLocaleOptionLabel(preference as DocsLocale);
   }
   return preference;
 }
@@ -78,7 +74,7 @@ export default function DocsLanguagePicker() {
       },
       ...DOCS_LOCALES.map((locale) => ({
         value: locale,
-        label: localeOptionLabel(locale),
+        label: docsLocaleOptionLabel(locale),
       })),
     ];
 

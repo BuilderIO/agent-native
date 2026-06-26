@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const assertAccessMock = vi.hoisted(() => vi.fn());
 const requireGenerationSessionInLibraryMock = vi.hoisted(() => vi.fn());
+const readImageModelDefaultMock = vi.hoisted(() => vi.fn());
 const generateImageRunMock = vi.hoisted(() => vi.fn());
+const upsertVariantSlotMock = vi.hoisted(() => vi.fn());
 const getDbMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
@@ -34,10 +36,18 @@ vi.mock("./_helpers.js", () => ({
   requireGenerationSessionInLibrary: requireGenerationSessionInLibraryMock,
 }));
 
+vi.mock("./_image-model-default.js", () => ({
+  readImageModelDefault: readImageModelDefaultMock,
+}));
+
 vi.mock("./generate-image.js", () => ({
   default: {
     run: generateImageRunMock,
   },
+}));
+
+vi.mock("./variant-slots.js", () => ({
+  upsertVariantSlot: upsertVariantSlotMock,
 }));
 
 import action from "./generate-image-batch.js";
@@ -56,7 +66,9 @@ describe("generate-image-batch", () => {
     requireGenerationSessionInLibraryMock.mockResolvedValue({
       id: "session-1",
     });
+    readImageModelDefaultMock.mockResolvedValue(undefined);
     generateImageRunMock.mockResolvedValue({ assetId: "asset-1" });
+    upsertVariantSlotMock.mockResolvedValue(undefined);
     getDbMock.mockReturnValue(createDb());
   });
 
@@ -74,6 +86,7 @@ describe("generate-image-batch", () => {
     ).rejects.toThrow(/does not belong to this library/);
 
     expect(generateImageRunMock).not.toHaveBeenCalled();
+    expect(upsertVariantSlotMock).not.toHaveBeenCalled();
   });
 
   it("chooses the first successful batch output as the active session asset", async () => {
@@ -104,6 +117,7 @@ describe("generate-image-batch", () => {
         slotId: "slot-1",
         activateSessionAsset: false,
       }),
+      undefined,
     );
     expect(db.updateSet).toHaveBeenCalledWith({
       activeAssetId: "asset-2",
@@ -114,6 +128,7 @@ describe("generate-image-batch", () => {
   it("forwards non-dismissible picker slots to single-image generation", async () => {
     await action.run({
       libraryId: "lib-1",
+      variantScopeId: "picker:tab-1",
       slots: [
         {
           slotId: "picker-candidate-1",
@@ -123,12 +138,42 @@ describe("generate-image-batch", () => {
       ],
     });
 
+    expect(upsertVariantSlotMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: expect.stringMatching(/^pending-.+-1$/),
+        batchId: expect.any(String),
+        libraryId: "lib-1",
+        variantScopeId: "picker:tab-1",
+        slotId: "picker-candidate-1",
+        prompt: "First",
+        status: "pending",
+      }),
+    );
+    const pendingBatchId = upsertVariantSlotMock.mock.calls[0][0].batchId;
     expect(generateImageRunMock).toHaveBeenCalledWith(
       expect.objectContaining({
         slotId: "picker-candidate-1",
+        variantBatchId: pendingBatchId,
+        variantScopeId: "picker:tab-1",
         dismissible: false,
         activateSessionAsset: false,
       }),
+      undefined,
+    );
+  });
+
+  it("forwards the agent run context to each single-image generation", async () => {
+    await action.run(
+      {
+        libraryId: "lib-1",
+        slots: [{ slotId: "slot-1", prompt: "Generate a hero" }],
+      },
+      { caller: "tool", threadId: "thread-1" } as any,
+    );
+
+    expect(generateImageRunMock).toHaveBeenCalledWith(
+      expect.objectContaining({ slotId: "slot-1" }),
+      expect.objectContaining({ threadId: "thread-1" }),
     );
   });
 

@@ -76,6 +76,11 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
     },
   );
 }
+import {
+  bugReportTitle,
+  parseBugReportContext,
+  type BugReportContext,
+} from "@shared/bug-report";
 import { toast } from "sonner";
 
 import { CaptureInstallButton } from "@/components/capture-install-options";
@@ -164,6 +169,12 @@ function openUrlFromUserGesture(url: string): void {
   if (!opened) {
     window.location.href = url;
   }
+}
+
+function bugReportDonePath(recordingId: string, context: BugReportContext) {
+  const params = new URLSearchParams({ recordingId });
+  if (context.returnUrl) params.set("returnUrl", context.returnUrl);
+  return `/bug-report/done?${params.toString()}`;
 }
 
 function sendClipsExtensionMessage<T>(
@@ -852,6 +863,10 @@ export default function RecordRoute() {
       developerLogsEnabled: developerLogs !== "0",
     };
   }, [location.search]);
+  const bugReportContext = useMemo(
+    () => parseBugReportContext(new URLSearchParams(location.search)),
+    [location.search],
+  );
   const markStorageConfigured = useCallback(
     (status?: VideoStorageStatus) => {
       queryClient.setQueryData<VideoStorageStatus>(
@@ -869,6 +884,41 @@ export default function RecordRoute() {
 
   const liveTranscription = useLiveTranscription();
   const stopLiveTranscription = liveTranscription.stop;
+
+  const saveBugReportContext = useCallback(
+    async (recordingId: string) => {
+      if (!bugReportContext) return;
+      try {
+        await callAction(
+          "save-bug-report-context" as any,
+          {
+            recordingId,
+            projectId: bugReportContext.projectId,
+            title: bugReportContext.title,
+            description: bugReportContext.description,
+            severity: bugReportContext.severity,
+            sourceUrl: bugReportContext.sourceUrl,
+            pageTitle: bugReportContext.pageTitle,
+            appVersion: bugReportContext.appVersion,
+            environment: bugReportContext.environment,
+            reporterEmail: bugReportContext.reporterEmail,
+            reporterName: bugReportContext.reporterName,
+            reporterId: bugReportContext.reporterId,
+            metadata: bugReportContext.metadata ?? undefined,
+          } as any,
+        );
+      } catch (err) {
+        console.warn("[recorder] bug report context save failed:", err);
+      }
+    },
+    [bugReportContext],
+  );
+  const bugReportContextRef = useRef<BugReportContext | null>(null);
+  const saveBugReportContextRef = useRef(saveBugReportContext);
+  useEffect(() => {
+    bugReportContextRef.current = bugReportContext;
+    saveBugReportContextRef.current = saveBugReportContext;
+  }, [bugReportContext, saveBugReportContext]);
 
   const engineRef = useRef<RecorderEngine | null>(null);
   const pendingRef = useRef<PendingRecording | null>(null);
@@ -1119,24 +1169,28 @@ export default function RecordRoute() {
         markStorageConfigured(status);
         if (!status.configured) {
           throw new Error(
-            "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
+            "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
           );
         }
 
         // 2. Create the recording row server-side once permissions are granted.
+        const reportContext = bugReportContextRef.current;
+        const reportTitle = reportContext
+          ? `Bug report: ${bugReportTitle(reportContext)}`
+          : null;
         const res = await fetch(
           agentNativePath("/_agent-native/actions/create-recording"),
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              title: captureTitle.title,
-              titleSource: captureTitle.titleSource,
+              title: reportTitle ?? captureTitle.title,
+              titleSource: reportTitle ? "context" : captureTitle.titleSource,
               sourceAppName: captureTitle.sourceAppName,
               sourceWindowTitle: captureTitle.sourceWindowTitle,
               hasCamera: opts.mode !== "screen",
               hasAudio: wantsMic,
-              visibility: "public",
+              visibility: reportContext ? "org" : "public",
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
             }),
@@ -1190,6 +1244,7 @@ export default function RecordRoute() {
           uploadUrl: uploadChunkUrl,
           abortUrl,
         });
+        await saveBugReportContextRef.current(info.id);
 
         setPreviewStream(ps);
         setCameraStream(cs);
@@ -1329,7 +1384,7 @@ export default function RecordRoute() {
         markStorageConfigured(status);
         if (!status.configured) {
           throw new Error(
-            "No video storage configured. Open Settings to connect Builder.io or S3-compatible storage.",
+            "No video storage configured. Connect storage: Builder.io (free tier storage + AI) or S3-compatible storage.",
           );
         }
 
@@ -1403,6 +1458,10 @@ export default function RecordRoute() {
           );
         }
         setUiState("uploading");
+        const reportContext = bugReportContextRef.current;
+        const reportTitle = reportContext
+          ? `Bug report: ${bugReportTitle(reportContext)}`
+          : null;
 
         const res = await fetch(
           agentNativePath("/_agent-native/actions/create-recording"),
@@ -1412,12 +1471,14 @@ export default function RecordRoute() {
             signal: abort.signal,
             body: JSON.stringify({
               title:
-                file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle(),
-              titleSource: "upload",
+                reportTitle ??
+                (file.name.replace(/\.[^/.]+$/, "") || defaultRecordingTitle()),
+              titleSource: reportTitle ? "context" : "upload",
               hasCamera: false,
               hasAudio: true,
               width: meta.width,
               height: meta.height,
+              visibility: reportContext ? "org" : undefined,
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
             }),
@@ -1451,6 +1512,7 @@ export default function RecordRoute() {
           throw new Error("create-recording did not return an id");
         }
         createdId = info.id;
+        await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
         const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
 
@@ -1517,13 +1579,25 @@ export default function RecordRoute() {
         } else {
           toast.success(t("recordRoute.videoUploaded"));
         }
-        await writeAppState("navigate", {
-          view: "recording",
-          recordingId: createdId,
-        });
-        setTimeout(() => {
-          if (createdId) navigate(`/r/${createdId}`);
-        }, 50);
+        if (reportContext && createdId) {
+          const path = bugReportDonePath(createdId, reportContext);
+          await writeAppState("navigate", {
+            view: "bug-report-done",
+            recordingId: createdId,
+            path,
+          });
+          setTimeout(() => {
+            navigate(path);
+          }, 50);
+        } else {
+          await writeAppState("navigate", {
+            view: "recording",
+            recordingId: createdId,
+          });
+          setTimeout(() => {
+            if (createdId) navigate(`/r/${createdId}`);
+          }, 50);
+        }
       } catch (err) {
         const message =
           err instanceof Error ? err.message : t("recordRoute.uploadFailed");
@@ -1734,6 +1808,20 @@ export default function RecordRoute() {
         });
       } else {
         toast.success(t("recordRoute.recordingSaved"));
+      }
+
+      const reportContext = bugReportContextRef.current;
+      if (reportContext) {
+        const path = bugReportDonePath(recordingId, reportContext);
+        await writeAppState("navigate", {
+          view: "bug-report-done",
+          recordingId,
+          path,
+        }).catch(() => {});
+        setTimeout(() => {
+          navigate(path);
+        }, 50);
+        return;
       }
 
       await writeAppState("navigate", {
@@ -2173,6 +2261,8 @@ export default function RecordRoute() {
               ) : (
                 <StorageSetupCard
                   onConfigured={() => markStorageConfigured()}
+                  connectSource="clips_record_storage_setup_card"
+                  connectFlow="record"
                 />
               )}
             </div>
@@ -2324,6 +2414,8 @@ export default function RecordRoute() {
                   }
                 }}
                 connectedDescription="Storage connected. Reopening recorder..."
+                connectSource="clips_record_storage_setup_card"
+                connectFlow="record"
               />
             </>
           ) : error === "SESSION_EXPIRED" ? (

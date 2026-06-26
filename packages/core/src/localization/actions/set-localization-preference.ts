@@ -4,6 +4,7 @@ import { defineAction } from "../../action.js";
 import { putUserSetting } from "../../settings/user-settings.js";
 import {
   LOCALIZATION_SETTING_KEY,
+  SUPPORTED_LOCALES,
   normalizeLocalePreference,
   type LocalizationPreference,
 } from "../shared.js";
@@ -21,7 +22,7 @@ export default defineAction({
     const locale = normalizeLocalePreference(args.locale);
     if (!locale) {
       throw new Error(
-        "Unsupported locale. Use system, en-US, zh-CN, es-ES, fr-FR, de-DE, ja-JP, ko-KR, pt-BR, hi-IN, or ar-SA.",
+        `Unsupported locale. Use system, ${SUPPORTED_LOCALES.join(", ")}.`,
       );
     }
     const value: LocalizationPreference & Record<string, unknown> = { locale };

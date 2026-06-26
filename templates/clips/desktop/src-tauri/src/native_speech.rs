@@ -748,7 +748,10 @@ pub(crate) mod macos {
                     if !is_cancelled && !transient {
                         let _ = app.emit(
                             "voice:speech-error",
-                            ErrorPayload { error: msg, source: "mic" },
+                            ErrorPayload {
+                                error: msg,
+                                source: "mic",
+                            },
                         );
                     }
                     clear_session_slot();
@@ -766,11 +769,17 @@ pub(crate) mod macos {
                                 return;
                             }
                             if let Err(e) = native_speech_start_impl(
-                                app.clone(), locale, mic_device_id, mic_device_label,
+                                app.clone(),
+                                locale,
+                                mic_device_id,
+                                mic_device_label,
                             ) {
                                 let _ = app.emit(
                                     "voice:speech-error",
-                                    ErrorPayload { error: e, source: "mic" },
+                                    ErrorPayload {
+                                        error: e,
+                                        source: "mic",
+                                    },
                                 );
                             }
                         });

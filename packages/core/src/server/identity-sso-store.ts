@@ -24,7 +24,13 @@
 
 import { randomBytes } from "node:crypto";
 
-import { getDbExec, isConnectionError, intType } from "../db/client.js";
+import {
+  getDbExec,
+  isConnectionError,
+  intType,
+  isPostgres,
+} from "../db/client.js";
+import { ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
@@ -98,13 +104,11 @@ export const SSO_STATE_TTL_MS = 10 * 60_000;
 export const SSO_LOGIN_MAX = 60;
 export const SSO_LOGIN_WINDOW_MS = 60_000;
 
-async function ensureTable(): Promise<void> {
-  if (!_initPromise) {
-    _initPromise = (async () => {
-      const client = getDbExec();
-      // Additive only. Never DROP / ALTER — this DB is shared across every
-      // deploy context (preview/branch/prod) for hosted templates.
-      await client.execute(`
+// Build the CREATE SQL lazily (not at module scope) so intType() runs at
+// RUNTIME, not import time — a module-scope call breaks any consumer whose
+// db/client mock doesn't stub intType (e.g. db-admin specs).
+function buildIdentitySsoStateCreateSql(): string {
+  return `
         CREATE TABLE IF NOT EXISTS identity_sso_state (
           state TEXT PRIMARY KEY,
           return_path TEXT,
@@ -112,13 +116,38 @@ async function ensureTable(): Promise<void> {
           expires_at ${intType()},
           consumed_at ${intType()}
         )
-      `);
-      await client.execute(`
+      `;
+}
+function buildIdentitySsoJtiCreateSql(): string {
+  return `
         CREATE TABLE IF NOT EXISTS identity_sso_jti (
           jti TEXT PRIMARY KEY,
           seen_at ${intType()}
         )
-      `);
+      `;
+}
+
+async function ensureTable(): Promise<void> {
+  if (!_initPromise) {
+    _initPromise = (async () => {
+      const client = getDbExec();
+      const identitySsoStateCreateSql = buildIdentitySsoStateCreateSql();
+      const identitySsoJtiCreateSql = buildIdentitySsoJtiCreateSql();
+      // Additive only. Never DROP / ALTER — this DB is shared across every
+      // deploy context (preview/branch/prod) for hosted templates.
+      if (isPostgres()) {
+        // PG guard: probe → guarded DDL → re-probe; skips lock on already-migrated path
+        await ensureTableExists(
+          "identity_sso_state",
+          identitySsoStateCreateSql,
+        );
+        await ensureTableExists("identity_sso_jti", identitySsoJtiCreateSql);
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await client.execute(identitySsoStateCreateSql);
+      await client.execute(identitySsoJtiCreateSql);
     })().catch((err) => {
       // Don't cache a rejection — let the next caller retry a fresh init.
       _initPromise = undefined;

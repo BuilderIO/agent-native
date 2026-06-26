@@ -2119,6 +2119,15 @@ audio.media-block__content {
   background: hsl(210 100% 52% / 0.2);
 }
 
+.notion-editor .notion-selection-fill {
+  background: hsl(210 100% 52% / 0.08);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  box-shadow:
+    0 0.24em 0 hsl(210 100% 52% / 0.08),
+    0 -0.08em 0 hsl(210 100% 52% / 0.08);
+}
+
 @media print {
   @page {
     margin: 0.65in;

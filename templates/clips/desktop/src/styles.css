@@ -1448,6 +1448,10 @@ body[data-clips-route="recording-pill"] #root {
   transform-origin: var(--radix-tooltip-content-transform-origin);
 }
 
+.tooltip-content-wide {
+  max-width: 320px;
+}
+
 .tooltip-content[data-state="delayed-open"],
 .tooltip-content[data-state="instant-open"] {
   animation: tooltip-in 120ms ease-out;
@@ -1720,12 +1724,38 @@ body[data-clips-route="recording-pill"] #root {
   white-space: nowrap;
 }
 
+.pending-upload-sub-wrap {
+  overflow: visible;
+  white-space: normal;
+}
+
+.pending-upload-why {
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  cursor: help;
+  font-size: 11px;
+  line-height: 1.2;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.pending-upload-why:hover,
+.pending-upload-why:focus-visible {
+  color: #334155;
+  outline: none;
+}
+
 .pending-upload-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
+.pending-upload-connect,
 .pending-upload-retry {
   height: 28px;
   border: 1px solid #bfdbfe;
@@ -1744,6 +1774,10 @@ body[data-clips-route="recording-pill"] #root {
     background 120ms,
     border-color 120ms,
     opacity 120ms;
+}
+
+.pending-upload-connect {
+  padding: 0 8px;
 }
 
 .pending-upload-discard {
@@ -1789,6 +1823,11 @@ body[data-clips-route="recording-pill"] #root {
   border-color: #93c5fd;
 }
 
+.pending-upload-connect:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
 .pending-upload-folder:hover {
   background: #dbeafe;
   border-color: #93c5fd;
@@ -1801,6 +1840,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pending-upload-retry:disabled,
+.pending-upload-connect:disabled,
 .pending-upload-folder:disabled,
 .pending-upload-discard:disabled {
   cursor: default;
@@ -1972,6 +2012,16 @@ body[data-clips-route="recording-pill"] #root {
     color: #93c5fd;
   }
 
+  .pending-upload-why {
+    color: #94a3b8;
+  }
+
+  .pending-upload-why:hover,
+  .pending-upload-why:focus-visible {
+    color: #cbd5e1;
+  }
+
+  .pending-upload-connect,
   .pending-upload-retry {
     background: rgba(15, 23, 42, 0.7);
     border-color: rgba(96, 165, 250, 0.38);
@@ -1991,6 +2041,11 @@ body[data-clips-route="recording-pill"] #root {
   }
 
   .pending-upload-retry:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-connect:hover {
     background: rgba(30, 64, 175, 0.34);
     border-color: rgba(147, 197, 253, 0.62);
   }
@@ -2676,11 +2731,46 @@ body[data-clips-route="recording-pill"] #root {
   cursor: not-allowed;
 }
 
+.toolbar-v-disk-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f59e0b;
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.toolbar-v-disk-indicator-critical {
+  color: #ef4444;
+  animation: toolbar-v-disk-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes toolbar-v-disk-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.toolbar-v-disk-warning {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.toolbar-v-disk-critical {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .toolbar-v,
   .toolbar-v-hover-actions,
   .toolbar-v-action {
     transition: none;
+  }
+  .toolbar-v-disk-indicator-critical {
+    animation: none;
   }
 }
 

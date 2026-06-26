@@ -1,0 +1,111 @@
+---
+title: "審核記錄"
+description: "持久的、僅附加的紀錄，紀錄誰更改了哪些應用資料、何時以及是您還是代理 - 在操作接縫處自動捕獲。"
+---
+
+# 審核記錄
+
+每個 Agent-Native 應用程式都會獲得開箱即用的審核記錄：一個持久的、完整的、存取範圍的、僅附加的紀錄，紀錄**誰改變了哪些應用程式資料、何時、從哪裡以及（何時是代理）在哪個執行中。** 捕獲在操作接縫處自動進行；您無需為其編寫任何程式碼。
+
+由於代理可以代表您更改資料，因此審核記錄在這裡回答的標題問題不僅僅是“誰編輯了此紀錄”，而是 **“是我還是代理，以及哪個輪次導致了它？”** 框架中沒有其他系統可以回答這個問題。
+
+## 審計與可觀察性與跟蹤 {#which}
+
+三個系統出於三個不同的原因紀錄“發生了什麼”。根據您要問的問題進行選取：
+
+| 系統                                     | 它回答的問題                           | 保真度                 | 觀眾                     |
+| ---------------------------------------- | -------------------------------------- | ---------------------- | ------------------------ |
+| **審核記錄**（本頁面）                   | “誰更改了此紀錄，何時更改，是代理嗎？” | **完整、耐用、有範圍** | 使用者、管理員、代理本身 |
+| **[Observability](/docs/observability)** | “代理為什麼要這樣做，花費了多少？”     | 取樣跨度遙測           | 開發人員                 |
+| **[Tracking](/docs/tracking)**           | “人們如何使用該產品？”                 | 即發即忘外部 SaaS      | PM/增長                  |
+
+取樣或傳送給分析提供者的審核記錄是無用的 - 重點是它是完整的、本機的且可查詢的。所以它是它自己的子系統，而不是其他兩個的模式。
+
+## 自動捕獲的內容 {#captured}
+
+當任何 **mutating** 操作執行時（任何不是唯讀 `GET` 的操作），框架都會向 `agent_audit_log` 追加一行：
+
+- **操作** — 操作名稱（例如 `delete-recording`）。
+- **演員** - `agent`、`human` 或 `system`，加上演員的電子郵件 - 填充**即使是代理呼叫**，因此您會得到“代理，代表 alice@，...”。
+- **執行連結** - 觸發呼叫（工具呼叫）的代理 `threadId` / `turnId`，因此突變可以追溯到確切的代理回合。
+- **Surface** — `tool`（代理）、`frontend`、`http`、`cli`、`mcp` 或 `a2a`。
+- **結果** — `success`、`error`（帶有錯誤程式碼）或 `denied`（被人工核准門阻止）。
+- **輸入** — 呼叫參數，具有憑證形狀的值 [redacted](#privacy)。
+- **目標和所有者** — 操作更改的資源，用於 [scope reads](#reading)。
+
+無需接線 - 捕獲透明地連線到 `defineAction`。唯讀的actions會被跳過，並且預設會跳過一些高頻框架actions（app-statesync、context-xray、navigation）以避免記錄泛濫。
+
+## 聲明操作更改了什麼 {#target}
+
+預設情況下，事件的範圍僅限於 **參與者** - 您可以看到自己的更改以及代理代表您所做的更改。要對*shared*資源進行更改也出現在**所有者的**跟蹤中，並按資源標記事件，請聲明`target`：
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({
+      type: "recording",
+      id: args.id,
+      // Optional — defaults to the actor. Set when editing someone else's resource.
+      ownerEmail: result?.ownerEmail,
+      visibility: "org",
+    }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+`audit` 中的所有內容都是可選的。最小有用的新增是 `target: () => ({ type, id })`。
+
+### 調整捕獲 {#tuning}
+
+| 選項                 | 效果                                         |
+| -------------------- | -------------------------------------------- |
+| `audit.target`       | 使用向其所有者讀取的資源和範圍來標記事件。   |
+| `audit.summary`      | 該事件的人類可讀的簡短行。                   |
+| `audit.onRead`       | 審核敏感的**讀取**（秘密存取、批量匯出）。   |
+| `audit.enabled`      | `true` 強制捕獲； `false` 選取排除噪聲突變。 |
+| `audit.recordInputs` | `false` 跳過捕獲（已編輯的）參數。           |
+
+## 閱讀蹤跡 {#reading}
+
+每個應用程式中的代理**和**前端都可以使用兩個讀取的actions，呼叫者的範圍在 SQL 中 - 它們永遠不會返回其他租戶的行：
+
+- **`list-audit-events`** — 按 `targetType` / `targetId`、`actorKind` (`agent` | `human` | `system`)、`status`、`threadId` / `turnId`、`action` 過濾， `sinceMs`、`limit`。
+- **`get-audit-event`** — 按 id 的一個事件，包括其經過編輯的輸入負載。
+
+透過使用 `useActionQuery` 從 UI 呼叫 `list-audit-events` 來建置活動來源或“誰更改了此”行 - 切勿手寫對審核表的擷取：
+
+```tsx
+import { useActionQuery } from "@agent-native/core/client";
+
+const { data } = useActionQuery("list-audit-events", {
+  targetType: "recording",
+  targetId: recordingId,
+});
+// data.events → [{ action, actorKind, actorEmail, turnId, status, summary, createdAt }, …]
+```
+
+代理可以呼叫​​相同的操作 - 詢問它“你對此錄音做了什麼更改？”它會從蹤跡中回答。
+
+## 隱私和保留 {#privacy}
+
+- **編輯** - 在儲存任何輸入之前，憑證形狀的金鑰和值（權杖、秘密、密碼、承載字串）將被剝離，並截斷超大的有效負載。審核記錄永遠不會成為秘密的輔助儲存。也不要讓 `summary` 文字包含敏感資料。
+- **僅追加** — 審核行沒有更新或刪除操作。唯一的刪除是保留清除，這使得記錄作為審計跟蹤值得信賴。
+- **租戶隔離** — 讀取範圍僅限於呼叫者的身分和組織；沒有身分，沒有任何匹配。
+
+透過環境設定：
+
+- `AGENT_NATIVE_AUDIT_RETENTION_DAYS` — 行保留多長時間（預設 `365`；`0` = 永遠保留）。
+- `AGENT_NATIVE_AUDIT_ENABLED=false` — 全域終止開關。
+
+## 下一步是什麼
+
+- [**Actions**](/docs/actions) — 捕獲發生的 `defineAction` 接縫
+- [**Human-in-the-Loop Approvals**](/docs/human-approval) — 門控 actions，紀錄為 `denied`
+- [**Security & Data Scoping**](/docs/security) — 所有權模型審核讀取重用
+- [**Observability**](/docs/observability) - 代理執行的遙測（另一個“發生了什麼”）

@@ -5,6 +5,10 @@ const jaJP = {
     label: "言語",
     system: "システム",
     systemDescription: "ブラウザーの言語を使用",
+    suggestionTitle: "このページを{{language}}で読みますか？",
+    suggestionDescription: "ブラウザーの言語は{{language}}です。",
+    suggestionSwitch: "{{language}}に切り替え",
+    suggestionKeepEnglish: "英語のままにする",
   },
   header: {
     docs: "ドキュメント",
@@ -77,7 +81,7 @@ const jaJP = {
       secondaryCta: "ドキュメントを見る",
     },
     code: {
-      quickStartComment: "完成済みアプリテンプレートから始める",
+      quickStartComment: "1 つのコマンドで app を作成",
       skillInstallComment:
         "すでに使っている coding agent に Agent-Native の計画機能を追加する",
       frameworkComment:
@@ -188,12 +192,12 @@ const jaJP = {
       },
     },
     quickStart: {
-      title: "Chat から始める",
-      body: "1 つのコマンドで、actions、durable threads、SQLite を備えたローカル Chat app を作成します。まだブラウザー UI が不要な場合は `--headless` を使ってください。",
+      title: "コマンドから始める",
+      body: "1 つのコマンドで、actions、durable threads、SQLite を備えたローカル app を作成します。まだブラウザー UI が不要な場合は `--headless` を使ってください。",
     },
     finalCta: {
       title: "agentic era のために作られた、あなたが所有するソフトウェア",
-      body: "Chat または durable action から始め、app-agent loop に通し、操作を書き直さずに UI、jobs、コラボレーションへ育てられます。オープンソース。Fork 可能。あなたのものです。",
+      body: "コマンドまたは durable action から始め、app-agent loop に通し、操作を書き直さずに UI、jobs、コラボレーションへ育てられます。オープンソース。Fork 可能。あなたのものです。",
       primaryCta: "Action から始める",
       secondaryCta: "ドキュメントを読む",
       githubCta: "GitHub で見る",
@@ -233,6 +237,7 @@ const jaJP = {
       workspaces: "ワークスペース",
       voiceInput: "音声入力",
       mcpApps: "MCP アプリ",
+      generativeUi: "生成 UI",
       toolCalls: "ツール呼び出し",
       agentSidebar: "エージェントのサイドバー",
       sharedActions: "共有アクション",
@@ -1402,6 +1407,7 @@ const jaJP = {
     dropInAgent: "Drop-in Agent の追加",
     componentApi: "コンポーネント API",
     nativeChatUi: "ネイティブチャット UI",
+    generativeUi: "生成 UI",
     realTimeCollaboration: "リアルタイム共同編集",
     workspaceOverview: "Workspace 概要",
     skills: "スキル",

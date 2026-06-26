@@ -227,11 +227,11 @@ function PanelEditorContent({
       message: trimmed,
       context:
         `The user wants to add a new panel to SQL dashboard "${dashboardId}". ${titlesLine} ` +
-        `REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action for this panel; \`data-source-status\`, \`list-data-dictionary\`, \`update-dashboard\`, and dry-run validation do not count as data queries. ` +
+        `REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action for this panel; \`data-source-status\`, \`list-data-dictionary\`, \`update-dashboard\`, \`mutate-dashboard\`, and dry-run validation do not count as data queries. ` +
         `The \`demo\` source is reserved for the built-in Node Exporter demo and does not satisfy REAL_DATA_REQUIRED unless the user explicitly asks to work on that demo dashboard. ` +
         `If no source can answer, report the exact unavailable/error result instead of saving a panel with guessed schema or metrics. ` +
-        `Use the \`update-dashboard\` action with ops=[{op:'insert', path:'/panels/-', value: <panel>}] ` +
-        `to append, or an appropriate index to place the panel in the right spot. ` +
+        `Use the \`mutate-dashboard\` action with code like \`dashboard.insertPanel({"id":"new-panel","title":"New Panel","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atBottom();\` ` +
+        `to append, or \`.before("panel-id")\`, \`.after("panel-id")\`, or \`.atIndex(n)\` to place the panel. ` +
         `Panel shape: { id (unique slug), title, sql, source ('bigquery'|'ga4'|'amplitude'|'first-party'|'demo'|'prometheus'), chartType ('line'|'area'|'bar'|'metric'|'table'|'pie'|'section'), width (legacy integer 1..6; set to 1 unless editing existing data), tab? (use 'Group / Tab' for grouped tabs), columns? (section panels only - 1..6 max panels per row for panels following this section), config? }. ` +
         `Visible layout auto-fits by row: one panel in a row spans the row, two split it, three split it into thirds, up to the section column limit. ` +
         `For amplitude panels, sql is a JSON descriptor: {"event":"event name","groupBy":"property","days":30}. ` +
@@ -242,7 +242,7 @@ function PanelEditorContent({
         `Chart legends render automatically; set config.legend=false only when the user explicitly asks to hide the legend. ` +
         `Consult the data dictionary first via \`list-data-dictionary --search <topic>\`, then use AGENTS.md, .agents/skills, and connected data-source instructions before writing SQL. ` +
         `Every BigQuery panel is dry-run validated on save — if columns/tables are wrong the save returns a 400 with the BQ error and you must fix the SQL and retry. ` +
-        `After the panel saves, call \`refresh-screen\` so the UI picks up the change.`,
+        `After the mutation saves, verify the returned panelCount, appliedOps, and insertedPanelIds; the UI refreshes automatically.`,
       submit: true,
     });
     onOpenChange(false);

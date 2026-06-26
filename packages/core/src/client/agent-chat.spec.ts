@@ -40,7 +40,9 @@ const {
   clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
+  insertAgentComposerReference,
   listAgentChatContext,
+  normalizeAgentComposerReference,
   removeAgentChatContextItem,
   sendToAgentChat,
   setAgentChatContextItem,
@@ -448,6 +450,85 @@ describe("sendToAgentChat", () => {
   it("keeps legacy context helper names as aliases", () => {
     expect(setContextToAgentChat).toBe(setAgentChatContextItem);
     expect(addContextToAgentChat).toBe(setAgentChatContextItem);
+  });
+
+  it("normalizes composer references", () => {
+    expect(
+      normalizeAgentComposerReference({
+        label: " Product shots ",
+        icon: "folder",
+        source: "assets",
+        refType: " brand-kit ",
+        refId: " lib_123 ",
+        refPath: " /library/lib_123 ",
+        slotKey: " brand-kit ",
+        slotLabel: " Brand kit ",
+        metadata: { libraryId: "lib_123" },
+        clearsSlots: [" preset ", "", 123],
+        relatedReferences: [
+          {
+            label: " Library preset ",
+            refType: " preset ",
+            refId: " preset_123 ",
+            slotKey: " preset ",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Product shots",
+      icon: "folder",
+      source: "assets",
+      refType: "brand-kit",
+      refId: "lib_123",
+      refPath: "/library/lib_123",
+      slotKey: "brand-kit",
+      slotLabel: "Brand kit",
+      metadata: { libraryId: "lib_123" },
+      clearsSlots: ["preset"],
+      relatedReferences: [
+        {
+          label: "Library preset",
+          refType: "preset",
+          refId: "preset_123",
+          refPath: null,
+          slotKey: "preset",
+        },
+      ],
+    });
+    expect(
+      normalizeAgentComposerReference({ label: "", refType: "preset" }),
+    ).toBeNull();
+  });
+
+  it("posts composer references without submitting", () => {
+    insertAgentComposerReference({
+      label: "Product shots",
+      icon: "folder",
+      source: "assets",
+      refType: "brand-kit",
+      refId: "lib_123",
+      refPath: "/library/lib_123",
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.insertComposerReference");
+    expect(payload.data).toEqual(
+      expect.objectContaining({
+        label: "Product shots",
+        icon: "folder",
+        source: "assets",
+        refType: "brand-kit",
+        refId: "lib_123",
+        refPath: "/library/lib_123",
+      }),
+    );
+    expect(payload.data.insertMessageId).toMatch(/^reference-/);
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:prepare",
+      "agentNative:insert-composer-reference",
+    ]);
   });
 
   it("posts keyed context to the active chat without submitting", () => {

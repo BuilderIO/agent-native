@@ -1,6 +1,7 @@
 export const SUPPORTED_LOCALES = [
   "en-US",
   "zh-CN",
+  "zh-TW",
   "es-ES",
   "fr-FR",
   "de-DE",
@@ -41,6 +42,12 @@ export const LOCALE_METADATA: Record<LocaleCode, LocaleMetadata> = {
     code: "zh-CN",
     englishName: "Chinese (Simplified)",
     nativeName: "简体中文",
+    dir: "ltr",
+  },
+  "zh-TW": {
+    code: "zh-TW",
+    englishName: "Chinese (Traditional, Taiwan)",
+    nativeName: "繁體中文",
     dir: "ltr",
   },
   "es-ES": {
@@ -95,6 +102,42 @@ export const LOCALE_METADATA: Record<LocaleCode, LocaleMetadata> = {
 
 const SUPPORTED_LOCALE_SET = new Set<string>(SUPPORTED_LOCALES);
 
+const CHINESE_LOCALE_ALIASES: Record<string, LocaleCode> = {
+  "zh-cn": "zh-CN",
+  "zh-hans": "zh-CN",
+  "zh-hans-cn": "zh-CN",
+  "zh-hans-sg": "zh-CN",
+  "zh-hant": "zh-TW",
+  "zh-hant-hk": "zh-TW",
+  "zh-hant-mo": "zh-TW",
+  "zh-hant-tw": "zh-TW",
+  "zh-hk": "zh-TW",
+  "zh-mo": "zh-TW",
+  "zh-sg": "zh-CN",
+  "zh-tw": "zh-TW",
+};
+
+function normalizeChineseLocaleAlias(canonical: string): LocaleCode | null {
+  const normalized = canonical.toLowerCase();
+  const alias = CHINESE_LOCALE_ALIASES[normalized];
+  if (alias) return alias;
+
+  const parts = normalized.split("-");
+  if (parts[0] !== "zh") return null;
+  if (
+    parts.includes("hant") ||
+    parts.includes("tw") ||
+    parts.includes("hk") ||
+    parts.includes("mo")
+  ) {
+    return "zh-TW";
+  }
+  if (parts.includes("hans") || parts.includes("cn") || parts.includes("sg")) {
+    return "zh-CN";
+  }
+  return null;
+}
+
 export function isLocaleCode(value: unknown): value is LocaleCode {
   return typeof value === "string" && SUPPORTED_LOCALE_SET.has(value);
 }
@@ -104,6 +147,8 @@ export function normalizeLocaleCode(value: unknown): LocaleCode | null {
   try {
     for (const canonical of Intl.getCanonicalLocales(value.trim())) {
       if (isLocaleCode(canonical)) return canonical;
+      const alias = normalizeChineseLocaleAlias(canonical);
+      if (alias) return alias;
       const language = canonical.split("-")[0]?.toLowerCase();
       const match = SUPPORTED_LOCALES.find(
         (locale) => locale.split("-")[0]?.toLowerCase() === language,

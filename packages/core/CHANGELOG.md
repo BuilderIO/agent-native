@@ -1,5 +1,354 @@
 # @agent-native/core
 
+## 0.79.14
+
+### Patch Changes
+
+- 6598a72: Polish Traditional Chinese localization wording for Taiwan users.
+
+## 0.79.13
+
+### Patch Changes
+
+- d47bfcb: Document the Clips embedded bug-report workflow.
+- d47bfcb: Avoid pulling Node-only server exports and edge-incompatible optional packages into Cloudflare Pages worker bundles.
+
+## 0.79.12
+
+### Patch Changes
+
+- aec5806: Keep Cloudflare Pages workers under the bundle size limit by serving app HTML from a build-time static shell.
+
+## 0.79.11
+
+### Patch Changes
+
+- 72c1b3d: Fix Cloudflare Pages worker builds for apps with browser screenshot helpers.
+
+## 0.79.10
+
+### Patch Changes
+
+- 7e19ed6: Return plain string action results with a JSON content type so browser action clients can parse successful responses.
+
+## 0.79.9
+
+### Patch Changes
+
+- ca677a0: Reduce noisy error capture for expected provider connection failures and transient chat recovery probes.
+
+## 0.79.8
+
+### Patch Changes
+
+- 4984f2b: Fail A2A agent tasks that end on terminal run errors without a final response, and keep app-native artifact actions ahead of generic extension creation in agent prompts.
+- 4984f2b: Centralize agent chat request context resolution so foreground and durable background workers share owner, org, timezone, and background-run setup, harden hosted credential fallback detection, and support compressed session replay uploads.
+
+## 0.79.7
+
+### Patch Changes
+
+- b7cfefe: Remove the temporary durable-background-worker hang-localizer diagnostics from the agent chat setup hot path. The analytics worker-stall bug they were added to debug is fixed and verified in prod, so the ~7 extra awaited DB round-trips per durable run setup (and their 8s-hang risk under DB stress) are no longer needed. The lasting fix and observability — the `worker_stage` column, cheap fire-and-forget `workerStep` markers, `readBackgroundRunClaim`, and the centralized request-context resolution — are retained.
+
+## 0.79.6
+
+### Patch Changes
+
+- 06da8c6: Fix an SSR crash (`ERR_MODULE_NOT_FOUND` for `templates/default/app/i18n/en-US.js`) in consuming apps. The compiled client i18n module reached into `src/templates`, which ships as verbatim copy-only scaffolding (`.ts` only, never compiled to `.js` in `dist`), so Node's strict ESM resolver failed during SSR even though Vite's on-the-fly client transform worked. The default English catalog used for translation fallbacks now lives in a real compiled source module (`src/localization/default-messages.ts` → `dist/localization/default-messages.js`). A postbuild guard imports the SSR-critical entry points under Node's ESM resolver to prevent regressions.
+
+## 0.79.5
+
+### Patch Changes
+
+- f35bd34: fix(agent): resolve the org from the owner email for the cookieless durable background worker. The worker has the run owner (seeded via OWNER_CONTEXT_KEY) but no session, so getSession()/getOrgContext() left orgId null — engine resolution then couldn't find the owner's org-scoped Builder credential and fell back to the anthropic default, bailing on the missing key before the worker claimed its run. invokeAgentChatHandler now falls back to resolveOrgIdForEmail(owner) when there's no session org, so the worker resolves the same engine/credential the foreground does.
+
+## 0.79.4
+
+### Patch Changes
+
+- 495e57a: Fix agent chat resolving a null org in cookieless durable background runs, which
+  made the agent see and write only `org_id IS NULL` rows while the UI (carrying
+  the session) used the real org. The agent could not list or read resources the
+  UI showed, and agent-created rows landed outside the user's org. The background
+  run already pre-seeds the owner from the run row; org resolution now falls back
+  to `resolveOrgIdForEmail(owner)` when there is no session, so the agent and the
+  UI scope to the same org-shared data.
+
+## 0.79.3
+
+### Patch Changes
+
+- d64e550: Add zh-TW Traditional Chinese localization support.
+
+## 0.79.2
+
+### Patch Changes
+
+- 53b99c7: fix(agent): run the durable background-function worker inside the run owner's request context (`runWithRequestContext({ userEmail })`). The cookieless `_process-run` worker only seeded the owner for `getOwnerFromEvent`, but engine resolution (`detectEngineFromUserSecrets`) and other owner-scoped reads use `getRequestUserEmail()`/`getRequestOrgId()` from the AsyncLocalStorage request context, which the worker left empty. As a result the worker missed the owner's Builder credential, fell back to the anthropic default, and — when the owner had no stored anthropic key and deploy-credential fallback was blocked (hosted prod) — bailed at the API-key check before ever claiming its run, so durable background runs for such apps (e.g. analytics) only ever completed via the slow foreground inline-recovery. The worker now resolves the same engine/credential the foreground does and claims its run.
+
+## 0.79.1
+
+### Patch Changes
+
+- 43ea142: diag(agent): capture the durable background worker's API-key resolution state (engine, owner resolved, owner key, effective key, deploy-fallback-blocked) just before the anthropic key check. The worker stalls at `post_model_ok` and never reaches `aw_env` — the only exit between them is the anthropic key check's early return, so this pinpoints whether the worker bails for lack of an `effectiveApiKey`.
+
+## 0.79.0
+
+### Minor Changes
+
+- 6e25485: Add Generative UI support for transient and persisted sandboxed inline extensions in chat.
+
+### Patch Changes
+
+- 6e25485: Improve session replay playback and inline extension chat surfaces.
+- 6e25485: Teach generated saved extensions to persist reusable user-edited state with extensionData.
+
+## 0.78.9
+
+### Patch Changes
+
+- d2a14ea: Fix MCP App transplant (Claude) rendering the app's 404 page instead of the
+  target route. The embed ticket's `targetPath` is `/_agent-native/open?...&to=/plans/<id>`,
+  which 302-redirects to the real app route. The transplant followed that redirect
+  to fetch the correct SSR HTML, but then called `history.replaceState` with the
+  **pre-redirect** location (`/_agent-native/open`) — a server-only framework route
+  React Router has no client route for — so hydration threw
+  `No route matches URL "/_agent-native/open"` and rendered the app's 404 boundary.
+  The transplant now uses the post-redirect `response.url` (the resolved app route,
+  e.g. `/plans/<id>`) for `replaceState`, so the hydrated router matches the route.
+
+## 0.78.8
+
+### Patch Changes
+
+- fb735f3: diag(agent): add awaited phase markers (`aw_env`, `aw_presend`, `aw_actions`, `aw_owner`) across the durable background worker's post-`model_done` setup. The awaited `post_model` probe lands (writes work after model resolution), so the worker's stall is a main-flow stall, not a DB hang — these markers advance `worker_stage` to the last phase the main flow actually reached, pinpointing the stall.
+
+## 0.78.7
+
+### Patch Changes
+
+- 61b078a: Preserve resolved user and org context when agent tool calls run actions.
+
+## 0.78.6
+
+### Patch Changes
+
+- 81a7f90: diag(agent): add awaited `post_model_awaited` and `pre_claim` probes in the durable background worker. `worker_stage` stalls at `model_done` even though the code right after is trivial sync; these awaited (withDbTimeout-bounded) writes distinguish a hung bg-fn DB connection right after model resolution (probe never lands) from a later main-flow stall (probe lands, then the stall is downstream).
+
+## 0.78.5
+
+### Patch Changes
+
+- 2a5a74b: diag(agent): add a `worker_stage` column that records the durable background worker's last-reached setup stage independently of the foreground inline-recovery `setup_timings` write, plus early `engine_resolved` / `systemprompt_enter` / `systemprompt_done` markers. `/runs/active` now surfaces `workerStage`, so a worker that stalls before claiming its run is diagnosable (which exact step it reached) without the unreadable Netlify background-function logs.
+
+## 0.78.4
+
+### Patch Changes
+
+- 776041c: Keep mounted app browser bundles and manifests from escaping their app base path.
+- 776041c: Keep Nitro/Vite dev servers running when native file watchers hit EMFILE or ENOSPC, and avoid watching generated template metadata directories.
+
+## 0.78.3
+
+### Patch Changes
+
+- a396d62: Resolve MCP tool caller org scope from the verified user email when a token has no explicit org claim, so org-scoped actions return the same resources agents can see in the UI.
+
+## 0.78.2
+
+### Patch Changes
+
+- 8a6522a: fix(agent): make the durable background-function worker reliably claim its run for heavy apps (analytics). Two changes: (1) the per-run context now carries `isBackgroundWorker`, set before the system prompt is built, so template `extraContext`/prompt builders can skip heavy, hang-prone enrichment in the worker — the analytics data-dictionary read+render (which ran eagerly during prompt construction, before any pre-send timeout could arm) is now skipped in the worker, while the foreground keeps the full dictionary; (2) the pre-send context cap now takes thunks instead of eagerly-created promises, so each step runs inside an already-armed timeout (an eager promise could start and stall the event loop before the cap wrapped it) and a stalled step is recorded as `presend_timeout:<label>` for attribution. Foreground behavior is unchanged.
+
+## 0.78.1
+
+### Patch Changes
+
+- 71849f1: Add structured composer reference chips that can be inserted programmatically
+  and constrained to one visible value per app-defined slot.
+- 71849f1: Forward chat thread footer slots through AgentSidebar so apps can keep live run
+  results attached to chat threads.
+
+## 0.78.0
+
+### Minor Changes
+
+- 368e2a7: Add core session replay client primitives and private blob storage abstractions for Agent Native Analytics.
+
+### Patch Changes
+
+- 368e2a7: Support CID inline attachments in the core email transport.
+- 368e2a7: Keep agent sidebar contents at their full open width while desktop sidebars animate in and out, avoiding text reflow during the transition, and hide the page-level New chat action until a chat has actually started.
+
+## 0.77.24
+
+### Patch Changes
+
+- 45e0923: fix(agent): time-cap durable background pre-send context reads so a single hung read can't freeze the worker. Previously a pre-send DB read that hung (rather than erroring) in a background-function worker stalled the run until the foreground inline-recovery grace (~16s), wasting the durable budget and leaving the run un-claimed. Each pre-send step now degrades to a safe default on timeout (background worker only; foreground unchanged), and a rejected step (e.g. message enrichment) falls back instead of failing the whole batch.
+
+## 0.77.23
+
+### Patch Changes
+
+- 7e290b9: Route the durable background-function worker's Neon queries over the stateless
+  HTTP transport (`poolQueryViaFetch`) instead of a long-lived WebSocket pool
+  connection. A frozen/thawed bg-fn instance can leave the WebSocket half-dead, so
+  every query after the first burst stalls on connect()/query() — the analytics
+  worker stalled right after model resolution and never claimed its run. The
+  foreground keeps the WebSocket pool.
+- 7e290b9: Remove the background-worker diagnostic instrumentation added during the
+  analytics-freeze investigation (breadcrumb sink route, awaited diag writes,
+  per-branch timeout wrappers, dedicated connection, fetch-POST breadcrumbs),
+  restoring the clean post-DDL-guard worker hot path. The DDL guard (#1514) and
+  background-function pool fix (#1523) — the real fixes — are retained.
+
+## 0.77.22
+
+### Patch Changes
+
+- 072dc01: Remove the background-worker diagnostic instrumentation added during the
+  analytics-freeze investigation (breadcrumb sink route, awaited diag writes,
+  per-branch timeout wrappers, dedicated connection, fetch-POST breadcrumbs),
+  restoring the clean post-DDL-guard worker hot path. The DDL guard (#1514) and
+  background-function pool fix (#1523) — the real fixes — are retained.
+
+## 0.77.21
+
+### Patch Changes
+
+- c1f7fe7: DIAGNOSTIC: background-worker breadcrumb sink. The bg fn fire-and-forget POSTs
+  its `[bg-presend]` breadcrumbs to a key-gated foreground `/bg-log-sink` route so
+  the worker's post-`model_done` setup progress is readable — the worker's own DB
+  diag writes stall there and Netlify doesn't surface background-function logs.
+  Also disambiguates event-loop-block vs DB-hang (if the POSTs land, the event loop
+  is fine). Temporary; removed once the analytics worker freeze is fixed.
+
+## 0.77.20
+
+### Patch Changes
+
+- 97a642e: Stop injecting the `baseUrl` compiler option into scaffolded app tsconfigs. `baseUrl` is deprecated and errors in TypeScript 6 (TS5101/TS5102) and removed in TypeScript 7. The `create` CLI now relies on `paths` (including the `"*": ["./*"]` catch-all) which resolve relative to the project's own tsconfig, fixing `error TS5102: Option 'baseUrl' has been removed` under tsgo / `@typescript/native-preview` in generated starters.
+
+## 0.77.19
+
+### Patch Changes
+
+- 27fc4c2: Route the background-worker's awaited milestone diagnostics through a dedicated
+  (non-pooled) DB connection. The pooled connection becomes unusable right after
+  the model-resolution block (model_done lands, the next pooled write hangs), so a
+  dedicated connection lets the post-model_done milestones land and makes the
+  worker's true freeze point visible in /runs/active.
+
+## 0.77.18
+
+### Patch Changes
+
+- 278f171: Make the background-worker's post-`model_done` milestone diagnostics
+  (`env_config`, `context_all`, `action_tool_setup`, `owner_thread`, `prestart`)
+  AWAITED writes instead of fire-and-forget. A blocked event loop can't flush
+  fire-and-forget async writes, so they never landed once the worker froze; an
+  awaited write lands while the loop is still running, so the last milestone
+  visible in `/runs/active` pinpoints exactly where the worker freezes.
+
+## 0.77.17
+
+### Patch Changes
+
+- 6c65e7f: Show a Plan signup note for switching `/visual-plan` to local-files mode.
+- 6c65e7f: Allow apps to filter the broad action-event query invalidation from `useDbSync`.
+- 6c65e7f: Keep standalone scaffold installs stable when fresh Sentry transitive packages are published.
+
+## 0.77.16
+
+### Patch Changes
+
+- 02af11c: Extend the background-worker pre-send instrumentation: also time out the required
+  suspect branches (system prompt / `extraContext`, enriched message) and record
+  which branch hit its timeout/error fallback into the run's setup diagnostic
+  (`to=...` in `setupDetail`). The hanging op is then identifiable via
+  `/runs/active` even when the Netlify function-log drain is unreadable, and the
+  timeout lets the worker claim past a stuck required read.
+
+## 0.77.15
+
+### Patch Changes
+
+- d5ec2d0: Diagnostic + defensive instrumentation for the durable background-agent worker's
+  pre-send setup. Adds stdout breadcrumbs (`bgLog`, gated on the worker → Netlify
+  function logs, independent of DB writes which stall in the failing case) across
+  the post-`model_done` / pre-claim sequence and each parallel pre-send branch
+  (enrich, loop settings, system prompt, view-screen, url, selection, files
+  inventory) with start/done/error/timeout. The OPTIONAL context reads
+  (view-screen, url, selection, files) now race a short timeout with a safe `""`
+  fallback so one stuck read cannot block the worker from reaching
+  `claimBackgroundRun`. Used to localize the analytics-only worker freeze that the
+  DB-based diagnostic can't see.
+
+## 0.77.14
+
+### Patch Changes
+
+- b83184b: Fix durable background-agent workers freezing during pre-send setup on apps with
+  large action surfaces (e.g. analytics). The background-function Neon pool was
+  capped at 2 connections (same as the foreground serverless), but the agent's
+  pre-send setup fires ~6 concurrent DB reads — that burst exhausted the 2-slot
+  pool and a stalled connection froze the worker right after `model_done`, so it
+  never claimed and the foreground fell back to inline (~17s) every turn. The bg
+  worker is a single process per run, so it now uses a larger pool (8); the
+  many-instance foreground serverless pool stays at 2 to avoid Neon's connection
+  cap.
+
+## 0.77.13
+
+### Patch Changes
+
+- c90f02a: Diagnostic-only: in the background-agent worker, emit a `presend:<settled-set>`
+  breadcrumb as each parallel pre-send promise settles, so a worker that freezes
+  between `env_config` and `context_all` reveals the exact hanging step (system
+  prompt, view-screen, app-state reads, etc.) via the name missing from the last
+  breadcrumb. No behavior change.
+
+## 0.77.12
+
+### Patch Changes
+
+- 67dba9b: Sync builder-agent-native-starter toolchain files (React Router config, Vite config, server plugins, etc.) alongside the manifest so dependency bumps from templates/chat do not leave the starter in a broken state. Standalone UI scaffolds re-declare tsconfig `paths` and `baseUrl` for `@/*` resolution; headless scaffolds omit `baseUrl` for TS 6 tsgo compatibility. Netlify post-process now rewrites unindented template build commands.
+
+## 0.77.11
+
+### Patch Changes
+
+- 7560a7c: Clear collaborative awareness state immediately when an editor leaves a document.
+
+## 0.77.10
+
+### Patch Changes
+
+- 12545bc: Keep standalone scaffold installs stable when fresh Sentry transitive packages are published.
+
+## 0.77.9
+
+### Patch Changes
+
+- 3eeec7f: Generalize the `ensureTable()` DDL guard to ALL on-demand schema-init paths
+  (~36 stores: agent run-store, application-state, chat-threads, usage,
+  oauth-tokens, resources, observability, integrations, provider-api, mcp,
+  workspace-connections, extensions, audit, harness, a2a, notifications,
+  browser-sessions, auth/sessions, agent-teams run-queue, better-auth, and more).
+
+  Every `ensureTable` now probes `information_schema`/`pg_indexes` before issuing
+  `CREATE TABLE`/`ALTER TABLE ADD COLUMN`/`CREATE INDEX`, so the already-migrated
+  hot path takes NO `ACCESS EXCLUSIVE` lock on Postgres. Any DDL that must run is
+  wrapped in a transaction-scoped `SET LOCAL lock_timeout` (never leaks onto the
+  pooled connection), and a swallowed lock-timeout triggers a RE-PROBE: if the
+  schema is still missing it throws (so the per-store init memo rejects and retries)
+  rather than memoizing init success against absent schema. This fixes
+  background-function (durable agent-chat) workers hanging indefinitely on the
+  first-touch DDL lock of any table on shared Neon. Shared helpers live in
+  `db/ddl-guard.ts` (`ensureSchemaObject`/`ensureTableExists`/`ensureColumnExists`/
+  `ensureIndexExists`). SQLite (local dev) behavior is unchanged. CREATE SQL that
+  references `intType()` is built at runtime, not module scope.
+
 ## 0.77.8
 
 ### Patch Changes

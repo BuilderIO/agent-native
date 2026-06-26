@@ -31,12 +31,14 @@ export function Layout({ children }: LayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
+  const reportScreenshot =
+    new URLSearchParams(location.search).get("reportScreenshot") === "1";
 
   // Analytics has two distinct "primary resources" — dashboards
   // (`/dashboards/:id`, legacy `/adhoc/:id`) and ad-hoc analyses
   // (`/analyses/:id`). Each binds the chat to that artifact so a dashboard
   // chat doesn't leak into a different analysis (and vice versa). The list
-  // pages and overview leave scope null so general data questions still work.
+  // pages and Ask leave scope null so general data questions still work.
   const analyticsScope = useMemo(() => {
     const dashMatch = location.pathname.match(
       /^\/(?:adhoc|dashboards)\/([^/]+)/,
@@ -84,7 +86,7 @@ export function Layout({ children }: LayoutProps) {
   const chatHomeHandoffActive = useAgentChatHomeHandoff({
     storageKey: "analytics",
     activePath: location.pathname,
-    enabled: !isAskRoute,
+    enabled: !isAskRoute && !reportScreenshot,
   });
   useAgentChatHomeHandoffLinks({
     storageKey: "analytics",
@@ -99,6 +101,16 @@ export function Layout({ children }: LayoutProps) {
 
   if (BARE_ROUTES.has(location.pathname)) {
     return <>{children}</>;
+  }
+
+  if (reportScreenshot) {
+    return (
+      <HeaderActionsProvider>
+        <main className="min-h-screen bg-background p-6 text-foreground md:p-8">
+          {children}
+        </main>
+      </HeaderActionsProvider>
+    );
   }
 
   const contentFrame = (
@@ -135,12 +147,14 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
-        <div className="hidden shrink-0 md:block">
+      <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
+        <div className="agent-layout-left-drawer hidden shrink-0 md:block">
           <Sidebar />
         </div>
         {isAskRoute ? (
-          contentFrame
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 overflow-hidden">
+            {contentFrame}
+          </div>
         ) : (
           <AgentSidebar
             position="right"

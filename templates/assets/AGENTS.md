@@ -21,7 +21,9 @@ Detailed library, generation, image, embed, and engine rules live in
   ad hoc provider calls when the app has an action/engine abstraction.
 - Preserve provenance and metadata for generated or imported assets.
 - Use `view-screen` when the active library, selected asset, picker, generation,
-  or embed target is unclear. The picker is also available from the left nav.
+  or embed target is unclear. The human Library surface is `/library` for
+  cross-kit browsing and `/library/:libraryId` for a single brand kit; embedded
+  picker hosts still use `/library` with their iframe/auth bridge params.
 - The Create tab (`/`) is the full-page Assets chat surface. Use the shared
   `assets` chat thread storage there, keep past chats in the left sidebar, and
   use the right agent sidebar only on non-Create routes with view-transition
@@ -33,8 +35,21 @@ Detailed library, generation, image, embed, and engine rules live in
 ## Application State
 
 - `navigation` exposes library, asset, generation, picker, embed, and selection
-  context. Picker state includes media type, selected library, query, prompt, and
-  aspect ratio when available.
+  context. Human Library state uses
+  `{ view: "library", selection: "all" | libraryId, tab, scope, folderId, search }`.
+  Embedded picker state keeps `{ view: "picker", mediaType, libraryId, query,
+prompt, aspectRatio }`.
+- Composer `@` mentions are the source of generation inputs. Map
+  `brand-kit` references to `libraryId`, `preset` references to `presetId`, and
+  `media-type` references to choosing image (`generate-image` /
+  `generate-image-batch`) or video (`generate-video`) generation. The current
+  library view auto-tags its brand kit as a visible removable chip when the
+  composer is empty. The image model is the only remaining composer-side
+  default; the image-model picker writes `imageGenerationModel`, which image
+  generation actions may use when `model` is omitted.
+- `asset-variants` is the shared live generation tray state. New image
+  candidates should appear there through `generate-image` or
+  `generate-image-batch`; do not invent page-local progress surfaces.
 - `navigate` moves the UI to picker, library, generation, asset, and settings
   surfaces.
 

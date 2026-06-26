@@ -5,6 +5,10 @@ const koKR = {
     label: "언어",
     system: "시스템",
     systemDescription: "브라우저 언어 사용",
+    suggestionTitle: "이 페이지를 {{language}}로 읽을까요?",
+    suggestionDescription: "브라우저 언어는 {{language}}입니다.",
+    suggestionSwitch: "{{language}}로 전환",
+    suggestionKeepEnglish: "영어 유지",
   },
   header: {
     docs: "문서",
@@ -77,7 +81,7 @@ const koKR = {
       secondaryCta: "문서 보기",
     },
     code: {
-      quickStartComment: "완성된 앱 템플릿으로 시작",
+      quickStartComment: "명령 하나로 app 만들기",
       skillInstallComment:
         "이미 쓰는 coding agent 에 Agent-Native 계획 기능 추가",
       frameworkComment:
@@ -188,12 +192,12 @@ const koKR = {
       },
     },
     quickStart: {
-      title: "Chat 으로 시작",
-      body: "명령 하나가 actions, durable threads, SQLite 로 뒷받침되는 로컬 Chat app 을 만듭니다. 아직 브라우저 UI 가 필요 없다면 `--headless` 를 사용하세요.",
+      title: "명령으로 시작",
+      body: "명령 하나가 actions, durable threads, SQLite 로 뒷받침되는 로컬 app 을 만듭니다. 아직 브라우저 UI 가 필요 없다면 `--headless` 를 사용하세요.",
     },
     finalCta: {
       title: "직접 소유하는 소프트웨어, agentic era 를 위해 구축",
-      body: "Chat 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
+      body: "명령 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
       primaryCta: "Action 으로 시작",
       secondaryCta: "문서 읽기",
       githubCta: "GitHub 에서 보기",
@@ -233,6 +237,7 @@ const koKR = {
       workspaces: "작업공간",
       voiceInput: "음성 입력",
       mcpApps: "MCP 앱",
+      generativeUi: "생성형 UI",
       toolCalls: "도구 호출",
       agentSidebar: "상담원 사이드바",
       sharedActions: "공유 작업",
@@ -1397,6 +1402,7 @@ const koKR = {
     dropInAgent: "Drop-in Agent 추가",
     componentApi: "컴포넌트 API",
     nativeChatUi: "네이티브 채팅 UI",
+    generativeUi: "생성형 UI",
     realTimeCollaboration: "실시간 협업",
     workspaceOverview: "Workspace 개요",
     skills: "스킬",

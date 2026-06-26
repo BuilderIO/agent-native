@@ -8,7 +8,7 @@ import {
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
 import type { LinksFunction } from "react-router";
 
@@ -79,12 +79,21 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
 function DbSyncBridge() {
   // Invalidate react-query caches on DB changes (agent edits, other tabs,
-  // cron jobs). The hook invalidates every active query on any non-own
-  // change event, so we no longer need to enumerate dashboard / analysis
-  // / explorer keys here. Screen-refresh is handled automatically inside
-  // AgentSidebar.
+  // cron jobs). SQL chart queries can be expensive, so they stay on explicit
+  // refresh/filter semantics instead of joining the broad action fallback.
+  // Screen-refresh is handled automatically inside AgentSidebar.
   const queryClient = useQueryClient();
-  useDbSync({ queryClient, ignoreSource: TAB_ID });
+  const shouldInvalidateForAction = useCallback(
+    (query: { queryKey: readonly unknown[] }) => {
+      return query.queryKey[0] !== "sql-chart";
+    },
+    [],
+  );
+  useDbSync({
+    queryClient,
+    ignoreSource: TAB_ID,
+    actionInvalidatePredicate: shouldInvalidateForAction,
+  });
   return null;
 }
 

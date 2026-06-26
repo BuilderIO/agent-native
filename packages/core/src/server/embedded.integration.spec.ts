@@ -240,6 +240,89 @@ describe("embedded Agent-Native host fixture", () => {
     });
     const extensionId = (created.body as { id: string }).id;
 
+    currentUser = {
+      ...currentUser,
+      email: "ALICE@HOST.TEST",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes`,
+        {
+          method: "POST",
+          headers: { "X-Agent-Native-CSRF": "1" },
+          body: {
+            id: "case-progress",
+            data: { text: "Case-safe private note" },
+          },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: {
+        id: "case-progress",
+        extensionId,
+        ownerEmail: "alice@host.test",
+        scope: "user",
+      },
+    });
+
+    currentUser = {
+      ...currentUser,
+      email: "alice@host.test",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes?scope=user`,
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: [
+        expect.objectContaining({
+          id: "case-progress",
+          owner_email: "alice@host.test",
+          data: JSON.stringify({ text: "Case-safe private note" }),
+        }),
+      ],
+    });
+
+    currentUser = {
+      ...currentUser,
+      email: "ALICE@HOST.TEST",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes/case-progress?scope=user`,
+        {
+          method: "DELETE",
+          headers: { "X-Agent-Native-CSRF": "1" },
+        },
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: { ok: true },
+    });
+
+    currentUser = {
+      ...currentUser,
+      email: "alice@host.test",
+    };
+
+    await expect(
+      dispatch(
+        nitroApp,
+        `/_agent-native/extensions/data/${extensionId}/notes?scope=user`,
+      ),
+    ).resolves.toMatchObject({
+      status: 200,
+      body: [],
+    });
+
     await expect(
       dispatch(nitroApp, `/_agent-native/extensions/${extensionId}`, {
         method: "PUT",

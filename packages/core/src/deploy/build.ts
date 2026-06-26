@@ -82,6 +82,410 @@ export const NITRO_RUNTIME_IGNORE_PATTERNS = [
   "**/*.test.cjs",
 ];
 
+export const CLOUDFLARE_WORKER_ESBUILD_EXTERNALS = [
+  "mermaid",
+  "@excalidraw/excalidraw",
+  "@excalidraw/mermaid-to-excalidraw",
+  "pdf-parse",
+  "pdfjs-dist",
+  "@google/genai",
+  "chartjs-node-canvas",
+  "@napi-rs/canvas",
+  "@anthropic-ai/tokenizer",
+  "@resvg/resvg-js",
+  "playwright",
+  "playwright-core",
+  "chromium-bidi",
+  "chromium-bidi/*",
+  "@sparticuz/chromium-min",
+  "fsevents",
+];
+export const CLOUDFLARE_WORKER_STUB_MODULES: Record<string, string> = {
+  "better-sqlite3":
+    "export default {}; export const Database = class {}; export const watch = () => ({ close() {} });\n",
+  "node-pty":
+    "export default {}; export const watch = () => ({ close() {} });\n",
+  chokidar: "export default {}; export const watch = () => ({ close() {} });\n",
+  fsevents: "export default {}; export const watch = () => ({ close() {} });\n",
+  dotenv: "export default {}; export const config = () => ({ parsed: {} });\n",
+  "@anthropic-ai/sdk": "export default class Anthropic {}\n",
+  "@anthropic-ai/tokenizer":
+    "export default {}; export const countTokens = undefined;\n",
+  "@sentry/node": [
+    "export const init = () => {};",
+    "const scope = {",
+    "  setUser() {},",
+    "  setTag() {},",
+    "  setExtra() {},",
+    "  setContext() {},",
+    "  setLevel() {},",
+    "  getScopeData() { return {}; },",
+    "};",
+    "export const getIsolationScope = () => scope;",
+    "export const withScope = (fn) => fn(scope);",
+    "export const captureException = () => undefined;",
+    "export default { init, getIsolationScope, withScope, captureException };",
+    "",
+  ].join("\n"),
+  "@resvg/resvg-js": [
+    "export class Resvg {",
+    '  constructor() { throw new Error("@resvg/resvg-js unavailable in Cloudflare Pages worker"); }',
+    "}",
+    "export default { Resvg };",
+    "",
+  ].join("\n"),
+  "playwright-core": [
+    "const unavailable = async () => { throw new Error('playwright-core unavailable in Cloudflare Pages worker'); };",
+    "export const chromium = { launch: unavailable };",
+    "export const firefox = { launch: unavailable };",
+    "export const webkit = { launch: unavailable };",
+    "export default { chromium, firefox, webkit };",
+    "",
+  ].join("\n"),
+  "@sparticuz/chromium-min": [
+    "const chromium = {",
+    "  args: [],",
+    "  setGraphicsMode: false,",
+    "  executablePath: async () => { throw new Error('@sparticuz/chromium-min unavailable in Cloudflare Pages worker'); },",
+    "};",
+    "export default chromium;",
+    "",
+  ].join("\n"),
+  "@google/genai": [
+    "export class GoogleGenAI {",
+    "  constructor() { throw new Error('@google/genai unavailable in Cloudflare Pages worker'); }",
+    "}",
+    "export default { GoogleGenAI };",
+    "",
+  ].join("\n"),
+  "pdf-parse": [
+    "export class PDFParse {",
+    "  constructor() { throw new Error('pdf-parse unavailable in Cloudflare Pages worker'); }",
+    "}",
+    "export default { PDFParse };",
+    "",
+  ].join("\n"),
+  "pdfjs-dist":
+    "export default {}; export const getDocument = () => { throw new Error('pdfjs-dist unavailable in Cloudflare Pages worker'); };\n",
+  "chartjs-node-canvas": [
+    "export class ChartJSNodeCanvas {",
+    "  constructor() { throw new Error('chartjs-node-canvas unavailable in Cloudflare Pages worker'); }",
+    "}",
+    "export default { ChartJSNodeCanvas };",
+    "",
+  ].join("\n"),
+  "@napi-rs/canvas":
+    "export default {}; export const createCanvas = () => { throw new Error('@napi-rs/canvas unavailable in Cloudflare Pages worker'); };\n",
+  mermaid: "export default {}; export const mermaidAPI = {};\n",
+  "@excalidraw/excalidraw":
+    "export default {}; export const MainMenu = {}; export const WelcomeScreen = {};\n",
+  "@excalidraw/mermaid-to-excalidraw":
+    "export default async () => ({ elements: [], files: {} });\n",
+};
+
+function cloudflareNodeBuiltinStubSource(
+  moduleName: string,
+  namedExports: string[],
+  overrides: string[] = [],
+): string {
+  const overridden = new Set(
+    overrides.flatMap((source) =>
+      Array.from(source.matchAll(/\bexport const ([A-Za-z_$][\w$]*)/g)).map(
+        (match) => match[1],
+      ),
+    ),
+  );
+  const exports = Array.from(new Set(namedExports))
+    .filter((name) => !overridden.has(name))
+    .sort();
+  return [
+    `const unavailable = (name) => (..._args) => { throw new Error(name + " is unavailable in Cloudflare Pages workers"); };`,
+    `const proxy = new Proxy({}, { get(_target, prop) { return unavailable("${moduleName}." + String(prop)); } });`,
+    ...overrides,
+    ...exports.map(
+      (name) => `export const ${name} = unavailable("${moduleName}.${name}");`,
+    ),
+    "export default proxy;",
+    "",
+  ].join("\n");
+}
+
+export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
+  string,
+  string
+> = {
+  child_process: cloudflareNodeBuiltinStubSource("child_process", [
+    "exec",
+    "execFile",
+    "execFileSync",
+    "execSync",
+    "fork",
+    "spawn",
+    "spawnSync",
+  ]),
+  cluster: cloudflareNodeBuiltinStubSource("cluster", [
+    "disconnect",
+    "fork",
+    "isMaster",
+    "isPrimary",
+    "isWorker",
+    "setupMaster",
+    "setupPrimary",
+    "worker",
+    "workers",
+  ]),
+  dgram: cloudflareNodeBuiltinStubSource("dgram", ["createSocket"]),
+  dns: cloudflareNodeBuiltinStubSource("dns", [
+    "lookup",
+    "promises",
+    "resolve",
+    "resolve4",
+    "resolve6",
+  ]),
+  "dns/promises": cloudflareNodeBuiltinStubSource("dns/promises", [
+    "lookup",
+    "resolve",
+    "resolve4",
+    "resolve6",
+  ]),
+  domain: cloudflareNodeBuiltinStubSource("domain", ["create"]),
+  fs: cloudflareNodeBuiltinStubSource(
+    "fs",
+    [
+      "access",
+      "accessSync",
+      "appendFile",
+      "appendFileSync",
+      "chmod",
+      "chmodSync",
+      "close",
+      "closeSync",
+      "copyFile",
+      "copyFileSync",
+      "cp",
+      "cpSync",
+      "createReadStream",
+      "createWriteStream",
+      "existsSync",
+      "lstat",
+      "lstatSync",
+      "mkdir",
+      "mkdirSync",
+      "open",
+      "openSync",
+      "readFile",
+      "readFileSync",
+      "readdir",
+      "readdirSync",
+      "readlink",
+      "readlinkSync",
+      "realpath",
+      "realpathSync",
+      "rename",
+      "renameSync",
+      "rm",
+      "rmSync",
+      "stat",
+      "statSync",
+      "symlink",
+      "symlinkSync",
+      "unlink",
+      "unlinkSync",
+      "watch",
+      "writeFile",
+      "writeFileSync",
+    ],
+    [
+      "export const constants = {};",
+      "export const promises = {};",
+      "export const existsSync = () => false;",
+      "export const readdirSync = () => [];",
+      "export const realpathSync = (value) => value;",
+      "export const mkdirSync = () => undefined;",
+      "export const rmSync = () => undefined;",
+    ],
+  ),
+  "fs/promises": cloudflareNodeBuiltinStubSource("fs/promises", [
+    "access",
+    "appendFile",
+    "chmod",
+    "copyFile",
+    "cp",
+    "lstat",
+    "mkdir",
+    "readFile",
+    "readdir",
+    "readlink",
+    "realpath",
+    "rename",
+    "rm",
+    "stat",
+    "symlink",
+    "unlink",
+    "writeFile",
+  ]),
+  http: cloudflareNodeBuiltinStubSource("http", [
+    "Agent",
+    "ClientRequest",
+    "IncomingMessage",
+    "ServerResponse",
+    "createServer",
+    "get",
+    "request",
+  ]),
+  http2: cloudflareNodeBuiltinStubSource("http2", [
+    "Http2ServerRequest",
+    "Http2ServerResponse",
+    "constants",
+    "connect",
+    "createSecureServer",
+    "createServer",
+  ]),
+  https: cloudflareNodeBuiltinStubSource("https", [
+    "Agent",
+    "createServer",
+    "get",
+    "request",
+  ]),
+  inspector: cloudflareNodeBuiltinStubSource("inspector", [
+    "Session",
+    "close",
+    "open",
+    "url",
+    "waitForDebugger",
+  ]),
+  module: cloudflareNodeBuiltinStubSource(
+    "module",
+    ["Module", "builtinModules", "createRequire", "syncBuiltinESMExports"],
+    [
+      "export const builtinModules = [];",
+      "export const createRequire = () => globalThis.require ?? ((specifier) => { throw new Error('Cannot require: ' + specifier); });",
+    ],
+  ),
+  net: cloudflareNodeBuiltinStubSource("net", [
+    "Socket",
+    "connect",
+    "createConnection",
+    "createServer",
+  ]),
+  os: cloudflareNodeBuiltinStubSource(
+    "os",
+    [
+      "arch",
+      "cpus",
+      "endianness",
+      "freemem",
+      "homedir",
+      "hostname",
+      "networkInterfaces",
+      "platform",
+      "release",
+      "tmpdir",
+      "totalmem",
+      "type",
+      "userInfo",
+    ],
+    [
+      'export const EOL = "\\n";',
+      'export const arch = () => "x64";',
+      "export const cpus = () => [];",
+      'export const endianness = () => "LE";',
+      "export const freemem = () => 0;",
+      'export const homedir = () => "/tmp";',
+      'export const hostname = () => "cloudflare-worker";',
+      "export const networkInterfaces = () => ({});",
+      'export const platform = () => "linux";',
+      'export const release = () => "";',
+      'export const tmpdir = () => "/tmp";',
+      "export const totalmem = () => 0;",
+      'export const type = () => "Worker";',
+      "export const userInfo = () => ({ username: 'worker', homedir: '/tmp' });",
+    ],
+  ),
+  readline: cloudflareNodeBuiltinStubSource("readline", [
+    "Interface",
+    "clearLine",
+    "clearScreenDown",
+    "createInterface",
+    "cursorTo",
+    "emitKeypressEvents",
+    "moveCursor",
+  ]),
+  repl: cloudflareNodeBuiltinStubSource("repl", ["start"]),
+  sqlite: cloudflareNodeBuiltinStubSource("sqlite", ["DatabaseSync"]),
+  sys: cloudflareNodeBuiltinStubSource("sys", [
+    "debug",
+    "deprecate",
+    "error",
+    "inspect",
+    "log",
+    "print",
+    "puts",
+  ]),
+  tls: cloudflareNodeBuiltinStubSource("tls", [
+    "TLSSocket",
+    "connect",
+    "createSecureContext",
+    "createServer",
+  ]),
+  trace_events: cloudflareNodeBuiltinStubSource("trace_events", [
+    "createTracing",
+    "getEnabledCategories",
+  ]),
+  tty: cloudflareNodeBuiltinStubSource("tty", [
+    "ReadStream",
+    "WriteStream",
+    "isatty",
+  ]),
+  v8: cloudflareNodeBuiltinStubSource("v8", [
+    "deserialize",
+    "getHeapStatistics",
+    "serialize",
+  ]),
+  vm: cloudflareNodeBuiltinStubSource("vm", [
+    "Script",
+    "compileFunction",
+    "createContext",
+    "runInContext",
+    "runInNewContext",
+    "runInThisContext",
+  ]),
+  wasi: cloudflareNodeBuiltinStubSource("wasi", ["WASI"]),
+  worker_threads: cloudflareNodeBuiltinStubSource(
+    "worker_threads",
+    ["MessageChannel", "MessagePort", "Worker", "isMainThread", "parentPort"],
+    ["export const isMainThread = true;", "export const parentPort = null;"],
+  ),
+};
+
+export interface GenerateWorkerEntryOptions {
+  includeReactRouterSsr?: boolean;
+}
+
+interface ReactRouterAssetManifest {
+  entry: ReactRouterAssetManifestEntry;
+  routes: Record<string, ReactRouterAssetManifestRoute>;
+  url: string;
+}
+
+interface ReactRouterAssetManifestEntry {
+  module: string;
+  imports?: string[];
+  css?: string[];
+}
+
+interface ReactRouterAssetManifestRoute {
+  id: string;
+  module: string;
+  imports?: string[];
+  css?: string[];
+  hasLoader?: boolean;
+  clientActionModule?: string;
+  clientLoaderModule?: string;
+  clientMiddlewareModule?: string;
+  hydrateFallbackModule?: string;
+}
+
 function normalizeConfiguredAppBasePath(): string {
   return normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
@@ -97,6 +501,7 @@ const NODE_ONLY_PLUGINS = new Set([
   // observability there; the framework default is the Node SDK.
   "sentry",
 ]);
+const EDGE_SERVER_ENTRYPOINT = "@agent-native/core/server/edge";
 
 function isNodeOnlyPlugin(filePath: string): boolean {
   const basename = path.basename(filePath, path.extname(filePath));
@@ -108,7 +513,7 @@ export function generateProvidedPluginsNitroPluginSource(
 ): string {
   const stems = [...new Set(pluginStems.filter(Boolean))].sort();
   return `// AUTO-GENERATED by @agent-native/core deploy build
-import { markDefaultPluginProvided } from "@agent-native/core/server";
+import { markDefaultPluginProvided } from "${EDGE_SERVER_ENTRYPOINT}";
 
 const pluginStems = ${JSON.stringify(stems)};
 
@@ -170,7 +575,7 @@ export function addImmutableAssetRouteRulesForClientBuild(
  * If a workspace core is present (monorepo with `agent-native.workspaceCore`
  * configured and the named package resolves), any plugin slot that the
  * workspace core exports is imported from there instead of from
- * `@agent-native/core/server`. This is the middle layer of the three-layer
+ * `@agent-native/core/server/edge`. This is the middle layer of the three-layer
  * inheritance model: app local > workspace core > framework default.
  */
 export function generateWorkerEntry(
@@ -181,7 +586,9 @@ export function generateWorkerEntry(
   workspaceCore: WorkspaceCoreExports | null = null,
   immutableAssetPaths: string[] = [],
   builtAppBasePath = normalizeConfiguredAppBasePath(),
+  options: GenerateWorkerEntryOptions = {},
 ): string {
+  const includeReactRouterSsr = options.includeReactRouterSsr ?? true;
   const routeImports: string[] = [];
   const routeRegistrations: string[] = [];
 
@@ -274,11 +681,11 @@ export function generateWorkerEntry(
         )};`,
       );
     } else {
-      // Fall back to the framework default from @agent-native/core.
+      // Fall back to the framework default from the edge-safe core entrypoint.
       const defaultExportName = DEFAULT_PLUGIN_REGISTRY[stem];
       if (!defaultExportName) continue;
       pluginImports.push(
-        `import { ${defaultExportName} as ${varName} } from "@agent-native/core/server";`,
+        `import { ${defaultExportName} as ${varName} } from "${EDGE_SERVER_ENTRYPOINT}";`,
       );
     }
     pluginCalls.push(`  if (typeof ${varName} === "function") {
@@ -296,15 +703,15 @@ export function generateWorkerEntry(
       : [];
   if (generatedPluginMarks.length > 0) {
     pluginImports.unshift(
-      `import { markDefaultPluginProvided as markGeneratedPluginProvided } from "@agent-native/core/server";`,
+      `import { markDefaultPluginProvided as markGeneratedPluginProvided } from "${EDGE_SERVER_ENTRYPOINT}";`,
     );
   }
 
   return `
 // Auto-generated worker entry point for ${preset}
 import { H3, defineEventHandler, readBody, toResponse } from "h3";
-import { createRequestHandler } from "react-router";
-import * as serverBuild from "./server-build.js";
+${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
+${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 
 function normalizeAppBasePath(value) {
   if (!value || value === "/") return "";
@@ -634,6 +1041,52 @@ function requestWithPathname(request, pathname) {
   return new Request(url, request);
 }
 
+function isStaticAppShellRequest(request) {
+  if (request.method !== "GET" && request.method !== "HEAD") return false;
+  const p = stripAppBasePath(new URL(request.url).pathname);
+  if (
+    p.startsWith("/.well-known/") ||
+    p.startsWith("/_agent-native/") ||
+    isApiPath(p) ||
+    p === "/favicon.ico" ||
+    p === "/favicon.png" ||
+    /\\.\\w+$/.test(p)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+async function fetchStaticAppShell(request, env) {
+  if (!env?.ASSETS || !isStaticAppShellRequest(request)) return null;
+  const basePath = getAppBasePath();
+  const p = stripAppBasePath(new URL(request.url).pathname);
+  const shellRequest = requestWithPathname(
+    requestWithMethod(request, "GET"),
+    "/index.html",
+  );
+  let response;
+  try {
+    response = await env.ASSETS.fetch(shellRequest);
+  } catch {
+    return null;
+  }
+  if (response.status === 404) return null;
+  if (request.method === "HEAD") {
+    return rewriteMountedResponse(
+      new Response(null, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      }),
+      basePath,
+      p,
+      request,
+    );
+  }
+  return rewriteMountedResponse(response, basePath, p, request);
+}
+
 // API route handlers
 ${routeImports.join("\n")}
 
@@ -689,7 +1142,9 @@ ${routeRegistrations.join("\n")}
   // Register action routes (/_agent-native/actions/*)
 ${actionRegistrations.join("\n")}
 
-  // SSR catch-all for React Router
+${
+  includeReactRouterSsr
+    ? `  // SSR catch-all for React Router
   const rrHandler = createRequestHandler(() => serverBuild);
   app.all("/**", defineEventHandler(async (event) => {
     const basePath = getAppBasePath();
@@ -720,7 +1175,9 @@ ${actionRegistrations.join("\n")}
       );
     }
     return rewriteMountedResponse(await rrHandler(request), basePath, p, request);
-  }));
+  }));`
+    : ""
+}
 
   _handler = app.fetch.bind(app);
   return _handler;
@@ -759,10 +1216,225 @@ export default {
     }
 
     const handler = await getHandler();
-    return handler(requestWithMountedApiPrefixStripped(request));
+    const response = await handler(requestWithMountedApiPrefixStripped(request));
+${
+  includeReactRouterSsr
+    ? "    return response;"
+    : `    if (response.status === 404) {
+      const shellResponse = await fetchStaticAppShell(request, env);
+      if (shellResponse) return shellResponse;
+    }
+    return response;`
+}
   }
 };
 `;
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function findReactRouterManifest(distDir: string): ReactRouterAssetManifest {
+  const assetsDir = path.join(distDir, "assets");
+  const manifestFile = fs
+    .readdirSync(assetsDir)
+    .find((file) => /^manifest-[\w-]+\.js$/.test(file));
+  if (!manifestFile) {
+    throw new Error(`React Router client manifest not found in ${assetsDir}`);
+  }
+
+  const source = fs.readFileSync(path.join(assetsDir, manifestFile), "utf8");
+  const match = source.match(/^window\.__reactRouterManifest=(.*);?\s*$/);
+  if (!match) {
+    throw new Error(`Could not parse React Router manifest ${manifestFile}`);
+  }
+
+  return JSON.parse(match[1].replace(/;$/, "")) as ReactRouterAssetManifest;
+}
+
+function collectModulePreloads(
+  manifest: ReactRouterAssetManifest,
+  route: ReactRouterAssetManifestRoute,
+): string[] {
+  const paths = new Set<string>();
+  const add = (value: string | undefined) => {
+    if (value) paths.add(value);
+  };
+  add(manifest.url);
+  add(manifest.entry.module);
+  manifest.entry.imports?.forEach(add);
+  add(route.module);
+  route.imports?.forEach(add);
+  add(route.clientActionModule);
+  add(route.clientLoaderModule);
+  add(route.clientMiddlewareModule);
+  add(route.hydrateFallbackModule);
+  return [...paths];
+}
+
+function collectStylesheetLinks(
+  manifest: ReactRouterAssetManifest,
+  route: ReactRouterAssetManifestRoute,
+): string[] {
+  return [...new Set([...(manifest.entry.css ?? []), ...(route.css ?? [])])];
+}
+
+function generateRouteModuleImportScript(
+  manifest: ReactRouterAssetManifest,
+  route: ReactRouterAssetManifestRoute,
+): string {
+  const modules = [
+    ["route0", route.module],
+    ["route0_clientAction", route.clientActionModule],
+    ["route0_clientLoader", route.clientLoaderModule],
+    ["route0_clientMiddleware", route.clientMiddlewareModule],
+    ["route0_hydrateFallback", route.hydrateFallbackModule],
+  ] as const;
+  const imports = modules
+    .filter(([, modulePath]) => modulePath)
+    .map(
+      ([name, modulePath]) =>
+        `import * as ${name} from ${JSON.stringify(modulePath)};`,
+    );
+  const parts = modules
+    .filter(([, modulePath]) => modulePath)
+    .map(([name]) => `...${name}`);
+
+  return [
+    `import ${JSON.stringify(manifest.url)};`,
+    ...imports,
+    `window.__reactRouterRouteModules = {${JSON.stringify(route.id)}:{${parts.join(",")}}};`,
+    `import(${JSON.stringify(manifest.entry.module)});`,
+  ].join("\n");
+}
+
+const EMPTY_REACT_ROUTER_TURBO_STREAM =
+  '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{},"actionData","errors"]\n';
+
+// Manifest fallbacks cannot execute server loaders, so root loaders get the
+// framework's default locale shape to keep hydration from reading undefined.
+const DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM =
+  '[{"_1":2,"_3":-5,"_4":-5},"loaderData",{"_5":6},"actionData","errors","root",{"_7":8,"_9":10,"_11":12,"_13":14},"locale","en-US","preference",{"_7":15},"dir","ltr","messages",{},"system"]\n';
+
+export function generateCloudflarePagesStaticShellFromManifest(
+  manifest: ReactRouterAssetManifest,
+  basePath = normalizeConfiguredAppBasePath(),
+): string {
+  const rootRoute = manifest.routes.root;
+  if (!rootRoute) {
+    throw new Error("React Router manifest is missing the root route");
+  }
+
+  const modulePreloads = collectModulePreloads(manifest, rootRoute)
+    .map(
+      (href) =>
+        `<link rel="modulepreload" href="${escapeHtmlAttribute(href)}"/>`,
+    )
+    .join("");
+  const stylesheets = collectStylesheetLinks(manifest, rootRoute)
+    .map(
+      (href) => `<link rel="stylesheet" href="${escapeHtmlAttribute(href)}"/>`,
+    )
+    .join("");
+  const routeModuleScript = generateRouteModuleImportScript(
+    manifest,
+    rootRoute,
+  );
+  const context = {
+    basename: basePath || "/",
+    future: { unstable_optimizeDeps: false },
+    routeDiscovery: { mode: "initial" },
+    ssr: true,
+    isSpaMode: true,
+  };
+  const encodedInitialState = rootRoute.hasLoader
+    ? DEFAULT_ROOT_LOADER_REACT_ROUTER_TURBO_STREAM
+    : EMPTY_REACT_ROUTER_TURBO_STREAM;
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/><link rel="manifest" href="/manifest.json"/><link rel="icon" type="image/svg+xml" href="/favicon.svg"/>${modulePreloads}${stylesheets}</head><body><div style="display:flex;align-items:center;justify-content:center;height:100vh;width:100%"><svg role="status" aria-label="Loading" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="animation:an-spin 1s linear infinite;opacity:0.7"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg><style>@keyframes an-spin { to { transform: rotate(360deg) } } @media (prefers-color-scheme: dark) { html { background: #09090b; color: #fafafa } }</style></div><script>window.__reactRouterContext = ${JSON.stringify(context)};window.__reactRouterContext.stream = new ReadableStream({start(controller){window.__reactRouterContext.streamController = controller;}}).pipeThrough(new TextEncoderStream());</script><script type="module" async="">${routeModuleScript}</script><!--$--><script>window.__reactRouterContext.streamController.enqueue(${JSON.stringify(encodedInitialState)});</script><!--$--><script>window.__reactRouterContext.streamController.close();</script><!--/$--><!--/$--></body></html>`;
+}
+
+function writeCloudflarePagesStaticShell({
+  serverDir,
+  distDir,
+  tmpDir,
+}: {
+  serverDir: string;
+  distDir: string;
+  tmpDir: string;
+}): void {
+  const serverEntry = path.join(serverDir, "index.js");
+  if (!fs.existsSync(serverEntry)) {
+    throw new Error(`React Router server build not found at ${serverEntry}`);
+  }
+
+  const outFile = path.join(distDir, "index.html");
+  const renderScript = path.join(tmpDir, "render-cloudflare-static-shell.mjs");
+  const basePath = normalizeConfiguredAppBasePath();
+  fs.writeFileSync(
+    renderScript,
+    `
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+
+const cwd = ${JSON.stringify(cwd)};
+const serverEntry = ${JSON.stringify(serverEntry)};
+const outFile = ${JSON.stringify(outFile)};
+const basePath = ${JSON.stringify(basePath)};
+
+const requireFromApp = createRequire(cwd + "/package.json");
+const reactRouterEntry = requireFromApp.resolve("react-router");
+const { createRequestHandler } = await import(pathToFileURL(reactRouterEntry).href);
+const serverBuild = await import(pathToFileURL(serverEntry).href);
+const handler = createRequestHandler(serverBuild, "production");
+const pathname = basePath ? basePath + "/" : "/";
+const response = await handler(
+  new Request(new URL(pathname, "https://agent-native.local"), {
+    headers: { "X-React-Router-SPA-Mode": "yes" },
+  }),
+);
+const html = await response.text();
+
+if (!html || !html.includes("__reactRouterContext") || !html.includes("entry.client")) {
+  throw new Error("React Router did not render a usable Cloudflare Pages static shell");
+}
+
+fs.writeFileSync(outFile, html);
+process.exit(0);
+`,
+  );
+
+  try {
+    execFileSync(process.execPath, [renderScript], {
+      cwd,
+      env: {
+        ...process.env,
+        NODE_ENV: process.env.NODE_ENV || "production",
+        IS_RR_BUILD_REQUEST: "yes",
+      },
+      stdio: "inherit",
+    });
+    console.log("[deploy] Wrote Cloudflare Pages static app shell.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[deploy] React Router static shell render failed; using manifest fallback. ${message}`,
+    );
+    fs.writeFileSync(
+      outFile,
+      generateCloudflarePagesStaticShellFromManifest(
+        findReactRouterManifest(distDir),
+        basePath,
+      ),
+    );
+    console.log("[deploy] Wrote Cloudflare Pages static app shell fallback.");
+  }
 }
 
 /**
@@ -797,11 +1469,15 @@ async function buildCloudflarePages() {
   // Copy client assets to dist/
   copyDir(clientDir, distDir);
 
+  const tmpDir = path.join(cwd, ".deploy-tmp");
+  fs.mkdirSync(tmpDir, { recursive: true });
+  writeCloudflarePagesStaticShell({ serverDir, distDir, tmpDir });
+
   // Exclude _worker.js from being served as a public asset
   fs.writeFileSync(path.join(distDir, ".assetsignore"), "_worker.js\n");
 
-  // Write a package.json inside _worker.js/ to tell wrangler this is a
-  // pre-bundled ES module worker — skip re-bundling our esbuild output.
+  // Write package metadata inside _worker.js/ for the ES module worker that
+  // Wrangler compiles and uploads for Cloudflare Pages.
   fs.mkdirSync(path.join(distDir, "_worker.js"), { recursive: true });
   fs.writeFileSync(
     path.join(distDir, "_worker.js", "package.json"),
@@ -822,6 +1498,7 @@ async function buildCloudflarePages() {
   const actions = await discoverActionFiles(cwd);
   const missingDefaults = await getMissingDefaultPlugins(cwd);
   const workspaceCore = await getWorkspaceCoreExports(cwd);
+  const includeReactRouterSsr = false;
 
   const workspaceSlotCount = workspaceCore
     ? Object.keys(workspaceCore.plugins).length
@@ -839,6 +1516,8 @@ async function buildCloudflarePages() {
     actions,
     workspaceCore,
     immutableAssetPaths,
+    normalizeConfiguredAppBasePath(),
+    { includeReactRouterSsr },
   );
 
   // Create _worker.js output directory
@@ -848,23 +1527,27 @@ async function buildCloudflarePages() {
   // Write the worker entry
   const entryFile = path.join(workerOutDir, "index.js");
 
-  // Rewrite the server-build import to point at the copied files
-  const adjustedEntry = entrySource.replace(
-    `import * as serverBuild from "./server-build.js";`,
-    `import * as serverBuild from "./server/index.js";`,
-  );
+  // Rewrite the server-build import to point at the copied files when this
+  // worker intentionally includes React Router SSR.
+  const adjustedEntry = includeReactRouterSsr
+    ? entrySource.replace(
+        `import * as serverBuild from "./server-build.js";`,
+        `import * as serverBuild from "./server/index.js";`,
+      )
+    : entrySource;
 
   // Write a temp file for esbuild to bundle everything into a single worker entry.
-  // The server build (React Router SSR) is copied to tmp so esbuild can resolve it.
-  const tmpDir = path.join(cwd, ".deploy-tmp");
-  fs.mkdirSync(tmpDir, { recursive: true });
+  // When React Router SSR is enabled, the server build is copied to tmp so
+  // esbuild can resolve it. Cloudflare Pages currently uses a static app shell
+  // instead so the worker stays under the platform bundle size limit.
   // Name the entry "index.js" so esbuild outputs index.js in the outdir,
   // matching the _worker.js/index.js entry point that Cloudflare Pages expects.
   const tmpEntry = path.join(tmpDir, "index.js");
   fs.writeFileSync(tmpEntry, adjustedEntry);
 
-  // Copy server build files so esbuild can resolve the import
-  copyDir(serverDir, path.join(tmpDir, "server"));
+  if (includeReactRouterSsr) {
+    copyDir(serverDir, path.join(tmpDir, "server"));
+  }
 
   // Create a require shim so CJS require("fs") calls resolve via ESM imports.
   // This is injected via esbuild --inject to replace its broken __require shim.
@@ -896,25 +1579,33 @@ async function buildCloudflarePages() {
   // Create stub modules for native/Node-only deps that can't run on Workers.
   // These get resolved by esbuild instead of the real modules, avoiding bundling
   // native code that would fail on the Workers runtime.
-  const stubModules = [
-    "better-sqlite3",
-    "node-pty",
-    "chokidar",
-    "fsevents",
-    "dotenv",
-    "@anthropic-ai/sdk",
-  ];
   const stubDir = path.join(tmpDir, "node_modules");
-  for (const mod of stubModules) {
+  for (const [mod, source] of Object.entries(CLOUDFLARE_WORKER_STUB_MODULES)) {
     const modDir = path.join(stubDir, mod);
     fs.mkdirSync(modDir, { recursive: true });
-    fs.writeFileSync(
-      path.join(modDir, "index.js"),
-      `export default {}; export const watch = () => ({ close() {} });`,
-    );
+    fs.writeFileSync(path.join(modDir, "index.js"), source);
     fs.writeFileSync(
       path.join(modDir, "package.json"),
       JSON.stringify({ name: mod, main: "index.js", type: "module" }),
+    );
+  }
+  const stubAliases = Object.keys(CLOUDFLARE_WORKER_STUB_MODULES).map(
+    (mod) => `--alias:${mod}=${path.join(stubDir, mod, "index.js")}`,
+  );
+  const nodeBuiltinStubDir = path.join(tmpDir, "node-builtin-stubs");
+  fs.mkdirSync(nodeBuiltinStubDir, { recursive: true });
+  const nodeBuiltinStubAliases: string[] = [];
+  for (const [mod, source] of Object.entries(
+    CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
+  ).sort(([a], [b]) => b.length - a.length)) {
+    const stubFile = path.join(
+      nodeBuiltinStubDir,
+      `${mod.replace(/\W+/g, "_")}.js`,
+    );
+    fs.writeFileSync(stubFile, source);
+    nodeBuiltinStubAliases.push(
+      `--alias:${mod}=${stubFile}`,
+      `--alias:node:${mod}=${stubFile}`,
     );
   }
 
@@ -932,8 +1623,17 @@ async function buildCloudflarePages() {
   // Only externalize bare names. node:* externals would otherwise pin
   // the prefix in output; instead we alias node:* → bare so anything that
   // resolves past alias land as bare externals.
-  const nodeExternals = builtinNames.map((n) => `--external:${n}`);
-  const nodeAliases = builtinNames.map((n) => `--alias:node:${n}=${n}`);
+  const nodeBuiltinStubs = new Set(
+    Object.keys(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES),
+  );
+  const nodeExternals = builtinNames
+    .filter((n) => !nodeBuiltinStubs.has(n))
+    .sort((a, b) => b.length - a.length)
+    .map((n) => `--external:${n}`);
+  const nodeAliases = builtinNames
+    .filter((n) => !nodeBuiltinStubs.has(n))
+    .sort((a, b) => b.length - a.length)
+    .map((n) => `--alias:node:${n}=${n}`);
 
   // Hard externalize large client-only / node-only libraries so they don't
   // bloat the edge worker. These are never executed in the CF Pages runtime
@@ -946,18 +1646,9 @@ async function buildCloudflarePages() {
   // files. Both import sites degrade gracefully when the runtime import
   // fails: context-xray token counts fall back to char/4 estimates and the
   // OG image route falls back to SVG.
-  const heavyClientExternals = [
-    "mermaid",
-    "@excalidraw/excalidraw",
-    "@excalidraw/mermaid-to-excalidraw",
-    "pdf-parse",
-    "pdfjs-dist",
-    "@google/genai",
-    "chartjs-node-canvas",
-    "@napi-rs/canvas",
-    "@anthropic-ai/tokenizer",
-    "@resvg/resvg-js",
-  ].map((p) => `--external:${p}`);
+  const heavyClientExternals = CLOUDFLARE_WORKER_ESBUILD_EXTERNALS.filter(
+    (p) => !Object.hasOwn(CLOUDFLARE_WORKER_STUB_MODULES, p),
+  ).map((p) => `--external:${p}`);
 
   execFileSync(
     esbuildBin,
@@ -986,6 +1677,8 @@ async function buildCloudflarePages() {
       // Externalize node: builtins — CF Workers runtime provides them
       ...nodeExternals,
       ...heavyClientExternals,
+      ...stubAliases,
+      ...nodeBuiltinStubAliases,
       // Rewrite node:* -> bare names so chunks never contain node: imports
       ...nodeAliases,
     ],
@@ -1104,6 +1797,7 @@ const NODE_BUILTINS = [
   "dgram",
   "diagnostics_channel",
   "dns",
+  "dns/promises",
   "domain",
   "events",
   "fs",
@@ -1149,22 +1843,14 @@ export function getNodeBuiltinNames(): string[] {
  * Injected via esbuild --inject so CJS deps work on Workers runtime.
  */
 function generateRequireShim(): string {
-  // Shim the full set of node builtins so any CJS `require("X")` from a
-  // transitive dep resolves to the imported ESM module. Anything less is
-  // whack-a-mole: terminal helpers pull in `tty`, transformer libs pull in
-  // `worker_threads`, etc. — every miss fails deploy with a generic
-  // "Cannot require: <name>" thrown by this shim itself.
-  //
-  // Some builtins exist only as runtime polyfills under nodejs_compat
-  // (some are no-op stubs). That's fine — the `import` returns whatever
-  // the runtime provides; failures only surface when callers actually USE
-  // the unsupported APIs at request time, which is the same as if the
-  // shim wasn't there.
-  //
-  // `sqlite` is excluded because it's Node 22+ only and Workers'
-  // nodejs_compat doesn't expose it yet — importing it makes the whole
-  // bundle fail to load.
-  const shimmed = NODE_BUILTINS.filter((name) => name !== "sqlite");
+  // Shim Node builtins that Cloudflare Pages can import, and return lazy
+  // unavailable proxies for builtins that Pages Functions reject at upload
+  // time (child_process, fs, net, etc.). This lets optional Node-only code stay
+  // present in the shared bundle without making worker initialization fail.
+  const stubbed = new Set(
+    Object.keys(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES),
+  );
+  const shimmed = NODE_BUILTINS.filter((name) => !stubbed.has(name));
 
   // Bare module names — CF Pages Functions runs under nodejs_compat v1,
   // which rejects "node:fs" and only accepts "fs". The post-build pass in
@@ -1182,9 +1868,14 @@ function generateRequireShim(): string {
   const entries = shimmed
     .map((m) => `"${m}":__${m.replace("/", "_")}`)
     .join(",");
+  const stubEntries = Array.from(stubbed)
+    .sort()
+    .map((m) => `"${m}":__unavailable("${m}")`)
+    .join(",");
+  const allEntries = [entries, stubEntries].filter(Boolean).join(",");
 
   const messageChannelPolyfill = `if(typeof MessageChannel==="undefined"){globalThis.MessageChannel=class{constructor(){const a={onmessage:null},b={onmessage:null};a.postMessage=d=>{if(b.onmessage)setTimeout(()=>b.onmessage({data:d}),0)};b.postMessage=d=>{if(a.onmessage)setTimeout(()=>a.onmessage({data:d}),0)};this.port1=a;this.port2=b}}}`;
-  return `${imports}\n${messageChannelPolyfill}\nconst __mods={${entries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
+  return `${imports}\n${messageChannelPolyfill}\nconst __unavailable=(m)=>new Proxy({}, { get(_target, prop) { return (..._args) => { throw new Error(m + "." + String(prop) + " is unavailable in Cloudflare Pages workers"); }; } });\nconst __mods={${allEntries}};export var require=globalThis.require||function(m){const r=__mods[m];if(r!==undefined)return r;throw new Error("Cannot require: "+m)};\n`;
 }
 
 function findEsbuild(): string {
@@ -1317,6 +2008,16 @@ const SERVERLESS_FFMPEG_STATIC_PLATFORM = "linux";
 const SERVERLESS_FFMPEG_STATIC_ARCHES = new Set<NodeJS.Architecture>([
   "arm64",
   "x64",
+]);
+const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
+  "@vscode/test-electron",
+  "electron",
+  "electron-builder",
+  "electron-updater",
+  "electron-vite",
+  "fsevents",
+  "node-pty",
+  "playwright",
 ]);
 type ServerlessFfmpegStaticArch = "arm64" | "x64";
 
@@ -1749,6 +2450,70 @@ function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
 }
 
 /**
+ * Nitro's file tracer can over-include optional desktop/dev packages that are
+ * present in a monorepo install but cannot run in serverless. Netlify installs
+ * the generated per-function package.json before upload; if `electron` remains
+ * there, the function can exceed Netlify's 250 MB unzipped size limit even
+ * though the server bundle never imports Electron at runtime.
+ */
+export function sanitizeServerlessFunctionPackageManifest(
+  functionDir: string | undefined,
+): void {
+  if (!functionDir || !fs.existsSync(functionDir)) return;
+
+  const packageJsonPath = path.join(functionDir, "package.json");
+  if (!fs.existsSync(packageJsonPath)) return;
+
+  let packageJson: Record<string, unknown>;
+  try {
+    packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  } catch {
+    return;
+  }
+
+  let removed = 0;
+  const depFields = [
+    "dependencies",
+    "optionalDependencies",
+    "devDependencies",
+    "peerDependencies",
+  ];
+  for (const field of depFields) {
+    const deps = packageJson[field];
+    if (!deps || typeof deps !== "object" || Array.isArray(deps)) continue;
+    const depRecord = deps as Record<string, unknown>;
+    for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+      if (Object.prototype.hasOwnProperty.call(depRecord, packageName)) {
+        delete depRecord[packageName];
+        removed++;
+      }
+    }
+    if (Object.keys(depRecord).length === 0) {
+      delete packageJson[field];
+    }
+  }
+
+  const nodeModulesDir = path.join(functionDir, "node_modules");
+  for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+    const packageDir = path.join(nodeModulesDir, ...packageName.split("/"));
+    if (fs.existsSync(packageDir)) {
+      fs.rmSync(packageDir, { recursive: true, force: true });
+      removed++;
+    }
+  }
+
+  if (removed > 0) {
+    fs.writeFileSync(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    );
+    console.log(
+      `[deploy] Removed ${removed} desktop-only package reference(s) from ${path.relative(cwd, functionDir)}.`,
+    );
+  }
+}
+
+/**
  * Create stub directories for dangling platform-specific optional dependency
  * symlinks in the pnpm store.
  *
@@ -2139,6 +2904,7 @@ export default bundle;
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
+    sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
   }
 
   // Durable background agent runs (default-OFF / opt-in; enable with a truthy

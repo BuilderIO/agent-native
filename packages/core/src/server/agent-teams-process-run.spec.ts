@@ -120,6 +120,7 @@ const queueDb = {
 vi.mock("../db/client.js", () => ({
   getDbExec: () => queueDb,
   intType: () => "INTEGER",
+  isPostgres: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
 }));
 

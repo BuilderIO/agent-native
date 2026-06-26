@@ -20,7 +20,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "postinstall": "pnpm --filter @agent-native/shared-app-config --filter @agent-native/core --filter @agent-native/code-agents-ui --filter @agent-native/migrate --filter @agent-native/pinpoint --filter @agent-native/scheduling --filter @agent-native/embedding --filter @agent-native/dispatch run build && pnpm rebuild better-sqlite3",
+    "postinstall": "node scripts/prebuild-workspace-packages.ts postinstall && pnpm rebuild better-sqlite3",
     "setup": "pnpm install",
     "build": "pnpm -r build",
     "dev": "node scripts/dev-lazy.ts",
@@ -51,6 +51,7 @@
     "guard:google-auth-redirects": "node scripts/guard-google-auth-redirects.mjs",
     "guard:db-tool-scoping": "node scripts/guard-db-tool-scoping.mjs",
     "guard:template-list": "node scripts/guard-template-list.mjs",
+    "guard:netlify-private-env": "tsx scripts/guard-netlify-private-env.ts",
     "guard:workspace-skills": "tsx scripts/sync-workspace-core-skills.ts --check",
     "guard:public-packages": "tsx scripts/guard-public-packages.ts",
     "guard:no-generated-artifacts": "node scripts/guard-no-generated-artifacts.mjs",

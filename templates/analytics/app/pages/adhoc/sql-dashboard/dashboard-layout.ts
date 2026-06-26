@@ -26,8 +26,40 @@ export type DashboardDropSlot =
       columnIndex: number;
     };
 
+export type DashboardPointerCoordinates = {
+  x: number;
+  y: number;
+};
+
+export type DashboardClientRect = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
 function rowKey(panels: SqlPanel[], index: number): string {
   return panels.map((panel) => panel.id).join(":") || `empty-${index}`;
+}
+
+export function distanceFromPointerToRect(
+  pointer: DashboardPointerCoordinates,
+  rect: DashboardClientRect,
+): number {
+  const dx =
+    pointer.x < rect.left
+      ? rect.left - pointer.x
+      : pointer.x > rect.right
+        ? pointer.x - rect.right
+        : 0;
+  const dy =
+    pointer.y < rect.top
+      ? rect.top - pointer.y
+      : pointer.y > rect.bottom
+        ? pointer.y - rect.bottom
+        : 0;
+
+  return Math.hypot(dx, dy);
 }
 
 export function rebalanceRowWidths(
@@ -212,6 +244,41 @@ export function readDropSlot(value: unknown): DashboardDropSlot | null {
   return null;
 }
 
+function panelIsInRenderedRow(
+  groups: DashboardPanelGroup[],
+  panelId: string,
+): boolean {
+  return groups.some((group) =>
+    group.rows.some((row) => row.panels.some((panel) => panel.id === panelId)),
+  );
+}
+
+export function isDropSlotAvailable(
+  groups: DashboardPanelGroup[],
+  panelId: string,
+  slot: DashboardDropSlot,
+): boolean {
+  if (!panelIsInRenderedRow(groups, panelId)) return false;
+
+  const group = groups.find((item) => item.key === slot.groupKey);
+  if (!group) return false;
+
+  if (slot.type === "row") {
+    return slot.rowIndex >= 0 && slot.rowIndex <= group.rows.length;
+  }
+
+  const row = group.rows[slot.rowIndex];
+  if (!row) return false;
+  if (slot.columnIndex < 0 || slot.columnIndex > row.panels.length) {
+    return false;
+  }
+
+  const rowContainsPanel = row.panels.some((panel) => panel.id === panelId);
+  if (rowContainsPanel) return row.panels.length > 1;
+
+  return row.panels.length < group.columns;
+}
+
 export function movePanelToDropSlot(
   panels: SqlPanel[],
   panelId: string,
@@ -270,6 +337,14 @@ export function movePanelToDropSlot(
     });
   } else {
     let rowIndex = slot.rowIndex;
+    if (
+      sourceGroupKey === slot.groupKey &&
+      sourceRowWasSingle &&
+      sourceRowIndex === rowIndex
+    ) {
+      return panels;
+    }
+
     if (
       sourceGroupKey === slot.groupKey &&
       sourceRowWasSingle &&

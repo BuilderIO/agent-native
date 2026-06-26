@@ -132,6 +132,57 @@ Key differences from the [server `track()`](#track):
 
 This is distinct from the framework's internal browser telemetry (`trackEvent()` / automatic pageviews — see [Browser defaults](#browser-defaults) below), which powers Agent Native's own product analytics. Use `track()` for your app's own analytics events that should reach your configured providers.
 
+## Session replay {#session-replay}
+
+Agent Native apps can opt into first-party browser session replay without adding a second analytics SDK. Call `configureTracking()` once in the browser root and pass the Analytics public key plus collector endpoint:
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    requireSignedInUser: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+When `sessionReplay.enabled` is truthy, the client dynamically imports `@rrweb/record` after startup and posts replay chunks to the replay endpoint. If `endpoint` ends in `/api/analytics/track` or `/track`, the replay endpoint is derived automatically as `/api/analytics/replay`. Override it explicitly with `sessionReplay.endpoint` when the replay collector lives somewhere else.
+
+Agent Native template roots already call `configureTracking()`. Hosted template deployments can turn replay on with Vite/Netlify environment variables, while library consumers should prefer the explicit `configureTracking({ key, endpoint, sessionReplay })` form above:
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+The browser helper also performs a best-effort, non-blocking read of the current Agent Native auth session. When `requireSignedInUser` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH` is enabled, replay does not start unless the session resolves to a signed-in user. Signed-in replays include `userId`/`userEmail` plus `orgId`; if auth gating is disabled, anonymous recordings remain queryable by anonymous visitor, session, app/template, hostname, and path.
+
+Session replay is sampled deterministically per browser session. A `sampleRate` of `0.1` records about 10% of eligible sessions; use `1` when the eligible population is intentionally small, such as logged-in-only dogfooding.
+
+Privacy defaults are intentionally conservative but still useful for playback:
+
+- Inputs are masked by default (`maskAllInputs: true`).
+- Page text remains visible unless an element is marked with `.an-mask` or `data-an-mask`.
+- Sensitive zones are blocked with selectors such as `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, and credit-card/password/SSN-like fields.
+- URLs are scrubbed with the same `scrubUrl()` helper used by browser analytics.
+- Replay capture is web-only and opt-in; it does not record native desktop screens.
+
+The Analytics template stores replay metadata in SQL (`session_recordings`) and stores chunks through private blob refs (`session_replay_chunks`). Browsers and agents never receive provider URLs. Playback goes through scoped server routes and the default agent tools return summaries or bounded replay events, not raw chunk table access.
+
+For local development only, Analytics can fall back to capped SQL inline chunks when private blob storage is unavailable. Production deployments should configure private or encrypted blob storage rather than relying on Postgres for replay payloads.
+
 ## Advanced: custom providers & internals {#advanced}
 
 Most apps only need `track()` / `identify()` and a built-in provider. The rest of the surface — registering custom providers, the `TrackingProvider` interface, batching internals, and the framework's own browser telemetry — is below.

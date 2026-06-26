@@ -13,6 +13,13 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
 function BuilderBMark({ className }: { className?: string }) {
   return (
     <svg
@@ -36,6 +43,10 @@ export interface StorageSetupCardProps {
   description?: string;
   connectDescription?: string;
   connectedDescription?: string;
+  /** Analytics source for the Builder connect popup. */
+  connectSource?: string;
+  /** Analytics flow for the Builder connect popup. */
+  connectFlow?: string;
 }
 
 export function StorageSetupCard({
@@ -44,6 +55,8 @@ export function StorageSetupCard({
   description = "Store recorded videos with Builder.io or S3-compatible storage.",
   connectDescription = "Builder.io's free tier includes video storage and AI credits.",
   connectedDescription = "You're all set. Starting recorder...",
+  connectSource = "clips_file_upload_storage_setup_card",
+  connectFlow = "file_upload",
 }: StorageSetupCardProps) {
   const t = useT();
   const [connecting, setConnecting] = useState(false);
@@ -72,8 +85,8 @@ export function StorageSetupCard({
     setErr(null);
 
     openBuilderConnectPopup({
-      source: "clips_file_upload_storage_setup_card",
-      flow: "file_upload",
+      source: connectSource,
+      flow: connectFlow,
     });
 
     const start = Date.now();
@@ -112,7 +125,7 @@ export function StorageSetupCard({
         // transient poll error
       }
     }, 2000);
-  }, [onConfigured]);
+  }, [onConfigured, connectSource, connectFlow]);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
@@ -173,23 +186,44 @@ export function StorageSetupCard({
 
       {/* S3 — secondary option */}
       {!connected && (
-        <div className="flex items-center gap-3 border-t border-border pt-4">
-          <IconServer className="h-4 w-4 text-muted-foreground" />
-          <div className="flex-1">
-            <span className="text-sm text-muted-foreground">
-              Or{" "}
-              <a
-                href={appPath("/settings#video-storage")}
-                className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
-              >
-                {t("storageSetup.configureS3")}
-              </a>
-            </span>
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">
-              AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
-            </span>
+        <>
+          <div className="flex items-center gap-3 border-t border-border pt-4">
+            <IconServer className="h-4 w-4 text-muted-foreground" />
+            <div className="flex-1">
+              <span className="text-sm text-muted-foreground">
+                Or{" "}
+                <a
+                  href={appPath("/settings#video-storage")}
+                  className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
+                >
+                  {t("storageSetup.configureS3")}
+                </a>
+              </span>
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO
+              </span>
+            </div>
           </div>
-        </div>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="self-start text-xs text-muted-foreground underline decoration-muted-foreground/50 decoration-dotted underline-offset-4 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                >
+                  {t("storageSetup.whyPrompt")}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                align="start"
+                className="max-w-80 whitespace-normal text-xs leading-relaxed"
+              >
+                {t("storageSetup.whyDescription")}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </>
       )}
     </div>
   );

@@ -134,6 +134,16 @@ function extensionRole(value: unknown): ExtensionBridgeRole {
     : "viewer";
 }
 
+function serializeChatValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function buildExtensionViewerSrcDoc(
   extension: Extension,
   isDark: boolean,
@@ -745,6 +755,18 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         return;
       }
 
+      if (message.type === "agent-native-send-to-chat") {
+        const text = serializeChatValue(message.message);
+        if (!text?.trim()) return;
+        sendToAgentChat({
+          message: text,
+          context: serializeChatValue(message.context),
+          submit: message.submit !== false,
+          openSidebar: message.openSidebar !== false,
+        });
+        return;
+      }
+
       if (message.type === "agent-native-extension-keydown") {
         document.dispatchEvent(
           new KeyboardEvent("keydown", {
@@ -865,11 +887,10 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         // (audit H4) Role-aware policy gate: viewer-shared extensions can read
         // but not write. Decided here in the parent before the request
         // leaves; the server enforces a second layer.
-        const policy = checkBridgePolicy(
-          path,
-          options.method ?? "GET",
-          bridgeContextRef.current,
-        );
+        const policy = checkBridgePolicy(path, options.method ?? "GET", {
+          ...bridgeContextRef.current,
+          extensionId,
+        });
         if (!policy.ok) {
           respond({
             response: {

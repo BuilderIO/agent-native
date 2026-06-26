@@ -1,8 +1,0 @@
-{
-  "name": "meeting-notes",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "build": "tsx ../../../scripts/build-retired-netlify-site.ts meeting-notes"
-  }
-}

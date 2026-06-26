@@ -74,6 +74,12 @@ function getHydrationStableLocaleInitScript() {
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
 const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
+function skipBroadActionInvalidation() {
+  // Mail's Gmail-backed reads are expensive and already refresh through the
+  // explicit app-state refresh-signal that mutating mail actions write.
+  return false;
+}
+
 const MAIL_ERROR_COPY: Record<
   LocaleCode,
   { title: string; fallback: string; back: string; reload: string }
@@ -89,6 +95,12 @@ const MAIL_ERROR_COPY: Record<
     fallback: "加载 Mail 时出现问题。",
     back: "返回",
     reload: "重新加载",
+  },
+  "zh-TW": {
+    title: "Mail 無法載入此檢視。",
+    fallback: "載入 Mail 時發生問題。",
+    back: "返回",
+    reload: "重新載入",
   },
   "es-ES": {
     title: "Mail no pudo cargar esta vista.",
@@ -269,6 +281,7 @@ function DbSyncSetup() {
   useDbSync({
     queryClient: qc,
     queryKeys: [],
+    actionInvalidatePredicate: skipBroadActionInvalidation,
     // Skip events this tab caused — our mutations already handle cache updates
     ignoreSource: TAB_ID,
     onEvent: (data: {
@@ -322,8 +335,13 @@ function DbSyncSetup() {
           invalidateSettingsSurfaces();
         }
       } else if (data.source === "action") {
+        // The core sync hook already refreshes action-backed queries for action
+        // events. Email and label reads are refreshed by the explicit
+        // refresh-signal app-state event so generic action changes do not
+        // cancel and restart Gmail list requests.
+      } else if (data.source === "screen-refresh") {
         if (!isOwnEvent) {
-          qc.invalidateQueries({ queryKey: ["action"] });
+          markExternalEmailRefresh();
           qc.invalidateQueries({ queryKey: ["emails"] });
           qc.invalidateQueries({ queryKey: ["email"] });
           qc.invalidateQueries({ queryKey: ["labels"] });
@@ -331,12 +349,6 @@ function DbSyncSetup() {
         }
       } else if (!isOwnEvent) {
         qc.invalidateQueries({ queryKey: ["action"] });
-        qc.invalidateQueries({ queryKey: ["emails"] });
-        qc.invalidateQueries({ queryKey: ["email"] });
-        qc.invalidateQueries({ queryKey: ["labels"] });
-        qc.invalidateQueries({ queryKey: ["settings"] });
-        qc.invalidateQueries({ queryKey: ["aliases"] });
-        invalidateSettingsSurfaces();
       }
     },
   });

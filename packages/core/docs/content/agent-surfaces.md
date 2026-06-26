@@ -17,6 +17,7 @@ you want, then use the matching primitive.
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | **Headless agent**            | Code, jobs, scripts, another app, or another agent should call the work directly.                           | `agent-native create --headless`, `defineAction`, `agent-native agent`, HTTP, CLI, MCP, A2A |
 | **Rich chat on Agent-Native** | You want a standalone or embedded chat backed by the built-in agent loop.                                   | [Chat template](/docs/template-chat), `<AgentChatSurface>`, `<AssistantChat>`               |
+| **Generated inline UI**       | The agent should create temporary or reusable controls, pickers, calculators, or visualizers inside chat.   | [Generative UI](/docs/generative-ui), `render-inline-extension`, `create-extension`         |
 | **Rich chat on your agent**   | You built the agent elsewhere and want Agent-Native's composer, transcript, tool cards, and native widgets. | `AgentChatRuntime`, `<AssistantChat runtime={runtime}>`                                     |
 | **Embedded sidecar**          | You already have a SaaS app and want an agent beside it with page context and host commands.                | `createAgentNativeEmbeddedPlugin()`, `AgentNativeEmbedded`                                  |
 | **Full application**          | Humans and agents should share durable screens, data, navigation, and collaboration.                        | Templates, actions, SQL state, context awareness                                            |
@@ -269,6 +270,10 @@ export function ProjectChat({ threadId }: { threadId: string }) {
 Actions can return explicit native widget results so chat output is not just
 text. Tables, charts, and typed product cards render as first-party React
 components in the chat, without iframes. See [Native Chat UI](/docs/native-chat-ui).
+When the agent needs arbitrary generated controls instead of a predefined
+React widget, use [Generative UI](/docs/generative-ui): it renders sandboxed
+Alpine/Tailwind UI inline, can read app state and slot context, and can send
+selected values back to chat.
 
 ## Rich chat on your agent {#byo-agent}
 
@@ -367,6 +372,8 @@ Full apps add product UI around the same action and agent contract:
 - **Live sync** — agent changes update the UI, and UI changes update the agent's context.
 - **Deep links** — action results can open the right app view.
 - **Native chat widgets** — tables, charts, cards, approvals, and typed results appear inline.
+- **Generative UI and extensions** — the agent can create inline controls now
+  and save reusable mini-apps when the workflow needs to persist.
 
 Start from the [Chat template](/docs/template-chat) when you want a minimal app
 around your actions, or from a domain [template](/docs/cloneable-saas) when you
@@ -378,6 +385,7 @@ want a complete product shape.
 | --------------------------------------------------------------- | ------------------------- |
 | "I just need a callable tool or workflow."                      | Headless agent            |
 | "I want the framework's agent, but chat should be the main UI." | Rich chat on Agent-Native |
+| "I want the agent to make an interactive control right now."    | Generated inline UI       |
 | "I already have an agent; I need a polished chat UI for it."    | Rich chat on your agent   |
 | "I already have a SaaS app; add an agent beside it."            | Embedded sidecar          |
 | "The agent and UI should evolve together as the product."       | Full application          |
@@ -390,6 +398,7 @@ need to browse, compare, configure, or collaborate over persistent objects.
 
 - [Actions](/docs/actions) — define the headless operation once.
 - [Native Chat UI](/docs/native-chat-ui) — render typed action results in chat.
+- [Generative UI](/docs/generative-ui) — generate transient or persisted sandboxed UI inline in chat.
 - [Drop-in Agent](/docs/drop-in-agent) — mount chat, sidebar, or panel surfaces.
 - [Component API](/docs/components) — lower-level React chat/composer pieces.
 - [Embedding SDK](/docs/embedding-sdk) — add Agent-Native to an existing app.

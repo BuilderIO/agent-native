@@ -58,6 +58,7 @@ const workspaceSkillIncludes = [
   "extensions",
   "external-agents",
   "frontend-design",
+  "generative-ui",
   "harness-agents",
   "internationalization",
   "integration-webhooks",

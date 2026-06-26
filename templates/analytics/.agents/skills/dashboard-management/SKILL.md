@@ -23,7 +23,17 @@ Current storage:
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
 
-Use `update-dashboard` for dashboard edits. It resolves the current user/org context, validates the config, applies JSON-pointer operations when provided, writes the SQL-backed record, and preserves sharing semantics.
+Use `mutate-dashboard` for existing dashboard edits. It resolves the current
+user/org context, validates the resulting config, writes the SQL-backed record,
+syncs collab, and returns compact proof. Use `update-dashboard` for new
+full-config saves, UI full-config saves, or explicitly requested low-level
+JSON-pointer edits.
+
+Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
+dashboard config. Those bypass the dashboard action's access checks, SQL
+validation, collab sync, and proof-of-done return. If a dashboard action fails
+because the argument shape was wrong, fix that action's arguments and retry
+once — do not switch to db-patch or raw SQL.
 
 ## Valid Panel Sources
 
@@ -62,7 +72,7 @@ The save path dry-runs BigQuery panels before persisting. If validation returns 
 ## When To Use An Extension Instead
 
 Native Analytics dashboards are JSON configs rendered by the built-in dashboard
-components. Use `update-dashboard` only when the request fits that model:
+components. Use native dashboard actions only when the request fits that model:
 standard panels, supported chart types, filters, variables, sections, and grid
 layout.
 
@@ -161,18 +171,210 @@ Filters auto-apply on change — there is no Apply button. Each filter change wr
 
 ## Modifying A Dashboard
 
-Preferred patterns:
+For existing dashboard edits, default to `mutate-dashboard`. It gives the
+agent a small typed script API without exposing arbitrary JavaScript execution.
+The main action payload is a string, so it avoids native-array serialization
+traps in tool calls while still giving the agent a code-like editing surface.
+The server parses only documented `dashboard.*` method calls, applies the
+resulting operations in memory, validates the final dashboard config, writes
+SQL once, syncs collab, and returns compact proof.
 
-```bash
-# JSON-pointer style patch
-pnpm action update-dashboard --dashboardId weekly-metrics \
-  --ops '[{"op":"replace","path":"/panels/0/title","value":"Events by Day"}]'
+Arguments must be JSON-compatible literals, so quote object keys. Variables,
+imports, loops, functions, templates, network, filesystem, DB access, and
+calling other actions from the script are not available.
 
-# Full config replacement
-pnpm action update-dashboard --dashboardId weekly-metrics --config '<full json>'
+```ts
+type DashboardMutationApi = {
+  dashboard: {
+    set(patch: DashboardPatch): void;
+    panel(id: string): PanelSelection;
+    section(id: string): SectionSelection;
+    panels(ids: string[]): PanelSelection;
+    panelsMatching(filter: PanelFilter): PanelSelection;
+    insertPanel(panel: PanelInput): InsertedPanel;
+  };
+};
+
+type DashboardPatch = {
+  name?: string;
+  description?: string;
+  columns?: number;
+  filters?: unknown[];
+  variables?: Record<string, string>;
+};
+
+type PanelPatch = {
+  title?: string;
+  sql?: string;
+  source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus";
+  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "section" | "heatmap" | "callout";
+  width?: number;
+  columns?: number;
+  tab?: string;
+  config?: Record<string, unknown>;
+  description?: string;
+};
+
+type PanelInput = PanelPatch & {
+  id: string;
+  title: string;
+  chartType: NonNullable<PanelPatch["chartType"]>;
+  source?: PanelPatch["source"]; // required for non-section panels
+  sql?: string; // required for non-section panels
+};
+
+type PanelFilter = {
+  id?: string;
+  ids?: string[];
+  idIncludes?: string;
+  title?: string;
+  titleIncludes?: string;
+  chartType?: PanelPatch["chartType"];
+  source?: PanelPatch["source"];
+  tab?: string;
+  isSection?: boolean;
+};
+
+type PanelSelection = {
+  moveToTop(): void;
+  moveToBottom(): void;
+  moveBefore(panelId: string): void;
+  moveAfter(panelId: string): void;
+  moveToIndex(index: number): void;
+  remove(): void;
+  set(patch: PanelPatch): void;
+  setTitle(title: string): void;
+  setSql(sql: string): void;
+  setWidth(width: number): void;
+  setConfig(patch: Record<string, unknown>): void;
+  setConfigPath(path: string, value: unknown): void;
+  duplicate(newPanelId: string, patch?: PanelPatch): void;
+};
+
+type SectionSelection = PanelSelection & {
+  append(panelIds: string[]): void;
+};
+
+type InsertedPanel = {
+  atTop(): void;
+  atBottom(): void;
+  before(panelId: string): void;
+  after(panelId: string): void;
+  atIndex(index: number): void;
+};
 ```
 
+Examples:
+
+```ts
+dashboard.panels(["dau-over-time", "wau-over-time"]).moveToTop();
+dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
+dashboard.panel("retention").set({
+  "width": 2,
+  "config": { "description": "Updated definition." }
+});
+dashboard.panelsMatching({ "source": "first-party" }).setWidth(2);
+dashboard.panelsMatching({ "titleIncludes": "Revenue" }).setConfigPath(
+  "yAxis.format",
+  "currency"
+);
+dashboard.panelsMatching({ "titleIncludes": "Signed-In" }).moveToTop();
+dashboard.section("retention-activity-section").append([
+  "repeat-users",
+  "retention-over-time"
+]);
+dashboard.insertPanel({
+  "id": "new-kpi",
+  "title": "New KPI",
+  "source": "first-party",
+  "chartType": "metric",
+  "width": 1,
+  "sql": "SELECT COUNT(*) AS value FROM analytics_events"
+}).atTop();
+```
+
+Native tool call:
+
+```json
+{
+  "dashboardId": "weekly-metrics",
+  "code": "dashboard.panels([\"dau-over-time\",\"wau-over-time\"]).moveToTop();"
+}
+```
+
+Use `update-dashboard` only for new full-config saves, UI full-config saves, or
+when the user specifically requests low-level JSON-pointer edits.
+
+`get-sql-dashboard` is compact by default. It returns panel summaries, ids,
+titles, chart types, sources, layout groups, `layout.panelOrder`, and
+`layout.firstPanelIds` without embedding every panel's full SQL. Use that
+compact result to find panel ids and verify order. Pass `includeConfig: true`
+only when you need full panel SQL/config for a detailed edit.
+
 After a mutation, navigate to the dashboard if the user is elsewhere. The app syncs through the framework's polling/query invalidation path.
+
+### Reordering Panels
+
+For simple "move this chart/section" requests, prefer `mutate-dashboard` with a
+string script:
+
+```json
+{
+  "dashboardId": "weekly-metrics",
+  "code": "dashboard.panels([\"dau-over-time\",\"wau-over-time\"]).moveToTop();"
+}
+```
+
+Do not do index arithmetic with `/panels/<index>` unless the user specifically
+asks for a low-level JSON-pointer edit. Use `moveBefore`, `moveAfter`,
+`moveToTop`, `moveToBottom`, or `moveToIndex` against panel ids instead.
+
+`get-sql-dashboard` returns `layout.panelOrder`, `layout.firstPanelIds`, and
+row/group summaries. Use those fields for orientation and verification instead
+of re-reading stale screenshots or counting positions from memory.
+
+### Existing Dashboard Edits
+
+When the user asks to change existing panels:
+
+1. Read the current dashboard with `get-sql-dashboard` compact mode unless full
+   SQL/config is required.
+2. Call `mutate-dashboard` once with every change in one script. Use
+   `panel(...)`, `panels([...])`, or `panelsMatching({...})` selectors by id or
+   metadata; do not compute shifted array indexes.
+3. Verify the returned `panelCount`, `appliedOps`, `firstPanelIds`, and
+   `summary`. If possible, read the affected panels back and confirm the exact
+   fields changed.
+
+For SQL-only panel edits, use `dashboard.panel("id").setSql("...")`. If the
+metric semantics changed, also update the visible definition with
+`setConfigPath("description", "...")` or `set({ "description": "..." })`. If
+the title, source, chart type, width, or config shape changes together, put them
+in the same `set({...})` call.
+
+### First-Party User Metrics
+
+For first-party `/track` events, be precise about identity:
+
+| Metric intent                                | Identity expression                                                                                                                                                                |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Account users, DAU, WAU, retention, cohorts  | `NULLIF(user_id, '')` plus `NULLIF(user_id, '') IS NOT NULL`, but only on events that actually represent the activity being measured                                               |
+| Signed-in visitor activity                   | `event_name = 'session status' AND signed_in = 'true'` keyed by `COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))`, labeled as signed-in visitors rather than account users |
+| Public traffic, visitors, clip/share viewers | `COALESCE(NULLIF(user_id, ''), NULLIF(anonymous_id, ''))`                                                                                                                          |
+
+Do not call anonymous visitors "users" in dashboard labels or descriptions.
+When a user asks for DAU, WAU, retention, repeat users, or account cohorts,
+exclude logged-out traffic unless they explicitly ask for visitor metrics. If
+the active/session events do not include account identity, do not substitute
+signup or identify events and call that DAU/WAU. Either update instrumentation to
+send account identity on active events, or label the dashboard metric as
+signed-in visitor activity.
+
+For template/app activity metrics, exclude `docs` from DAU, WAU, retention, and
+repeat-user panels. A docs event may carry `signed_in = true` from shared auth
+state or tracker context, but docs traffic is not app usage and should not appear
+as an app/template series. Use a minimum cohort-size threshold for retention
+rates so one or two identities cannot create misleading 100% or 0% spikes.
 
 ## Building Large First-Party Dashboards (compose-dashboard)
 
@@ -184,7 +386,7 @@ For a **first-party analytics** dashboard, prefer `compose-dashboard` over hand-
 - Each metric accepts an optional per-metric `window` of `'30d' | '90d' | 'all'` (only affects windowed virality/time metrics) and `title` / `chartType` / `width` overrides.
 - Returns `{ dashboardId, panelCount, createdMetrics, unknownMetrics, invalidMetrics, skippedExistingIds }` — report `panelCount` as proof-of-done.
 
-Available metric keys: `total-signups`, `signups-over-time`, `signups-by-template`, `sessions-by-app`, `sessions-over-time`, `signed-in-vs-anon`, `total-template-clicks`, `total-demo-clicks`, `total-cli-copies`, `template-interest-over-time`, `clicks-by-template`, `demo-clicks-by-template`, `cli-copies-by-template`, `cli-copies-over-time`, `pageviews-over-time`, `top-referrer-domains`, `referred-signups-30d`, `viral-signup-share-30d`, `clip-share-signups-30d`, `signups-by-referral-source`, `referred-signups-over-time`, `top-referrers`, `share-funnel-30d`, `viral-participation-rate-90d`, `viral-coefficient-90d`, `activated-referrers-90d`.
+Available metric keys: `total-signups`, `signups-over-time`, `signups-by-template`, `sessions-by-app`, `sessions-over-time`, `replay-sessions`, `replay-chunks-over-time`, `recent-replay-sessions`, `signed-in-vs-anon`, `total-template-clicks`, `total-demo-clicks`, `total-cli-copies`, `template-interest-over-time`, `clicks-by-template`, `demo-clicks-by-template`, `cli-copies-by-template`, `cli-copies-over-time`, `pageviews-over-time`, `top-referrer-domains`, `referred-signups-30d`, `viral-signup-share-30d`, `clip-share-signups-30d`, `signups-by-referral-source`, `referred-signups-over-time`, `top-referrers`, `share-funnel-30d`, `viral-participation-rate-90d`, `viral-coefficient-90d`, `activated-referrers-90d`.
 
 ```bash
 # Build a large first-party dashboard in ONE call (server generates the panels)
@@ -199,17 +401,26 @@ This is the dashboard-specific application of the framework-wide `reliable-mutat
 Hosted agent runs have a **~40s budget**. Many sequential `update-dashboard` calls (one per panel, plus schema-discovery calls) will blow that budget and leave the dashboard in a partial state — earlier inserts looked like they succeeded (✓), but nothing actually persisted. Avoid this:
 
 - **For a large first-party dashboard, use `compose-dashboard`** (see the section above): name the metrics, the server generates the panels in one call. Do not hand-author the big config.
-- **Batch ALL changes into ONE `update-dashboard` call.** A single `update-dashboard` is atomic: it applies every op to an in-memory config, validates all panel SQL, then upserts once. Never loop the action.
-  - To add N panels, pass N ops in one call: `ops: [{op:"insert", path:"/panels/-", value:<panel>}, … ]` (`/panels/-` appends to the end).
-  - The `ops` format needs no discovery: each op is `{ op, path, from?, value? }`, `op ∈ set | replace | remove | insert | move | move-before`, and `path` is a JSON Pointer (e.g. `/panels/3`, `/panels/3/title`, `/name`).
+- **Batch ALL edits into ONE `mutate-dashboard` call.** One script can move,
+  insert, remove, duplicate, and update many panels. Never loop dashboard edit
+  actions panel-by-panel.
+  - To bulk edit existing panels, use selectors:
+    `dashboard.panelsMatching({"source":"first-party"}).setWidth(2);`
+  - To make nested config edits, use
+    `setConfigPath("yAxis.format", "percent")` instead of resending/clobbering
+    the whole nested object.
 - **To add a shipped template's panels, prefer `install-dashboard-template` with `mergePanels: true`** and the existing `dashboardId`. It appends only the template panels whose id is not already present (preserving existing panels and order) in one atomic save — you don't author each panel yourself.
-- **Always verify the returned proof-of-done and report it.** `update-dashboard` returns `panelCount`, `appliedOps`, and a `summary` string; `install-dashboard-template --mergePanels` returns `addedPanelIds`, `skippedExistingIds`, and `panelCount`. Tell the user the resulting panel count instead of assuming success.
+- **Always verify the returned proof-of-done and report it.**
+  `mutate-dashboard` returns `panelCount`, `appliedOps`, `panelOrder`,
+  `firstPanelIds`, `changedPanelIds`, `commandLog`, and a `summary` string.
+  `install-dashboard-template --mergePanels` returns `addedPanelIds`,
+  `skippedExistingIds`, and `panelCount`. Tell the user the resulting panel
+  count instead of assuming success.
 
 ```bash
-# Add several panels in ONE atomic call (never one call per panel)
-pnpm action update-dashboard --dashboardId weekly-metrics \
-  --ops '[{"op":"insert","path":"/panels/-","value":{"id":"p1","title":"A","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}},
-          {"op":"insert","path":"/panels/-","value":{"id":"p2","title":"B","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events"}}]'
+# Add or edit several panels in ONE atomic call (never one call per panel)
+pnpm action mutate-dashboard --dashboardId weekly-metrics \
+  --code 'dashboard.panelsMatching({"source":"first-party"}).setWidth(2);'
 
 # Append a template's panels to an existing dashboard in one call
 pnpm action install-dashboard-template --templateId skills-cli-funnel --dashboardId weekly-metrics --mergePanels true
@@ -243,6 +454,10 @@ Writes require editor access; deletes require admin access. Owners always satisf
 
 - Never fabricate data or create a dashboard from guessed schema. A panel's SQL must hit a real source; do not present figures you did not actually query.
 - Never write dashboard configs into the settings table.
+- Never use `db-patch` as a fallback for dashboard config edits. Use
+  `mutate-dashboard` for existing edits, or `update-dashboard` for new/full
+  config saves, and fix the action arguments.
 - Never set `panel.source` to a table name or unsupported backend.
 - Use `first-party` for `/track` data and `query-agent-native-analytics` for ad-hoc first-party event questions.
-- Use `update-dashboard` for creates and edits.
+- Use `update-dashboard` for new dashboard config saves and full config
+  replacements. Use `mutate-dashboard` for existing dashboard edits.
