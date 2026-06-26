@@ -8,6 +8,8 @@ vi.mock("./builtin-tools.js", () => ({ getBuiltinCrossAppTools: () => ({}) }));
 const isJtiRevokedMock = vi.fn();
 const touchTokenUsedMock = vi.fn(async () => {});
 const getA2ASecretByDomainMock = vi.fn();
+const resolveOrgByDomainMock = vi.fn();
+const resolveOrgIdForEmailMock = vi.fn();
 vi.mock("./connect-store.js", () => ({
   MCP_CONNECT_SCOPE: "mcp-connect",
   MCP_CONNECT_OAUTH_CLIENT_ID: "agent-native-connect",
@@ -16,10 +18,12 @@ vi.mock("./connect-store.js", () => ({
 }));
 vi.mock("../org/context.js", () => ({
   getA2ASecretByDomain: (...a: any[]) => getA2ASecretByDomainMock(...a),
-  resolveOrgByDomain: vi.fn(async () => null),
+  resolveOrgByDomain: (...a: any[]) => resolveOrgByDomainMock(...a),
+  resolveOrgIdForEmail: (...a: any[]) => resolveOrgIdForEmailMock(...a),
 }));
 
-const { verifyAuth } = await import("./build-server.js");
+const { resolveMcpIdentityOrgId, verifyAuth } =
+  await import("./build-server.js");
 const { signMcpOAuthAccessToken } = await import("./oauth-token.js");
 
 const SECRET = "verify-auth-secret";
@@ -41,6 +45,8 @@ describe("verifyAuth — connect-token revoke check", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getA2ASecretByDomainMock.mockResolvedValue(null);
+    resolveOrgByDomainMock.mockResolvedValue(null);
+    resolveOrgIdForEmailMock.mockResolvedValue(null);
     process.env.A2A_SECRET = SECRET;
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
@@ -368,6 +374,9 @@ describe("verifyAuth — connect-token revoke check", () => {
 describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getA2ASecretByDomainMock.mockResolvedValue(null);
+    resolveOrgByDomainMock.mockResolvedValue(null);
+    resolveOrgIdForEmailMock.mockResolvedValue(null);
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
@@ -476,5 +485,54 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     });
     expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("oauth@example.com");
+  });
+});
+
+describe("resolveMcpIdentityOrgId", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resolveOrgByDomainMock.mockResolvedValue(null);
+    resolveOrgIdForEmailMock.mockResolvedValue(null);
+  });
+
+  it("uses an explicit org_id claim without extra lookup", async () => {
+    await expect(
+      resolveMcpIdentityOrgId({
+        userEmail: "alice@example.com",
+        orgId: "org-explicit",
+        orgDomain: "example.com",
+      }),
+    ).resolves.toBe("org-explicit");
+
+    expect(resolveOrgByDomainMock).not.toHaveBeenCalled();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("resolves verified org_domain before falling back to email membership", async () => {
+    resolveOrgByDomainMock.mockResolvedValue({ orgId: "org-domain" });
+    resolveOrgIdForEmailMock.mockResolvedValue("org-email");
+
+    await expect(
+      resolveMcpIdentityOrgId({
+        userEmail: "alice@example.com",
+        orgDomain: "example.com",
+      }),
+    ).resolves.toBe("org-domain");
+
+    expect(resolveOrgByDomainMock).toHaveBeenCalledWith("example.com");
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the verified user email when a token has no org claim", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-email");
+
+    await expect(
+      resolveMcpIdentityOrgId({
+        userEmail: "alice@example.com",
+        orgDomain: undefined,
+      }),
+    ).resolves.toBe("org-email");
+
+    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith("alice@example.com");
   });
 });
