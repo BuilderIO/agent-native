@@ -435,6 +435,7 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
+    requireSignedInUser: true,
     sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({

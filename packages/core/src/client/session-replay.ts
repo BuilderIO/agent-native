@@ -59,6 +59,7 @@ export interface SessionReplayOptions {
   enabled?: boolean;
   publicKey?: string;
   endpoint?: string;
+  requireSignedInUser?: boolean;
   sampleRate?: number;
   samplingSalt?: string;
   allowUrls?: SessionReplayUrlMatcher[];
@@ -90,6 +91,7 @@ export interface SessionReplayStartResult {
     | "not-browser"
     | "missing-public-key"
     | "missing-session-id"
+    | "missing-user-id"
     | "sampled-out"
     | "url-blocked"
     | "already-active"
@@ -103,6 +105,7 @@ export interface SessionReplayStartResult {
 interface NormalizedSessionReplayOptions {
   publicKey: string;
   endpoint: string;
+  requireSignedInUser: boolean;
   sampleRate: number;
   samplingSalt: string;
   allowUrls: SessionReplayUrlMatcher[];
@@ -278,6 +281,14 @@ function readEnvNumber(key: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
+function readEnvBoolean(key: string): boolean | undefined {
+  const raw = readEnvString(key);
+  if (!raw) return undefined;
+  if (/^(1|true|yes|on)$/i.test(raw)) return true;
+  if (/^(0|false|no|off)$/i.test(raw)) return false;
+  return undefined;
+}
+
 function readFirstEnvString(keys: string[]): string | undefined {
   for (const key of keys) {
     const value = readEnvString(key);
@@ -399,6 +410,11 @@ function normalizeOptions(
   return {
     publicKey,
     endpoint,
+    requireSignedInUser:
+      options.requireSignedInUser ??
+      readEnvBoolean("VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH") ??
+      readEnvBoolean("VITE_SESSION_REPLAY_REQUIRE_AUTH") ??
+      false,
     sampleRate: clampSamplingRate(
       options.sampleRate ??
         readFirstEnvNumber([
@@ -679,6 +695,18 @@ export async function startSessionReplay(
   );
   if (!sampled) {
     return { started: false, reason: "sampled-out", sessionId, sampled };
+  }
+  if (normalized.requireSignedInUser) {
+    const properties = replayExtraProperties(normalized);
+    const userId = replayString(properties?.userId ?? properties?.user_id);
+    if (!userId) {
+      return {
+        started: false,
+        reason: "missing-user-id",
+        sessionId,
+        sampled,
+      };
+    }
   }
   if (!isUrlRecordable(window.location.href, normalized)) {
     return { started: false, reason: "url-blocked", sessionId, sampled };

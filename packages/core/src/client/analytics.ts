@@ -894,6 +894,14 @@ function sessionReplayEnabledFromEnv(): boolean {
   return /^(1|true|yes|on)$/i.test((value ?? "").trim());
 }
 
+function sessionReplayRequiresSignedInUserFromEnv(): boolean {
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const value =
+    env.VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH ||
+    env.VITE_SESSION_REPLAY_REQUIRE_AUTH;
+  return /^(1|true|yes|on)$/i.test((value ?? "").trim());
+}
+
 function configuredSessionReplayOptions(
   config: boolean | SessionReplayOptions | undefined,
   tracking: { endpoint?: string; publicKey?: string } = {},
@@ -913,6 +921,9 @@ function configuredSessionReplayOptions(
       ...(publicKey && !options.publicKey ? { publicKey } : {}),
       ...(endpoint && !options.endpoint ? { endpoint } : {}),
       ...options,
+      requireSignedInUser:
+        options.requireSignedInUser ??
+        sessionReplayRequiresSignedInUserFromEnv(),
       ...(extraProperties ? { extraProperties } : {}),
     };
   };
@@ -974,23 +985,60 @@ function maybeInstallSessionReplay(
   if (typeof window === "undefined") return;
   const options = configuredSessionReplayOptions(config, tracking);
   if (!options) return;
-  import("./session-replay.js")
-    .then((mod) => mod.startSessionReplay(options))
-    .catch(() => {});
+  void startConfiguredSessionReplay(options);
+}
+
+async function waitForSessionReplayAuthIfRequired(
+  options: SessionReplayOptions,
+): Promise<boolean> {
+  if (!options.requireSignedInUser) return true;
+  if (_trackingIdentity?.userId) return true;
+  try {
+    if (_trackingSessionRefresh) {
+      await _trackingSessionRefresh;
+    } else if (!_trackingIdentityResolved) {
+      await refreshTrackingAuthSession();
+    }
+  } catch {
+    // best-effort; missing identity below keeps replay off
+  }
+  return !!_trackingIdentity?.userId;
+}
+
+async function startConfiguredSessionReplay(
+  options: SessionReplayOptions,
+): Promise<SessionReplayStartResult | null> {
+  if (!(await waitForSessionReplayAuthIfRequired(options))) {
+    return { started: false, reason: "missing-user-id" };
+  }
+  try {
+    const mod = await import("./session-replay.js");
+    return mod.startSessionReplay(options);
+  } catch {
+    return { started: false, reason: "import-failed" };
+  }
 }
 
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  const configured = configuredSessionReplayOptions(options) ?? options;
+  if (!(await waitForSessionReplayAuthIfRequired(configured))) {
+    return { started: false, reason: "missing-user-id" };
+  }
   const mod = await import("./session-replay.js");
-  return mod.startSessionReplay(options);
+  return mod.startSessionReplay(configured);
 }
 
 export async function maybeStartSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  const configured = configuredSessionReplayOptions(options) ?? options;
+  if (!(await waitForSessionReplayAuthIfRequired(configured))) {
+    return { started: false, reason: "missing-user-id" };
+  }
   const mod = await import("./session-replay.js");
-  return mod.maybeStartSessionReplay(options);
+  return mod.maybeStartSessionReplay(configured);
 }
 
 export async function stopSessionReplay(reason = "manual"): Promise<void> {

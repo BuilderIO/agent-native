@@ -163,6 +163,28 @@ describe("session replay", () => {
     expect(recordMock).not.toHaveBeenCalled();
   });
 
+  it("does not start auth-required replay for anonymous sessions", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
+      error: "not authenticated",
+    });
+    vi.resetModules();
+    const { configureTracking } = await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: { enabled: true, requireSignedInUser: true },
+    });
+    await tick();
+
+    expect(recordMock).not.toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/api/analytics/replay"),
+      ),
+    ).toBe(false);
+  });
+
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
     const { fetchMock } = installBrowser(
       "https://app.agent-native.com/inbox?code=secret&keep=1",
@@ -410,7 +432,7 @@ describe("session replay", () => {
         ...properties,
         app: "agent-native-clips",
       }),
-      sessionReplay: true,
+      sessionReplay: { enabled: true, requireSignedInUser: true },
     });
     await tick();
 
