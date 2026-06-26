@@ -1,6 +1,7 @@
 import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
+  getRequestRunContext,
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
@@ -196,6 +197,18 @@ export default createAgentChatPlugin({
       "If the user's requested dashboard, analysis surface, visualization, interaction model, custom layout, or bespoke workflow cannot be faithfully represented within those native components/config fields, do not hand-wave, force an approximate JSON dashboard, or route to source-code changes. In production mode, automatically create a sandboxed extension with `create-extension` instead, using Alpine.js HTML and the available app/data helpers. " +
       "After creating the extension, briefly tell the user that the request needed bespoke UI/code beyond the native Analytics dashboard or analysis format, so you built it as an extension.\n" +
       "</analytics-artifact-guidance>";
+
+    // In the durable background-function worker, skip the data-dictionary read
+    // + render. That settings read + synchronous render is the heaviest, most
+    // hang-prone part of worker setup on a cold bg-fn instance, and it runs
+    // EAGERLY while the system prompt is built (before any pre-send timeout can
+    // arm), so a stall here is what kept the analytics worker from ever claiming
+    // its run. The agent can still pull dictionary entries on demand via
+    // `list-data-dictionary` / `search-bigquery-schema`; the static guidance is
+    // what it needs to know they exist. Foreground requests keep the full dict.
+    if (getRequestRunContext()?.isBackgroundWorker) {
+      return `${sourceGuidance}\n\n${artifactGuidance}`;
+    }
 
     try {
       const scope = await resolveSettingsScope(event);
