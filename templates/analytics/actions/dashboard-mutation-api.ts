@@ -55,6 +55,7 @@ type PanelSelection = {
   setSql(sql: string): void;
   setWidth(width: number): void;
   setConfig(patch: Record<string, unknown>): void;
+  setConfigPath(path: string, value: unknown): void; // path under config, e.g. "yAxis.format" or "config.yAxis.format"
   duplicate(newPanelId: string, patch?: PanelPatch): void;
 };
 
@@ -96,6 +97,12 @@ export type DashboardMutationOperation =
       op: "updatePanel";
       panelId: string;
       patch: Record<string, unknown>;
+    }
+  | {
+      op: "updatePanelPath";
+      panelId: string;
+      path: string;
+      value: unknown;
     }
   | {
       op: "insertPanel";
@@ -141,6 +148,44 @@ type MutationTarget = {
   afterPanelId?: string;
 };
 
+const DASHBOARD_SUBJECTS = [
+  "set",
+  "panel",
+  "section",
+  "panels",
+  "panelsMatching",
+  "insertPanel",
+];
+
+const PANEL_METHODS = [
+  "moveToTop",
+  "moveToBottom",
+  "moveBefore",
+  "moveAfter",
+  "moveToIndex",
+  "remove",
+  "set",
+  "setTitle",
+  "setSql",
+  "setWidth",
+  "setConfig",
+  "setConfigPath",
+  "duplicate",
+];
+
+const PLACEMENT_METHODS = [
+  "moveToTop",
+  "moveToBottom",
+  "moveBefore",
+  "moveAfter",
+  "moveToIndex",
+  "atTop",
+  "atBottom",
+  "before",
+  "after",
+  "atIndex",
+];
+
 function panelsFromConfig(config: Record<string, unknown>) {
   const panels = config.panels;
   if (!Array.isArray(panels)) {
@@ -151,6 +196,85 @@ function panelsFromConfig(config: Record<string, unknown>) {
 
 function panelId(panel: Record<string, unknown>): string {
   return typeof panel.id === "string" ? panel.id : "";
+}
+
+function panelTitle(panel: Record<string, unknown>): string {
+  return typeof panel.title === "string" ? panel.title : "";
+}
+
+function panelIdsFromPanels(panels: Array<Record<string, unknown>>): string[] {
+  return panels.map(panelId).filter(Boolean);
+}
+
+function compactList(values: string[], max = 20): string {
+  const items = values.filter(Boolean).slice(0, max);
+  const suffix = values.length > max ? `, ... (${values.length} total)` : "";
+  return `${items.join(", ")}${suffix}`;
+}
+
+function editDistance(a: string, b: string): number {
+  const left = a.toLowerCase();
+  const right = b.toLowerCase();
+  const dp = Array.from({ length: left.length + 1 }, (_, i) =>
+    Array.from({ length: right.length + 1 }, (_2, j) => (i === 0 ? j : 0)),
+  );
+  for (let i = 1; i <= left.length; i++) dp[i][0] = i;
+  for (let i = 1; i <= left.length; i++) {
+    for (let j = 1; j <= right.length; j++) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + cost,
+      );
+    }
+  }
+  return dp[left.length][right.length];
+}
+
+function nearest(value: string, candidates: string[], limit = 3): string[] {
+  const needle = value.toLowerCase();
+  return candidates
+    .map((candidate) => ({
+      candidate,
+      score:
+        candidate.toLowerCase().includes(needle) ||
+        needle.includes(candidate.toLowerCase())
+          ? 0
+          : editDistance(value, candidate),
+    }))
+    .sort((a, b) => a.score - b.score)
+    .slice(0, limit)
+    .map((item) => item.candidate);
+}
+
+function methodHelp(method: string, methods: string[]): string {
+  const suggestions = nearest(method, methods);
+  return ` Did you mean ${suggestions.map((item) => `"${item}"`).join(", ")}? Valid methods: ${methods.join(", ")}.`;
+}
+
+function missingPanelHelp(
+  panels: Array<Record<string, unknown>>,
+  id: string,
+): string {
+  const ids = panelIdsFromPanels(panels);
+  const suggestions = nearest(id, ids);
+  return (
+    `panel "${id}" was not found.` +
+    (suggestions.length
+      ? ` Did you mean ${suggestions.map((item) => `"${item}"`).join(", ")}?`
+      : "") +
+    ` Available panel ids: ${compactList(ids)}.`
+  );
+}
+
+function panelCandidateHelp(config: Record<string, unknown>): string {
+  const panels = panelsFromConfig(config);
+  const candidates = panels
+    .slice(0, 20)
+    .map((panel) => `${panelId(panel)} (${panelTitle(panel) || "untitled"})`);
+  const suffix = panels.length > 20 ? `, ... (${panels.length} total)` : "";
+  return `${candidates.join(", ")}${suffix}`;
 }
 
 function assertString(value: unknown, label: string): string {
@@ -216,8 +340,26 @@ function requirePanel(
   id: string,
 ): Record<string, unknown> {
   const index = findPanelIndex(panels, id);
-  if (index < 0) throw new Error(`panel "${id}" was not found`);
+  if (index < 0) throw new Error(missingPanelHelp(panels, id));
   return panels[index];
+}
+
+function enhancePanelError(
+  config: Record<string, unknown>,
+  err: unknown,
+): never {
+  const message = err instanceof Error ? err.message : String(err);
+  const panels = panelsFromConfig(config);
+  const missing = message.match(/panel id\(s\) not found: (.+)$/);
+  if (missing) {
+    const ids = missing[1].split(",").map((id) => id.trim());
+    throw new Error(ids.map((id) => missingPanelHelp(panels, id)).join(" "));
+  }
+  const target = message.match(/target panel "([^"]+)" was not found/);
+  if (target) {
+    throw new Error(`target ${missingPanelHelp(panels, target[1])}`);
+  }
+  throw err;
 }
 
 function insertPanel(
@@ -245,6 +387,11 @@ function patchPanel(
 ): string[] {
   const changed: string[] = [];
   for (const [key, value] of Object.entries(patch)) {
+    if (key === "id") {
+      throw new Error(
+        "panel.id cannot be changed with set(...). Duplicate the panel with a new id or remove and insert a new panel instead.",
+      );
+    }
     if (key === "description") {
       const config =
         panel.config &&
@@ -273,6 +420,44 @@ function patchPanel(
     changed.push(key);
   }
   return changed;
+}
+
+function setConfigPath(
+  panel: Record<string, unknown>,
+  rawPath: string,
+  value: unknown,
+): string {
+  const path = assertString(rawPath, "config path");
+  const segments = path
+    .split(".")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments[0] === "config") segments.shift();
+  if (segments.length === 0) {
+    throw new Error(
+      "setConfigPath path must point under panel.config, e.g. \"yAxis.format\".",
+    );
+  }
+  for (const segment of segments) {
+    if (["__proto__", "prototype", "constructor"].includes(segment)) {
+      throw new Error(`setConfigPath segment "${segment}" is not allowed`);
+    }
+  }
+  const config =
+    panel.config && typeof panel.config === "object" && !Array.isArray(panel.config)
+      ? { ...(panel.config as Record<string, unknown>) }
+      : {};
+  let cursor: Record<string, unknown> = config;
+  for (const segment of segments.slice(0, -1)) {
+    const existing = cursor[segment];
+    if (!existing || typeof existing !== "object" || Array.isArray(existing)) {
+      cursor[segment] = {};
+    }
+    cursor = cursor[segment] as Record<string, unknown>;
+  }
+  cursor[segments[segments.length - 1]] = value;
+  panel.config = config;
+  return `config.${segments.join(".")}`;
 }
 
 function duplicatePanel(
@@ -307,76 +492,97 @@ export function applyDashboardMutationOperations(
   const insertedPanelIds = new Set<string>();
   const dashboardFieldsChanged = new Set<string>();
 
-  for (const op of operations) {
-    switch (op.op) {
-      case "movePanels": {
-        const result = movePanelsById(
-          config,
-          op.panelIds,
-          targetFromOperation(op),
-        );
-        for (const id of result.movedPanelIds) changedPanelIds.add(id);
-        commandLog.push(
-          `movePanels(${result.movedPanelIds.join(", ")}) -> index ${result.insertIndex}`,
-        );
-        break;
-      }
-      case "removePanels": {
-        const ids = uniqueStrings(op.panelIds);
-        const panels = panelsFromConfig(config);
-        for (const id of ids) requirePanel(panels, id);
-        config.panels = panels.filter((panel) => !ids.includes(panelId(panel)));
-        for (const id of ids) {
+  for (let opIndex = 0; opIndex < operations.length; opIndex++) {
+    const op = operations[opIndex];
+    try {
+      switch (op.op) {
+        case "movePanels": {
+          let result;
+          try {
+            result = movePanelsById(
+              config,
+              op.panelIds,
+              targetFromOperation(op),
+            );
+          } catch (err) {
+            enhancePanelError(config, err);
+          }
+          for (const id of result.movedPanelIds) changedPanelIds.add(id);
+          commandLog.push(
+            `movePanels(${result.movedPanelIds.join(", ")}) -> index ${result.insertIndex}`,
+          );
+          break;
+        }
+        case "removePanels": {
+          const ids = uniqueStrings(op.panelIds);
+          const panels = panelsFromConfig(config);
+          for (const id of ids) requirePanel(panels, id);
+          config.panels = panels.filter(
+            (panel) => !ids.includes(panelId(panel)),
+          );
+          for (const id of ids) {
+            changedPanelIds.add(id);
+            removedPanelIds.add(id);
+          }
+          commandLog.push(`removePanels(${ids.join(", ")})`);
+          break;
+        }
+        case "updatePanel": {
+          const panel = requirePanel(panelsFromConfig(config), op.panelId);
+          const changedFields = patchPanel(panel, op.patch);
+          changedPanelIds.add(op.panelId);
+          commandLog.push(
+            `updatePanel(${op.panelId}: ${changedFields.join(", ") || "no fields"})`,
+          );
+          break;
+        }
+        case "updatePanelPath": {
+          const panel = requirePanel(panelsFromConfig(config), op.panelId);
+          const changedField = setConfigPath(panel, op.path, op.value);
+          changedPanelIds.add(op.panelId);
+          commandLog.push(`updatePanelPath(${op.panelId}: ${changedField})`);
+          break;
+        }
+        case "insertPanel": {
+          const index = insertPanel(config, op.panel, targetFromOperation(op));
+          const id = assertString(op.panel.id, "panel.id");
           changedPanelIds.add(id);
-          removedPanelIds.add(id);
+          insertedPanelIds.add(id);
+          commandLog.push(`insertPanel(${id}) -> index ${index}`);
+          break;
         }
-        commandLog.push(`removePanels(${ids.join(", ")})`);
-        break;
-      }
-      case "updatePanel": {
-        const panel = requirePanel(panelsFromConfig(config), op.panelId);
-        const changedFields = patchPanel(panel, op.patch);
-        changedPanelIds.add(op.panelId);
-        commandLog.push(
-          `updatePanel(${op.panelId}: ${changedFields.join(", ") || "no fields"})`,
-        );
-        break;
-      }
-      case "insertPanel": {
-        const index = insertPanel(config, op.panel, targetFromOperation(op));
-        const id = assertString(op.panel.id, "panel.id");
-        changedPanelIds.add(id);
-        insertedPanelIds.add(id);
-        commandLog.push(`insertPanel(${id}) -> index ${index}`);
-        break;
-      }
-      case "duplicatePanel": {
-        const index = duplicatePanel(
-          config,
-          op.panelId,
-          op.newPanelId,
-          op.patch ?? {},
-          targetFromOperation(op),
-        );
-        changedPanelIds.add(op.newPanelId);
-        insertedPanelIds.add(op.newPanelId);
-        commandLog.push(
-          `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}`,
-        );
-        break;
-      }
-      case "setDashboard": {
-        for (const [key, value] of Object.entries(op.patch)) {
-          config[key] = value;
-          dashboardFieldsChanged.add(key);
+        case "duplicatePanel": {
+          const index = duplicatePanel(
+            config,
+            op.panelId,
+            op.newPanelId,
+            op.patch ?? {},
+            targetFromOperation(op),
+          );
+          changedPanelIds.add(op.newPanelId);
+          insertedPanelIds.add(op.newPanelId);
+          commandLog.push(
+            `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}`,
+          );
+          break;
         }
-        commandLog.push(
-          `setDashboard(${Object.keys(op.patch).join(", ") || "no fields"})`,
-        );
-        break;
+        case "setDashboard": {
+          for (const [key, value] of Object.entries(op.patch)) {
+            config[key] = value;
+            dashboardFieldsChanged.add(key);
+          }
+          commandLog.push(
+            `setDashboard(${Object.keys(op.patch).join(", ") || "no fields"})`,
+          );
+          break;
+        }
+        default:
+          throw new Error(`unsupported dashboard mutation op ${(op as any).op}`);
       }
-      default:
-        throw new Error(`unsupported dashboard mutation op ${(op as any).op}`);
+    } catch (err: any) {
+      throw new Error(
+        `operation ${opIndex + 1} (${op.op}): ${err.message}`,
+      );
     }
   }
 
@@ -627,69 +833,99 @@ function targetFromChainCall(call: ParsedCall): MutationTarget {
     case "atIndex":
       return { index: assertNumber(call.args[0], `${call.name} index`) };
     default:
-      throw new Error(`unsupported placement method ${call.name}`);
+      throw new Error(
+        `unsupported placement method "${call.name}".${methodHelp(call.name, PLACEMENT_METHODS)}`,
+      );
   }
 }
 
 function operationFromPanelCommand(
   panelIds: string[],
   command: ParsedCall,
-): DashboardMutationOperation {
+): DashboardMutationOperation[] {
   switch (command.name) {
     case "moveToTop":
     case "moveToBottom":
     case "moveBefore":
     case "moveAfter":
     case "moveToIndex":
-      return {
-        op: "movePanels",
-        panelIds,
-        ...targetFromChainCall(command),
-      } as DashboardMutationOperation;
+      return [
+        {
+          op: "movePanels",
+          panelIds,
+          ...targetFromChainCall(command),
+        } as DashboardMutationOperation,
+      ];
     case "remove":
-      return { op: "removePanels", panelIds };
-    case "set":
-      return {
+      return [{ op: "removePanels", panelIds }];
+    case "set": {
+      const patch = assertObject(command.args[0], "set patch");
+      return panelIds.map((panelId) => ({
         op: "updatePanel",
-        panelId: panelIds[0],
-        patch: assertObject(command.args[0], "set patch"),
-      };
-    case "setTitle":
-      return {
+        panelId,
+        patch,
+      }));
+    }
+    case "setTitle": {
+      const title = assertString(command.args[0], "title");
+      return panelIds.map((panelId) => ({
         op: "updatePanel",
-        panelId: panelIds[0],
-        patch: { title: assertString(command.args[0], "title") },
-      };
-    case "setSql":
-      return {
+        panelId,
+        patch: { title },
+      }));
+    }
+    case "setSql": {
+      const sql = assertString(command.args[0], "sql");
+      return panelIds.map((panelId) => ({
         op: "updatePanel",
-        panelId: panelIds[0],
-        patch: { sql: assertString(command.args[0], "sql") },
-      };
-    case "setWidth":
-      return {
+        panelId,
+        patch: { sql },
+      }));
+    }
+    case "setWidth": {
+      const width = assertNumber(command.args[0], "width");
+      return panelIds.map((panelId) => ({
         op: "updatePanel",
-        panelId: panelIds[0],
-        patch: { width: assertNumber(command.args[0], "width") },
-      };
-    case "setConfig":
-      return {
+        panelId,
+        patch: { width },
+      }));
+    }
+    case "setConfig": {
+      const configPatch = assertObject(command.args[0], "config patch");
+      return panelIds.map((panelId) => ({
         op: "updatePanel",
-        panelId: panelIds[0],
-        patch: { config: assertObject(command.args[0], "config patch") },
-      };
+        panelId,
+        patch: { config: configPatch },
+      }));
+    }
+    case "setConfigPath": {
+      const path = assertString(command.args[0], "config path");
+      return panelIds.map((panelId) => ({
+        op: "updatePanelPath",
+        panelId,
+        path,
+        value: command.args[1],
+      }));
+    }
     case "duplicate":
-      return {
-        op: "duplicatePanel",
-        panelId: panelIds[0],
-        newPanelId: assertString(command.args[0], "newPanelId"),
-        patch:
-          command.args[1] === undefined
-            ? undefined
-            : assertObject(command.args[1], "duplicate patch"),
-      };
+      if (panelIds.length !== 1) {
+        throw new Error("duplicate requires exactly one selected panel");
+      }
+      return [
+        {
+          op: "duplicatePanel",
+          panelId: panelIds[0],
+          newPanelId: assertString(command.args[0], "newPanelId"),
+          patch:
+            command.args[1] === undefined
+              ? undefined
+              : assertObject(command.args[1], "duplicate patch"),
+        },
+      ];
     default:
-      throw new Error(`unsupported panel method ${command.name}`);
+      throw new Error(
+        `unsupported panel method "${command.name}".${methodHelp(command.name, PANEL_METHODS)}`,
+      );
   }
 }
 
@@ -742,15 +978,15 @@ function operationsFromStatement(
       if (commands.length > 1) {
         throw new Error("dashboard.section(...).append(...) cannot be chained");
       }
-      return [
-        {
-          op: "movePanels",
+    return [
+      {
+        op: "movePanels",
           panelIds: assertStringArray(command.args[0], "append panelIds"),
           afterPanelId: sectionId,
-        },
-      ];
-    }
-    return [operationFromPanelCommand([sectionId], command)];
+      },
+    ];
+  }
+    return operationFromPanelCommand([sectionId], command);
   }
 
   let panelIds: string[];
@@ -764,23 +1000,19 @@ function operationsFromStatement(
       assertObject(subject.args[0], "panel filter"),
     );
     if (panelIds.length === 0) {
-      throw new Error("panelsMatching filter did not match any panels");
+      throw new Error(
+        `panelsMatching filter ${JSON.stringify(subject.args[0])} did not match any panels. Candidate panels: ${panelCandidateHelp(config)}.`,
+      );
     }
   } else {
-    throw new Error(`unsupported dashboard subject ${subject.name}`);
+    throw new Error(
+      `unsupported dashboard subject "${subject.name}".${methodHelp(subject.name, DASHBOARD_SUBJECTS)}`,
+    );
   }
 
-  const ops = commands.map((command) => {
-    const op = operationFromPanelCommand(panelIds, command);
-    if (
-      (op.op === "updatePanel" || op.op === "duplicatePanel") &&
-      panelIds.length !== 1
-    ) {
-      throw new Error(`${command.name} requires exactly one selected panel`);
-    }
-    return op;
-  });
-  return ops;
+  return commands.flatMap((command) =>
+    operationFromPanelCommand(panelIds, command),
+  );
 }
 
 export function parseDashboardMutationScript(
@@ -798,7 +1030,13 @@ export function parseDashboardMutationScript(
     throw new Error("mutation script is empty");
   }
   const statements = splitTopLevel(stripped, ";");
-  return statements.flatMap((statement) =>
-    operationsFromStatement(config, statement),
-  );
+  return statements.flatMap((statement, index) => {
+    try {
+      return operationsFromStatement(config, statement);
+    } catch (err: any) {
+      throw new Error(
+        `statement ${index + 1} (${JSON.stringify(statement)}): ${err.message}`,
+      );
+    }
+  });
 }
