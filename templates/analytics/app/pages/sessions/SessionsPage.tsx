@@ -87,14 +87,13 @@ export default function SessionsPage() {
     {
       from: from ?? undefined,
       app: app || undefined,
+      query: query || undefined,
       limit: 100,
     },
     { staleTime: 30_000 },
   );
 
-  const recordings = (data ?? []).filter((recording) =>
-    recordingMatchesQuery(recording, query),
-  );
+  const recordings = data ?? [];
 
   function updateFilter(key: string, value: string) {
     const next = new URLSearchParams(searchParams);
@@ -355,28 +354,6 @@ function rangeLabel(value: ReplayRange, t: ReturnType<typeof useT>): string {
   if (value === "30d") return t("sessions.last30d");
   if (value === "90d") return t("sessions.last90d");
   return t("sessions.allTime");
-}
-
-function recordingMatchesQuery(
-  recording: SessionRecordingSummary,
-  query: string,
-): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  return [
-    recording.id,
-    recording.sessionId,
-    recording.clientRecordingId,
-    recording.userId,
-    recording.userKey,
-    recording.anonymousId,
-    recording.app,
-    recording.template,
-    recording.path,
-    recording.firstUrl,
-    recording.lastUrl,
-    recording.hostname,
-  ].some((value) => value?.toLowerCase().includes(needle));
 }
 
 function visitorLabel(

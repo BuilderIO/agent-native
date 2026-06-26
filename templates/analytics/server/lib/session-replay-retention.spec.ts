@@ -134,6 +134,46 @@ describe("session replay retention", () => {
       provider: "test",
       opaque: true,
     });
-    expect(deletes).toHaveLength(3);
+    expect(deletes).toHaveLength(4);
+  });
+
+  it("keeps SQL rows when private blob deletion reports no deletion", async () => {
+    deletePrivateBlobMock.mockResolvedValue({
+      deleted: false,
+      provider: "test",
+    });
+    const storageRef = JSON.stringify({
+      kind: "agent-native.session-replay.private-blob",
+      version: 1,
+      compression: "gzip",
+      handle: {
+        id: "blob_1",
+        provider: "test",
+        opaque: true,
+      },
+    });
+    const { db, deletes } = createDbMock([
+      [{ id: "rec_1" }],
+      [
+        {
+          id: "chunk_1",
+          recordingId: "rec_1",
+          storageKind: "blob",
+          storageRef,
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const result = await expireOldSessionRecordings(
+      new Date("2026-02-01T00:00:00.000Z"),
+    );
+
+    expect(result).toEqual({
+      expired: 0,
+      chunks: 0,
+      blobDeleteFailures: 1,
+    });
+    expect(deletes).toHaveLength(0);
   });
 });

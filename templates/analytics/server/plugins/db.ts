@@ -472,6 +472,26 @@ export default runMigrations(
       `,
       },
     },
+    {
+      version: 69,
+      sql: `CREATE TABLE IF NOT EXISTS session_replay_ingests (
+      id TEXT PRIMARY KEY,
+      public_key_id TEXT NOT NULL,
+      recording_id TEXT NOT NULL,
+      byte_length INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT
+    )`,
+    },
+    {
+      version: 70,
+      sql: `CREATE INDEX IF NOT EXISTS session_replay_ingests_public_key_created_at_idx ON session_replay_ingests (public_key_id, created_at)`,
+    },
+    {
+      version: 71,
+      sql: `CREATE INDEX IF NOT EXISTS session_replay_ingests_recording_idx ON session_replay_ingests (recording_id)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

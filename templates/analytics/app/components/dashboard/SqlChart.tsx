@@ -1147,7 +1147,7 @@ function rowString(
   return null;
 }
 
-function sessionReplayHref(row: Record<string, unknown>): string | null {
+export function sessionReplayHref(row: Record<string, unknown>): string | null {
   const recordingId = rowString(row, [
     "recording_id",
     "session_recording_id",
@@ -1157,7 +1157,8 @@ function sessionReplayHref(row: Record<string, unknown>): string | null {
 
   const sessionId = rowString(row, ["session_id", "sessionId"]);
   if (!sessionId) return null;
-  return `/sessions/${encodeURIComponent(sessionId)}`;
+  const params = new URLSearchParams({ range: "all", q: sessionId });
+  return `/sessions?${params.toString()}`;
 }
 
 function isSessionColumn(key: string): boolean {

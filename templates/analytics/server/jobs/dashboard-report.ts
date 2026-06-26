@@ -2,9 +2,8 @@ import { runWithRequestContext } from "@agent-native/core/server/request-context
 
 import { sendDashboardReportSubscription } from "../lib/dashboard-report";
 import {
-  listDueDashboardReportSubscriptions,
+  claimDueDashboardReportSubscriptions,
   markDashboardReportResult,
-  markDashboardReportRunning,
 } from "../lib/dashboard-report-subscriptions";
 
 let running = false;
@@ -35,13 +34,11 @@ export async function runDashboardReportsOnce(): Promise<{
   let remaining = 0;
 
   try {
-    const due = await listDueDashboardReportSubscriptions();
-    const batch = due.slice(0, maxReportsPerSweep());
-    remaining = Math.max(0, due.length - batch.length);
+    const sweepLimit = maxReportsPerSweep();
+    const batch = await claimDueDashboardReportSubscriptions(sweepLimit);
+    remaining = batch.length >= sweepLimit ? 1 : 0;
     for (const sub of batch) {
       processed++;
-      const startedAt = new Date().toISOString();
-      await markDashboardReportRunning(sub.id, startedAt);
       try {
         await runWithRequestContext(
           {

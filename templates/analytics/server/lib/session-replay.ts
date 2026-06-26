@@ -15,7 +15,7 @@ import {
   roleSatisfies,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, gte, isNull, lt, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { resolveAnalyticsEventDimensions } from "./first-party-analytics.js";
@@ -48,6 +48,7 @@ export type SessionReplayScope = ReplayScope;
 export type SessionReplayAccessRole = "owner" | ShareRole;
 
 export interface SessionReplayListFilters {
+  query?: string;
   app?: string;
   template?: string;
   sessionId?: string;
@@ -232,6 +233,20 @@ function parseAllowedReplayOrigins(value: unknown): string[] {
 function positiveReplayLimit(value: unknown, fallback: number): number {
   const parsed = replayInteger(value);
   return parsed && parsed > 0 ? parsed : fallback;
+}
+
+function replayIngestByteLength(
+  input: ParsedSessionReplayIngest,
+  context: SessionReplayIngestContext,
+): number {
+  const requestBytes = Number(context.requestBytes ?? 0);
+  if (Number.isFinite(requestBytes) && requestBytes > 0) {
+    return Math.ceil(requestBytes);
+  }
+  return input.chunks.reduce(
+    (sum, chunk) => sum + Math.max(0, Number(chunk.byteLength ?? 0)),
+    0,
+  );
 }
 
 function replayTimestamp(value: unknown): string | null {
@@ -786,23 +801,23 @@ async function assertReplayKeyBudget(
   const sinceDay = isoBefore(now, 24 * 60 * 60_000);
   const sinceMinute = isoBefore(now, 60_000);
   const db = getDb() as any;
-  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key; rows are used only for aggregate byte/request limits.
+  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
   const recentRows = await db
     .select({
-      totalBytes: schema.sessionRecordings.totalBytes,
-      lastIngestedAt: schema.sessionRecordings.lastIngestedAt,
+      byteLength: schema.sessionReplayIngests.byteLength,
+      createdAt: schema.sessionReplayIngests.createdAt,
     })
-    .from(schema.sessionRecordings)
+    .from(schema.sessionReplayIngests)
     .where(
       and(
-        eq(schema.sessionRecordings.publicKeyId, key.id),
-        gte(schema.sessionRecordings.lastIngestedAt, sinceDay),
+        eq(schema.sessionReplayIngests.publicKeyId, key.id),
+        gte(schema.sessionReplayIngests.createdAt, sinceDay),
       ),
     )
     .limit(10_000);
 
   const bytesToday = recentRows.reduce(
-    (sum: number, row: any) => sum + Number(row.totalBytes ?? 0),
+    (sum: number, row: any) => sum + Number(row.byteLength ?? 0),
     0,
   );
   if (bytesToday + requestBytes > maxBytesPerDay) {
@@ -813,7 +828,7 @@ async function assertReplayKeyBudget(
   }
 
   const recentRequests = recentRows.filter(
-    (row: any) => String(row.lastIngestedAt ?? "") >= sinceMinute,
+    (row: any) => String(row.createdAt ?? "") >= sinceMinute,
   ).length;
   if (recentRequests >= maxRequestsPerMinute) {
     throw replayError(
@@ -922,6 +937,33 @@ function replayRecordingChangeScope(row: {
 }): { owner?: string; orgId?: string } {
   if (row.visibility === "org" && row.orgId) return { orgId: row.orgId };
   return { owner: row.ownerEmail };
+}
+
+function escapeSqlLike(value: string): string {
+  return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+function replayTextContains(column: unknown, query: string) {
+  return sql`lower(coalesce(${column}, '')) like ${`%${escapeSqlLike(query.toLowerCase())}%`} escape '\\'`;
+}
+
+function replayListSearchCondition(query: string | undefined) {
+  const q = query?.trim();
+  if (!q) return null;
+  return or(
+    replayTextContains(schema.sessionRecordings.id, q),
+    replayTextContains(schema.sessionRecordings.sessionId, q),
+    replayTextContains(schema.sessionRecordings.clientRecordingId, q),
+    replayTextContains(schema.sessionRecordings.userId, q),
+    replayTextContains(schema.sessionRecordings.userKey, q),
+    replayTextContains(schema.sessionRecordings.anonymousId, q),
+    replayTextContains(schema.sessionRecordings.app, q),
+    replayTextContains(schema.sessionRecordings.template, q),
+    replayTextContains(schema.sessionRecordings.path, q),
+    replayTextContains(schema.sessionRecordings.firstUrl, q),
+    replayTextContains(schema.sessionRecordings.lastUrl, q),
+    replayTextContains(schema.sessionRecordings.hostname, q),
+  );
 }
 
 export async function recordSessionReplayChunks(
@@ -1065,6 +1107,16 @@ export async function recordSessionReplayChunks(
   if (rowsToInsert.length) {
     await db.insert(schema.sessionReplayChunks).values(rowsToInsert);
   }
+
+  await db.insert(schema.sessionReplayIngests).values({
+    id: replayId("sri"),
+    publicKeyId: key.id,
+    recordingId: recording.id,
+    byteLength: replayIngestByteLength(input, context),
+    createdAt: ingestedAt,
+    ownerEmail: key.ownerEmail,
+    orgId: key.orgId,
+  });
 
   const allChunks = [...existingChunks, ...rowsToInsert];
   const chunkCount = allChunks.length;
@@ -1215,6 +1267,8 @@ export async function listSessionRecordings(
   if (filters.status) {
     conditions.push(eq(schema.sessionRecordings.status, filters.status));
   }
+  const search = replayListSearchCondition(filters.query);
+  if (search) conditions.push(search);
 
   const rows = await db
     .select()
@@ -1490,11 +1544,12 @@ export async function finalizeAbandonedSessionRecordings(
   return { finalized };
 }
 
-async function deleteReplayChunkBlob(row: any): Promise<void> {
-  if (row.storageKind !== "blob" || !row.storageRef) return;
+async function deleteReplayChunkBlob(row: any): Promise<boolean> {
+  if (row.storageKind !== "blob" || !row.storageRef) return true;
   const ref = decodeReplayBlobRef(row.storageRef);
-  if (!ref) return;
-  await deletePrivateBlob(ref.handle);
+  if (!ref) return false;
+  const result = await deletePrivateBlob(ref.handle);
+  return result.deleted === true;
 }
 
 export async function expireOldSessionRecordings(
@@ -1518,18 +1573,33 @@ export async function expireOldSessionRecordings(
       .from(schema.sessionReplayChunks)
       .where(eq(schema.sessionReplayChunks.recordingId, recording.id));
 
+    let chunkDeleteFailed = false;
     for (const chunk of chunkRows) {
       try {
-        await deleteReplayChunkBlob(chunk);
+        const deleted = await deleteReplayChunkBlob(chunk);
+        if (!deleted) {
+          chunkDeleteFailed = true;
+          blobDeleteFailures++;
+          console.warn(
+            "[session-replay] Private replay blob provider reported no deletion for chunk",
+            chunk.id,
+          );
+        }
       } catch (err) {
+        chunkDeleteFailed = true;
         blobDeleteFailures++;
         console.warn("[session-replay] Failed to delete replay blob:", err);
       }
     }
 
+    if (chunkDeleteFailed) continue;
+
     await db
       .delete(schema.sessionReplayChunks)
       .where(eq(schema.sessionReplayChunks.recordingId, recording.id));
+    await db
+      .delete(schema.sessionReplayIngests)
+      .where(eq(schema.sessionReplayIngests.recordingId, recording.id));
     await db
       .delete(schema.sessionRecordingShares)
       .where(eq(schema.sessionRecordingShares.resourceId, recording.id));

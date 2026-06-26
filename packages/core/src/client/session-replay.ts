@@ -49,6 +49,12 @@ interface SessionReplayState {
   options: NormalizedSessionReplayOptions | null;
 }
 
+interface StoredReplaySession {
+  sessionId?: string;
+  replayId?: string;
+  sequence?: number;
+}
+
 export interface SessionReplayOptions {
   enabled?: boolean;
   publicKey?: string;
@@ -213,27 +219,47 @@ function generateReplayId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function getOrCreateReplayId(sessionId: string): string {
+function readStoredReplaySession(): StoredReplaySession | null {
   const raw = safeStorageGet(SESSION_REPLAY_ID_STORAGE_KEY);
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw) as {
-        sessionId?: string;
-        replayId?: string;
-      };
-      if (parsed.sessionId === sessionId && parsed.replayId) {
-        return parsed.replayId;
-      }
-    } catch {
-      // ignore corrupt cache
-    }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as StoredReplaySession;
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredReplaySession(value: StoredReplaySession): void {
+  safeStorageSet(SESSION_REPLAY_ID_STORAGE_KEY, JSON.stringify(value));
+}
+
+function getOrCreateReplaySession(sessionId: string): {
+  replayId: string;
+  sequence: number;
+} {
+  const parsed = readStoredReplaySession();
+  if (parsed?.sessionId === sessionId && parsed.replayId) {
+    const sequence =
+      typeof parsed.sequence === "number" &&
+      Number.isFinite(parsed.sequence) &&
+      parsed.sequence >= 0
+        ? Math.floor(parsed.sequence)
+        : 0;
+    return { replayId: parsed.replayId, sequence };
   }
   const replayId = generateReplayId();
-  safeStorageSet(
-    SESSION_REPLAY_ID_STORAGE_KEY,
-    JSON.stringify({ sessionId, replayId }),
-  );
-  return replayId;
+  writeStoredReplaySession({ sessionId, replayId, sequence: 0 });
+  return { replayId, sequence: 0 };
+}
+
+function persistReplaySequence(
+  sessionId: string,
+  replayId: string,
+  sequence: number,
+): void {
+  writeStoredReplaySession({ sessionId, replayId, sequence });
 }
 
 function clampSamplingRate(value: number | undefined): number {
@@ -538,6 +564,7 @@ function buildReplayBody(
     events,
   };
   state.sequence += 1;
+  persistReplaySequence(sessionId, state.replayId, state.sequence);
   return JSON.stringify(body);
 }
 
@@ -668,9 +695,10 @@ export async function startSessionReplay(
     return { started: false, reason: "import-failed", sessionId, sampled };
   }
 
+  const replaySession = getOrCreateReplaySession(sessionId);
   state.options = normalized;
-  state.replayId = getOrCreateReplayId(sessionId);
-  state.sequence = 0;
+  state.replayId = replaySession.replayId;
+  state.sequence = replaySession.sequence;
   state.queue = [];
   state.queuedBytes = 0;
   state.stopRecorder = null;

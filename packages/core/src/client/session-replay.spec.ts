@@ -223,6 +223,46 @@ describe("session replay", () => {
     expect(stop).toHaveBeenCalled();
   });
 
+  it("continues replay sequence across reloads for the same replay id", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
+    const endpoint = "https://analytics.example.test/session-replay";
+    const first = await freshSessionReplay();
+
+    await first.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint,
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions[0].emit({ type: 3, data: { href: "/first" } });
+    await tick();
+    first.stopSessionReplay();
+    await tick();
+
+    delete (globalThis as any)[replayStateKey];
+    const second = await freshSessionReplay();
+    await second.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint,
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions[1].emit({ type: 3, data: { href: "/second" } });
+    await tick();
+    second.stopSessionReplay();
+
+    const bodies = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(String((init as RequestInit).body)),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([0, 1]);
+    expect(new Set(bodies.map((body) => body.replayId)).size).toBe(1);
+  });
+
   it("blocks disallowed URLs before importing the recorder", async () => {
     installBrowser("https://app.agent-native.com/settings/billing");
     const { startSessionReplay } = await freshSessionReplay();

@@ -116,6 +116,7 @@ function listFiltersFromQuery(
   query: Record<string, unknown>,
 ): SessionReplayListFilters {
   return {
+    query: asString(query.query) ?? asString(query.q),
     app: asString(query.app),
     template: asString(query.template),
     sessionId: asString(query.sessionId),

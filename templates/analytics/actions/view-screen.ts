@@ -140,11 +140,10 @@ export default defineAction({
               from:
                 replayRangeToIso(readReplayRange(params.range)) ?? undefined,
               app: params.app,
+              query: params.q,
               limit: 25,
             });
-            screen.sessionReplays = sessions.filter((session) =>
-              sessionMatchesQuery(session, params.q),
-            );
+            screen.sessionReplays = sessions;
           }
         } catch (error: any) {
           screen.sessionReplayError = error?.message || String(error);
@@ -209,37 +208,4 @@ function readReplayRange(value: unknown): ReplayRange {
   return typeof value === "string" && REPLAY_RANGES.has(value)
     ? (value as ReplayRange)
     : "30d";
-}
-
-function sessionMatchesQuery(
-  session: {
-    id: string;
-    sessionId: string;
-    userId: string | null;
-    anonymousId: string | null;
-    userKey: string | null;
-    app: string | null;
-    template: string | null;
-    firstUrl: string | null;
-    lastUrl: string | null;
-    path: string | null;
-  },
-  query: unknown,
-): boolean {
-  if (typeof query !== "string" || !query.trim()) return true;
-  const q = query.trim().toLowerCase();
-  return [
-    session.id,
-    session.sessionId,
-    session.userId,
-    session.anonymousId,
-    session.userKey,
-    session.app,
-    session.template,
-    session.firstUrl,
-    session.lastUrl,
-    session.path,
-  ]
-    .filter((value): value is string => typeof value === "string")
-    .some((value) => value.toLowerCase().includes(q));
 }

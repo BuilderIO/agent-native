@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { recordChange } from "@agent-native/core/server";
-import { and, asc, eq, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { loadDashboardSeed } from "./dashboard-seeds";
@@ -238,6 +238,23 @@ function ownerWhere(ctx: AccessCtx, dashboardId?: string, id?: string) {
   return and(...clauses);
 }
 
+function dueReportWhere(now: Date) {
+  const table = schema.dashboardReportSubscriptions;
+  const staleRunningBefore = new Date(
+    now.getTime() - 30 * 60 * 1000,
+  ).toISOString();
+  return and(
+    eq(table.enabled, true),
+    lte(table.nextRunAt, now.toISOString()),
+    or(
+      isNull(table.lastStatus),
+      sql`${table.lastStatus} <> 'running'`,
+      isNull(table.lastRunAt),
+      lte(table.lastRunAt, staleRunningBefore),
+    ),
+  );
+}
+
 export async function listDashboardReportSubscriptions(
   ctx: AccessCtx,
   dashboardId?: string,
@@ -370,14 +387,44 @@ export async function listDueDashboardReportSubscriptions(
   const rows = await db
     .select()
     .from(schema.dashboardReportSubscriptions)
-    .where(
-      and(
-        eq(schema.dashboardReportSubscriptions.enabled, true),
-        lte(schema.dashboardReportSubscriptions.nextRunAt, now.toISOString()),
-      ),
-    )
+    .where(dueReportWhere(now))
     .orderBy(asc(schema.dashboardReportSubscriptions.nextRunAt));
   return rows.map(rowToSubscription);
+}
+
+export async function claimDueDashboardReportSubscriptions(
+  limit: number,
+  now: Date = new Date(),
+): Promise<DashboardReportSubscription[]> {
+  const db = getDb() as any;
+  const claimLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+  const candidates = await db
+    .select()
+    .from(schema.dashboardReportSubscriptions)
+    .where(dueReportWhere(now))
+    .orderBy(asc(schema.dashboardReportSubscriptions.nextRunAt))
+    .limit(claimLimit);
+  const claimed: DashboardReportSubscription[] = [];
+  for (const candidate of candidates) {
+    const startedAt = nowIso();
+    const rows = await db
+      .update(schema.dashboardReportSubscriptions)
+      .set({
+        lastRunAt: startedAt,
+        lastStatus: "running",
+        lastError: null,
+        updatedAt: startedAt,
+      })
+      .where(
+        and(
+          eq(schema.dashboardReportSubscriptions.id, candidate.id),
+          dueReportWhere(now),
+        ),
+      )
+      .returning();
+    if (rows[0]) claimed.push(rowToSubscription(rows[0]));
+  }
+  return claimed;
 }
 
 export async function markDashboardReportRunning(

@@ -17,6 +17,12 @@ export default defineAction({
   description:
     "List first-party Analytics session replay recordings accessible to the current user/org. Returns scoped recording summaries only, not raw replay chunks.",
   schema: z.object({
+    query: z
+      .string()
+      .optional()
+      .describe(
+        "Optional broad search across recording, session, visitor, URL, app, and template fields",
+      ),
     app: z.string().optional().describe("Optional app filter"),
     template: z.string().optional().describe("Optional template filter"),
     sessionId: z.string().optional().describe("Optional analytics session id"),

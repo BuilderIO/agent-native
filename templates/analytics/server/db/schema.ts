@@ -3,8 +3,10 @@ import {
   text,
   integer,
   now,
+  index,
   ownableColumns,
   createSharesTable,
+  uniqueIndex,
 } from "@agent-native/core/db/schema";
 
 /**
@@ -221,19 +223,48 @@ export const sessionRecordingShares = createSharesTable(
   "session_recording_shares",
 );
 
-export const sessionReplayChunks = table("session_replay_chunks", {
-  id: text("id").primaryKey(),
-  recordingId: text("recording_id").notNull(),
-  seq: integer("seq").notNull(),
-  checksum: text("checksum").notNull(),
-  byteLength: integer("byte_length").notNull().default(0),
-  eventCount: integer("event_count").notNull().default(0),
-  startedAt: text("started_at"),
-  endedAt: text("ended_at"),
-  storageKind: text("storage_kind", { enum: ["inline", "blob"] }).notNull(),
-  storageRef: text("storage_ref"),
-  inlineData: text("inline_data"),
-  createdAt: text("created_at").notNull().default(now()),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
-  orgId: text("org_id"),
-});
+export const sessionReplayChunks = table(
+  "session_replay_chunks",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    seq: integer("seq").notNull(),
+    checksum: text("checksum").notNull(),
+    byteLength: integer("byte_length").notNull().default(0),
+    eventCount: integer("event_count").notNull().default(0),
+    startedAt: text("started_at"),
+    endedAt: text("ended_at"),
+    storageKind: text("storage_kind", { enum: ["inline", "blob"] }).notNull(),
+    storageRef: text("storage_ref"),
+    inlineData: text("inline_data"),
+    createdAt: text("created_at").notNull().default(now()),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+  },
+  (chunk) => ({
+    recordingSeqUnique: uniqueIndex(
+      "session_replay_chunks_recording_seq_idx",
+    ).on(chunk.recordingId, chunk.seq),
+  }),
+);
+
+export const sessionReplayIngests = table(
+  "session_replay_ingests",
+  {
+    id: text("id").primaryKey(),
+    publicKeyId: text("public_key_id").notNull(),
+    recordingId: text("recording_id").notNull(),
+    byteLength: integer("byte_length").notNull().default(0),
+    createdAt: text("created_at").notNull().default(now()),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+  },
+  (ingest) => ({
+    publicKeyCreatedAtIdx: index(
+      "session_replay_ingests_public_key_created_at_idx",
+    ).on(ingest.publicKeyId, ingest.createdAt),
+    recordingIdx: index("session_replay_ingests_recording_idx").on(
+      ingest.recordingId,
+    ),
+  }),
+);
