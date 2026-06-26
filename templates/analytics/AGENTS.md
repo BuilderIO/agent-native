@@ -72,9 +72,8 @@ details live in `.agents/skills/`.
   serialization traps. The script is constrained: only documented dashboard
   method calls with JSON-compatible arguments are parsed; variables, imports,
   loops, functions, network, filesystem, and DB access are not available.
-- `reorder-dashboard-panels` remains a shortcut for simple moves when exact
-  panel ids are known and a native `panelIds` array can be passed. Do not count
-  shifting `/panels/<index>` values for ordinary dashboard edit requests.
+- Do not count shifting `/panels/<index>` values for ordinary dashboard edit
+  requests. Use low-level JSON-pointer edits only when explicitly requested.
 - `get-sql-dashboard` is compact by default for agents. Use its `panels`
   summaries and `layout.panelOrder` / `layout.firstPanelIds` for orientation and
   proof. Pass `includeConfig: true` only when full panel SQL/config is needed.

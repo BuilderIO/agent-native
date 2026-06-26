@@ -92,6 +92,7 @@ async function syncToCollab(
 }
 
 export default defineAction({
+  agentTool: false,
   description:
     "Move one or more existing SQL dashboard panels by panel id in ONE atomic save. Use this for requests like 'move these charts to the top', 'put panel A before panel B', or 'send this section to the bottom'. This avoids brittle /panels/<index> JSON-pointer math and keeps omitted panels in their existing relative order. Returns compact proof: panelCount, movedPanelIds, firstPanelIds, and panelOrder.",
   schema: z.object({

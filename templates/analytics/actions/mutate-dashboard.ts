@@ -45,6 +45,12 @@ const mutationOperationSchema = z.discriminatedUnion("op", [
     patch: z.record(z.string(), z.unknown()),
   }),
   z.object({
+    op: z.literal("updatePanelPath"),
+    panelId: z.string(),
+    path: z.string(),
+    value: z.unknown(),
+  }),
+  z.object({
     op: z.literal("insertPanel"),
     panel: z.record(z.string(), z.unknown()),
     ...mutationTargetSchema,
@@ -94,7 +100,9 @@ const operationsInputSchema = z
 const apiHelp =
   "Constrained TypeScript-like dashboard mutation script. The server parses only calls on `dashboard`; it does not execute arbitrary JavaScript. " +
   "No variables, imports, loops, functions, templates, network, filesystem, or DB access. Arguments must be JSON-compatible literals, so quote object keys. " +
-  `Examples: ${DASHBOARD_MUTATION_EXAMPLES.slice(0, 3).join(" ")} Set returnTypes=true for the full allowed TS API.`;
+  "Subjects: dashboard.set, dashboard.panel, dashboard.panels, dashboard.panelsMatching, dashboard.section, dashboard.insertPanel. " +
+  "Selection methods: moveToTop, moveToBottom, moveBefore, moveAfter, moveToIndex, remove, set, setTitle, setSql, setWidth, setConfig, setConfigPath, duplicate. " +
+  `Examples: ${DASHBOARD_MUTATION_EXAMPLES.slice(0, 3).join(" ")}`;
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -184,7 +192,7 @@ export default defineAction({
     code: z.string().optional().describe(apiHelp),
     operations: operationsInputSchema.describe(
       "Structured equivalent of the typed script. Native callers should pass an array of mutation ops; shell/legacy callers may pass a JSON string. " +
-        "Supported ops: movePanels, removePanels, updatePanel, insertPanel, duplicatePanel, setDashboard.",
+        "Supported ops: movePanels, removePanels, updatePanel, updatePanelPath, insertPanel, duplicatePanel, setDashboard.",
     ),
     dryRun: z
       .boolean()
