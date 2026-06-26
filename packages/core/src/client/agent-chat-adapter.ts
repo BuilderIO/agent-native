@@ -717,7 +717,7 @@ function continuationRepeatSignature(content: ContentPart[]): string {
     .map((segment) => segment.replace(/[^a-z0-9]+/g, " ").trim())
     .filter((segment) => segment.length > 0);
   if (segments.length === 0) return "";
-  return Array.from(new Set(segments)).sort().join(" ");
+  return Array.from(new Set(segments)).sort().join("\u0000");
 }
 
 /**
@@ -771,7 +771,7 @@ function inFlightToolInputSignature(
   part: Extract<ContentPart, { type: "tool-call" }>,
 ): string {
   const raw = part.argsText ?? stableJson(part.args);
-  return `${raw.length} ${raw.slice(0, 256)}`;
+  return `${raw.length}\u0000${raw.slice(0, 256)}`;
 }
 
 function toolContinuationKey(

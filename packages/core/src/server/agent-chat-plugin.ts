@@ -878,12 +878,49 @@ export function assembleA2AFinalResponse(
   toolResults: readonly A2AToolResultSummary[],
   options: A2AArtifactResponseOptions & { event?: any } = {},
 ): { responseText: string; finalText: string } {
-  const responseText = collectFinalResponseTextFromAgentEvents(events);
+  const terminalError = getA2ATerminalErrorEvent(events);
+  const responseText = collectFinalResponseTextFromAgentEvents(events, {
+    fallbackToPreToolText: !terminalError,
+  });
   const finalText = appendA2AArtifactLinks(responseText, [...toolResults], {
     baseUrl: options.baseUrl ?? resolveArtifactBaseUrl(options.event),
     includeReferencedArtifacts: true,
   });
+  if (terminalError && !finalText.trim()) {
+    throw new Error(formatA2ATerminalError(terminalError));
+  }
   return { responseText, finalText };
+}
+
+function getA2ATerminalErrorEvent(
+  events: readonly AgentChatEvent[],
+): Extract<AgentChatEvent, { type: "error" }> | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const event = events[i];
+    if (event.type === "clear") continue;
+    if (event.type === "done") return null;
+    if (event.type === "error") return event;
+    if (event.type === "auto_continue") {
+      return {
+        type: "error",
+        error: `Agent stopped before finishing (${event.reason}).`,
+        errorCode: event.reason,
+        recoverable: true,
+      };
+    }
+  }
+  return null;
+}
+
+function formatA2ATerminalError(
+  event: Extract<AgentChatEvent, { type: "error" }>,
+): string {
+  const parts = [
+    event.error || "Agent failed before producing a final response.",
+    event.errorCode ? `code: ${event.errorCode}` : "",
+    event.details ? `details: ${event.details}` : "",
+  ].filter(Boolean);
+  return parts.join("\n");
 }
 
 /**
@@ -3059,6 +3096,8 @@ In Act mode, if the user asks for generated interactive UI in chat, choose the s
 
 These are **NOT** source-code changes and do **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps — no source files are touched, no PR is opened, no build is required. Saved extensions can be edited later via \`update-extension\`.
 
+If the app exposes native actions or instructions for dashboards, reports, analyses, charts, documents, decks, or other domain artifacts, use those app-native actions first. Choose an extension only when the user explicitly asks for an extension/custom mini-app, or when the app's native artifact format cannot faithfully express the requested interaction.
+
 Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
 
 Generated UI content can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
@@ -3086,7 +3125,7 @@ Route by what the request changes, not how it is phrased. Extensions render in t
 | Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`render-inline-extension\` for chat-only, \`create-extension\` for reusable |
 </routing>
 
-Worked examples: "a widget showing unread emails grouped by sender", "a dashboard summarizing my pipeline", "a tracker for my newsletter subscriptions" → \`create-extension\`. "Add an Unread tab to the left navigation", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
+Worked examples: "a widget showing unread emails grouped by sender", "a tracker for my newsletter subscriptions", "a custom kanban board with drag-and-drop rules the app does not have" → \`create-extension\`. "Add an Unread tab to the left navigation", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
     : `### Extensions Disabled
 
 Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow. For requests that would otherwise be handled as an extension/widget/dashboard/calculator mini-app, explain that this app has disabled extension tools and use the app's available actions instead.`;
@@ -3094,6 +3133,8 @@ Extension creation and management tools are disabled for this app. Do not claim 
     ? `### Generative UI and Extensions (Mini-Apps)
 
 In Act mode, if the user asks for generated interactive UI in chat, call \`render-inline-extension\` for one-time inline controls/knobs/calculators/visualizers that do not need saving. If the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app** that should be reusable or saved, call \`create-extension\` with a self-contained Alpine.js HTML body. To load a saved extension inline, call \`show-extension-inline\`. These are NOT code changes — extensions are sandboxed mini-apps. Do not preface with "let me build…" — just call the right extension action.
+
+Use app-native artifact actions first when they exist for dashboards, reports, analyses, charts, documents, decks, or similar domain artifacts. Pick \`create-extension\` only for explicit extension/custom mini-app requests or for behavior the native artifact format cannot support.
 
 Keep the first \`create-extension\` call compact and working. If the request is complex, create the v1 first and then refine with focused \`update-extension\` edits.
 

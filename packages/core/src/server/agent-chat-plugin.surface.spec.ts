@@ -194,6 +194,20 @@ describe("prompt content invariants", () => {
     );
   });
 
+  it("keeps app-native dashboard and analysis actions ahead of generic extensions", () => {
+    const prompts = _agentChatPromptSectionsForTests.buildFrameworkPrompts();
+
+    expect(prompts.PROD_FRAMEWORK_PROMPT).toContain(
+      "If the app exposes native actions or instructions for dashboards",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT_COMPACT).toContain(
+      "Use app-native artifact actions first",
+    );
+    expect(prompts.PROD_FRAMEWORK_PROMPT).not.toContain(
+      '"a dashboard summarizing my pipeline"',
+    );
+  });
+
   it("both variants contain the no-fabrication rule", () => {
     for (const prompt of [full, compact]) {
       expect(prompt).toContain("Never fabricate factual claims");
