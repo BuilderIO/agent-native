@@ -44,7 +44,10 @@ function setLocation(
   location.hash = url.hash;
 }
 
-function installBrowser(url = "https://app.agent-native.com/inbox") {
+function installBrowser(
+  url = "https://app.agent-native.com/inbox",
+  session: Record<string, unknown> = { error: "not authenticated" },
+) {
   const parsed = new URL(url);
   const storage = new Map<string, string>();
   const location = {
@@ -117,7 +120,14 @@ function installBrowser(url = "https://app.agent-native.com/inbox") {
   vi.stubGlobal("crypto", {
     randomUUID: vi.fn(() => `00000000-0000-4000-8000-${++idCounter}`),
   });
-  const fetchMock = vi.fn(async () => new Response("{}"));
+  const fetchMock = vi.fn(async (input: unknown) => {
+    if (String(input).includes("/_agent-native/auth/session")) {
+      return new Response(JSON.stringify(session), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response("{}");
+  });
   vi.stubGlobal("fetch", fetchMock);
   return { fetchMock, history, location, storage };
 }
@@ -374,6 +384,53 @@ describe("session replay", () => {
     expect(body.properties).toMatchObject({
       app: "agent-native-test",
       userId: "user_123",
+    });
+  });
+
+  it("attaches signed-in session identity to replay metadata", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+      name: "Dev User",
+      orgId: "org_123",
+    });
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    vi.resetModules();
+    const { configureTracking, stopSessionReplay } =
+      await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-clips",
+      }),
+      sessionReplay: true,
+    });
+    await tick();
+
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    await stopSessionReplay();
+    await tick();
+
+    const replayCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    expect(replayCalls).toHaveLength(1);
+    const [, init] = replayCalls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.userId).toBe("dev@example.com");
+    expect(body.properties).toMatchObject({
+      app: "agent-native-clips",
+      userId: "dev@example.com",
+      userEmail: "dev@example.com",
+      userName: "Dev User",
+      orgId: "org_123",
     });
   });
 

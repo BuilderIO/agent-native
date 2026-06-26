@@ -62,13 +62,20 @@ function installFetch({
     model: "claude-sonnet-4-6",
     source: "app_secrets",
   },
+  session = { error: "not authenticated" },
 }: {
   status?: Record<string, unknown>;
+  session?: Record<string, unknown>;
 } = {}) {
   const analyticsCalls: Array<[unknown, RequestInit]> = [];
   const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
     if (String(url).includes("/_agent-native/agent-engine/status")) {
       return new Response(JSON.stringify(status), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (String(url).includes("/_agent-native/auth/session")) {
+      return new Response(JSON.stringify(session), {
         headers: { "Content-Type": "application/json" },
       });
     }
@@ -197,6 +204,41 @@ describe("browser analytics pageviews", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({
       publicKey: "anpk_configured",
       event: "pageview",
+    });
+  });
+
+  it("attaches the signed-in session identity to first-party analytics", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "dev@example.com",
+        userId: "auth-user-1",
+        name: "Dev User",
+        orgId: "org_123",
+      },
+    });
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-clips",
+      }),
+    });
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(1);
+    const body = JSON.parse(String(analyticsCalls[0][1].body));
+    expect(body.userId).toBe("dev@example.com");
+    expect(body.properties).toMatchObject({
+      userId: "dev@example.com",
+      userEmail: "dev@example.com",
+      userName: "Dev User",
+      orgId: "org_123",
+      app: "agent-native-clips",
+      template: "clips",
     });
   });
 
