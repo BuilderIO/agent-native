@@ -390,8 +390,9 @@ The query is cached under `["action", "get-lead", { leadId }]` and auto-invalida
 
 Actions can return structured widget data that the in-app chat renders
 natively. This is the first-party chat path for reusable tables, charts, setup
-summaries, and insight cards; use [MCP Apps](/docs/mcp-apps) for inline UI in
-external MCP hosts.
+summaries, and insight cards. Use [Generative UI](/docs/generative-ui) when the
+agent needs to generate arbitrary interactive controls inside the in-app chat,
+and use [MCP Apps](/docs/mcp-apps) for inline UI in external MCP hosts.
 
 ```ts
 import { defineAction } from "@agent-native/core/action";
@@ -581,3 +582,4 @@ const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
 - [**Context Awareness**](/docs/context-awareness) — the `view-screen` + `navigate` pattern in depth
 - [**A2A Protocol**](/docs/a2a-protocol) — how other agents discover and call your actions
 - [**MCP Protocol**](/docs/mcp-protocol) — exposing actions over MCP
+- [**Generative UI**](/docs/generative-ui) — rendering transient or persisted generated UI inline in chat

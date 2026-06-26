@@ -246,9 +246,9 @@ See [Context Awareness](/docs/context-awareness) for the full pattern: navigatio
 
 ## One action, many surfaces {#protocols}
 
-Implement a domain operation once as an action; the framework exposes it to every consumer. The same `defineAction()` becomes an agent tool, a typesafe UI hook, an HTTP endpoint, a CLI command, an MCP tool, and an A2A tool, with optional `link`, `mcpApp`, or explicit native-widget metadata added only when a surface needs it. Skills and instructions cover behavior.
+Implement a domain operation once as an action; the framework exposes it to every consumer. The same `defineAction()` becomes an agent tool, a typesafe UI hook, an HTTP endpoint, a CLI command, an MCP tool, and an A2A tool, with optional `link`, `mcpApp`, native-widget metadata, or Generative UI wrappers added only when a surface needs richer interaction. Skills and instructions cover behavior.
 
-For the full protocol/surface matrix (MCP server and OAuth, MCP Apps, A2A, deep links, native chat widgets, AgentChatRuntime connectors, Agent Web, and the adapter horizon for ACP and A2UI), and for choosing a product shape — headless, rich chat, embedded sidecar, or full app — see [Agent Surfaces](/docs/agent-surfaces).
+For the full protocol/surface matrix (MCP server and OAuth, MCP Apps, A2A, deep links, native chat widgets, Generative UI, AgentChatRuntime connectors, Agent Web, and the adapter horizon for ACP and A2UI), and for choosing a product shape — headless, rich chat, embedded sidecar, or full app — see [Agent Surfaces](/docs/agent-surfaces).
 
 ## Agent modifies code {#agent-modifies-code}
 

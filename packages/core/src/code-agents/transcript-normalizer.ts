@@ -1,3 +1,7 @@
+import {
+  normalizeActionChatUIConfig,
+  type ActionChatUIConfig,
+} from "../action-ui.js";
 import type { CodeAgentTranscriptEvent } from "../cli/code-agent-runs.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 
@@ -47,6 +51,7 @@ export interface NormalizedCodeAgentToolEvent extends NormalizedCodeAgentTranscr
   input?: unknown;
   result?: unknown;
   mcpApp?: AgentMcpAppPayload;
+  chatUI?: ActionChatUIConfig;
   activities: string[];
   startedAt?: string;
   completedAt?: string;
@@ -297,6 +302,8 @@ function appendToolEvent(
   }
   const mcpApp = mcpAppMetadata(event.metadata);
   if (mcpApp) item.mcpApp = mcpApp;
+  const chatUI = chatUIMetadata(event.metadata);
+  if (chatUI) item.chatUI = chatUI;
   const doneMeta = structuredMetadata(event.metadata);
   if (doneMeta) item.structuredMeta = doneMeta;
 }
@@ -322,6 +329,7 @@ function createToolEvent(
     input: hasMetadataKey(metadata, "input") ? metadata?.input : undefined,
     result: hasMetadataKey(metadata, "result") ? metadata?.result : undefined,
     mcpApp: mcpAppMetadata(metadata),
+    chatUI: chatUIMetadata(metadata),
     activities: toolType === "activity" ? [event.message] : [],
     startedAt: toolType === "tool_start" ? event.createdAt : undefined,
     completedAt: toolType === "tool_done" ? event.createdAt : undefined,
@@ -626,4 +634,10 @@ function mcpAppMetadata(
     return undefined;
   }
   return candidate as AgentMcpAppPayload;
+}
+
+function chatUIMetadata(
+  metadata: Record<string, unknown> | undefined,
+): ActionChatUIConfig | undefined {
+  return normalizeActionChatUIConfig(metadata?.chatUI);
 }

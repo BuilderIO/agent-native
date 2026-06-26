@@ -1,14 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildExtensionHtml } from "../../extensions/html-shell.js";
 import { getThemeVars } from "../../extensions/theme.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
-import {
-  extensionLoadError,
-  shouldRetryExtensionLoad,
-} from "./extension-load-error.js";
 import {
   isAllowedExtensionPath,
   sanitizeExtensionRequestOptions,
@@ -247,12 +242,10 @@ async function handleTransientExtensionData(
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    writeTransientRows(
-      extensionId,
-      parsed.collection,
-      parsed.scope,
-      [row, ...rows.filter((item) => item.id !== itemId)],
-    );
+    writeTransientRows(extensionId, parsed.collection, parsed.scope, [
+      row,
+      ...rows.filter((item) => item.id !== itemId),
+    ]);
     return {
       response: {
         ok: true,
@@ -334,6 +327,9 @@ export function InlineExtensionFrame({
     isAuthor: !!providedExtension?.content,
   });
   const bindingLatchedRef = useRef(false);
+  const [fetchedExtension, setFetchedExtension] =
+    useState<InlineExtensionDefinition | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -348,29 +344,32 @@ export function InlineExtensionFrame({
     return () => observer.disconnect();
   }, []);
 
-  const shouldFetch = !!providedId && !providedExtension?.content;
-  const { data: fetchedExtension, isLoading } =
-    useQuery<InlineExtensionDefinition | null>({
-      queryKey: ["extension", providedId],
-      queryFn: async () => {
-        const res = await fetch(
-          agentNativePath(`/_agent-native/extensions/${providedId}`),
-        );
-        if (res.status === 404) {
-          throw extensionLoadError(404, "Extension not found");
-        }
-        if (res.status === 403) {
-          throw extensionLoadError(403, "Extension access denied");
-        }
-        if (!res.ok) {
-          throw extensionLoadError(res.status, "Failed to fetch extension");
-        }
-        return res.json();
-      },
-      enabled: shouldFetch && !providedExtension,
-      retry: shouldRetryExtensionLoad,
-      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
-    });
+  useEffect(() => {
+    if (!providedId || providedExtension) {
+      setFetchedExtension(null);
+      setIsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIsLoading(true);
+    fetch(agentNativePath(`/_agent-native/extensions/${providedId}`))
+      .then(async (res) => {
+        if (!res.ok) return null;
+        return (await res.json()) as InlineExtensionDefinition;
+      })
+      .then((row) => {
+        if (!cancelled) setFetchedExtension(row);
+      })
+      .catch(() => {
+        if (!cancelled) setFetchedExtension(null);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [providedExtension, providedId]);
 
   const extension = providedExtension ?? fetchedExtension ?? null;
   const resolvedId = extension?.id ?? providedId;
@@ -528,7 +527,11 @@ export function InlineExtensionFrame({
         );
       };
 
-      if (!requestId || !resolvedId || !isAllowedExtensionPath(path, resolvedId)) {
+      if (
+        !requestId ||
+        !resolvedId ||
+        !isAllowedExtensionPath(path, resolvedId)
+      ) {
         respond({ error: "Extension request path is not allowed" });
         return;
       }

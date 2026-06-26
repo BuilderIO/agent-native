@@ -146,6 +146,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "native-chat-ui",
       },
       {
+        id: "generative-ui",
+        labelKey: "generativeUi",
+        slug: "generative-ui",
+      },
+      {
         id: "real-time-collaboration",
         labelKey: "realTimeCollaboration",
         slug: "real-time-collaboration",

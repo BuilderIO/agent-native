@@ -308,6 +308,40 @@ describe("normalizeCodeAgentTranscript", () => {
     });
   });
 
+  it("propagates chatUI metadata from completed tool events", () => {
+    const events = [
+      event("evt-start", "status", "Rendering inline UI.", {
+        type: "tool_start",
+        tool: "render-inline-extension",
+        input: { name: "Knobs" },
+      }),
+      event("evt-done", "status", "Rendered inline UI.", {
+        type: "tool_done",
+        tool: "render-inline-extension",
+        result: {
+          ok: true,
+          inlineExtension: {
+            mode: "transient",
+            id: "inline-1",
+            name: "Knobs",
+            content: "<div>Knobs</div>",
+          },
+        },
+        chatUI: { renderer: "core.inline-extension" },
+      }),
+    ];
+
+    const transcript = normalizeCodeAgentTranscript(events);
+
+    expect(transcript.items).toHaveLength(1);
+    expect(transcript.items[0]).toMatchObject({
+      type: "tool",
+      tool: "render-inline-extension",
+      state: "completed",
+      chatUI: { renderer: "core.inline-extension" },
+    });
+  });
+
   it("preserves structuredMeta from old events that lack it (backward compat)", () => {
     const events = [
       event("evt-start", "status", "Running bash.", {

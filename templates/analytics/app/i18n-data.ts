@@ -737,6 +737,11 @@ const enUS = {
     description:
       "Review first-party browser sessions and replay recordings captured by Agent Native Analytics.",
     filters: "Filters",
+    segmentFilters: "Segment filters",
+    sessionPlaylist: "Session playlist",
+    userFilters: "User filters",
+    eventFilters: "Event filters",
+    anyActivity: "Any activity",
     filtersDescription:
       "Filters are stored in the URL so the agent and shared links see the same session list.",
     refresh: "Refresh",
@@ -753,6 +758,8 @@ const enUS = {
     last90d: "Last 90d",
     allTime: "All time",
     showing: "{{count}} sessions",
+    eventCountCompact: "{{count}} events",
+    pageCountCompact: "{{count}} pages",
     truncated: "Showing the first replay events only.",
     session: "Session",
     visitor: "Visitor",

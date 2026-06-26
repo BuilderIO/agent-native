@@ -80,6 +80,16 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("method: 'PUT'");
   });
 
+  it("exposes a chat bridge helper to extension code", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("function sendToChat(message, options)");
+    expect(html).toContain("type: 'agent-native-send-to-chat'");
+    expect(html).toContain("sendToChat: sendToChat");
+    expect(html).toContain("send: sendToChat");
+    expect(html).toContain("window.sendToAgentChat = sendToChat");
+  });
+
   it("serializes authenticated extension binding metadata", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1", {
       authorEmail: "owner+qa@example.test",
@@ -141,6 +151,7 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
   const HOST_FILES = [
     "ExtensionViewer.tsx",
     "EmbeddedExtension.tsx",
+    "InlineExtensionFrame.tsx",
     "ExtensionEditor.tsx",
   ];
 

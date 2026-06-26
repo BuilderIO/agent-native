@@ -159,37 +159,30 @@ export default function SessionDetailPage() {
   const recording = data?.recording;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-5 px-4 py-5 md:px-6">
+    <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
       {codeRequiredDialog}
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0 space-y-3">
-          <Button variant="ghost" size="sm" asChild className="-ms-2 w-fit">
+      <div className="flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="flex min-w-0 items-center gap-2">
+          <Button variant="ghost" size="sm" asChild className="shrink-0">
             <Link to="/sessions">
               <IconArrowLeft className="h-4 w-4" />
               {t("sessions.backToSessions")}
             </Link>
           </Button>
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
-              <IconPlayerPlay className="h-5 w-5 text-primary" />
-              <h1 className="break-all font-mono text-xl font-semibold tracking-normal md:text-2xl">
-                {recording?.sessionId ?? recordingId}
-              </h1>
-            </div>
-            {recording ? (
-              <p className="max-w-3xl text-sm text-muted-foreground">
+          {recording ? (
+            <div className="min-w-0 border-l pl-3 text-xs text-muted-foreground">
+              <span className="truncate">
                 {recording.app ||
                   recording.template ||
                   t("sessions.unknownApp")}{" "}
-                · {formatDateTime(recording.startedAt)} -{" "}
-                {formatDateTime(
-                  recording.endedAt ??
-                    recording.lastIngestedAt ??
-                    recording.startedAt,
-                )}
-              </p>
-            ) : null}
-          </div>
+                · {formatDuration(recording.durationMs)} ·{" "}
+                {t("sessions.eventCountCompact", {
+                  count: formatNumber(recording.eventCount),
+                })}{" "}
+                · {visitorLabel(recording, t)}
+              </span>
+            </div>
+          ) : null}
         </div>
         {recording ? <AskSessionPopover recording={recording} /> : null}
       </div>
@@ -204,10 +197,9 @@ export default function SessionDetailPage() {
       ) : isLoading ? (
         <DetailSkeleton />
       ) : data && recording ? (
-        <>
-          <SessionStats recording={recording} />
+        <div className="min-h-0 flex-1">
           <ReplayWorkbench response={data} />
-        </>
+        </div>
       ) : null}
     </div>
   );
@@ -268,32 +260,6 @@ function AskSessionPopover({
   );
 }
 
-function SessionStats({ recording }: { recording: SessionRecordingSummary }) {
-  const t = useT();
-  const stats = [
-    [t("sessions.started"), formatDateTime(recording.startedAt)],
-    [t("sessions.duration"), formatDuration(recording.durationMs)],
-    [t("sessions.events"), formatNumber(recording.eventCount)],
-    [t("sessions.pages"), formatNumber(recording.pageCount)],
-    [t("sessions.errors"), formatNumber(recording.errorCount)],
-    [t("sessions.visitor"), visitorLabel(recording, t)],
-  ];
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-      {stats.map(([label, value]) => (
-        <Card key={label}>
-          <CardContent className="p-3">
-            <p className="text-[11px] font-medium uppercase text-muted-foreground">
-              {label}
-            </p>
-            <p className="mt-1 truncate text-sm font-medium">{value}</p>
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
-
 function ReplayWorkbench({
   response,
 }: {
@@ -321,7 +287,7 @@ function ReplayWorkbench({
   }, [currentTime, markers]);
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
       <ReplayPlayer
         events={events}
         markers={markers}
@@ -387,7 +353,6 @@ function ReplayPlayer({
     if (!el) return;
     const update = () => {
       const next = Math.min(
-        1,
         el.clientWidth / playerWidth,
         el.clientHeight / playerHeight,
       );
@@ -477,14 +442,20 @@ function ReplayPlayer({
           setStreamedDims({ width: dims.width, height: dims.height });
         }
       });
-      try {
-        localReplayer.pause?.(0);
-      } catch {
-        // Some rrweb versions only render after play; the first click still works.
-      }
       updateTime(0);
       setStatus("ready");
-      setPlaying(false);
+      try {
+        localReplayer.play?.(0);
+        setPlaying(true);
+      } catch (autoplayError) {
+        console.warn("[session-replay] autoplay failed", autoplayError);
+        try {
+          localReplayer.pause?.(0);
+        } catch {
+          // Some rrweb versions only render after play; the first click still works.
+        }
+        setPlaying(false);
+      }
     }
 
     void loadReplay().catch((loadError: any) => {
@@ -599,32 +570,12 @@ function ReplayPlayer({
 
   return (
     <TooltipProvider>
-      <Card className="overflow-hidden">
-        <CardContent className="p-0">
-          <div className="flex items-center justify-between border-b px-4 py-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <IconPlayerPlay className="h-4 w-4" />
-                {t("sessions.replayPlayer")}
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("sessions.replayEventCount", {
-                  events: String(response.eventCount),
-                })}
-                {response.truncated ? ` ${t("sessions.truncated")}` : ""}
-              </p>
-            </div>
-            <div className="hidden items-center gap-2 text-xs text-muted-foreground md:flex">
-              <span>{formatClock(currentTime)}</span>
-              <span>/</span>
-              <span>{formatClock(totalTime)}</span>
-            </div>
-          </div>
-
-          <div className="bg-muted/20 p-3">
+      <Card className="flex min-h-0 overflow-hidden">
+        <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+          <div className="flex min-h-0 flex-1 flex-col bg-muted/20 p-2">
             {currentUrl ? (
               <div
-                className="flex h-8 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"
+                className="flex h-8 shrink-0 items-center rounded-t-md border border-b-0 bg-background px-3 font-mono text-xs text-muted-foreground"
                 title={currentUrl}
               >
                 <span className="truncate">{currentUrl}</span>
@@ -633,7 +584,7 @@ function ReplayPlayer({
             <div
               ref={stageAreaRef}
               className={cn(
-                "relative h-[520px] overflow-hidden border bg-white dark:bg-zinc-950",
+                "relative min-h-[320px] flex-1 overflow-hidden border bg-white dark:bg-zinc-950",
                 currentUrl ? "rounded-b-md" : "rounded-md",
               )}
             >
@@ -660,7 +611,7 @@ function ReplayPlayer({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-t px-3 py-3">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-t px-3 py-2">
             <ReplayIconButton
               label={t("sessions.skipBack")}
               disabled={disabled}
@@ -745,6 +696,12 @@ function ReplayPlayer({
                   : t("sessions.skipInactiveOff")}
               </TooltipContent>
             </Tooltip>
+            <span className="ms-auto hidden text-xs text-muted-foreground lg:inline">
+              {t("sessions.replayEventCount", {
+                events: String(response.eventCount),
+              })}
+              {response.truncated ? ` ${t("sessions.truncated")}` : ""}
+            </span>
           </div>
 
           {response.unavailableChunks > 0 ? (
@@ -877,14 +834,14 @@ function ReplayTimeline({
   const t = useT();
   const visibleMarkers = markers.slice(0, 120);
   return (
-    <Card className="overflow-hidden">
-      <CardContent className="flex max-h-[704px] flex-col p-0">
-        <div className="border-b px-4 py-3">
+    <Card className="flex min-h-0 overflow-hidden">
+      <CardContent className="flex min-h-0 flex-1 flex-col p-0">
+        <div className="shrink-0 border-b px-3 py-2">
           <div className="flex items-center gap-2 text-sm font-semibold">
             <IconTimelineEvent className="h-4 w-4" />
             {t("sessions.timeline")}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-0.5 text-xs text-muted-foreground">
             {visibleMarkers.length
               ? t("sessions.timelineDescription", {
                   count: String(visibleMarkers.length),
@@ -900,7 +857,7 @@ function ReplayTimeline({
                   key={marker.id}
                   type="button"
                   className={cn(
-                    "flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50",
+                    "flex w-full gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50",
                     marker.id === activeMarkerId && "bg-muted",
                   )}
                   onClick={() => onSeek(marker.offsetMs)}
@@ -958,16 +915,9 @@ function MarkerIcon({ kind }: { kind: ReplayMarker["kind"] }) {
 
 function DetailSkeleton() {
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, index) => (
-          <Skeleton key={index} className="h-20 w-full" />
-        ))}
-      </div>
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <Skeleton className="h-[640px] w-full" />
-        <Skeleton className="h-[640px] w-full" />
-      </div>
+    <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
+      <Skeleton className="h-full min-h-[420px] w-full" />
+      <Skeleton className="h-full min-h-[420px] w-full" />
     </div>
   );
 }
@@ -1261,17 +1211,6 @@ function visitorLabel(
     recording.anonymousId ||
     t("sessions.anonymous")
   );
-}
-
-function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
 }
 
 function formatDuration(ms: number | null): string {
