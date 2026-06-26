@@ -1,6 +1,5 @@
 import { useT } from "@agent-native/core/client";
 import { useDraggable } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -73,8 +72,10 @@ export function SqlChartCard({
 }: SqlChartCardProps) {
   const t = useT();
   const queryClient = useQueryClient();
-  const { attributes, listeners, setNodeRef, transform, isDragging } =
-    useDraggable({ id: panel.id, disabled: !editable });
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: panel.id,
+    disabled: !editable,
+  });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -155,9 +156,7 @@ export function SqlChartCard({
   }, [panel.id]);
 
   const style = {
-    transform: CSS.Transform.toString(transform),
     zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.7 : 1,
   };
 
   // Section panels render as a flush header row (no card chrome, full width)
@@ -168,7 +167,8 @@ export function SqlChartCard({
       <div
         ref={setCardNodeRef}
         style={style}
-        className="group relative mt-2 first:mt-0"
+        data-dragging={isDragging ? "true" : undefined}
+        className="dashboard-section-card group relative mt-2 first:mt-0"
       >
         <div className="flex items-center gap-2 border-b border-border pb-2">
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
@@ -271,7 +271,8 @@ export function SqlChartCard({
     <div
       ref={setCardNodeRef}
       style={style}
-      className="group relative h-full hover:z-20 focus-within:z-20"
+      data-dragging={isDragging ? "true" : undefined}
+      className="dashboard-chart-card group relative h-full hover:z-20 focus-within:z-20"
     >
       <Card className="flex h-full flex-col overflow-visible">
         <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
@@ -392,7 +393,7 @@ export function SqlChartCard({
             ) : null}
           </div>
         </CardHeader>
-        <CardContent className="flex flex-1 flex-col overflow-visible pt-0">
+        <CardContent className="dashboard-chart-content flex flex-1 flex-col overflow-visible pt-0">
           <SqlChart
             panel={panel}
             resolvedSql={resolvedSql}

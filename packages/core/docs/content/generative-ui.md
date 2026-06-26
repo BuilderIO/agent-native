@@ -1,7 +1,7 @@
 ---
 title: "Generative UI"
 description: "Let the agent generate sandboxed interactive UI inline in chat, either transient for one turn or saved as reusable Extensions."
-search: "generative UI inline extension render-inline-extension create-extension show-extension-inline sandboxed Alpine Tailwind slotContext sendToAgentChat agentNative.chat.send"
+search: "generative UI inline extension render-inline-extension create-extension show-extension-inline sandboxed Alpine Tailwind slotContext sendToAgentChat agentNative.chat.send agentNative.ui.output"
 ---
 
 # Generative UI
@@ -111,7 +111,43 @@ Generated UI can see and update the app through the standard extension bridge:
 Prefer `appAction` for domain data. Actions carry validation, access checks, and
 business rules; raw SQL is for cases where no action exists.
 
+For transient UIs, `extensionData` is intentionally local to the browser. It is
+stored in host `localStorage`, is not visible to the agent or backend, does not
+sync across devices, does not migrate if the UI is later promoted to a saved
+Extension, and is not garbage-collected by the server. Use it only for
+throwaway local UI state. If the agent or the app needs to observe a value, use
+`agentNative.ui.output`, application state through `appFetch`, an `appAction`, or
+`agentNative.chat.send`.
+
 ## Outputs back to chat {#outputs}
+
+Use passive output for controls whose current value should be readable later
+without forcing the user to click a submit button:
+
+```html
+<div x-data="{ threshold: 50 }">
+  <input
+    type="range"
+    min="0"
+    max="100"
+    x-model.number="threshold"
+    @input="agentNative.ui.output({ threshold }, { label: 'Threshold' })"
+    class="w-full"
+  />
+</div>
+```
+
+`agentNative.ui.output(value, options)` writes the current value to
+application state under a conventioned key:
+
+```txt
+inline-ui:<extensionId>:output
+```
+
+The stored value includes the submitted `value`, `updatedAt`, `extensionId`, and
+`source: "inline-ui"`, plus optional `label`, `context`, or `meta` fields. When
+the user says "use that value" or "apply the current selection", the agent reads
+that key with `readAppState("inline-ui:<id>:output")`.
 
 Generated UI can send a visible prompt or result back into the current app chat:
 

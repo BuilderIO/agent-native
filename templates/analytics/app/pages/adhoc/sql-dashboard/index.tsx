@@ -14,16 +14,18 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import {
-  closestCenter,
   useDroppable,
   DndContext,
+  DragOverlay,
   pointerWithin,
   PointerSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragOverEvent,
+  type DragStartEvent,
   type CollisionDetection,
+  type Collision,
 } from "@dnd-kit/core";
 import {
   IconArchive,
@@ -31,6 +33,7 @@ import {
   IconDots,
   IconEye,
   IconEyeOff,
+  IconGripVertical,
   IconInfoCircle,
   IconMail,
   IconPencil,
@@ -102,6 +105,7 @@ import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
   buildDashboardPanelGroups,
+  distanceFromPointerToRect,
   dropSlotId,
   isDropSlotAvailable,
   movePanelToDropSlot,
@@ -186,6 +190,17 @@ function DashboardDropLine({
           : "dashboard-column-drop-slot"
       }
     />
+  );
+}
+
+function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
+  if (!panel) return null;
+
+  return (
+    <div className="dashboard-drag-preview flex max-w-64 items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-sm font-medium text-foreground shadow-lg ring-1 ring-primary/20">
+      <IconGripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{panel.title}</span>
+    </div>
   );
 }
 
@@ -319,6 +334,9 @@ export default function SqlDashboardPage() {
   const [emailReportOpen, setEmailReportOpen] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
+  const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
+    null,
+  );
   const viewedDashboardIdRef = useRef<string | null>(null);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
@@ -756,13 +774,22 @@ export default function SqlDashboardPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragPanelId(String(event.active.id));
+  }, []);
+
   const handleDragOver = useCallback((event: DragOverEvent) => {
-    setActiveDropSlot(readDropSlot(event.over?.data.current));
+    const nextSlot = readDropSlot(event.over?.data.current);
+    setActiveDropSlot((currentSlot) => {
+      if (!nextSlot) return currentSlot === null ? currentSlot : null;
+      return sameDropSlot(currentSlot, nextSlot) ? currentSlot : nextSlot;
+    });
   }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       setActiveDropSlot(null);
+      setActiveDragPanelId(null);
       if (!dashboard) return;
       const slot = readDropSlot(event.over?.data.current);
       if (!slot) return;
@@ -784,6 +811,7 @@ export default function SqlDashboardPage() {
 
   const handleDragCancel = useCallback(() => {
     setActiveDropSlot(null);
+    setActiveDragPanelId(null);
   }, []);
 
   const handleSaveName = useCallback(() => {
@@ -889,6 +917,14 @@ export default function SqlDashboardPage() {
   const panelGroups = useMemo(() => {
     return buildDashboardPanelGroups(visiblePanels, dashboardColumns);
   }, [visiblePanels, dashboardColumns]);
+  const activeDragPanel = useMemo(
+    () =>
+      activeDragPanelId
+        ? (visiblePanels.find((panel) => panel.id === activeDragPanelId) ??
+          null)
+        : null,
+    [activeDragPanelId, visiblePanels],
+  );
 
   const dashboardCollisionDetection = useCallback<CollisionDetection>(
     (args) => {
@@ -910,9 +946,28 @@ export default function SqlDashboardPage() {
       });
       if (exactCollisions.length > 0) return exactCollisions;
 
-      return closestCenter({
-        ...args,
-        droppableContainers,
+      if (!args.pointerCoordinates) return [];
+
+      const collisions: Collision[] = [];
+      for (const droppableContainer of droppableContainers) {
+        const rect = args.droppableRects.get(droppableContainer.id);
+        if (!rect) continue;
+
+        collisions.push({
+          id: droppableContainer.id,
+          data: {
+            droppableContainer,
+            value: distanceFromPointerToRect(args.pointerCoordinates, rect),
+          },
+        });
+      }
+
+      return collisions.sort((a, b) => {
+        const aValue =
+          typeof a.data?.value === "number" ? a.data.value : Number.MAX_VALUE;
+        const bValue =
+          typeof b.data?.value === "number" ? b.data.value : Number.MAX_VALUE;
+        return aValue - bValue;
       });
     },
     [panelGroups],
@@ -1418,11 +1473,15 @@ export default function SqlDashboardPage() {
         <DndContext
           sensors={sensors}
           collisionDetection={dashboardCollisionDetection}
+          onDragStart={canEdit ? handleDragStart : undefined}
           onDragOver={canEdit ? handleDragOver : undefined}
           onDragEnd={canEdit ? handleDragEnd : undefined}
           onDragCancel={handleDragCancel}
         >
-          <div className="dashboard-grid-container flex flex-col gap-1">
+          <div
+            className="dashboard-grid-container flex flex-col gap-1"
+            data-dashboard-dragging={activeDragPanel ? "true" : undefined}
+          >
             {panelGroups.map((group) => {
               const renderPanelCell = (panel: SqlPanel) => {
                 const resolved = panel.config?.description
@@ -1501,7 +1560,7 @@ export default function SqlDashboardPage() {
                   : section;
                 return (
                   <div
-                    className="relative"
+                    className="dashboard-section-cell relative"
                     style={
                       remoteEditor
                         ? {
@@ -1593,6 +1652,9 @@ export default function SqlDashboardPage() {
               );
             })}
           </div>
+          <DragOverlay adjustScale={false} dropAnimation={null} zIndex={1000}>
+            <DashboardDragPreview panel={activeDragPanel} />
+          </DragOverlay>
         </DndContext>
       )}
 

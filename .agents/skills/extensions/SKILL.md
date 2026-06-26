@@ -73,6 +73,19 @@ Extensions have full access to app data via helpers injected into the iframe
   per-extension (supports `{ scope: 'user' | 'org' | 'all' }` option). Legacy
   alias: `toolData` — kept for back-compat; both names refer to the same
   store.
+- `agentNative.ui.output(value, opts?)` — when an extension is rendered inline
+  in chat, record passive control/selection output at
+  `inline-ui:<extensionId>:output` in application state so the agent can read it
+  later with `readAppState`.
+- `agentNative.chat.send(message, opts?)` — send a visible prompt or selected
+  value back into the current agent chat.
+
+For transient inline generative UI, `extensionData` is host-browser
+`localStorage`: the agent cannot read it, it does not sync across devices, it
+does not migrate when the UI is saved later, and the server does not garbage
+collect it. Use it only for throwaway local UI state. Use application state,
+`agentNative.ui.output`, `appAction`, or `agentNative.chat.send` for anything
+the agent or app must observe.
 
 ## Data Persistence is Built In
 

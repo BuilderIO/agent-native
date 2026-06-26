@@ -489,6 +489,23 @@ export function InlineExtensionFrame({
         return;
       }
 
+      if (message.type === "agent-native-ui-output") {
+        window.dispatchEvent(
+          new CustomEvent("agentNative.inlineUiOutput", {
+            detail: {
+              extensionId: resolvedId,
+              key:
+                typeof (message as any).key === "string"
+                  ? (message as any).key
+                  : undefined,
+              value: (message as any).value,
+              output: (message as any).output,
+            },
+          }),
+        );
+        return;
+      }
+
       if (message.type === "agent-native-extension-error-fix") {
         const errors: string[] = Array.isArray((message as any).errors)
           ? (message as any).errors

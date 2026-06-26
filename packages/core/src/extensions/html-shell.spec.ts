@@ -90,6 +90,21 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("window.sendToAgentChat = sendToChat");
   });
 
+  it("exposes a passive UI output helper keyed by extension id", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "inline-1");
+
+    expect(html).toContain("function inlineUiOutputKey()");
+    expect(html).toContain("'inline-ui:' + safeId + ':output'");
+    expect(html).toContain("function outputToUi(value, options)");
+    expect(html).toContain(
+      "appFetch('/_agent-native/application-state/' + key",
+    );
+    expect(html).toContain("'X-Request-Source': 'inline-ui'");
+    expect(html).toContain("type: 'agent-native-ui-output'");
+    expect(html).toContain("ui: Object.assign");
+    expect(html).toContain("output: outputToUi");
+  });
+
   it("serializes authenticated extension binding metadata", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1", {
       authorEmail: "owner+qa@example.test",

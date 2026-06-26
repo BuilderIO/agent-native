@@ -74,4 +74,53 @@ describe("InlineExtensionFrame", () => {
       openSidebar: false,
     });
   });
+
+  it("dispatches passive output events from generated UI", async () => {
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: '<input type="range" />',
+          }}
+          context={{ threadId: "thread-1" }}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector("iframe");
+    const outputEvents: unknown[] = [];
+    const listener = (event: Event) => {
+      outputEvents.push((event as CustomEvent).detail);
+    };
+    window.addEventListener("agentNative.inlineUiOutput", listener);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow ?? window,
+          data: {
+            type: "agent-native-ui-output",
+            extensionId: "inline-test",
+            key: "inline-ui:inline-test:output",
+            value: { threshold: 42 },
+            output: { value: { threshold: 42 } },
+          },
+        }),
+      );
+    });
+
+    window.removeEventListener("agentNative.inlineUiOutput", listener);
+
+    expect(outputEvents).toEqual([
+      {
+        extensionId: "inline-test",
+        key: "inline-ui:inline-test:output",
+        value: { threshold: 42 },
+        output: { value: { threshold: 42 } },
+      },
+    ]);
+  });
 });

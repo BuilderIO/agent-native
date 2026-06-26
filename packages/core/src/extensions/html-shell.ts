@@ -438,6 +438,40 @@ export function buildExtensionHtml(
 	      return { ok: true };
 	    }
 
+	    function inlineUiOutputKey() {
+	      var safeId = String(_extensionId || 'unknown').replace(/[^A-Za-z0-9_:-]/g, '') || 'unknown';
+	      return 'inline-ui:' + safeId + ':output';
+	    }
+
+	    async function outputToUi(value, options) {
+	      options = options || {};
+	      var key = inlineUiOutputKey();
+	      var payload = {
+	        value: value,
+	        updatedAt: new Date().toISOString(),
+	        extensionId: _extensionId,
+	        source: 'inline-ui',
+	      };
+	      if (options.label !== undefined) payload.label = options.label;
+	      if (options.context !== undefined) payload.context = options.context;
+	      if (options.meta !== undefined) payload.meta = options.meta;
+	      var output = await appFetch('/_agent-native/application-state/' + key, {
+	        method: 'PUT',
+	        headers: { 'X-Request-Source': 'inline-ui' },
+	        body: JSON.stringify(payload),
+	      });
+	      try {
+	        window.parent.postMessage({
+	          type: 'agent-native-ui-output',
+	          extensionId: _extensionId,
+	          key: key,
+	          value: value,
+	          output: output,
+	        }, '*');
+	      } catch (_) {}
+	      return { ok: true, key: key, output: output };
+	    }
+
     async function dbQuery(sql, args) {
       var body = { sql: sql };
       if (args) body.args = args;
@@ -545,6 +579,9 @@ export function buildExtensionHtml(
 	      sendToChat: sendToChat,
 	      chat: Object.assign({}, (window.agentNative && window.agentNative.chat) || {}, {
 	        send: sendToChat,
+	      }),
+	      ui: Object.assign({}, (window.agentNative && window.agentNative.ui) || {}, {
+	        output: outputToUi,
 	      }),
 	    });
 	    window.sendToAgentChat = sendToChat;

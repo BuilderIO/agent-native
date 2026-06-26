@@ -176,6 +176,7 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 | `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                    |
 | `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                                   | `extensionData.remove('notes', 'note-1')`                 |
 | `window.slotContext`                             | Read the page/chat context passed into this slot          | `window.slotContext?.contactEmail`                        |
+| `agentNative.ui.output(value, opts?)`            | Record passive inline UI output in application state      | `agentNative.ui.output({ threshold })`                    |
 | `agentNative.chat.send(message, opts?)`          | Send a prompt or selected value back to the agent chat    | `agentNative.chat.send('Use Q2', { context: { q: 2 } })`  |
 
 Three rules of thumb:
@@ -183,6 +184,7 @@ Three rules of thumb:
 - **Prefer `appAction` over `dbQuery`.** Actions are the template's official surface — they handle access control, scoping, and validation for you. Reach for raw SQL only when no action fits.
 - **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
 - **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
+- **Use `agentNative.ui.output` for inline control values the agent should read later.** It writes `inline-ui:<extensionId>:output` to application state; `agentNative.chat.send` is for visible submit/apply messages.
 
 ```html
 <script>
