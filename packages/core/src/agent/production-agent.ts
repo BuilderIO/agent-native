@@ -3950,6 +3950,22 @@ export function createProductionAgentHandler(
           `${s}=${Date.now() - setupT0}ms`,
         ).catch(() => {});
     };
+    // DIAGNOSTIC-ONLY: AWAITED milestone write. Fire-and-forget `workerStep`
+    // writes never land once the worker freezes (a blocked event loop can't
+    // flush async I/O), so for the key post-model_done milestones we AWAIT the
+    // write — it lands while the loop is still running, so the LAST milestone
+    // visible in /runs/active is exactly the one right before the freeze (a sync
+    // block, or a hung await).
+    const workerStepAwait = async (s: string) => {
+      if (!bgRunId) return;
+      try {
+        await recordRunDiagnostic(
+          bgRunId,
+          RUN_DIAG_STAGE.workerSetupStep,
+          `${s}=${Date.now() - setupT0}ms`,
+        );
+      } catch {}
+    };
     // DIAGNOSTIC-ONLY: non-DB breadcrumb to the function log drain. `workerStep`
     // writes to the DB, which is exactly what stalls after `model_done` in the bg
     // worker (no diag write lands), so this logs to stdout (Netlify function
@@ -4267,7 +4283,7 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: engine/model/api-key resolution finished. A worker that
     // reached db_request_ctx but not env_config hung in attachment upload or
     // engine/model resolution.
-    workerStep("env_config");
+    await workerStepAwait("env_config");
     bgLog("env_config");
     bgLog("presend:creating");
     // Run all independent pre-send steps in parallel. Each of these hits
@@ -4604,7 +4620,7 @@ export function createProductionAgentHandler(
     setupMark("ctxAll");
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
     // files, loop settings, enriched message) resolved.
-    workerStep("context_all");
+    await workerStepAwait("context_all");
     bgLog("context_all");
 
     if (systemPromptError) {
@@ -4635,7 +4651,7 @@ export function createProductionAgentHandler(
     );
     setupMark("actions");
     // DIAGNOSTIC-ONLY: action/tool resolution + engine-tool filtering finished.
-    workerStep("action_tool_setup");
+    await workerStepAwait("action_tool_setup");
     bgLog("action_tool_setup");
     const requestSystemPrompt =
       requestMode === "plan"
@@ -4750,7 +4766,7 @@ export function createProductionAgentHandler(
     setupMark("depsThread");
     // DIAGNOSTIC-ONLY: owner/thread resolution + runId/effectiveThreadId +
     // chained-continuation thread fetch finished.
-    workerStep("owner_thread");
+    await workerStepAwait("owner_thread");
     bgLog("owner_thread");
 
     // Persist the user's turn exactly once. The foreground POST does this
@@ -5170,7 +5186,7 @@ export function createProductionAgentHandler(
     setupMark("preStart");
     // DIAGNOSTIC-ONLY: last stage before startRun fires. A worker that reaches
     // prestart but never workerStarted is hanging inside startRun itself.
-    workerStep("prestart");
+    await workerStepAwait("prestart");
     bgLog("prestart");
     const setupDetail =
       Object.entries(setupMarks)
