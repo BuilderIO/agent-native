@@ -4254,6 +4254,14 @@ export function createProductionAgentHandler(
       `[agent-chat] resolved engine=${engine.name} model=${model} requestEngine=${requestEngine ?? "(none)"}`,
     );
 
+    // DIAGNOSTIC-ONLY: the worker reaches post_model_ok but never aw_env — the
+    // only exit between them is this anthropic key check. Capture the exact
+    // resolution state so we know WHY effectiveApiKey is falsy in the worker
+    // (owner not resolved from the HMAC/thread? owner has no stored key? deploy
+    // fallback blocked?) vs the foreground which resolves it fine.
+    await awaitedWorkerMark(
+      `apikey_state:engine=${engine.name},owner=${ownerEmail ? "Y" : "N"},userKey=${userApiKey ? "Y" : "N"},effKey=${effectiveApiKey ? "Y" : "N"},block=${shouldBlockDeployCredentialFallback()}`,
+    );
     // Check for API key before starting a run (only for anthropic engine)
     if (engine.name === "anthropic" && !effectiveApiKey) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
