@@ -79,14 +79,6 @@ export interface SqlPanelConfig {
   sortable?: boolean;
   columns?: TableColumnConfig[];
   limit?: number;
-  /**
-   * For the `cards` chart type: which column supplies each card's heading.
-   * Defaults to the first configured column. The remaining columns render as
-   * label/value rows inside the card.
-   */
-  titleKey?: string;
-  /** For `cards`: optional column rendered as a status badge/pill on the card. */
-  badgeKey?: string;
 }
 
 export interface SqlPanel {
