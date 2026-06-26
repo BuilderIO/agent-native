@@ -130,6 +130,15 @@ Password-protected clips require the password once; successful responses return
 short-lived tokenized links so downstream agents do not need the plaintext
 password.
 
+When `transcript.status` is `pending`, agents should wait 15-30 seconds and
+retry the context or transcript URL a few times before falling back to frames or
+reporting that no transcript is available. Long recordings can take several
+minutes to finish. Failed transcripts include `failureReason`; if Builder
+transcription credits are exhausted, the agent should explain that the user
+needs Builder.io credits/upgrade or a Groq key for backup speech-to-text.
+Pending transcript responses also include `retryAfterSeconds` for agents that
+want a structured polling hint.
+
 Slack previews use the same sharing boundary. The `/api/slack/unfurl` webhook
 only returns a playable Slack `video` block for ready, public clips without a
 password, expiry hit, archive marker, or trash marker. Other clips still get the
@@ -146,7 +155,7 @@ normal share-page title/thumbnail metadata and require opening Clips.
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
   ],
   "responses": [
-    { "status": "200", "description": "Clip metadata plus transcript and frame API links" }
+    { "status": "200", "description": "Clip metadata, transcript status/failureReason/retryAfterSeconds, agent instructions, and transcript/frame API links" }
   ]
 }
 ```
@@ -160,7 +169,7 @@ normal share-page title/thumbnail metadata and require opening Clips.
     { "name": "id", "in": "query", "type": "string", "required": true, "description": "Recording id" }
   ],
   "responses": [
-    { "status": "200", "description": "Segments with startMs, endMs, readable timestamps, text, and optional source labels" }
+    { "status": "200", "description": "Transcript status, failureReason, retryAfterSeconds, full text, and segments with startMs, endMs, readable timestamps, text, and optional source labels" }
   ]
 }
 ```
@@ -216,7 +225,7 @@ pnpm dev
 
 Clips is a larger template with a native recorder (it ships a desktop companion for local capture). Three setup steps are needed before recordings can upload:
 
-1. **Video storage (required).** Connect a storage backend through the onboarding wizard. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, set `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL`. Cloudflare R2 and DigitalOcean Spaces use the same env vars with the `R2_*` prefix.
+1. **Video storage (required).** Connect a storage backend through the onboarding wizard or Clips Settings. The easiest path is Builder.io (free during beta, one-click). For self-hosted storage, save `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, and optionally `S3_REGION` and `S3_PUBLIC_BASE_URL` in the app; the values are stored as scoped DB secrets. Cloudflare R2 and DigitalOcean Spaces use the same key names with the `R2_*` prefix.
 2. **Google Calendar (optional).** To sync upcoming meetings, connect a Google Calendar account from Settings. The OAuth callback URL in dev is `http://localhost:8094/_agent-native/google/callback`. Set up a Google OAuth client in [Google Cloud Console](https://console.cloud.google.com/) with the Gmail and Google Calendar APIs enabled.
 3. **Screen-capture permissions.** On macOS, grant Screen Recording permission to the browser (or the desktop companion app) in System Settings → Privacy & Security → Screen Recording. Browser recordings can save redacted console and fetch/XHR diagnostics from the recorder page. Once the Chrome extension listing is available, enable `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1` so users can choose the extension for active-tab browser logs or the desktop app for the smoothest native capture path.
 4. **Slack previews (optional).** Create a Slack app with `links:read`, `links:write`, and `links.embed:write`; subscribe to `link_shared`; add your Clips share domain under **App Unfurl Domains**; set the Request URL to `https://your-clips.example.com/api/slack/unfurl`; and add the OAuth redirect URL `https://your-clips.example.com/api/slack/oauth/callback`. Configure `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET`, then connect workspaces from Clips Settings.
@@ -239,8 +248,8 @@ tray app at your deployment.
 2. **Configure production state.** Set a persistent `DATABASE_URL`, the normal
    production auth/secrets variables from [Deployment](/docs/deployment), and a
    video storage provider. Builder.io Connect is the easiest storage path; for
-   self-hosted storage, use `S3_*` or `R2_*` variables for an S3-compatible
-   bucket.
+   self-hosted storage, save `S3_*` or `R2_*` keys from Clips Settings for an
+   S3-compatible bucket.
 
 3. **Deploy the web app.** For a plain Node deploy:
 

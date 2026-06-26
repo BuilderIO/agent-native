@@ -17,6 +17,7 @@ const messages = {
     settings: "Configurações",
     brand: "Formularios",
     askForms: "Perguntar ao Forms",
+    allForms: "Todos os formulários",
     team: "Equipe",
   },
   settings: {

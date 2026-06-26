@@ -168,7 +168,7 @@ Voir [MCP Clients](/docs/mcp-clients) pour le schéma de configuration, les règ
 
 ## Variables d'environnement partagées {#shared-env}
 
-La racine de l'espace de travail `.env` est chargée automatiquement dans chaque application. Placez les clés partagées une fois à la racine – `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `BUILDER_PRIVATE_KEY`, etc. – et chaque application les récupère. Les remplacements par application vont dans `apps/<name>/.env` et gagnent en cas de conflit.
+The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
 Pour les informations d'identification de l'application d'exécution, préférez le coffre-fort Dispatch à la modification manuelle des fichiers `.env`. Le coffre-fort est par défaut un accès à toutes les applications, de sorte que chaque clé du coffre-fort enregistrée est disponible pour chaque application de l'espace de travail et peut être poussée avec `sync-vault-to-app`. Basculez le coffre-fort en mode manuel uniquement lorsque les applications ont besoin d'autorisations explicites par clé.
 
@@ -182,8 +182,8 @@ my-company-platform/
 
 Quelques flux d'intégration sont prêts à l'emploi et adaptés à l'espace de travail :
 
-- **Builder `/cli-auth`** : en cliquant sur "Connecter Builder" depuis n'importe quelle application, `BUILDER_PRIVATE_KEY` et ses amis sont écrits dans la **racine de l'espace de travail** `.env`, afin que chaque application puisse accéder au navigateur en même temps.
-- **Route des paramètres Env-vars** (`POST /_agent-native/env-vars`) : à l'intérieur d'un espace de travail, la racine de l'espace de travail est écrite par défaut `.env`. Transmettez `scope: "app"` dans le corps pour remplacer une application.
+- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## Identifiants partagés {#shared-credentials}
 

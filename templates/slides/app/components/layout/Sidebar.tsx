@@ -10,7 +10,6 @@ import {
   IconStack2,
   IconPalette,
   IconSettings,
-  IconUsers,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
@@ -31,7 +30,6 @@ const navItems = [
     href: "/design-systems",
   },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
-  { icon: IconUsers, labelKey: "navigation.team", href: "/team" },
 ];
 
 interface SidebarProps {

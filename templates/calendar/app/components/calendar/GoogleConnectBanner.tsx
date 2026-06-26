@@ -281,6 +281,7 @@ export function GoogleConnectBanner({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          scope: "workspace",
           vars: [
             { key: "GOOGLE_CLIENT_ID", value: clientId },
             { key: "GOOGLE_CLIENT_SECRET", value: clientSecret },
@@ -295,7 +296,7 @@ export function GoogleConnectBanner({
 
       setSaved(true);
       await fetchStatus();
-      // Reload after a short delay to let Vite restart with new env vars
+      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setSaveError(

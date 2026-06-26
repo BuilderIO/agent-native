@@ -3,20 +3,11 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import {
-  IconCheck,
-  IconExternalLink,
-  IconLayoutDashboard,
-  IconLoader2,
-  IconPackageImport,
-  IconPlugConnected,
-  IconSparkles,
-} from "@tabler/icons-react";
+import { IconLayoutDashboard } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -27,15 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { demoNodeExporterDashboardPath } from "@/lib/demo-dashboard-path";
-import { cn } from "@/lib/utils";
-
-type TemplateCategory =
-  | "Acquisition"
-  | "Product"
-  | "Observability"
-  | "Operations";
 
 type InstalledDashboard = {
   id: string;
@@ -49,25 +32,11 @@ type DashboardTemplate = {
   id: string;
   name: string;
   description: string;
-  category: TemplateCategory;
   defaultDashboardId: string;
   dataSources: string[];
-  tags: string[];
   panelCount: number;
-  version: string;
-  recommended?: boolean;
-  installed: boolean;
   installedDashboards: InstalledDashboard[];
 };
-
-const CATEGORY_TABS = [
-  "Demo",
-  "All",
-  "Product",
-  "Acquisition",
-  "Observability",
-  "Operations",
-] as const;
 
 function isDemoTemplate(template: DashboardTemplate): boolean {
   return template.dataSources.includes("demo");
@@ -94,22 +63,18 @@ function sourceLabel(source: string): string {
 
 function TemplateSkeleton() {
   return (
-    <Card>
+    <Card className="flex min-h-[250px] flex-col">
       <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div className="space-y-2">
-            <Skeleton className="h-5 w-48" />
-            <Skeleton className="h-4 w-72" />
-          </div>
-          <Skeleton className="h-6 w-20 rounded-full" />
+        <div className="space-y-3">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-3/5" />
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="flex gap-2">
-          <Skeleton className="h-6 w-24 rounded-full" />
-          <Skeleton className="h-6 w-20 rounded-full" />
-        </div>
-        <Skeleton className="h-10 w-full" />
+      <CardContent className="mt-auto space-y-4">
+        <Skeleton className="h-4 w-40" />
+        <Skeleton className="h-9 w-full" />
       </CardContent>
     </Card>
   );
@@ -131,110 +96,38 @@ function TemplateCard({
     (dashboard) => !dashboard.archivedAt,
   );
   const isInstalled = Boolean(installedDashboard);
-  const isDemo = isDemoTemplate(template);
+  const metadata = [
+    t("catalog.panels", { count: String(template.panelCount) }),
+    ...template.dataSources.map(sourceLabel),
+  ].join(" · ");
 
   return (
-    <Card className="flex min-h-[270px] flex-col overflow-hidden">
-      <CardHeader className="pb-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <CardTitle className="text-base leading-6">
-              {template.name}
-            </CardTitle>
-            <CardDescription className="line-clamp-2">
-              {template.description}
-            </CardDescription>
-          </div>
-          <div className="flex shrink-0 flex-col items-end gap-1.5">
-            {isDemo ? (
-              <Badge className="border-cyan-400/60 bg-cyan-400/20 text-cyan-800 shadow-sm shadow-cyan-500/10 dark:text-cyan-100">
-                <IconSparkles className="mr-1 h-3 w-3" />
-                {t("catalog.demo")}
-              </Badge>
-            ) : null}
-            {template.recommended && (
-              <Badge variant="secondary" className="shrink-0">
-                {t("catalog.recommended")}
-              </Badge>
-            )}
-          </div>
-        </div>
+    <Card className="flex min-h-[250px] flex-col">
+      <CardHeader className="gap-2 pb-4">
+        <CardTitle className="text-base leading-6">{template.name}</CardTitle>
+        <CardDescription className="text-sm leading-6">
+          {template.description}
+        </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="gap-1.5">
-            <IconLayoutDashboard className="h-3 w-3" />
-            {t("catalog.panels", { count: String(template.panelCount) })}
-          </Badge>
-          {template.dataSources.map((source) => (
-            <Badge
-              key={source}
-              variant="outline"
-              className={cn(
-                "gap-1.5",
-                source === "demo" &&
-                  "border-cyan-400/50 bg-cyan-400/10 text-cyan-700 dark:text-cyan-200",
-              )}
-            >
-              <IconPlugConnected className="h-3 w-3" />
-              {sourceLabel(source)}
-            </Badge>
-          ))}
-        </div>
-
-        <div className="flex min-h-8 flex-wrap gap-1.5">
-          {template.tags.map((tag) => (
-            <span
-              key={tag}
-              className="rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-
-        <div
-          className={cn(
-            "mt-auto flex items-center gap-2 rounded-md border px-3 py-2 text-xs",
-            isInstalled
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300"
-              : "border-border bg-muted/40 text-muted-foreground",
-          )}
-        >
-          {isInstalled ? (
-            <IconCheck className="h-3.5 w-3.5 shrink-0" />
-          ) : (
-            <IconPackageImport className="h-3.5 w-3.5 shrink-0" />
-          )}
-          <span className="truncate">
-            {isInstalled
-              ? t("catalog.installedAs", {
-                  name: installedDashboard?.name ?? "",
-                })
-              : t("catalog.installsPrivateSqlDashboard")}
-          </span>
-        </div>
+      <CardContent className="mt-auto">
+        <p className="text-sm text-muted-foreground">{metadata}</p>
       </CardContent>
       <CardFooter className="gap-2">
         {isInstalled && installedDashboard ? (
           <Button
+            variant="secondary"
             className="min-w-0 flex-1"
             onClick={() => onOpen(installedDashboard.id)}
           >
-            <IconExternalLink className="h-4 w-4" />
             {t("catalog.open")}
           </Button>
         ) : (
           <Button
+            variant="secondary"
             className="min-w-0 flex-1"
             onClick={onInstall}
             disabled={installing}
           >
-            {installing ? (
-              <IconLoader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <IconPackageImport className="h-4 w-4" />
-            )}
             {installing ? t("catalog.installing") : t("catalog.install")}
           </Button>
         )}
@@ -245,8 +138,6 @@ function TemplateCard({
 
 export default function TemplateCatalogRoute() {
   const t = useT();
-  const [category, setCategory] =
-    useState<(typeof CATEGORY_TABS)[number]>("Demo");
   const [installingIds, setInstallingIds] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const install = useActionMutation("install-dashboard-template");
@@ -260,14 +151,6 @@ export default function TemplateCatalogRoute() {
     () => (data as DashboardTemplate[] | undefined) ?? [],
     [data],
   );
-  const filtered = useMemo(() => {
-    if (category === "Demo") return templates.filter(isDemoTemplate);
-    if (category === "All") return templates;
-    return templates.filter((template) => template.category === category);
-  }, [category, templates]);
-  const installedCount = templates.filter(
-    (template) => template.installed,
-  ).length;
 
   async function installTemplate(template: DashboardTemplate) {
     setInstallingIds((prev) => new Set(prev).add(template.id));
@@ -310,46 +193,20 @@ export default function TemplateCatalogRoute() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="max-w-2xl space-y-2">
-          <p className="text-sm text-muted-foreground">
-            {t("catalog.description")}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="secondary">
-              {t("catalog.templatesCount", { count: String(templates.length) })}
-            </Badge>
-            <Badge variant="outline">
-              {t("catalog.installedCount", {
-                count: String(installedCount),
-              })}
-            </Badge>
-          </div>
-        </div>
-        <Tabs
-          value={category}
-          onValueChange={(next) =>
-            setCategory(next as (typeof CATEGORY_TABS)[number])
-          }
-        >
-          <TabsList className="grid w-full grid-cols-3 sm:grid-cols-6 md:w-auto">
-            {CATEGORY_TABS.map((item) => (
-              <TabsTrigger key={item} value={item} className="text-xs">
-                {item}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5">
+      <div className="max-w-2xl">
+        <p className="text-sm leading-6 text-muted-foreground">
+          {t("catalog.description")}
+        </p>
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, index) => (
             <TemplateSkeleton key={index} />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : templates.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
             <IconLayoutDashboard className="h-8 w-8 text-muted-foreground" />
@@ -364,8 +221,8 @@ export default function TemplateCatalogRoute() {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((template) => (
+        <div className="grid gap-4 md:grid-cols-2">
+          {templates.map((template) => (
             <TemplateCard
               key={template.id}
               template={template}

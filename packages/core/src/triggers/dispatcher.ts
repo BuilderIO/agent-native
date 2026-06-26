@@ -257,8 +257,7 @@ async function handleEvent(
       // Resolve API key for condition evaluation
       const owner = meta.createdBy || resource.owner;
       const userApiKey = await getOwnerActiveApiKey(owner);
-      const apiKey =
-        userApiKey || _deps.apiKey || process.env.ANTHROPIC_API_KEY;
+      const apiKey = userApiKey || _deps.apiKey;
       if (!apiKey) {
         console.warn(
           `[triggers] No API key for trigger "${resource.path}" — skipping`,

@@ -10,7 +10,6 @@ const pageTitleKeys: Record<string, string> = {
   "/": "navigation.chat",
   "/observability": "navigation.observability",
   "/settings": "navigation.settings",
-  "/team": "navigation.team",
 };
 
 function resolveTitle(pathname: string, t: (key: string) => string): string {

@@ -1,1 +1,5 @@
-export { default, meta } from "@agent-native/dispatch/routes/pages/team";
+import { Navigate } from "react-router";
+
+export default function TeamRoute() {
+  return <Navigate to="/settings#team" replace />;
+}

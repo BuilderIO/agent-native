@@ -2,6 +2,7 @@ import type { H3Event } from "h3";
 import { getQuery, getHeader, readRawBody as h3ReadRawBody } from "h3";
 
 import type { EnvKeyConfig } from "../../server/create-server.js";
+import { resolveSecret } from "../../server/credential-provider.js";
 import type {
   PlatformAdapter,
   IncomingMessage,
@@ -103,7 +104,7 @@ export function whatsappAdapter(): PlatformAdapter {
       const mode = query["hub.mode"];
       const token = query["hub.verify_token"];
       const challenge = query["hub.challenge"];
-      const expected = process.env.WHATSAPP_VERIFY_TOKEN;
+      const expected = await resolveSecret("WHATSAPP_VERIFY_TOKEN");
 
       if (mode === "subscribe" && expected && typeof token === "string") {
         // Timing-safe compare so an attacker can't measure character-wise
@@ -126,7 +127,7 @@ export function whatsappAdapter(): PlatformAdapter {
     },
 
     async verifyWebhook(event: H3Event): Promise<boolean> {
-      const appSecret = process.env.WHATSAPP_APP_SECRET;
+      const appSecret = await resolveSecret("WHATSAPP_APP_SECRET");
       if (!appSecret) {
         if (shouldRefuseWhenSecretMissing()) {
           if (!_whatsappUnverifiedWarned) {
@@ -145,7 +146,7 @@ export function whatsappAdapter(): PlatformAdapter {
           );
         }
         // Dev mode: still require the access token to be configured at all.
-        return !!process.env.WHATSAPP_ACCESS_TOKEN;
+        return !!(await resolveSecret("WHATSAPP_ACCESS_TOKEN"));
       }
 
       const signature = getHeader(event, "x-hub-signature-256");
@@ -223,8 +224,8 @@ export function whatsappAdapter(): PlatformAdapter {
       message: OutgoingMessage,
       context: IncomingMessage,
     ): Promise<void> {
-      const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
-      const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+      const accessToken = await resolveSecret("WHATSAPP_ACCESS_TOKEN");
+      const phoneNumberId = await resolveSecret("WHATSAPP_PHONE_NUMBER_ID");
       if (!accessToken || !phoneNumberId) {
         console.error(
           "[whatsapp] WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID not configured",
@@ -269,9 +270,11 @@ export function whatsappAdapter(): PlatformAdapter {
     },
 
     async getStatus(_baseUrl?: string): Promise<IntegrationStatus> {
-      const hasAccessToken = !!process.env.WHATSAPP_ACCESS_TOKEN;
-      const hasVerifyToken = !!process.env.WHATSAPP_VERIFY_TOKEN;
-      const hasPhoneNumberId = !!process.env.WHATSAPP_PHONE_NUMBER_ID;
+      const hasAccessToken = !!(await resolveSecret("WHATSAPP_ACCESS_TOKEN"));
+      const hasVerifyToken = !!(await resolveSecret("WHATSAPP_VERIFY_TOKEN"));
+      const hasPhoneNumberId = !!(await resolveSecret(
+        "WHATSAPP_PHONE_NUMBER_ID",
+      ));
       const configured = hasAccessToken && hasVerifyToken && hasPhoneNumberId;
 
       return {
@@ -285,7 +288,7 @@ export function whatsappAdapter(): PlatformAdapter {
           hasPhoneNumberId,
         },
         error: !configured
-          ? "Set WHATSAPP_ACCESS_TOKEN, WHATSAPP_VERIFY_TOKEN, and WHATSAPP_PHONE_NUMBER_ID"
+          ? "Save WHATSAPP_ACCESS_TOKEN, WHATSAPP_VERIFY_TOKEN, and WHATSAPP_PHONE_NUMBER_ID in settings"
           : undefined,
       };
     },

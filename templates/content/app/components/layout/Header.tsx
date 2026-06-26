@@ -9,7 +9,6 @@ import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitles: Record<string, string> = {
   "/": "Content",
-  "/team": "Team",
 };
 
 function resolveTitle(pathname: string): string {

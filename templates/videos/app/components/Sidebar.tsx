@@ -16,7 +16,6 @@ import {
   IconVideo,
   IconComponents,
   IconPalette,
-  IconUsers,
   IconFolderPlus,
 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
@@ -238,8 +237,7 @@ export function Sidebar({
       href: "/",
       active:
         !location.pathname.startsWith("/components") &&
-        !location.pathname.startsWith("/design-systems") &&
-        !location.pathname.startsWith("/team"),
+        !location.pathname.startsWith("/design-systems"),
     },
     {
       icon: IconComponents,
@@ -252,12 +250,6 @@ export function Sidebar({
       labelKey: "navigation.designSystems",
       href: "/design-systems",
       active: location.pathname.startsWith("/design-systems"),
-    },
-    {
-      icon: IconUsers,
-      labelKey: "navigation.team",
-      href: "/team",
-      active: location.pathname === "/team",
     },
   ];
 

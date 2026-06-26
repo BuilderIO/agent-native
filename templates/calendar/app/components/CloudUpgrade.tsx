@@ -1,4 +1,4 @@
-import { agentNativePath, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
 import {
   IconX,
   IconCheck,
@@ -8,8 +8,6 @@ import {
   IconChevronRight,
 } from "@tabler/icons-react";
 import { useState, useRef, useCallback } from "react";
-
-import { appApiPath } from "@/lib/api-path";
 
 interface CloudUpgradeProps {
   title?: string;
@@ -83,61 +81,20 @@ export function CloudUpgrade({
     connectingRef.current = true;
 
     if (!dbUrl.trim()) {
-      setErrorMsg(t("cloudUpgrade.databaseUrlRequired"));
+      setErrorMsg(
+        "Database settings are deployment-level. Configure DATABASE_URL with your host and redeploy the app.",
+      );
       setStatus("error");
       connectingRef.current = false;
       return;
     }
 
     try {
-      setStatus("saving");
+      setStatus("error");
       setErrorMsg("");
-
-      const vars: Array<{ key: string; value: string }> = [
-        { key: "DATABASE_URL", value: dbUrl.trim() },
-      ];
-      if (authToken.trim()) {
-        vars.push({ key: "DATABASE_AUTH_TOKEN", value: authToken.trim() });
-      }
-
-      const saveRes = await fetch(agentNativePath("/_agent-native/env-vars"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars }),
-      });
-
-      if (!saveRes.ok) {
-        const data = await saveRes.json().catch(() => ({}));
-        throw new Error(data.error || t("googleConnect.failedSaveCredentials"));
-      }
-
-      // Poll db-health until it returns ok
-      setStatus("polling");
-      let ok = false;
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 1000));
-        try {
-          const healthRes = await fetch(appApiPath("/api/db-health"));
-          const health = await healthRes.json();
-          if (health.ok && health.local === false) {
-            ok = true;
-            break;
-          }
-        } catch {
-          // Keep polling
-        }
-      }
-
-      if (!ok) {
-        throw new Error(
-          "Database connection failed after 30 attempts. Check your credentials.",
-        );
-      }
-
-      setStatus("success");
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
+      throw new Error(
+        "Database settings are deployment-level. Configure DATABASE_URL and DATABASE_AUTH_TOKEN with your host, redeploy, then check sharing again.",
+      );
     } catch (e) {
       setErrorMsg(
         e instanceof Error ? e.message : t("cloudUpgrade.connectionFailed"),

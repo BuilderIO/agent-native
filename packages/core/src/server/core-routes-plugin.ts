@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import {
   defineEventHandler,
   setResponseStatus,
@@ -46,7 +44,7 @@ import { mountDbAdminRoutes } from "../db-admin/routes.js";
 import { getDbExec } from "../db/client.js";
 import {
   uploadFile,
-  getActiveFileUploadProvider,
+  getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
 } from "../file-upload/index.js";
 import { handleMcpConnect } from "../mcp/connect-route.js";
@@ -57,10 +55,8 @@ import {
 } from "../mcp/oauth-route.js";
 import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
-import { listOnboardingSteps } from "../onboarding/registry.js";
 import { getOrgContext } from "../org/context.js";
 import { createProgressHandler } from "../progress/routes.js";
-import { findWorkspaceRoot } from "../scripts/utils.js";
 import { registerFrameworkSecrets } from "../secrets/register-framework-secrets.js";
 import {
   createListSecretsHandler,
@@ -124,14 +120,12 @@ import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
-import { upsertEnvFile } from "./create-server.js";
 import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   resolveSecret,
 } from "./credential-provider.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
-import { isEnvVarWriteAllowed } from "./env-var-writes.js";
 import {
   getH3App,
   awaitBootstrap,
@@ -151,6 +145,12 @@ import { createOpenRouteHandler } from "./open-route.js";
 import { createPollEventsHandler } from "./poll-events.js";
 import { createPollHandler } from "./poll.js";
 import { runWithRequestContext } from "./request-context.js";
+import {
+  findUnsupportedScopedKeyNames,
+  saveKeyValuesToScopedSecrets,
+  ScopedKeyStorageError,
+  type ScopedKeySaveRequestScope,
+} from "./scoped-key-storage.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 
@@ -339,10 +339,6 @@ function parseBuilderCallbackBoolean(
   if (value == null || value === "") return null;
   return /^(1|true)$/i.test(value);
 }
-
-const PROVIDER_ENV_VAR_KEYS = new Set(
-  Object.values(PROVIDER_ENV_META).map(({ envVar }) => envVar),
-);
 
 // Raster-only data-URI allowlist for avatar writes. SVG is deliberately absent:
 // data:image/svg+xml payloads can carry inline <script> and event-handler
@@ -652,7 +648,7 @@ export interface CoreRoutesPluginOptions {
  *   GET    /_agent-native/ping                          — health check
  *   GET    /_agent-native/health                        — DB liveness probe + scale-to-zero warmup
  *   GET    /_agent-native/env-status                    — env key configuration status (when envKeys provided)
- *   POST   /_agent-native/env-vars                      — save env vars to .env (when envKeys provided)
+ *   POST   /_agent-native/env-vars                      — compatibility route that saves keys to scoped DB secrets
  *   GET    /_agent-native/application-state/:key        — read application state
  *   PUT    /_agent-native/application-state/:key        — write application state
  *   DELETE /_agent-native/application-state/:key        — delete application state
@@ -681,20 +677,9 @@ export function createCoreRoutesPlugin(
     try {
       await awaitBootstrap(nitroApp);
 
-      // Restore env vars from the settings table. On serverless, .env
-      // writes don't persist across invocations — the DB is the durable
-      // store. Only set keys that are currently empty so explicit env
-      // vars (Netlify dashboard, process-level) always win.
-      //
-      // GATED: only rehydrate into `process.env` on local-dev SQLite (or
-      // with the explicit single-tenant opt-in). On a shared-DB hosted
-      // multi-tenant deploy the `persisted-env-vars` row is deployment-wide
-      // global state — pushing user-supplied values into `process.env` from
-      // it would let any one tenant's writes (or a stale dev seed) leak
-      // into every other tenant's process. The opt-out scrub of legacy
-      // BUILDER_* values still runs unconditionally so existing rows on
-      // multi-tenant deploys self-heal, but new env-var writes never land
-      // in `process.env` outside the allowed contexts.
+      // Legacy cleanup: key saves now go to scoped app_secrets rows. Do not
+      // rehydrate the old deployment-global `persisted-env-vars` row into
+      // process.env; keep only the Builder scrub so stale leaked keys self-heal.
       try {
         const persisted = (await getSetting("persisted-env-vars")) as Record<
           string,
@@ -702,15 +687,10 @@ export function createCoreRoutesPlugin(
         > | null;
         if (persisted) {
           const builderKeys = new Set<string>(BUILDER_ENV_KEYS);
-          const writesAllowed = isEnvVarWriteAllowed();
           let scrubbed = 0;
-          for (const [k, v] of Object.entries(persisted)) {
+          for (const k of Object.keys(persisted)) {
             if (builderKeys.has(k)) {
               scrubbed++;
-              continue;
-            }
-            if (writesAllowed && typeof v === "string" && !process.env[k]) {
-              process.env[k] = v;
             }
           }
           if (scrubbed > 0) {
@@ -2229,24 +2209,7 @@ export function createCoreRoutesPlugin(
       ];
       {
         const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];
-
-        // Onboarding form fields are resolved per-request so late-registered
-        // steps (and template overrides) are picked up without a restart.
-        // Builder CLI auth writes scoped Builder credentials through the
-        // credential provider, never through the deploy-global env sink.
-        const collectOnboardingKeys = (): Set<string> => {
-          const keys = new Set<string>();
-          for (const step of listOnboardingSteps()) {
-            for (const method of step.methods) {
-              if (method.kind === "form") {
-                for (const field of method.payload.fields) {
-                  if (field?.key) keys.add(field.key);
-                }
-              }
-            }
-          }
-          return keys;
-        };
+        const allowedEnvKeyNames = envKeys.map(({ key }) => key);
 
         getH3App(nitroApp).use(
           `${P}/env-status`,
@@ -2264,12 +2227,11 @@ export function createCoreRoutesPlugin(
             }
             return Promise.all(
               envKeys.map(async (cfg) => {
-                const isProviderKey = PROVIDER_ENV_VAR_KEYS.has(cfg.key);
-                const configured = isProviderKey
-                  ? await runWithRequestContext({ userEmail, orgId }, () =>
-                      resolveSecret(cfg.key).then(Boolean),
-                    )
-                  : !!process.env[cfg.key];
+                const configured =
+                  Boolean(process.env[cfg.key]) ||
+                  (await runWithRequestContext({ userEmail, orgId }, () =>
+                    resolveSecret(cfg.key).then(Boolean),
+                  ));
                 return {
                   key: cfg.key,
                   label: cfg.label,
@@ -2290,101 +2252,37 @@ export function createCoreRoutesPlugin(
               return { error: "Method not allowed" };
             }
 
-            // Env vars are deployment-wide globals, not per-tenant. On any
-            // shared-DB multi-tenant deploy, allowing authenticated users to
-            // write here lets one tenant overwrite Stripe / OpenAI / Sentry
-            // keys for every other tenant. Disable the endpoint outside of
-            // local-dev SQLite or an explicit single-tenant opt-in, and
-            // direct callers to scoped secret/credential stores instead.
-            if (!isEnvVarWriteAllowed()) {
-              setResponseStatus(event, 403);
-              return {
-                error:
-                  "env-vars endpoint disabled on multi-tenant deployments. Use scoped secrets or credentials for user/org API keys.",
-              };
-            }
-
             const body = await readBody(event);
-            const { vars } = body as {
+            const { vars, scope } = body as {
               vars?: Array<{ key: string; value: string }>;
+              scope?: ScopedKeySaveRequestScope;
             };
-
-            if (!Array.isArray(vars) || vars.length === 0) {
-              setResponseStatus(event, 400);
-              return { error: "vars array required" };
-            }
-
-            const allowedKeys = new Set<string>([
-              ...envKeys.map((k) => k.key),
-              ...collectOnboardingKeys(),
-            ]);
-            const blockedEnvVarWriteKeys = new Set<string>(BUILDER_ENV_KEYS);
-            const isWritableEnvKey = (key: string) =>
-              allowedKeys.has(key) && !blockedEnvVarWriteKeys.has(key);
-
-            const filtered = vars.filter(
-              (v) =>
-                typeof v.key === "string" &&
-                isWritableEnvKey(v.key) &&
-                typeof v.value === "string" &&
-                v.value.trim().length > 0,
+            const unsupportedKeys = findUnsupportedScopedKeyNames(
+              vars,
+              allowedEnvKeyNames,
             );
-            if (filtered.length === 0) {
+            if (unsupportedKeys.length > 0) {
               setResponseStatus(event, 400);
-              const rejectedEmpty = vars.some(
-                (v) =>
-                  typeof v.key === "string" &&
-                  isWritableEnvKey(v.key) &&
-                  (typeof v.value !== "string" || v.value.trim().length === 0),
-              );
               return {
-                error: rejectedEmpty
-                  ? "Env values must be non-empty — refusing to clear a saved key"
-                  : "No recognized env keys in request",
+                error: `Unsupported env key${unsupportedKeys.length === 1 ? "" : "s"}: ${unsupportedKeys.join(", ")}`,
               };
             }
 
-            // Write to .env file. When inside a workspace, write to the
-            // workspace root .env so keys are shared across every app. The
-            // per-app .env still wins at load time if it also defines a key.
             try {
-              const scope =
-                (body as { scope?: "workspace" | "app" })?.scope ?? "auto";
-              const workspaceRoot = findWorkspaceRoot(process.cwd());
-              const envPath =
-                scope === "app"
-                  ? path.join(process.cwd(), ".env")
-                  : workspaceRoot
-                    ? path.join(workspaceRoot, ".env")
-                    : path.join(process.cwd(), ".env");
-              await upsertEnvFile(envPath, filtered);
-            } catch {
-              // Edge runtime — skip file write
+              const result = await saveKeyValuesToScopedSecrets(
+                event,
+                vars,
+                scope,
+              );
+              return { saved: result.saved, storage: "scoped-secrets" };
+            } catch (err) {
+              if (err instanceof ScopedKeyStorageError) {
+                setResponseStatus(event, err.statusCode);
+                return { error: err.message };
+              }
+              setResponseStatus(event, 500);
+              return { error: "Failed to save keys" };
             }
-
-            // Update process.env immediately
-            for (const { key, value } of filtered) {
-              process.env[key] = value;
-            }
-
-            // Persist to settings table for serverless cold-start recovery.
-            try {
-              const envMap: Record<string, string> = {};
-              for (const { key, value } of filtered) envMap[key] = value;
-              const existing =
-                ((await getSetting("persisted-env-vars")) as Record<
-                  string,
-                  string
-                > | null) ?? {};
-              await putSetting("persisted-env-vars", {
-                ...existing,
-                ...envMap,
-              });
-            } catch {
-              // DB not ready yet — skip
-            }
-
-            return { saved: filtered.map((v) => v.key) };
           }),
         );
       }
@@ -2729,54 +2627,69 @@ export function createCoreRoutesPlugin(
       getH3App(nitroApp).use(
         `${P}/file-upload/status`,
         defineEventHandler(async (event) => {
-          const active = getActiveFileUploadProvider();
           // resolveBuilderPrivateKey() reads per-user credentials from app_secrets
           // (DB), which requires request context (AsyncLocalStorage) to know which
           // user to scope by. Without runWithRequestContext() the ALS store is empty
           // and it falls back to process.env only — missing OAuth-connected users.
           const session = await getSession(event).catch(() => null);
           const userEmail = session?.email;
-          let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
-          try {
-            const { resolveBuilderPrivateKey } =
-              await import("./credential-provider.js");
-            const resolve = () => resolveBuilderPrivateKey().then((k) => !!k);
-            builderConfigured = userEmail
-              ? await runWithRequestContext(
-                  { userEmail, orgId: session?.orgId },
-                  resolve,
-                )
-              : await resolve();
-          } catch {
-            // fall back to env check above
-          }
-          // When the builder builtin is selected via env var, its sync
-          // isConfigured() doesn't reflect per-user OAuth credentials. Use the
-          // async builderConfigured check so the status accurately represents
-          // whether this specific user can actually upload (thread 7 fix).
-          const isBuilderEnvActive = active?.id === "builder";
-          const configured = isBuilderEnvActive
-            ? builderConfigured
-            : !!active || builderConfigured;
-          const activeProvider = isBuilderEnvActive
-            ? builderConfigured
-              ? { id: "builder", name: "Builder.io" }
-              : null
-            : active
-              ? { id: active.id, name: active.name }
-              : builderConfigured
+          const resolveStatus = async () => {
+            const active = await getActiveFileUploadProviderForRequest();
+            let builderConfigured = !!process.env.BUILDER_PRIVATE_KEY;
+            try {
+              const { resolveBuilderPrivateKey } =
+                await import("./credential-provider.js");
+              builderConfigured = await resolveBuilderPrivateKey().then(
+                (k) => !!k,
+              );
+            } catch {
+              // fall back to env check above
+            }
+
+            const providers = await Promise.all(
+              listFileUploadProviders().map(async (p) => {
+                const scopedConfigured = p.isConfiguredForRequest
+                  ? await p.isConfiguredForRequest().catch(() => false)
+                  : false;
+                return {
+                  id: p.id,
+                  name: p.name,
+                  configured: p.isConfigured() || scopedConfigured,
+                };
+              }),
+            );
+
+            // When the builder builtin is selected via env var, its sync
+            // isConfigured() doesn't reflect per-user OAuth credentials. Use
+            // builderConfigured so status reflects this specific request.
+            const isBuilderEnvActive = active?.id === "builder";
+            const configured = isBuilderEnvActive
+              ? builderConfigured
+              : !!active || builderConfigured;
+            const activeProvider = isBuilderEnvActive
+              ? builderConfigured
                 ? { id: "builder", name: "Builder.io" }
-                : null;
-          return {
-            configured,
-            activeProvider,
-            providers: listFileUploadProviders().map((p) => ({
-              id: p.id,
-              name: p.name,
-              configured: p.isConfigured(),
-            })),
-            builderConfigured,
+                : null
+              : active
+                ? { id: active.id, name: active.name }
+                : builderConfigured
+                  ? { id: "builder", name: "Builder.io" }
+                  : null;
+
+            return {
+              configured,
+              activeProvider,
+              providers,
+              builderConfigured,
+            };
           };
+
+          return userEmail
+            ? runWithRequestContext(
+                { userEmail, orgId: session?.orgId },
+                resolveStatus,
+              )
+            : resolveStatus();
         }),
       );
 

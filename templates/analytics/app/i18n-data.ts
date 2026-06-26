@@ -3,6 +3,9 @@ import type { LocaleCode } from "@agent-native/core/client";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
+  root: {
+    whatsNew: "What's new",
+  },
   navigation: {
     brand: "Analytics",
     ask: "Ask",
@@ -135,6 +138,10 @@ const enUS = {
     credentialsDescription:
       "API keys and credentials are managed on the Data Sources page.",
     manageDataSources: "Manage Data Sources",
+    dashboardTemplates: "Dashboard templates",
+    dashboardTemplatesDescription:
+      "Install a source-controlled dashboard when you need a starting point.",
+    openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
     about: "About",
@@ -832,8 +839,7 @@ const enUS = {
     time: "Time",
   },
   catalog: {
-    description:
-      "Source-controlled dashboards ready to install into your workspace.",
+    description: "Install a dashboard template when you need a starting point.",
     noTemplatesFound: "No templates found",
     tryDifferentCategory: "Try a different catalog category.",
     templatesCount: "{{count}} templates",
@@ -3327,6 +3333,7 @@ function mergeMessages(overrides: {
   [K in Section]?: Partial<Messages[K]>;
 }): Messages {
   return {
+    root: { ...enUS.root, ...overrides.root },
     navigation: { ...enUS.navigation, ...overrides.navigation },
     dashboardHeader: { ...enUS.dashboardHeader, ...overrides.dashboardHeader },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
@@ -3368,6 +3375,9 @@ export const messagesByLocale = {
   "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     ...analyticsSliceTranslations["zh-CN"],
+    root: {
+      whatsNew: "新增内容",
+    },
     navigation: {
       brand: "Analytics",
       ask: "提问",
@@ -3494,6 +3504,9 @@ export const messagesByLocale = {
       credentials: "数据源凭据",
       credentialsDescription: "API 密钥和凭据在数据源页面管理。",
       manageDataSources: "管理数据源",
+      dashboardTemplates: "仪表板模板",
+      dashboardTemplatesDescription: "需要起点时，安装受源码管理的仪表板。",
+      openDashboardTemplates: "打开目录",
       languageTitle: "语言",
       languageLabel: "界面语言",
       about: "关于",
@@ -3537,6 +3550,9 @@ export const messagesByLocale = {
   }),
   "es-ES": mergeMessages({
     ...analyticsSliceTranslations["es-ES"],
+    root: {
+      whatsNew: "Novedades",
+    },
     navigation: {
       ask: "Preguntar",
       overview: "Resumen",
@@ -3667,6 +3683,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "Las claves API y credenciales se gestionan en la página Fuentes de datos.",
       manageDataSources: "Gestionar fuentes de datos",
+      dashboardTemplates: "Plantillas de paneles",
+      dashboardTemplatesDescription:
+        "Instala un panel controlado por código fuente cuando necesites un punto de partida.",
+      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma de la interfaz",
       about: "Acerca de",
@@ -3712,6 +3732,9 @@ export const messagesByLocale = {
   }),
   "fr-FR": mergeMessages({
     ...analyticsSliceTranslations["fr-FR"],
+    root: {
+      whatsNew: "Nouveautés",
+    },
     navigation: {
       ask: "Demander",
       overview: "Vue d'ensemble",
@@ -3843,6 +3866,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "Les clés API et identifiants sont gérés sur la page Sources de données.",
       manageDataSources: "Gérer les sources de données",
+      dashboardTemplates: "Modèles de tableaux de bord",
+      dashboardTemplatesDescription:
+        "Installez un tableau de bord suivi dans le code source lorsque vous avez besoin d'un point de départ.",
+      openDashboardTemplates: "Ouvrir le catalogue",
       languageTitle: "Langue",
       languageLabel: "Langue de l'interface",
       about: "À propos",
@@ -3893,6 +3920,9 @@ export const messagesByLocale = {
   }),
   "de-DE": mergeMessages({
     ...analyticsSliceTranslations["de-DE"],
+    root: {
+      whatsNew: "Neuigkeiten",
+    },
     navigation: {
       ask: "Fragen",
       overview: "Übersicht",
@@ -4028,6 +4058,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "API-Schlüssel und Anmeldedaten werden auf der Seite Datenquellen verwaltet.",
       manageDataSources: "Datenquellen verwalten",
+      dashboardTemplates: "Dashboard-Vorlagen",
+      dashboardTemplatesDescription:
+        "Installiere ein quellkontrolliertes Dashboard, wenn du einen Ausgangspunkt brauchst.",
+      openDashboardTemplates: "Katalog öffnen",
       languageTitle: "Sprache",
       languageLabel: "Oberflächensprache",
       about: "Info",
@@ -4074,6 +4108,9 @@ export const messagesByLocale = {
   }),
   "ja-JP": mergeMessages({
     ...analyticsSliceTranslations["ja-JP"],
+    root: {
+      whatsNew: "新着情報",
+    },
     navigation: {
       ask: "質問",
       overview: "概要",
@@ -4205,6 +4242,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "API キーと認証情報はデータソースページで管理します。",
       manageDataSources: "データソースを管理",
+      dashboardTemplates: "ダッシュボードテンプレート",
+      dashboardTemplatesDescription:
+        "出発点が必要なときは、ソース管理されたダッシュボードをインストールします。",
+      openDashboardTemplates: "カタログを開く",
       languageTitle: "言語",
       languageLabel: "インターフェース言語",
       about: "概要",
@@ -4251,6 +4292,9 @@ export const messagesByLocale = {
   }),
   "ko-KR": mergeMessages({
     ...analyticsSliceTranslations["ko-KR"],
+    root: {
+      whatsNew: "새로운 기능",
+    },
     navigation: {
       ask: "질문",
       overview: "개요",
@@ -4382,6 +4426,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "API 키와 자격 증명은 데이터 소스 페이지에서 관리합니다.",
       manageDataSources: "데이터 소스 관리",
+      dashboardTemplates: "대시보드 템플릿",
+      dashboardTemplatesDescription:
+        "시작점이 필요할 때 소스 제어된 대시보드를 설치하세요.",
+      openDashboardTemplates: "카탈로그 열기",
       languageTitle: "언어",
       languageLabel: "인터페이스 언어",
       about: "정보",
@@ -4427,6 +4475,9 @@ export const messagesByLocale = {
   }),
   "pt-BR": mergeMessages({
     ...analyticsSliceTranslations["pt-BR"],
+    root: {
+      whatsNew: "Novidades",
+    },
     navigation: {
       ask: "Perguntar",
       overview: "Visão geral",
@@ -4560,6 +4611,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "Chaves de API e credenciais são gerenciadas na página Fontes de dados.",
       manageDataSources: "Gerenciar fontes de dados",
+      dashboardTemplates: "Modelos de dashboard",
+      dashboardTemplatesDescription:
+        "Instale um dashboard controlado por código-fonte quando precisar de um ponto de partida.",
+      openDashboardTemplates: "Abrir catálogo",
       languageTitle: "Idioma",
       languageLabel: "Idioma da interface",
       about: "Sobre",
@@ -4608,6 +4663,9 @@ export const messagesByLocale = {
   }),
   "hi-IN": mergeMessages({
     ...analyticsSliceTranslations["hi-IN"],
+    root: {
+      whatsNew: "नया क्या है",
+    },
     navigation: {
       ask: "पूछें",
       overview: "अवलोकन",
@@ -4736,6 +4794,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "API कुंजियां और क्रेडेंशियल डेटा स्रोत पेज पर प्रबंधित होते हैं।",
       manageDataSources: "डेटा स्रोत प्रबंधित करें",
+      dashboardTemplates: "डैशबोर्ड टेम्पलेट",
+      dashboardTemplatesDescription:
+        "जब आपको शुरुआत का आधार चाहिए, तो स्रोत-नियंत्रित डैशबोर्ड इंस्टॉल करें।",
+      openDashboardTemplates: "कैटलॉग खोलें",
       languageTitle: "भाषा",
       languageLabel: "इंटरफ़ेस भाषा",
       about: "परिचय",
@@ -4782,6 +4844,9 @@ export const messagesByLocale = {
   }),
   "ar-SA": mergeMessages({
     ...analyticsSliceTranslations["ar-SA"],
+    root: {
+      whatsNew: "ما الجديد",
+    },
     navigation: {
       ask: "اسأل",
       overview: "نظرة عامة",
@@ -4910,6 +4975,10 @@ export const messagesByLocale = {
       credentialsDescription:
         "تتم إدارة مفاتيح API وبيانات الاعتماد من صفحة مصادر البيانات.",
       manageDataSources: "إدارة مصادر البيانات",
+      dashboardTemplates: "قوالب لوحات المعلومات",
+      dashboardTemplatesDescription:
+        "ثبّت لوحة معلومات مضبوطة في المصدر عندما تحتاج إلى نقطة بداية.",
+      openDashboardTemplates: "افتح الكتالوج",
       languageTitle: "اللغة",
       languageLabel: "لغة الواجهة",
       about: "حول",

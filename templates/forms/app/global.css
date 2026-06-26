@@ -93,55 +93,39 @@
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
-.forms-home-page::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(hsl(var(--border) / 0.24) 1px, transparent 1px),
-    linear-gradient(90deg, hsl(var(--border) / 0.18) 1px, transparent 1px);
-  background-size: 46px 46px;
-  mask-image: linear-gradient(
-    to bottom,
-    transparent,
-    black 14%,
-    black 78%,
-    transparent
-  );
-}
-
-.forms-home-chat-panel {
+.forms-ask-chat-panel {
   width: 100%;
 }
 
-.forms-home-chat-panel [data-agent-empty-state="centered"] {
+.forms-ask-chat-panel [data-agent-empty-state="centered"] {
   justify-content: center;
   padding-bottom: clamp(4rem, 12vh, 8rem);
 }
 
-.forms-home-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
+.forms-ask-chat-panel [data-agent-empty-state="centered"] .agent-chat-scroll {
   flex: 0 0 auto;
   min-height: 0;
   overflow: visible;
 }
 
-.forms-home-chat-panel .agent-composer-area--hero {
+.forms-ask-chat-panel .agent-composer-area--hero {
   padding-inline: 0;
   filter: none;
 }
 
-.forms-home-chat-panel
+.forms-ask-chat-panel
   [data-agent-empty-state="centered"]
   .agent-composer-area--hero {
   width: 100%;
 }
 
-.forms-home-chat-panel .agent-composer-root--hero {
+.forms-ask-chat-panel .agent-composer-root--hero {
   border-radius: 1.25rem;
+  background: hsl(var(--background));
   box-shadow: none;
 }
 
-.forms-home-chat-panel .agent-composer-root--hero:focus-within {
+.forms-ask-chat-panel .agent-composer-root--hero:focus-within {
   border-color: hsl(var(--ring) / 0.9);
   box-shadow: none;
 }
@@ -150,7 +134,7 @@
   display: none;
 }
 
-.forms-home-chat-panel [data-agent-empty-state="centered"] .forms-chat-intro {
+.forms-ask-chat-panel [data-agent-empty-state="centered"] .forms-chat-intro {
   display: grid;
   justify-items: center;
   gap: 0.75rem;

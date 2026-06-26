@@ -2,9 +2,8 @@
  * Framework-level agent action for sending transactional/notification emails
  * via the configured core email transport (Resend or SendGrid).
  *
- * Registered as a native tool in every template when RESEND_API_KEY or
- * SENDGRID_API_KEY is set. When neither key is present the tool is omitted
- * from the agent surface so the agent never sees it.
+ * Registered as a native tool in every template. sendEmail() checks the
+ * scoped Resend/SendGrid configuration at call time.
  *
  * SAFETY: the action description instructs the agent to draft-first and only
  * send when the user explicitly confirms, matching the mail template convention.
@@ -16,7 +15,7 @@
  */
 
 import type { ActionEntry } from "../agent/production-agent.js";
-import { isEmailConfigured, sendEmail } from "./email.js";
+import { sendEmail } from "./email.js";
 
 function markdownToText(md: string): string {
   return md
@@ -115,8 +114,6 @@ function markdownToHtml(md: string): string {
 }
 
 export function createCoreEmailActionEntries(): Record<string, ActionEntry> {
-  if (!isEmailConfigured()) return {};
-
   return {
     "core-send-email": {
       tool: {

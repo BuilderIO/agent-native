@@ -16,6 +16,7 @@
  */
 
 import type { FileUploadProvider } from "@agent-native/core/file-upload";
+import { resolveSecret } from "@agent-native/core/server";
 
 interface S3Config {
   region: string;
@@ -26,25 +27,69 @@ interface S3Config {
   publicBaseUrl: string | null;
 }
 
-function readS3Config(): S3Config | null {
-  const env = process.env;
-  const bucket = env.S3_BUCKET || env.R2_BUCKET;
-  const accessKeyId = env.S3_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = env.S3_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY;
-  const endpoint = env.S3_ENDPOINT || env.R2_ENDPOINT;
+function cleanValue(value: string | null | undefined): string | undefined {
+  const cleaned = value?.trim();
+  return cleaned ? cleaned : undefined;
+}
+
+function buildS3Config(values: {
+  bucket?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  endpoint?: string;
+  region?: string;
+  publicBaseUrl?: string;
+}): S3Config | null {
+  const bucket = cleanValue(values.bucket);
+  const accessKeyId = cleanValue(values.accessKeyId);
+  const secretAccessKey = cleanValue(values.secretAccessKey);
+  const endpoint = cleanValue(values.endpoint);
   if (!bucket || !accessKeyId || !secretAccessKey || !endpoint) return null;
   return {
-    region: env.S3_REGION || env.R2_REGION || "auto",
+    region: cleanValue(values.region) ?? "auto",
     bucket,
     accessKeyId,
     secretAccessKey,
     endpoint: endpoint.replace(/\/+$/, ""),
     publicBaseUrl:
-      (env.S3_PUBLIC_BASE_URL || env.R2_PUBLIC_BASE_URL || "").replace(
-        /\/+$/,
-        "",
-      ) || null,
+      cleanValue(values.publicBaseUrl)?.replace(/\/+$/, "") ?? null,
   };
+}
+
+function readS3EnvConfig(): S3Config | null {
+  const env = process.env;
+  return buildS3Config({
+    bucket: env.S3_BUCKET || env.R2_BUCKET,
+    accessKeyId: env.S3_ACCESS_KEY_ID || env.R2_ACCESS_KEY_ID,
+    secretAccessKey: env.S3_SECRET_ACCESS_KEY || env.R2_SECRET_ACCESS_KEY,
+    endpoint: env.S3_ENDPOINT || env.R2_ENDPOINT,
+    region: env.S3_REGION || env.R2_REGION,
+    publicBaseUrl: env.S3_PUBLIC_BASE_URL || env.R2_PUBLIC_BASE_URL,
+  });
+}
+
+async function resolveS3Secret(primary: string, fallback: string) {
+  return (
+    cleanValue(await resolveSecret(primary).catch(() => null)) ??
+    cleanValue(await resolveSecret(fallback).catch(() => null))
+  );
+}
+
+async function readS3Config(): Promise<S3Config | null> {
+  return buildS3Config({
+    bucket: await resolveS3Secret("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: await resolveS3Secret("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: await resolveS3Secret(
+      "S3_SECRET_ACCESS_KEY",
+      "R2_SECRET_ACCESS_KEY",
+    ),
+    endpoint: await resolveS3Secret("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: await resolveS3Secret("S3_REGION", "R2_REGION"),
+    publicBaseUrl: await resolveS3Secret(
+      "S3_PUBLIC_BASE_URL",
+      "R2_PUBLIC_BASE_URL",
+    ),
+  });
 }
 
 // ── SigV4 helpers (Web Crypto, no SDK) ────────────────────────────────
@@ -187,10 +232,11 @@ async function putObject(
 export const s3FileUploadProvider: FileUploadProvider = {
   id: "s3",
   name: "S3-compatible storage",
-  isConfigured: () => readS3Config() !== null,
+  isConfigured: () => readS3EnvConfig() !== null,
+  isConfiguredForRequest: async () => (await readS3Config()) !== null,
   upload: async ({ data, filename, mimeType }) => {
-    const cfg = readS3Config();
-    if (!cfg) throw new Error("S3 env vars not configured");
+    const cfg = await readS3Config();
+    if (!cfg) throw new Error("S3 credentials are not configured");
 
     const ext = filename?.split(".").pop() ?? "bin";
     const stamp = Date.now();

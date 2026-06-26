@@ -52,6 +52,14 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   segments; `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` for a screen
   frame at a timestamp. Password-protected clips require the password once to
   mint a short-lived token returned inside agent-context links.
+- If public agent context or transcript APIs report `transcript.status` as
+  `"pending"`, wait 15-30 seconds and retry the context/transcript URL a few
+  times, especially for long recordings. Do not pivot straight to frames or tell
+  the user there is no transcript until the retry budget is exhausted.
+- If transcription failed because Builder transcription credits are exhausted,
+  tell the user that clearly and point them to Builder.io credits/upgrade or a
+  Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do
+  not transcribe Clips recordings.
 - Slack unfurls use `/api/slack/unfurl` for `link_shared` events and only
   return playable `chat.unfurl` video blocks for ready public clips with no
   password, no expiry hit, and no archive/trash marker. Private, org-only,

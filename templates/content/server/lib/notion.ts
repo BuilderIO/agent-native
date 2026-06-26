@@ -5,7 +5,11 @@ import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getSession,
+  resolveSecret,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { createError, type H3Event } from "h3";
 
@@ -87,12 +91,31 @@ function decodeState(stateParam: string | undefined): Record<string, string> {
   }
 }
 
-function notionBasicAuthHeader(): string {
-  const clientId = process.env.NOTION_CLIENT_ID;
-  const clientSecret = process.env.NOTION_CLIENT_SECRET;
+async function resolveNotionOAuthCredentials(event: H3Event): Promise<{
+  clientId: string;
+  clientSecret: string;
+} | null> {
+  const session = await getSession(event).catch(() => null);
+  return runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => {
+      const [clientId, clientSecret] = await Promise.all([
+        resolveSecret("NOTION_CLIENT_ID"),
+        resolveSecret("NOTION_CLIENT_SECRET"),
+      ]);
+      if (!clientId || !clientSecret) return null;
+      return { clientId, clientSecret };
+    },
+  );
+}
+
+async function notionBasicAuthHeader(event: H3Event): Promise<string> {
+  const credentials = await resolveNotionOAuthCredentials(event);
+  const clientId = credentials?.clientId;
+  const clientSecret = credentials?.clientSecret;
   if (!clientId || !clientSecret) {
     throw new Error(
-      "Notion OAuth credentials are not configured. Set NOTION_CLIENT_ID and NOTION_CLIENT_SECRET.",
+      "Notion OAuth credentials are not configured. Save NOTION_CLIENT_ID and NOTION_CLIENT_SECRET in settings.",
     );
   }
   return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
@@ -486,18 +509,27 @@ export async function disconnectNotionForOwner(owner: string) {
   return deleted;
 }
 
-export function buildNotionAuthUrl(event: H3Event, redirectPath = "/"): string {
-  const clientId = process.env.NOTION_CLIENT_ID;
-  if (!clientId) {
+export async function hasNotionOAuthCredentials(
+  event: H3Event,
+): Promise<boolean> {
+  return !!(await resolveNotionOAuthCredentials(event));
+}
+
+export async function buildNotionAuthUrl(
+  event: H3Event,
+  redirectPath = "/",
+): Promise<string> {
+  const credentials = await resolveNotionOAuthCredentials(event);
+  if (!credentials?.clientId) {
     throw new Error(
-      "Notion OAuth credentials are not configured. Set NOTION_CLIENT_ID and NOTION_CLIENT_SECRET.",
+      "Notion OAuth credentials are not configured. Save NOTION_CLIENT_ID and NOTION_CLIENT_SECRET in settings.",
     );
   }
   const redirectUri = `${getOrigin(event)}/api/notion/callback`;
   const state = encodeState({ redirectPath });
   const params = new URLSearchParams({
     owner: "user",
-    client_id: clientId,
+    client_id: credentials.clientId,
     redirect_uri: redirectUri,
     response_type: "code",
     state,
@@ -518,7 +550,7 @@ export async function exchangeNotionCodeForTokens(
   const response = await fetch(`${NOTION_API_BASE}/oauth/token`, {
     method: "POST",
     headers: {
-      Authorization: notionBasicAuthHeader(),
+      Authorization: await notionBasicAuthHeader(event),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

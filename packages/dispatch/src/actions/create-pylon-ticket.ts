@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { resolveSecret } from "@agent-native/core/server";
 import { z } from "zod";
 
 import { recordAudit } from "../server/lib/dispatch-store.js";
@@ -33,7 +34,7 @@ export default defineAction({
     teamId: z.string().optional(),
   }),
   run: async (input) => {
-    const apiKey = process.env.PYLON_API_KEY;
+    const apiKey = await resolveSecret("PYLON_API_KEY");
     if (!apiKey) {
       throw new Error(
         "PYLON_API_KEY is not set. Add it to the Dispatch Vault.",

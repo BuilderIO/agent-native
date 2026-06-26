@@ -1,5 +1,8 @@
 import { listFileUploadProviders } from "@agent-native/core/file-upload";
-import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
+import {
+  resolveHasBuilderPrivateKey,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 
 export const STORAGE_SETUP_REQUIRED_REASON =
   "Video storage is not connected yet. Connect Builder.io or configure S3-compatible storage to upload clips.";
@@ -22,16 +25,41 @@ export function requiresConfiguredVideoStorage(): boolean {
   return process.env.NODE_ENV === "production" || !isLikelyLocalDatabase();
 }
 
-export async function hasRequestVideoStorage(): Promise<boolean> {
-  for (const provider of listFileUploadProviders()) {
-    if (provider.id !== "builder" && provider.isConfigured()) return true;
-  }
+interface VideoStorageResolveContext {
+  userEmail?: string;
+  orgId?: string | null;
+}
 
-  try {
-    return await resolveHasBuilderPrivateKey();
-  } catch {
-    return false;
+export async function hasRequestVideoStorage(
+  context?: VideoStorageResolveContext,
+): Promise<boolean> {
+  const resolve = async () => {
+    for (const provider of listFileUploadProviders()) {
+      if (provider.id === "builder") continue;
+      if (provider.isConfigured()) return true;
+      if (provider.isConfiguredForRequest) {
+        try {
+          if (await provider.isConfiguredForRequest()) return true;
+        } catch {
+          // Treat a failed scoped lookup as not configured.
+        }
+      }
+    }
+
+    try {
+      return await resolveHasBuilderPrivateKey();
+    } catch {
+      return false;
+    }
+  };
+
+  if (context?.userEmail) {
+    return runWithRequestContext(
+      { userEmail: context.userEmail, orgId: context.orgId ?? undefined },
+      resolve,
+    );
   }
+  return resolve();
 }
 
 export async function shouldRejectVideoUploadWithoutStorage(): Promise<boolean> {

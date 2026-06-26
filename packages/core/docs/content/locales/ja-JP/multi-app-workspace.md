@@ -168,7 +168,7 @@ pnpm dev
 
 ## 共有環境変数 {#shared-env}
 
-ワークスペース ルート `.env` はすべてのアプリに自動的にロードされます。共有キーをルート (`ANTHROPIC_API_KEY`、`A2A_SECRET`、`BETTER_AUTH_SECRET`、`DATABASE_URL`、`BUILDER_PRIVATE_KEY` など) に一度置くと、すべてのアプリがそれらを取得します。アプリごとのオーバーライドは `apps/<name>/.env` で行われ、競合が発生した場合に優先されます。
+The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
 ランタイム アプリの資格情報については、`.env` ファイルを手動で編集するよりも、Dispatch ボールトを使用することをお勧めします。ボールトはデフォルトですべてのアプリにアクセスするため、保存されたすべてのボールト キーはすべてのワークスペース アプリで使用でき、`sync-vault-to-app` でプッシュできます。アプリがキーごとの明示的な許可を必要とする場合にのみ、ボールトを手動モードに切り替えます。
 
@@ -182,8 +182,8 @@ my-company-platform/
 
 いくつかのオンボーディング フローは、すぐに使えるワークスペース対応です。
 
-- **Builder `/cli-auth`**: 任意のアプリから [Builder に接続] をクリックすると、`BUILDER_PRIVATE_KEY` とその友人が **ワークスペース ルート** `.env` に書き込まれるため、すべてのアプリが一度にブラウザー アクセスを取得します。
-- **Env-vars 設定ルート** (`POST /_agent-native/env-vars`): ワークスペース内では、デフォルトでワークスペース ルート `.env` が書き込まれます。 1 つのアプリをオーバーライドするには、本文で `scope: "app"` を渡します。
+- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## 共有認証情報 {#shared-credentials}
 

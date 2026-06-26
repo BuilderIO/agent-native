@@ -3,14 +3,15 @@ import {
   agentNativePath,
   appApiPath,
   LanguagePicker,
-  parseChangelog,
   useActionQuery,
   useBuilderConnectFlow,
   useBuilderStatus,
   ChangelogSettingsCard,
+  SettingsTabsPage,
   openAgentSettings,
   useT,
 } from "@agent-native/core/client";
+import { TeamPage } from "@agent-native/core/client/org";
 import {
   IconBrain,
   IconBrandSlack,
@@ -24,7 +25,7 @@ import {
   IconTrash,
   IconUser,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/library/page-header";
@@ -287,17 +288,24 @@ async function saveS3StorageSettings(
     throw new Error("Enter at least one storage value.");
   }
 
-  const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ vars, scope: "workspace" }),
-  });
+  for (const { key, value } of vars) {
+    const res = await fetch(agentNativePath("/_agent-native/secrets/adhoc"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: key,
+        value,
+        scope: "workspace",
+        description: "Clips S3-compatible storage", // i18n-ignore -- secret metadata description, not visible UI
+      }),
+    });
 
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(body?.error ?? `Save failed (${res.status})`);
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      throw new Error(body?.error ?? `Save failed (${res.status})`);
+    }
   }
 }
 
@@ -338,60 +346,6 @@ async function saveRegisteredSecret(key: string, value: string): Promise<void> {
     } | null;
     throw new Error(body?.error ?? `Save failed (${res.status})`);
   }
-}
-
-function CompactChangelogAside() {
-  const t = useT();
-  const localizedChangelog = t("settings.changelogMarkdown");
-  const entries = useMemo(
-    () => parseChangelog(localizedChangelog),
-    [localizedChangelog],
-  );
-  const [expanded, setExpanded] = useState(false);
-
-  if (entries.length === 0) return null;
-
-  const latestBody = entries[0]?.body ?? "";
-  const canExpand = latestBody.length > 260 || entries.length > 1;
-
-  return (
-    <aside className="2xl:sticky 2xl:top-6 2xl:self-start">
-      <div className="relative">
-        <div
-          className={cn(
-            "overflow-hidden transition-[max-height] duration-200 ease-out",
-            expanded ? "max-h-[70vh]" : "max-h-72",
-          )}
-        >
-          <ChangelogSettingsCard
-            markdown={localizedChangelog}
-            limit={1}
-            title={t("settings.whatsNew")}
-            closeLabel={t("common.cancel")}
-            emptyText={t("settings.changelogEmpty")}
-            viewAllLabel={t("settings.viewAllUpdates")}
-            className="rounded-md"
-          />
-        </div>
-        {canExpand && !expanded ? (
-          <div className="pointer-events-none absolute inset-x-px bottom-10 h-16 bg-gradient-to-t from-card to-transparent" />
-        ) : null}
-        {canExpand ? (
-          <div className="mt-2 flex justify-end">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs text-muted-foreground"
-              onClick={() => setExpanded((value) => !value)}
-            >
-              {expanded ? t("settings.collapse") : t("settings.expand")}
-            </Button>
-          </div>
-        ) : null}
-      </div>
-    </aside>
-  );
 }
 
 export default function SettingsIndexRoute() {
@@ -633,6 +587,7 @@ export default function SettingsIndexRoute() {
   const slackOauthConfigured = slackStatus.data?.oauthConfigured ?? false;
   const slackSigningConfigured = slackStatus.data?.signingConfigured ?? false;
   const slackConnected = slackInstallations.length > 0;
+  const localizedChangelog = t("settings.changelogMarkdown");
 
   return (
     <>
@@ -641,632 +596,663 @@ export default function SettingsIndexRoute() {
           {t("settings.title")}
         </h1>
       </PageHeader>
-      <div className="mx-auto w-full max-w-6xl p-6">
-        <div className="space-y-6">
-          <div className="min-w-0 space-y-6">
-            <p className="text-sm text-muted-foreground">
-              {t("settings.intro")}
-            </p>
+      <SettingsTabsPage
+        whatsNewLabel={t("settings.whatsNew")}
+        general={
+          <div className="mx-auto w-full max-w-4xl space-y-6">
+            <div className="min-w-0 space-y-6">
+              <p className="text-sm text-muted-foreground">
+                {t("settings.intro")}
+              </p>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("settings.languageTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.languageDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="max-w-xs space-y-1.5">
-                <Label>{t("settings.languageLabel")}</Label>
-                <LanguagePicker label={t("settings.languageLabel")} />
-              </CardContent>
-            </Card>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {t("settings.languageTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.languageDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="max-w-xs space-y-1.5">
+                  <Label>{t("settings.languageLabel")}</Label>
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("settings.agentTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.agentDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" onClick={() => openAgentSettings()}>
-                  {t("settings.openAgentSettings")}
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card id="video-storage" className="scroll-mt-16">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <IconCloud className="size-4 text-primary" />
-                  {t("settings.videoStorage")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.videoStorageDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div
-                  className={cn(
-                    "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
-                    builderConnected
-                      ? "border-primary/35 bg-primary/5"
-                      : "border-border bg-accent/30",
-                  )}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      {builderConnected ? (
-                        <IconCheck className="h-4 w-4 text-primary" />
-                      ) : (
-                        <IconKey className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      {builderStatusLoading
-                        ? t("settings.checkingBuilder")
-                        : builderConnected
-                          ? t("settings.builderConnected")
-                          : t("settings.connectBuilder")}
-                    </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {builderConnected
-                        ? builderOrgName
-                          ? t("settings.builderConnectedFor", {
-                              orgName: builderOrgName,
-                            })
-                          : t("settings.builderConnectedGeneric")
-                        : t("settings.builderIncludes")}
-                    </p>
-                  </div>
-                  {builderConnected ? (
-                    <Badge variant="secondary" className="shrink-0">
-                      {t("common.connected")}
-                    </Badge>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0"
-                      onClick={() =>
-                        builderConnect.start({
-                          trackingSource: "clips_settings_video_storage",
-                          trackingFlow: "video_storage",
-                        })
-                      }
-                      disabled={
-                        builderConnect.connecting || builderStatusLoading
-                      }
-                    >
-                      {builderConnect.connecting ? (
-                        <IconLoader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <IconExternalLink className="h-4 w-4" />
-                      )}
-                      {t("settings.connectBuilder")}
-                    </Button>
-                  )}
-                </div>
-
-                <Collapsible
-                  open={builderConnected ? !s3Collapsed : true}
-                  onOpenChange={(open) => setS3Expanded(open)}
-                >
-                  <div className="rounded-md border border-border">
-                    <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                          <IconServer className="h-4 w-4 text-muted-foreground" />
-                          {t("settings.s3Title")}
-                          <Badge variant="outline" className="text-[10px]">
-                            {t("settings.secondary")}
-                          </Badge>
-                          {s3Configured ? (
-                            <Badge variant="secondary" className="text-[10px]">
-                              {t("settings.active")}
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {builderConnected
-                            ? t("settings.s3BuilderConnectedDescription")
-                            : storageConfigured && activeProviderName
-                              ? t("settings.s3CurrentProvider", {
-                                  providerName: activeProviderName,
-                                })
-                              : t("settings.s3OwnBucketDescription")}
-                        </p>
-                      </div>
-                      {builderConnected ? (
-                        <CollapsibleTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="shrink-0"
-                          >
-                            {s3Collapsed
-                              ? t("settings.configureS3")
-                              : t("settings.hideS3")}
-                            <IconChevronDown
-                              className={cn(
-                                "h-4 w-4 transition-transform",
-                                !s3Collapsed && "rotate-180",
-                              )}
-                            />
-                          </Button>
-                        </CollapsibleTrigger>
-                      ) : null}
-                    </div>
-
-                    <CollapsibleContent>
-                      <div className="space-y-4 border-t border-border px-3 py-4">
-                        <div className="grid gap-4 sm:grid-cols-2">
-                          {S3_STORAGE_FIELDS.map((field) => (
-                            <div key={field.key} className="space-y-1.5">
-                              <Label htmlFor={field.key}>
-                                {t(field.labelKey)}
-                              </Label>
-                              <Input
-                                id={field.key}
-                                type={
-                                  "secret" in field && field.secret
-                                    ? "password"
-                                    : "text"
-                                }
-                                value={s3Values[field.key] ?? ""}
-                                onChange={(event) =>
-                                  setS3Values((current) => ({
-                                    ...current,
-                                    [field.key]: event.target.value,
-                                  }))
-                                }
-                                placeholder={field.placeholder}
-                                autoComplete="off"
-                                disabled={savingStorage}
-                              />
-                            </div>
-                          ))}
-                        </div>
-
-                        <div className="flex justify-end">
-                          <Button
-                            onClick={handleSaveS3Storage}
-                            disabled={savingStorage || storageStatus.isLoading}
-                          >
-                            {savingStorage && (
-                              <IconLoader2 className="h-4 w-4 animate-spin" />
-                            )}
-                            {t("settings.saveStorage")}
-                          </Button>
-                        </div>
-                      </div>
-                    </CollapsibleContent>
-                  </div>
-                </Collapsible>
-              </CardContent>
-            </Card>
-
-            <Card id="slack" className="scroll-mt-16">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <IconBrandSlack className="size-4 text-primary" />
-                  {t("settings.slackTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.slackDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <IconBrandSlack className="h-4 w-4 text-muted-foreground" />
-                      {slackStatus.isLoading
-                        ? t("settings.checkingSlack")
-                        : slackConnected
-                          ? t("settings.slackConnected", {
-                              count: slackInstallations.length,
-                            })
-                          : slackOauthConfigured
-                            ? t("common.notConnected")
-                            : t("settings.slackOauthNeeded")}
-                    </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {t("settings.slackPreviewDescription")}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="shrink-0"
-                    onClick={handleConnectSlack}
-                    disabled={
-                      connectingSlack ||
-                      slackStatus.isLoading ||
-                      !slackOauthConfigured
-                    }
-                  >
-                    {connectingSlack ? (
-                      <IconLoader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <IconExternalLink className="h-4 w-4" />
-                    )}
-                    {t("settings.connectSlack")}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {t("settings.agentTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.agentDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button variant="outline" onClick={() => openAgentSettings()}>
+                    {t("settings.openAgentSettings")}
                   </Button>
-                </div>
+                </CardContent>
+              </Card>
 
-                {!slackOauthConfigured ? (
-                  <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-                    {t("settings.slackClientMissing")}
-                  </div>
-                ) : null}
-
-                {!slackSigningConfigured ? (
-                  <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
-                    {t("settings.slackSigningMissing")}
-                  </div>
-                ) : null}
-
-                {slackInstallations.length > 0 ? (
-                  <div className="space-y-2">
-                    {slackInstallations.map((installation) => (
-                      <div
-                        key={installation.id}
-                        className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium">
-                            {installation.teamName || installation.teamId}
-                          </div>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                            <span>{installation.status}</span>
-                            {installation.enterpriseName ? (
-                              <span>{installation.enterpriseName}</span>
-                            ) : null}
-                            <span>
-                              {t("settings.connectedBy", {
-                                email: installation.ownerEmail,
-                              })}
-                            </span>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="shrink-0"
-                          aria-label={t("settings.disconnectSlackLabel", {
-                            team: installation.teamName || installation.teamId,
-                          })}
-                          onClick={() => setDisconnectSlackTarget(installation)}
-                        >
-                          <IconTrash className="h-4 w-4" />
-                        </Button>
+              <Card id="video-storage" className="scroll-mt-16">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <IconCloud className="size-4 text-primary" />
+                    {t("settings.videoStorage")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.videoStorageDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div
+                    className={cn(
+                      "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
+                      builderConnected
+                        ? "border-primary/35 bg-primary/5"
+                        : "border-border bg-accent/30",
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        {builderConnected ? (
+                          <IconCheck className="h-4 w-4 text-primary" />
+                        ) : (
+                          <IconKey className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        {builderStatusLoading
+                          ? t("settings.checkingBuilder")
+                          : builderConnected
+                            ? t("settings.builderConnected")
+                            : t("settings.connectBuilder")}
                       </div>
-                    ))}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-
-            <Card id="ai-providers" className="scroll-mt-16">
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <IconBrain className="size-4 text-primary" />
-                  {t("settings.apiSetup")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.apiSetupDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div
-                  className={cn(
-                    "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
-                    builderConnected
-                      ? "border-primary/35 bg-primary/5"
-                      : "border-border bg-accent/30",
-                  )}
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      {builderConnected ? (
-                        <IconCheck className="h-4 w-4 text-primary" />
-                      ) : (
-                        <IconKey className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      {builderStatusLoading
-                        ? t("settings.checkingBuilder")
-                        : builderConnected
-                          ? t("settings.builderConnected")
-                          : t("settings.builderEasySetup")}
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {builderConnected
+                          ? builderOrgName
+                            ? t("settings.builderConnectedFor", {
+                                orgName: builderOrgName,
+                              })
+                            : t("settings.builderConnectedGeneric")
+                          : t("settings.builderIncludes")}
+                      </p>
                     </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {builderConnected
-                        ? t("settings.builderAiAvailable")
-                        : t("settings.builderAiDescription")}
-                    </p>
-                  </div>
-                  {builderConnected ? (
-                    <Badge variant="secondary" className="shrink-0">
-                      {t("common.connected")}
-                    </Badge>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="shrink-0"
-                      onClick={() =>
-                        builderConnect.start({
-                          trackingSource: "clips_settings_ai_setup",
-                          trackingFlow: "connect_llm",
-                        })
-                      }
-                      disabled={
-                        builderConnect.connecting || builderStatusLoading
-                      }
-                    >
-                      {builderConnect.connecting ? (
-                        <IconLoader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <IconExternalLink className="h-4 w-4" />
-                      )}
-                      {t("settings.connectBuilder")}
-                    </Button>
-                  )}
-                </div>
-
-                <Collapsible
-                  open={apiKeysExpanded}
-                  onOpenChange={setApiKeysExpanded}
-                >
-                  <div className="rounded-md border border-border">
-                    <CollapsibleTrigger asChild>
-                      <button
+                    {builderConnected ? (
+                      <Badge variant="secondary" className="shrink-0">
+                        {t("common.connected")}
+                      </Badge>
+                    ) : (
+                      <Button
                         type="button"
-                        className="flex w-full items-center justify-between gap-3 px-3 py-3 text-start"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() =>
+                          builderConnect.start({
+                            trackingSource: "clips_settings_video_storage",
+                            trackingFlow: "video_storage",
+                          })
+                        }
+                        disabled={
+                          builderConnect.connecting || builderStatusLoading
+                        }
                       >
+                        {builderConnect.connecting ? (
+                          <IconLoader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <IconExternalLink className="h-4 w-4" />
+                        )}
+                        {t("settings.connectBuilder")}
+                      </Button>
+                    )}
+                  </div>
+
+                  <Collapsible
+                    open={builderConnected ? !s3Collapsed : true}
+                    onOpenChange={(open) => setS3Expanded(open)}
+                  >
+                    <div className="rounded-md border border-border">
+                      <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2 text-sm font-medium">
-                            <IconKey className="h-4 w-4 text-muted-foreground" />
-                            {t("settings.providerKeyTitle")}
-                            {configuredApiKeyCount > 0 ? (
+                          <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                            <IconServer className="h-4 w-4 text-muted-foreground" />
+                            {t("settings.s3Title")}
+                            <Badge variant="outline" className="text-[10px]">
+                              {t("settings.secondary")}
+                            </Badge>
+                            {s3Configured ? (
                               <Badge
                                 variant="secondary"
                                 className="text-[10px]"
                               >
-                                {t("settings.providerKeysSet", {
-                                  count: configuredApiKeyCount,
-                                })}
+                                {t("settings.active")}
                               </Badge>
                             ) : null}
                           </div>
                           <p className="mt-0.5 text-xs text-muted-foreground">
-                            {t("settings.providerKeyDescription")}
+                            {builderConnected
+                              ? t("settings.s3BuilderConnectedDescription")
+                              : storageConfigured && activeProviderName
+                                ? t("settings.s3CurrentProvider", {
+                                    providerName: activeProviderName,
+                                  })
+                                : t("settings.s3OwnBucketDescription")}
                           </p>
                         </div>
-                        <IconChevronDown
-                          className={cn(
-                            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
-                            apiKeysExpanded && "rotate-180",
-                          )}
-                        />
-                      </button>
-                    </CollapsibleTrigger>
-                    <CollapsibleContent>
-                      <div className="space-y-3 border-t border-border px-3 py-4">
-                        {apiKeyStatusLoading ? (
-                          <div className="text-xs text-muted-foreground">
-                            {t("settings.checkingProviderKeys")}
-                          </div>
+                        {builderConnected ? (
+                          <CollapsibleTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="shrink-0"
+                            >
+                              {s3Collapsed
+                                ? t("settings.configureS3")
+                                : t("settings.hideS3")}
+                              <IconChevronDown
+                                className={cn(
+                                  "h-4 w-4 transition-transform",
+                                  !s3Collapsed && "rotate-180",
+                                )}
+                              />
+                            </Button>
+                          </CollapsibleTrigger>
                         ) : null}
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          {AI_PROVIDER_FIELDS.map((field) => {
-                            const configured = Boolean(apiKeyStatus[field.key]);
-                            const savingThisKey = savingApiKey === field.key;
-                            return (
-                              <div key={field.key} className="space-y-1.5">
-                                <div className="flex items-center justify-between gap-2">
-                                  <Label htmlFor={field.key}>
-                                    {field.label}
-                                  </Label>
-                                  {configured ? (
-                                    <span className="flex items-center gap-1 text-[10px] font-medium text-primary">
-                                      <IconCheck className="h-3 w-3" />
-                                      {t("settings.keySet")}
-                                    </span>
-                                  ) : null}
-                                </div>
-                                <div className="flex gap-2">
-                                  <Input
-                                    id={field.key}
-                                    type="password"
-                                    value={apiKeyValues[field.key] ?? ""}
-                                    onChange={(event) =>
-                                      setApiKeyValues((current) => ({
-                                        ...current,
-                                        [field.key]: event.target.value,
-                                      }))
-                                    }
-                                    onKeyDown={(event) => {
-                                      if (event.key === "Enter") {
-                                        void handleSaveApiKey(field.key);
-                                      }
-                                    }}
-                                    placeholder={
-                                      configured
-                                        ? t("settings.replaceKey")
-                                        : field.placeholder
-                                    }
-                                    autoComplete="off"
-                                    disabled={savingThisKey}
-                                  />
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="shrink-0"
-                                    onClick={() => handleSaveApiKey(field.key)}
-                                    disabled={
-                                      savingThisKey ||
-                                      !(apiKeyValues[field.key] ?? "").trim()
-                                    }
-                                  >
-                                    {savingThisKey ? (
-                                      <IconLoader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      t("common.save")
-                                    )}
-                                  </Button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
                       </div>
-                    </CollapsibleContent>
-                  </div>
-                </Collapsible>
-              </CardContent>
-            </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <IconUser className="size-4 text-primary" />
-                  {t("settings.profile")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="email">{t("settings.email")}</Label>
-                  <Input id="email" value={email} readOnly disabled />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="display-name">
-                    {t("settings.displayName")}
-                  </Label>
-                  <Input
-                    id="display-name"
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
-                    placeholder={t("settings.displayNamePlaceholder")}
-                    disabled={loading}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+                      <CollapsibleContent>
+                        <div className="space-y-4 border-t border-border px-3 py-4">
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            {S3_STORAGE_FIELDS.map((field) => (
+                              <div key={field.key} className="space-y-1.5">
+                                <Label htmlFor={field.key}>
+                                  {t(field.labelKey)}
+                                </Label>
+                                <Input
+                                  id={field.key}
+                                  type={
+                                    "secret" in field && field.secret
+                                      ? "password"
+                                      : "text"
+                                  }
+                                  value={s3Values[field.key] ?? ""}
+                                  onChange={(event) =>
+                                    setS3Values((current) => ({
+                                      ...current,
+                                      [field.key]: event.target.value,
+                                    }))
+                                  }
+                                  placeholder={field.placeholder}
+                                  autoComplete="off"
+                                  disabled={savingStorage}
+                                />
+                              </div>
+                            ))}
+                          </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("settings.playback")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="speed">
-                    {t("settings.defaultPlaybackSpeed")}
-                  </Label>
-                  <Select
-                    value={defaultSpeed}
-                    onValueChange={setDefaultSpeed}
-                    disabled={loading}
-                  >
-                    <SelectTrigger id="speed" className="w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {SPEEDS.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}×
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    {t("settings.playbackDescription")}
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+                          <div className="flex justify-end">
+                            <Button
+                              onClick={handleSaveS3Storage}
+                              disabled={
+                                savingStorage || storageStatus.isLoading
+                              }
+                            >
+                              {savingStorage && (
+                                <IconLoader2 className="h-4 w-4 animate-spin" />
+                              )}
+                              {t("settings.saveStorage")}
+                            </Button>
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </div>
+                  </Collapsible>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("settings.transcript")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <Label
-                      htmlFor="transcript-cleanup"
-                      className="cursor-pointer"
+              <Card id="slack" className="scroll-mt-16">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <IconBrandSlack className="size-4 text-primary" />
+                    {t("settings.slackTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.slackDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-col gap-3 rounded-md border border-border bg-accent/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <IconBrandSlack className="h-4 w-4 text-muted-foreground" />
+                        {slackStatus.isLoading
+                          ? t("settings.checkingSlack")
+                          : slackConnected
+                            ? t("settings.slackConnected", {
+                                count: slackInstallations.length,
+                              })
+                            : slackOauthConfigured
+                              ? t("common.notConnected")
+                              : t("settings.slackOauthNeeded")}
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {t("settings.slackPreviewDescription")}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={handleConnectSlack}
+                      disabled={
+                        connectingSlack ||
+                        slackStatus.isLoading ||
+                        !slackOauthConfigured
+                      }
                     >
-                      {t("settings.transcriptCleanup")}
+                      {connectingSlack ? (
+                        <IconLoader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <IconExternalLink className="h-4 w-4" />
+                      )}
+                      {t("settings.connectSlack")}
+                    </Button>
+                  </div>
+
+                  {!slackOauthConfigured ? (
+                    <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
+                      {t("settings.slackClientMissing")}
+                    </div>
+                  ) : null}
+
+                  {!slackSigningConfigured ? (
+                    <div className="rounded-md border border-border p-3 text-xs text-muted-foreground">
+                      {t("settings.slackSigningMissing")}
+                    </div>
+                  ) : null}
+
+                  {slackInstallations.length > 0 ? (
+                    <div className="space-y-2">
+                      {slackInstallations.map((installation) => (
+                        <div
+                          key={installation.id}
+                          className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">
+                              {installation.teamName || installation.teamId}
+                            </div>
+                            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                              <span>{installation.status}</span>
+                              {installation.enterpriseName ? (
+                                <span>{installation.enterpriseName}</span>
+                              ) : null}
+                              <span>
+                                {t("settings.connectedBy", {
+                                  email: installation.ownerEmail,
+                                })}
+                              </span>
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="shrink-0"
+                            aria-label={t("settings.disconnectSlackLabel", {
+                              team:
+                                installation.teamName || installation.teamId,
+                            })}
+                            onClick={() =>
+                              setDisconnectSlackTarget(installation)
+                            }
+                          >
+                            <IconTrash className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </CardContent>
+              </Card>
+
+              <Card id="ai-providers" className="scroll-mt-16">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <IconBrain className="size-4 text-primary" />
+                    {t("settings.apiSetup")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.apiSetupDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div
+                    className={cn(
+                      "flex flex-col gap-3 rounded-md border px-3 py-3 sm:flex-row sm:items-center sm:justify-between",
+                      builderConnected
+                        ? "border-primary/35 bg-primary/5"
+                        : "border-border bg-accent/30",
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        {builderConnected ? (
+                          <IconCheck className="h-4 w-4 text-primary" />
+                        ) : (
+                          <IconKey className="h-4 w-4 text-muted-foreground" />
+                        )}
+                        {builderStatusLoading
+                          ? t("settings.checkingBuilder")
+                          : builderConnected
+                            ? t("settings.builderConnected")
+                            : t("settings.builderEasySetup")}
+                      </div>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {builderConnected
+                          ? t("settings.builderAiAvailable")
+                          : t("settings.builderAiDescription")}
+                      </p>
+                    </div>
+                    {builderConnected ? (
+                      <Badge variant="secondary" className="shrink-0">
+                        {t("common.connected")}
+                      </Badge>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() =>
+                          builderConnect.start({
+                            trackingSource: "clips_settings_ai_setup",
+                            trackingFlow: "connect_llm",
+                          })
+                        }
+                        disabled={
+                          builderConnect.connecting || builderStatusLoading
+                        }
+                      >
+                        {builderConnect.connecting ? (
+                          <IconLoader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <IconExternalLink className="h-4 w-4" />
+                        )}
+                        {t("settings.connectBuilder")}
+                      </Button>
+                    )}
+                  </div>
+
+                  <Collapsible
+                    open={apiKeysExpanded}
+                    onOpenChange={setApiKeysExpanded}
+                  >
+                    <div className="rounded-md border border-border">
+                      <CollapsibleTrigger asChild>
+                        <button
+                          type="button"
+                          className="flex w-full items-center justify-between gap-3 px-3 py-3 text-start"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 text-sm font-medium">
+                              <IconKey className="h-4 w-4 text-muted-foreground" />
+                              {t("settings.providerKeyTitle")}
+                              {configuredApiKeyCount > 0 ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px]"
+                                >
+                                  {t("settings.providerKeysSet", {
+                                    count: configuredApiKeyCount,
+                                  })}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              {t("settings.providerKeyDescription")}
+                            </p>
+                          </div>
+                          <IconChevronDown
+                            className={cn(
+                              "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                              apiKeysExpanded && "rotate-180",
+                            )}
+                          />
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <div className="space-y-3 border-t border-border px-3 py-4">
+                          {apiKeyStatusLoading ? (
+                            <div className="text-xs text-muted-foreground">
+                              {t("settings.checkingProviderKeys")}
+                            </div>
+                          ) : null}
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {AI_PROVIDER_FIELDS.map((field) => {
+                              const configured = Boolean(
+                                apiKeyStatus[field.key],
+                              );
+                              const savingThisKey = savingApiKey === field.key;
+                              return (
+                                <div key={field.key} className="space-y-1.5">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <Label htmlFor={field.key}>
+                                      {field.label}
+                                    </Label>
+                                    {configured ? (
+                                      <span className="flex items-center gap-1 text-[10px] font-medium text-primary">
+                                        <IconCheck className="h-3 w-3" />
+                                        {t("settings.keySet")}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <Input
+                                      id={field.key}
+                                      type="password"
+                                      value={apiKeyValues[field.key] ?? ""}
+                                      onChange={(event) =>
+                                        setApiKeyValues((current) => ({
+                                          ...current,
+                                          [field.key]: event.target.value,
+                                        }))
+                                      }
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                          void handleSaveApiKey(field.key);
+                                        }
+                                      }}
+                                      placeholder={
+                                        configured
+                                          ? t("settings.replaceKey")
+                                          : field.placeholder
+                                      }
+                                      autoComplete="off"
+                                      disabled={savingThisKey}
+                                    />
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      className="shrink-0"
+                                      onClick={() =>
+                                        handleSaveApiKey(field.key)
+                                      }
+                                      disabled={
+                                        savingThisKey ||
+                                        !(apiKeyValues[field.key] ?? "").trim()
+                                      }
+                                    >
+                                      {savingThisKey ? (
+                                        <IconLoader2 className="h-4 w-4 animate-spin" />
+                                      ) : (
+                                        t("common.save")
+                                      )}
+                                    </Button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </CollapsibleContent>
+                    </div>
+                  </Collapsible>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <IconUser className="size-4 text-primary" />
+                    {t("settings.profile")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email">{t("settings.email")}</Label>
+                    <Input id="email" value={email} readOnly disabled />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="display-name">
+                      {t("settings.displayName")}
                     </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {t("settings.transcriptCleanupDescription")}
+                    <Input
+                      id="display-name"
+                      value={displayName}
+                      onChange={(e) => setDisplayName(e.target.value)}
+                      placeholder={t("settings.displayNamePlaceholder")}
+                      disabled={loading}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {t("settings.playback")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="speed">
+                      {t("settings.defaultPlaybackSpeed")}
+                    </Label>
+                    <Select
+                      value={defaultSpeed}
+                      onValueChange={setDefaultSpeed}
+                      disabled={loading}
+                    >
+                      <SelectTrigger id="speed" className="w-40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {SPEEDS.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {s}×
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      {t("settings.playbackDescription")}
                     </p>
                   </div>
-                  <Switch
-                    id="transcript-cleanup"
-                    checked={transcriptCleanupEnabled}
-                    onCheckedChange={setTranscriptCleanupEnabled}
-                    disabled={loading}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("settings.notifications")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <Label htmlFor="email-notif" className="cursor-pointer">
-                      {t("settings.emailNotifications")}
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {t("settings.emailNotificationsDescription")}
-                    </p>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {t("settings.transcript")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <Label
+                        htmlFor="transcript-cleanup"
+                        className="cursor-pointer"
+                      >
+                        {t("settings.transcriptCleanup")}
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {t("settings.transcriptCleanupDescription")}
+                      </p>
+                    </div>
+                    <Switch
+                      id="transcript-cleanup"
+                      checked={transcriptCleanupEnabled}
+                      onCheckedChange={setTranscriptCleanupEnabled}
+                      disabled={loading}
+                    />
                   </div>
-                  <Switch
-                    id="email-notif"
-                    checked={emailNotifications}
-                    onCheckedChange={setEmailNotifications}
-                    disabled={loading}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            <div className="flex justify-end">
-              <Button
-                onClick={handleSave}
-                disabled={loading || saving}
-                className="bg-primary hover:bg-primary/90"
-              >
-                {saving ? t("common.saving") : t("common.saveChanges")}
-              </Button>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {t("settings.notifications")}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label htmlFor="email-notif" className="cursor-pointer">
+                        {t("settings.emailNotifications")}
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {t("settings.emailNotificationsDescription")}
+                      </p>
+                    </div>
+                    <Switch
+                      id="email-notif"
+                      checked={emailNotifications}
+                      onCheckedChange={setEmailNotifications}
+                      disabled={loading}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="flex justify-end">
+                <Button
+                  onClick={handleSave}
+                  disabled={loading || saving}
+                  className="bg-primary hover:bg-primary/90"
+                >
+                  {saving ? t("common.saving") : t("common.saveChanges")}
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="mt-6">
-          <CompactChangelogAside />
-        </div>
-      </div>
+        }
+        team={
+          <div className="mx-auto w-full max-w-3xl">
+            <TeamPage
+              showTitle={false}
+              createOrgDescription={t("organizationSettings.description")}
+            />
+          </div>
+        }
+        whatsNew={
+          <div className="mx-auto w-full max-w-3xl">
+            <ChangelogSettingsCard
+              markdown={localizedChangelog}
+              title={t("settings.whatsNew")}
+              closeLabel={t("common.cancel")}
+              emptyText={t("settings.changelogEmpty")}
+              viewAllLabel={t("settings.viewAllUpdates")}
+            />
+          </div>
+        }
+      />
       <AlertDialog
         open={!!disconnectSlackTarget}
         onOpenChange={(open) => {

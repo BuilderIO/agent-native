@@ -22,7 +22,6 @@ import {
   IconCheck,
   IconEye,
   IconEyeOff,
-  IconUsers,
 } from "@tabler/icons-react";
 import {
   startOfMonth,
@@ -94,7 +93,6 @@ const navItems = [
     labelKey: "navigation.bookingLinks",
     icon: IconLink,
   },
-  { path: "/team", labelKey: "navigation.team", icon: IconUsers },
   { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 

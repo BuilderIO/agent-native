@@ -1,7 +1,7 @@
 /**
  * Email transport for system emails (password resets, invitations, notifications).
  *
- * Providers are selected by env var:
+ * Providers are selected by scoped secrets:
  *   RESEND_API_KEY    — https://resend.com
  *   SENDGRID_API_KEY  — https://sendgrid.com
  *   EMAIL_FROM        — "Name <addr@domain>" (optional; defaults to Resend's sandbox)
@@ -9,6 +9,8 @@
  * With neither provider configured, `sendEmail` logs the message to the console
  * so the reset-password flow still works end-to-end for local development.
  */
+
+import { resolveSecret } from "./credential-provider.js";
 
 export type EmailProvider = "resend" | "sendgrid" | "dev";
 
@@ -33,32 +35,65 @@ export interface SendEmailArgs {
   attachments?: EmailAttachment[];
 }
 
-export function isEmailConfigured(): boolean {
-  return !!(process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY);
+interface EmailTransportConfig {
+  provider: EmailProvider;
+  resendApiKey?: string;
+  sendgridApiKey?: string;
+  from?: string;
 }
 
-export function getEmailProvider(): EmailProvider {
-  if (process.env.RESEND_API_KEY) return "resend";
-  if (process.env.SENDGRID_API_KEY) return "sendgrid";
-  return "dev";
+async function resolveEmailTransport(): Promise<EmailTransportConfig> {
+  const [resendApiKey, sendgridApiKey, from] = await Promise.all([
+    resolveSecret("RESEND_API_KEY"),
+    resolveSecret("SENDGRID_API_KEY"),
+    resolveSecret("EMAIL_FROM"),
+  ]);
+  const resolvedFrom = from ?? undefined;
+  if (resendApiKey) {
+    return {
+      provider: "resend",
+      resendApiKey,
+      from: resolvedFrom,
+    };
+  }
+  if (sendgridApiKey) {
+    return {
+      provider: "sendgrid",
+      sendgridApiKey,
+      from: resolvedFrom,
+    };
+  }
+  return { provider: "dev", from: resolvedFrom };
 }
 
-function getFromAddress(override?: string, provider?: EmailProvider): string {
-  const explicit = override || process.env.EMAIL_FROM;
+export async function isEmailConfigured(): Promise<boolean> {
+  return (await resolveEmailTransport()).provider !== "dev";
+}
+
+export async function getEmailProvider(): Promise<EmailProvider> {
+  return (await resolveEmailTransport()).provider;
+}
+
+function getFromAddress(
+  config: EmailTransportConfig,
+  override?: string,
+): string {
+  const explicit = override || config.from;
   if (explicit) return explicit;
   // Resend lets unverified accounts send from its sandbox domain; SendGrid
   // does not, so falling back there would cause silent 403s at runtime.
-  if (provider === "sendgrid") {
+  if (config.provider === "sendgrid") {
     throw new Error(
-      "EMAIL_FROM is required when using SendGrid — set it to a verified sender address.",
+      "EMAIL_FROM is required when using SendGrid — save it as a verified sender address.",
     );
   }
   return "Agent Native <onboarding@resend.dev>";
 }
 
 export async function sendEmail(args: SendEmailArgs): Promise<void> {
-  const provider = getEmailProvider();
-  const from = getFromAddress(args.from, provider);
+  const config = await resolveEmailTransport();
+  const provider = config.provider;
+  const from = getFromAddress(config, args.from);
 
   if (provider === "resend") {
     const payload: Record<string, unknown> = {
@@ -89,7 +124,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        Authorization: `Bearer ${config.resendApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
@@ -140,7 +175,7 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
     const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.SENDGRID_API_KEY}`,
+        Authorization: `Bearer ${config.sendgridApiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(sgPayload),
@@ -157,12 +192,12 @@ export async function sendEmail(args: SendEmailArgs): Promise<void> {
   // to send rather than silently leaking secrets to logs.
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "No email provider configured. Set RESEND_API_KEY or SENDGRID_API_KEY.",
+      "No email provider configured. Save RESEND_API_KEY or SENDGRID_API_KEY in settings.",
     );
   }
   console.log(
     `\n[agent-native:email] No email provider configured. ` +
-      `Set RESEND_API_KEY or SENDGRID_API_KEY to send real emails.\n` +
+      `Save RESEND_API_KEY or SENDGRID_API_KEY in settings to send real emails.\n` +
       `---\nTo: ${args.to}\nFrom: ${from}\nSubject: ${args.subject}\n\n` +
       `${args.text || stripHtml(args.html)}\n---\n`,
   );

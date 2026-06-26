@@ -10,11 +10,9 @@ import {
   IconGripVertical,
   IconBook2,
   IconDatabase,
-  IconUsers,
   IconReportAnalytics,
   IconSearch,
   IconArchive,
-  IconTemplate,
   IconBuilding,
   IconLock,
   IconLink,
@@ -144,7 +142,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
-  { icon: IconUsers, labelKey: "navigation.team", href: "/team" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -1960,20 +1957,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           >
             <IconBook2 className="h-4 w-4" />
             {t("navigation.dataDictionary")}
-          </Link>
-
-          {/* Catalog link */}
-          <Link
-            to="/catalog"
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-              location.pathname === "/catalog"
-                ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                : "text-muted-foreground hover:bg-sidebar-accent/50",
-            )}
-          >
-            <IconTemplate className="h-4 w-4" />
-            {t("navigation.templateCatalog")}
           </Link>
 
           {/* Dashboards section */}

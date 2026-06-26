@@ -1137,8 +1137,8 @@ const AssistantChatInner = forwardRef<
   const isComposerDisabled = missingApiKey || composerDisabled;
   const missingApiKeySetupAboveComposer =
     missingApiKeySetupLayout === "sidebar";
-  // Increments each time the user clicks the (disabled) composer while no LLM
-  // is connected — `BuilderSetupCard` watches this to replay a one-shot bounce.
+  // Increments each time the user tries to chat while no LLM is connected.
+  // `BuilderSetupCard` watches this to replay a one-shot bounce.
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
@@ -3152,6 +3152,10 @@ const AssistantChatInner = forwardRef<
                             <button
                               key={suggestion}
                               onClick={() => {
+                                if (missingApiKey) {
+                                  setMissingKeyBouncePulse((p) => p + 1);
+                                  return;
+                                }
                                 threadRuntime.append({
                                   role: "user",
                                   content: [{ type: "text", text: suggestion }],

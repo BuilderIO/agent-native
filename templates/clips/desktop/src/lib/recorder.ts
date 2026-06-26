@@ -86,6 +86,7 @@ const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
 const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
 const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
 const LIVE_UPLOAD_CHUNK_MS = 1_000;
+const NATIVE_FULLSCREEN_SEGMENT_MS = 5 * 60_000;
 const CLOUD_CAPTURE_FRAME_RATE = 24;
 const CLOUD_CAPTURE_MAX_WIDTH = 1920;
 const CLOUD_CAPTURE_MAX_HEIGHT = 1080;
@@ -119,6 +120,13 @@ export function shouldUseNativeFullscreenRecording(
   // Full-screen mode should be one-click on macOS. The native recorder avoids
   // WebKit's old screen/window picker entirely. Set this flag to "0" locally
   // to fall back to getDisplayMedia while debugging that path.
+  return isMacPlatform();
+}
+
+function shouldSaveLocalTranscriptionStartupFailure(): boolean {
+  // Local Whisper/SFSpeech capture is macOS-only today. Non-mac desktop builds
+  // should wait for upload transcription instead of publishing a misleading
+  // native-transcription failure before `request-transcript` runs.
   return isMacPlatform();
 }
 
@@ -962,7 +970,7 @@ async function saveRecordingTranscript(
         recordingId,
         fullText: text,
         segments: transcript.segments,
-        source: "whisper",
+        source: transcript.source ?? "whisper",
       }),
     });
     if (!res.ok) {
@@ -1753,12 +1761,45 @@ async function startNativeFullscreenRecording(
   let cancelPromise: Promise<void> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
   let tickHandle: ReturnType<typeof setInterval> | null = null;
+  let segmentRotateHandle: ReturnType<typeof setInterval> | null = null;
+  let segmentRotateInFlight = false;
   // Pause/resume tracking. The Rust side actually stops the SCStream on
   // pause and starts a new segment on resume; on stop it concatenates
   // segments via AVFoundation. We keep the JS-side timer in sync so the
   // toolbar / pill show the right paused state and elapsed time.
   let pausedAt: number | null = null;
   let accumulatedPauseMs = 0;
+
+  function clearSegmentRotator() {
+    if (segmentRotateHandle) {
+      clearInterval(segmentRotateHandle);
+      segmentRotateHandle = null;
+    }
+  }
+
+  function startSegmentRotator() {
+    clearSegmentRotator();
+    segmentRotateHandle = setInterval(() => {
+      if (stopped || pausedAt != null || segmentRotateInFlight) return;
+      segmentRotateInFlight = true;
+      invoke("native_fullscreen_recording_rotate_segment")
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : String(err);
+          console.warn("[clips-recorder] native segment rotation failed:", err);
+          if (
+            !stopped &&
+            pausedAt == null &&
+            message.includes("paused recording")
+          ) {
+            pausedAt = Date.now();
+            emitState();
+          }
+        })
+        .finally(() => {
+          segmentRotateInFlight = false;
+        });
+    }, NATIVE_FULLSCREEN_SEGMENT_MS);
+  }
 
   function emitState() {
     const now = Date.now();
@@ -1781,6 +1822,7 @@ async function startNativeFullscreenRecording(
         stopped = true;
         console.log("[clips-recorder] native full-screen stop requested");
         if (!localOnly) showFinalizingFeedback();
+        clearSegmentRotator();
         if (tickHandle) {
           clearInterval(tickHandle);
           tickHandle = null;
@@ -1940,6 +1982,7 @@ async function startNativeFullscreenRecording(
       if (stopped) return;
       cancelPromise = (async () => {
         stopped = true;
+        clearSegmentRotator();
         if (tickHandle) {
           clearInterval(tickHandle);
           tickHandle = null;
@@ -2020,6 +2063,7 @@ async function startNativeFullscreenRecording(
   ]);
   stateUnlistens = toolbarUnlistens;
   tickHandle = setInterval(emitState, 500);
+  startSegmentRotator();
   emit("clips:toolbar-enabled", true).catch(() => {});
   emitState();
 
@@ -2041,7 +2085,11 @@ async function startNativeFullscreenRecording(
     if (stopped && transcriptionCapture) {
       void transcriptionCapture.cancel().catch(() => {});
       transcriptionCapture = null;
-    } else if (wantsAudio && !transcriptionCapture) {
+    } else if (
+      wantsAudio &&
+      !transcriptionCapture &&
+      shouldSaveLocalTranscriptionStartupFailure()
+    ) {
       void saveTranscriptFailure(
         "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
       );
@@ -2863,7 +2911,11 @@ async function startRecordingInner(
   if (stopped && transcriptionCapture) {
     void transcriptionCapture.cancel().catch(() => {});
     transcriptionCapture = null;
-  } else if (wantsAudio && !transcriptionCapture) {
+  } else if (
+    wantsAudio &&
+    !transcriptionCapture &&
+    shouldSaveLocalTranscriptionStartupFailure()
+  ) {
     void saveTranscriptFailure(
       "macOS Speech recognition could not start for this recording. Check Speech Recognition and Microphone permissions, then retry transcription.",
     );

@@ -1,11 +1,13 @@
 import {
   ChangelogSettingsCard,
   LanguagePicker,
+  SettingsTabsPage,
   openAgentSettings,
   useActionMutation,
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import { TeamPage } from "@agent-native/core/client/org";
 import {
   IconAdjustments,
   IconBuilding,
@@ -140,382 +142,412 @@ export default function SettingsRoute() {
         }
       />
 
-      <div className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_360px] lg:p-7">
-        <main className="grid gap-5">
-          <ChangelogSettingsCard markdown={changelog} />
+      <SettingsTabsPage
+        teamLabel={t("team.title")}
+        general={
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+            <main className="grid gap-5">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <IconBuilding className="size-4 text-primary" />
+                    {t("settings.identityTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.identityDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-5 md:grid-cols-2">
+                  <TextField
+                    id="company-name"
+                    label={t("settings.companyName")}
+                    value={settings.companyName ?? ""}
+                    placeholder="Acme"
+                    onChange={(value) => update("companyName", value)}
+                  />
+                  <TextField
+                    id="assistant-name"
+                    label={t("settings.assistantName")}
+                    value={settings.assistantName ?? ""}
+                    placeholder="Brain"
+                    onChange={(value) => update("assistantName", value)}
+                  />
+                </CardContent>
+              </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconBuilding className="size-4 text-primary" />
-                {t("settings.identityTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.identityDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-5 md:grid-cols-2">
-              <TextField
-                id="company-name"
-                label={t("settings.companyName")}
-                value={settings.companyName ?? ""}
-                placeholder="Acme"
-                onChange={(value) => update("companyName", value)}
-              />
-              <TextField
-                id="assistant-name"
-                label={t("settings.assistantName")}
-                value={settings.assistantName ?? ""}
-                placeholder="Brain"
-                onChange={(value) => update("assistantName", value)}
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconMessageCircle className="size-4 text-primary" />
-                {t("settings.assistantBehaviorTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.assistantBehaviorDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-6">
-              <div className="grid gap-5 md:grid-cols-2">
-                <SelectField
-                  id="assistant-tone"
-                  label={t("settings.toneLabel")}
-                  value={(settings.assistantTone ?? "direct") as ToneValue}
-                  options={localizedToneOptions}
-                  onChange={(value) => update("assistantTone", value)}
-                />
-                <SelectField
-                  id="source-policy"
-                  label={t("settings.sourcePolicyLabel")}
-                  value={
-                    (settings.sourcePolicy ?? "balanced") as SourcePolicyValue
-                  }
-                  options={localizedSourcePolicyOptions}
-                  onChange={(value) => update("sourcePolicy", value)}
-                />
-              </div>
-              <div className="grid gap-5 md:grid-cols-2">
-                <p className="rounded-md border border-border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
-                  {toneDescription}
-                </p>
-                <p className="rounded-md border border-border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
-                  {sourcePolicyDescription}
-                </p>
-              </div>
-              <Separator />
-              <div className="grid gap-2">
-                <Label htmlFor="distillation-instructions">
-                  {t("settings.coreInstructions")}
-                </Label>
-                <Textarea
-                  id="distillation-instructions"
-                  value={settings.distillationInstructions ?? ""}
-                  onChange={(event) =>
-                    update("distillationInstructions", event.target.value)
-                  }
-                  className="min-h-36 resize-y leading-6"
-                />
-                <p className="text-xs leading-5 text-muted-foreground">
-                  {t("settings.coreInstructionsDescription")}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconAdjustments className="size-4 text-primary" />
-                {t("settings.publishingReviewTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.publishingReviewDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-6">
-              <div className="grid gap-5 md:grid-cols-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="publish-tier">
-                    {t("settings.defaultPublishTier")}
-                  </Label>
-                  <Select
-                    value={settings.defaultPublishTier}
-                    onValueChange={(value) =>
-                      update(
-                        "defaultPublishTier",
-                        value as BrainSettings["defaultPublishTier"],
-                      )
-                    }
-                  >
-                    <SelectTrigger id="publish-tier">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="private">
-                          {t("settings.publishTier.private")}
-                        </SelectItem>
-                        <SelectItem value="team">
-                          {t("settings.publishTier.team")}
-                        </SelectItem>
-                        <SelectItem value="company">
-                          {t("settings.publishTier.company")}
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs leading-5 text-muted-foreground">
-                    {t("settings.defaultPublishTierDescription")}
-                  </p>
-                </div>
-
-                <NumberField
-                  id="connector-poll-minutes"
-                  label={t("settings.connectorPollInterval")}
-                  value={settings.connectorPollMinutes ?? 60}
-                  min={5}
-                  max={1440}
-                  suffix="min"
-                  t={t}
-                  onChange={(value) => update("connectorPollMinutes", value)}
-                />
-              </div>
-
-              <Separator />
-
-              <div className="grid gap-4">
-                <SettingSwitch
-                  label={t("settings.requireApproval")}
-                  description={t("settings.requireApprovalDescription")}
-                  checked={Boolean(settings.requireApprovalForCompanyKnowledge)}
-                  onChange={(checked) =>
-                    update("requireApprovalForCompanyKnowledge", checked)
-                  }
-                />
-                <SettingSwitch
-                  label={t("settings.autoArchiveResolved")}
-                  description={t("settings.autoArchiveResolvedDescription")}
-                  checked={Boolean(settings.autoArchiveResolved)}
-                  onChange={(checked) => update("autoArchiveResolved", checked)}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconShieldCheck className="size-4 text-primary" />
-                {t("settings.safetyEvidenceTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.safetyEvidenceDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4">
-              <SettingSwitch
-                label={t("settings.sanitizeCaptures")}
-                description={t("settings.sanitizeCapturesDescription")}
-                checked={settings.captureSanitizationEnabled !== false}
-                onChange={(checked) =>
-                  update("captureSanitizationEnabled", checked)
-                }
-              />
-              {settings.captureSanitizationEnabled !== false ? (
-                <div className="grid gap-4 rounded-md border border-border p-4">
-                  <div className="grid gap-2">
-                    <Label htmlFor="capture-sanitization-model">
-                      {t("settings.sanitizationModel")}
-                    </Label>
-                    <Input
-                      id="capture-sanitization-model"
-                      value={settings.captureSanitizationModel ?? ""}
-                      placeholder={t("settings.sanitizationModelPlaceholder")}
-                      onChange={(event) =>
-                        update("captureSanitizationModel", event.target.value)
-                      }
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <IconMessageCircle className="size-4 text-primary" />
+                    {t("settings.assistantBehaviorTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.assistantBehaviorDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-6">
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <SelectField
+                      id="assistant-tone"
+                      label={t("settings.toneLabel")}
+                      value={(settings.assistantTone ?? "direct") as ToneValue}
+                      options={localizedToneOptions}
+                      onChange={(value) => update("assistantTone", value)}
                     />
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      {t("settings.sanitizationModelDescription")}
+                    <SelectField
+                      id="source-policy"
+                      label={t("settings.sourcePolicyLabel")}
+                      value={
+                        (settings.sourcePolicy ??
+                          "balanced") as SourcePolicyValue
+                      }
+                      options={localizedSourcePolicyOptions}
+                      onChange={(value) => update("sourcePolicy", value)}
+                    />
+                  </div>
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <p className="rounded-md border border-border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+                      {toneDescription}
+                    </p>
+                    <p className="rounded-md border border-border bg-muted/30 p-3 text-xs leading-5 text-muted-foreground">
+                      {sourcePolicyDescription}
                     </p>
                   </div>
+                  <Separator />
                   <div className="grid gap-2">
-                    <Label htmlFor="capture-sanitization-instructions">
-                      {t("settings.sanitizationInstructions")}
+                    <Label htmlFor="distillation-instructions">
+                      {t("settings.coreInstructions")}
                     </Label>
                     <Textarea
-                      id="capture-sanitization-instructions"
-                      value={settings.captureSanitizationInstructions ?? ""}
+                      id="distillation-instructions"
+                      value={settings.distillationInstructions ?? ""}
                       onChange={(event) =>
-                        update(
-                          "captureSanitizationInstructions",
-                          event.target.value,
-                        )
+                        update("distillationInstructions", event.target.value)
                       }
-                      className="min-h-24 resize-y leading-6"
+                      className="min-h-36 resize-y leading-6"
+                    />
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      {t("settings.coreInstructionsDescription")}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <IconAdjustments className="size-4 text-primary" />
+                    {t("settings.publishingReviewTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.publishingReviewDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-6">
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <div className="grid gap-2">
+                      <Label htmlFor="publish-tier">
+                        {t("settings.defaultPublishTier")}
+                      </Label>
+                      <Select
+                        value={settings.defaultPublishTier}
+                        onValueChange={(value) =>
+                          update(
+                            "defaultPublishTier",
+                            value as BrainSettings["defaultPublishTier"],
+                          )
+                        }
+                      >
+                        <SelectTrigger id="publish-tier">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectGroup>
+                            <SelectItem value="private">
+                              {t("settings.publishTier.private")}
+                            </SelectItem>
+                            <SelectItem value="team">
+                              {t("settings.publishTier.team")}
+                            </SelectItem>
+                            <SelectItem value="company">
+                              {t("settings.publishTier.company")}
+                            </SelectItem>
+                          </SelectGroup>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs leading-5 text-muted-foreground">
+                        {t("settings.defaultPublishTierDescription")}
+                      </p>
+                    </div>
+
+                    <NumberField
+                      id="connector-poll-minutes"
+                      label={t("settings.connectorPollInterval")}
+                      value={settings.connectorPollMinutes ?? 60}
+                      min={5}
+                      max={1440}
+                      suffix="min"
+                      t={t}
+                      onChange={(value) =>
+                        update("connectorPollMinutes", value)
+                      }
                     />
                   </div>
-                </div>
+
+                  <Separator />
+
+                  <div className="grid gap-4">
+                    <SettingSwitch
+                      label={t("settings.requireApproval")}
+                      description={t("settings.requireApprovalDescription")}
+                      checked={Boolean(
+                        settings.requireApprovalForCompanyKnowledge,
+                      )}
+                      onChange={(checked) =>
+                        update("requireApprovalForCompanyKnowledge", checked)
+                      }
+                    />
+                    <SettingSwitch
+                      label={t("settings.autoArchiveResolved")}
+                      description={t("settings.autoArchiveResolvedDescription")}
+                      checked={Boolean(settings.autoArchiveResolved)}
+                      onChange={(checked) =>
+                        update("autoArchiveResolved", checked)
+                      }
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <IconShieldCheck className="size-4 text-primary" />
+                    {t("settings.safetyEvidenceTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.safetyEvidenceDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4">
+                  <SettingSwitch
+                    label={t("settings.sanitizeCaptures")}
+                    description={t("settings.sanitizeCapturesDescription")}
+                    checked={settings.captureSanitizationEnabled !== false}
+                    onChange={(checked) =>
+                      update("captureSanitizationEnabled", checked)
+                    }
+                  />
+                  {settings.captureSanitizationEnabled !== false ? (
+                    <div className="grid gap-4 rounded-md border border-border p-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="capture-sanitization-model">
+                          {t("settings.sanitizationModel")}
+                        </Label>
+                        <Input
+                          id="capture-sanitization-model"
+                          value={settings.captureSanitizationModel ?? ""}
+                          placeholder={t(
+                            "settings.sanitizationModelPlaceholder",
+                          )}
+                          onChange={(event) =>
+                            update(
+                              "captureSanitizationModel",
+                              event.target.value,
+                            )
+                          }
+                        />
+                        <p className="text-xs leading-5 text-muted-foreground">
+                          {t("settings.sanitizationModelDescription")}
+                        </p>
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="capture-sanitization-instructions">
+                          {t("settings.sanitizationInstructions")}
+                        </Label>
+                        <Textarea
+                          id="capture-sanitization-instructions"
+                          value={settings.captureSanitizationInstructions ?? ""}
+                          onChange={(event) =>
+                            update(
+                              "captureSanitizationInstructions",
+                              event.target.value,
+                            )
+                          }
+                          className="min-h-24 resize-y leading-6"
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+                  <SettingSwitch
+                    label={t("settings.autoRedactEmails")}
+                    description={t("settings.autoRedactEmailsDescription")}
+                    checked={Boolean(settings.autoRedactEmails)}
+                    onChange={(checked) => update("autoRedactEmails", checked)}
+                  />
+                  <SettingSwitch
+                    label={t("settings.requireCitations")}
+                    description={t("settings.requireCitationsDescription")}
+                    checked={Boolean(settings.requireCitations)}
+                    onChange={(checked) => update("requireCitations", checked)}
+                  />
+                  <SettingSwitch
+                    label={t("settings.notifySourceErrors")}
+                    description={t("settings.notifySourceErrorsDescription")}
+                    checked={Boolean(settings.notifyOnSourceErrors)}
+                    onChange={(checked) =>
+                      update("notifyOnSourceErrors", checked)
+                    }
+                  />
+                </CardContent>
+              </Card>
+            </main>
+
+            <aside className="grid content-start gap-5">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <IconAdjustments className="size-4 text-primary" />
+                    {t("settings.languageTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.languageDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-1.5">
+                  <Label>{t("settings.languageLabel")}</Label>
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <IconAdjustments className="size-4 text-primary" />
+                    {t("settings.agentTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.agentDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Button variant="outline" onClick={() => openAgentSettings()}>
+                    {t("settings.openAgentSettings")}
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <IconFileText className="size-4 text-primary" />
+                    {t("settings.currentPolicy")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.currentPolicyDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3 text-sm">
+                  <PolicyRow
+                    label={t("settings.policy.assistant")}
+                    value={settings.assistantName || "Brain"}
+                  />
+                  <PolicyRow
+                    label={t("settings.policy.company")}
+                    value={settings.companyName || t("settings.notSet")}
+                  />
+                  <PolicyRow
+                    label={t("settings.policy.tone")}
+                    value={t(
+                      `settings.tone.${settings.assistantTone ?? "direct"}.label`,
+                    )}
+                  />
+                  <PolicyRow
+                    label={t("settings.policy.sources")}
+                    value={t(
+                      `settings.sourcePolicy.${settings.sourcePolicy ?? "balanced"}.label`,
+                    )}
+                  />
+                  <PolicyRow
+                    label={t("settings.policy.publishTier")}
+                    value={t(
+                      `settings.publishTier.${settings.defaultPublishTier ?? "team"}`,
+                    )}
+                  />
+                  <PolicyRow
+                    label={t("settings.policy.approval")}
+                    value={
+                      settings.requireApprovalForCompanyKnowledge
+                        ? t("settings.required")
+                        : t("settings.notRequired")
+                    }
+                  />
+                  <PolicyRow
+                    label={t("settings.policy.redaction")}
+                    value={
+                      settings.autoRedactEmails
+                        ? t("settings.enabled")
+                        : t("settings.disabled")
+                    }
+                  />
+                  <PolicyRow
+                    label={t("settings.policy.preSaveFilter")}
+                    value={
+                      settings.captureSanitizationEnabled === false
+                        ? t("settings.disabled")
+                        : t("settings.enabled")
+                    }
+                  />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <IconGauge className="size-4 text-primary" />
+                    {t("settings.autoPublishGateTitle")}
+                  </CardTitle>
+                  <CardDescription>
+                    {t("settings.autoPublishGateDescription")}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-muted-foreground">
+                      {t("settings.confidenceThreshold")}
+                    </span>
+                    <Badge variant="secondary">90%+</Badge>
+                  </div>
+                  <Progress value={90} className="h-2" />
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("settings.autoPublishGateDetail")}
+                  </p>
+                </CardContent>
+              </Card>
+
+              {settingsQuery.isError || saveSettings.isError ? (
+                <EmptyActionState
+                  title={t("settings.actionsUnavailableTitle")}
+                  detail={t("settings.actionsUnavailableDetail")}
+                />
               ) : null}
-              <SettingSwitch
-                label={t("settings.autoRedactEmails")}
-                description={t("settings.autoRedactEmailsDescription")}
-                checked={Boolean(settings.autoRedactEmails)}
-                onChange={(checked) => update("autoRedactEmails", checked)}
-              />
-              <SettingSwitch
-                label={t("settings.requireCitations")}
-                description={t("settings.requireCitationsDescription")}
-                checked={Boolean(settings.requireCitations)}
-                onChange={(checked) => update("requireCitations", checked)}
-              />
-              <SettingSwitch
-                label={t("settings.notifySourceErrors")}
-                description={t("settings.notifySourceErrorsDescription")}
-                checked={Boolean(settings.notifyOnSourceErrors)}
-                onChange={(checked) => update("notifyOnSourceErrors", checked)}
-              />
-            </CardContent>
-          </Card>
-        </main>
-
-        <aside className="grid content-start gap-5">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconAdjustments className="size-4 text-primary" />
-                {t("settings.languageTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.languageDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              <Label>{t("settings.languageLabel")}</Label>
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconAdjustments className="size-4 text-primary" />
-                {t("settings.agentTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.agentDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => openAgentSettings()}>
-                {t("settings.openAgentSettings")}
-              </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconFileText className="size-4 text-primary" />
-                {t("settings.currentPolicy")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.currentPolicyDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 text-sm">
-              <PolicyRow
-                label={t("settings.policy.assistant")}
-                value={settings.assistantName || "Brain"}
-              />
-              <PolicyRow
-                label={t("settings.policy.company")}
-                value={settings.companyName || t("settings.notSet")}
-              />
-              <PolicyRow
-                label={t("settings.policy.tone")}
-                value={t(
-                  `settings.tone.${settings.assistantTone ?? "direct"}.label`,
-                )}
-              />
-              <PolicyRow
-                label={t("settings.policy.sources")}
-                value={t(
-                  `settings.sourcePolicy.${settings.sourcePolicy ?? "balanced"}.label`,
-                )}
-              />
-              <PolicyRow
-                label={t("settings.policy.publishTier")}
-                value={t(
-                  `settings.publishTier.${settings.defaultPublishTier ?? "team"}`,
-                )}
-              />
-              <PolicyRow
-                label={t("settings.policy.approval")}
-                value={
-                  settings.requireApprovalForCompanyKnowledge
-                    ? t("settings.required")
-                    : t("settings.notRequired")
-                }
-              />
-              <PolicyRow
-                label={t("settings.policy.redaction")}
-                value={
-                  settings.autoRedactEmails
-                    ? t("settings.enabled")
-                    : t("settings.disabled")
-                }
-              />
-              <PolicyRow
-                label={t("settings.policy.preSaveFilter")}
-                value={
-                  settings.captureSanitizationEnabled === false
-                    ? t("settings.disabled")
-                    : t("settings.enabled")
-                }
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconGauge className="size-4 text-primary" />
-                {t("settings.autoPublishGateTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.autoPublishGateDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 text-sm">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-muted-foreground">
-                  {t("settings.confidenceThreshold")}
-                </span>
-                <Badge variant="secondary">90%+</Badge>
-              </div>
-              <Progress value={90} className="h-2" />
-              <p className="text-xs leading-5 text-muted-foreground">
-                {t("settings.autoPublishGateDetail")}
-              </p>
-            </CardContent>
-          </Card>
-
-          {settingsQuery.isError || saveSettings.isError ? (
-            <EmptyActionState
-              title={t("settings.actionsUnavailableTitle")}
-              detail={t("settings.actionsUnavailableDetail")}
+            </aside>
+          </div>
+        }
+        team={
+          <div className="mx-auto w-full max-w-3xl">
+            <TeamPage
+              showTitle={false}
+              createOrgDescription={t("team.createOrgDescription")}
             />
-          ) : null}
-        </aside>
-      </div>
+          </div>
+        }
+        whatsNew={
+          <div className="mx-auto w-full max-w-3xl">
+            <ChangelogSettingsCard markdown={changelog} />
+          </div>
+        }
+      />
     </div>
   );
 }

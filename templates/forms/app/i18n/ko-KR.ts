@@ -17,6 +17,7 @@ const messages = {
     settings: "설정",
     brand: "양식",
     askForms: "양식에 문의하기",
+    allForms: "모든 양식",
     team: "팀",
   },
   settings: {

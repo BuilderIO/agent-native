@@ -113,6 +113,7 @@ export function GoogleSetupWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          scope: "workspace",
           vars: [
             { key: "GOOGLE_CLIENT_ID", value: id },
             { key: "GOOGLE_CLIENT_SECRET", value: secret },
@@ -127,7 +128,7 @@ export function GoogleSetupWizard() {
 
       setSaved(true);
       await fetchStatus();
-      // Reload after a short delay to let Vite restart with new env vars
+      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setError(
@@ -149,6 +150,7 @@ export function GoogleSetupWizard() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          scope: "workspace",
           vars: [
             { key: "GOOGLE_CLIENT_ID", value: clientId.trim() },
             { key: "GOOGLE_CLIENT_SECRET", value: clientSecret.trim() },
@@ -165,7 +167,7 @@ export function GoogleSetupWizard() {
       setClientId("");
       setClientSecret("");
       await fetchStatus();
-      // Reload after a short delay to let Vite restart with new env vars
+      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setError(

@@ -48,10 +48,6 @@ export function prewarmPlanRoutePath(path: string) {
     );
   }
 
-  if (pathname === "/team") {
-    jobs.push(prewarm("team", () => import("@/routes/team")));
-  }
-
   return Promise.all(jobs);
 }
 

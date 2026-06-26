@@ -312,7 +312,7 @@ async function inviteOne(
 
   let emailSent = false;
   let emailError: string | undefined;
-  if (isEmailConfigured()) {
+  if (await isEmailConfigured()) {
     try {
       const { subject, html, text } = renderInviteEmail({
         invitee: email,

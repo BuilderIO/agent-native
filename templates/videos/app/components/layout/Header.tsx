@@ -10,7 +10,6 @@ const pageTitleKeys: Record<string, string> = {
   "/": "header.videos",
   "/components": "header.components",
   "/design-systems": "header.designSystems",
-  "/team": "header.team",
   "/settings": "header.settings",
 };
 

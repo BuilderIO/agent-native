@@ -1,5 +1,3 @@
-import path from "path";
-
 import {
   createApp,
   createRouter,
@@ -11,8 +9,8 @@ import {
   type H3Event,
 } from "h3";
 
+import { getOrgContext } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
-import { agentEnv } from "../shared/agent-env.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
   EMBED_TRANSPLANT_HEADER,
@@ -20,12 +18,19 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
-import { BUILDER_ENV_KEYS } from "./builder-browser.js";
+import { getSession } from "./auth.js";
 import {
   getAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
-import { isEnvVarWriteAllowed } from "./env-var-writes.js";
+import { resolveSecret } from "./credential-provider.js";
+import { runWithRequestContext } from "./request-context.js";
+import {
+  findUnsupportedScopedKeyNames,
+  saveKeyValuesToScopedSecrets,
+  ScopedKeyStorageError,
+  type ScopedKeySaveRequestScope,
+} from "./scoped-key-storage.js";
 
 export interface EnvKeyConfig {
   /** Environment variable name (e.g. "HUBSPOT_ACCESS_TOKEN") */
@@ -47,68 +52,8 @@ export interface CreateServerOptions {
   pingMessage?: string;
   /** Disable the /_agent-native/ping health check. Default: false */
   disablePing?: boolean;
-  /** Env key configuration for the settings UI. Enables /_agent-native/env-status and /_agent-native/env-vars routes. */
+  /** Key configuration for the settings UI. Enables status plus the scoped-secret compatibility save route. */
   envKeys?: EnvKeyConfig[];
-}
-
-/**
- * Upsert vars into a .env file, preserving existing structure.
- */
-export async function upsertEnvFile(
-  envPath: string,
-  vars: Array<{ key: string; value: string }>,
-): Promise<void> {
-  // Sanitize: reject values that could inject additional env vars
-  for (const { key, value } of vars) {
-    if (/[\n\r\0]/.test(value)) {
-      throw new Error(
-        `Invalid env var value for ${key}: must not contain newlines or control characters`,
-      );
-    }
-  }
-
-  const fs = await import("fs");
-
-  let content = "";
-  try {
-    content = fs.readFileSync(envPath, "utf-8");
-  } catch {
-    // File doesn't exist yet
-  }
-
-  const lines = content.split("\n");
-  const remaining = new Map(vars.map((v) => [v.key, v.value]));
-
-  // Update existing lines in place
-  const updated = lines.map((line) => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) return line;
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex === -1) return line;
-    const key = trimmed.slice(0, eqIndex).trim();
-    if (remaining.has(key)) {
-      const value = remaining.get(key)!;
-      remaining.delete(key);
-      return `${key}=${value}`;
-    }
-    return line;
-  });
-
-  // Append new vars
-  for (const [key, value] of remaining) {
-    updated.push(`${key}=${value}`);
-  }
-
-  // Ensure trailing newline
-  let result = updated.join("\n");
-  if (!result.endsWith("\n")) result += "\n";
-
-  try {
-    fs.mkdirSync(path.dirname(envPath), { recursive: true });
-    fs.writeFileSync(envPath, result);
-  } catch {
-    // Edge runtimes don't have writable filesystem — skip silently
-  }
 }
 
 export interface CreateServerResult {
@@ -120,7 +65,8 @@ export interface CreateServerResult {
  * Create a pre-configured H3 app with standard agent-native setup:
  * - CORS headers via middleware
  * - /_agent-native/ping health check
- * - /_agent-native/env-status and /_agent-native/env-vars (when envKeys is provided)
+ * - /_agent-native/env-status and the scoped-secret compatibility save route
+ *   at /_agent-native/env-vars (when envKeys is provided)
  *
  * Returns { app, router } — mount routes on `router`.
  */
@@ -242,7 +188,6 @@ export function createServer(
   }
 
   const router = createRouter();
-  app.use(router);
 
   // Health check
   if (!options.disablePing) {
@@ -259,73 +204,67 @@ export function createServer(
   // Env key management routes
   if (options.envKeys) {
     const envKeys = options.envKeys;
+    const allowedEnvKeyNames = envKeys.map(({ key }) => key);
 
     router.get(
       "/_agent-native/env-status",
-      defineEventHandler(() => {
-        return envKeys.map((cfg) => ({
-          key: cfg.key,
-          label: cfg.label,
-          required: cfg.required ?? false,
-          configured: !!process.env[cfg.key],
-          ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
-        }));
+      defineEventHandler(async (event) => {
+        const session = await getSession(event).catch(() => null);
+        const userEmail = session?.email;
+        let orgId: string | undefined;
+        if (userEmail) {
+          const orgCtx = await getOrgContext(event).catch(() => null);
+          orgId = orgCtx?.orgId ?? undefined;
+        }
+        return Promise.all(
+          envKeys.map(async (cfg) => ({
+            key: cfg.key,
+            label: cfg.label,
+            required: cfg.required ?? false,
+            configured:
+              Boolean(process.env[cfg.key]) ||
+              (await runWithRequestContext({ userEmail, orgId }, () =>
+                resolveSecret(cfg.key).then(Boolean),
+              )),
+            ...(cfg.helpText ? { helpText: cfg.helpText } : {}),
+          })),
+        );
       }),
     );
 
     router.post(
       "/_agent-native/env-vars",
       defineEventHandler(async (event: H3Event) => {
-        // Env vars are deployment-wide globals — see isEnvVarWriteAllowed
-        // above. Disable the endpoint on any multi-tenant deploy.
-        if (!isEnvVarWriteAllowed()) {
-          setResponseStatus(event, 403);
+        const body = await readBody(event);
+        const { vars, scope } = body as {
+          vars?: Array<{ key: string; value: string }>;
+          scope?: ScopedKeySaveRequestScope;
+        };
+        const unsupportedKeys = findUnsupportedScopedKeyNames(
+          vars,
+          allowedEnvKeyNames,
+        );
+        if (unsupportedKeys.length > 0) {
+          setResponseStatus(event, 400);
           return {
-            error:
-              "env-vars endpoint disabled on multi-tenant deployments. Use scoped secrets or credentials for user/org API keys.",
+            error: `Unsupported env key${unsupportedKeys.length === 1 ? "" : "s"}: ${unsupportedKeys.join(", ")}`,
           };
         }
-
-        const body = await readBody(event);
-        const { vars } = body as {
-          vars?: Array<{ key: string; value: string }>;
-        };
-
-        if (!Array.isArray(vars) || vars.length === 0) {
-          setResponseStatus(event, 400);
-          return { error: "vars array required" };
+        try {
+          const result = await saveKeyValuesToScopedSecrets(event, vars, scope);
+          return { saved: result.saved, storage: "scoped-secrets" };
+        } catch (err) {
+          if (err instanceof ScopedKeyStorageError) {
+            setResponseStatus(event, err.statusCode);
+            return { error: err.message };
+          }
+          setResponseStatus(event, 500);
+          return { error: "Failed to save keys" };
         }
-
-        // Only allow keys that are in the env config
-        const allowedKeys = new Set(envKeys.map((k) => k.key));
-        const blockedEnvVarWriteKeys = new Set<string>(BUILDER_ENV_KEYS);
-        const filtered = vars.filter(
-          (v) =>
-            typeof v.key === "string" &&
-            allowedKeys.has(v.key) &&
-            !blockedEnvVarWriteKeys.has(v.key),
-        );
-        if (filtered.length === 0) {
-          setResponseStatus(event, 400);
-          return { error: "No recognized env keys in request" };
-        }
-
-        // Write to .env file
-        const envPath = path.join(process.cwd(), ".env");
-        await upsertEnvFile(envPath, filtered);
-
-        // Update process.env so the app picks up the new values immediately
-        for (const { key, value } of filtered) {
-          process.env[key] = value;
-        }
-
-        // Notify parent (Builder or frame) via postMessage
-        agentEnv.setVars(filtered);
-
-        return { saved: filtered.map((v) => v.key) };
       }),
     );
   }
 
+  app.use(router);
   return { app, router };
 }

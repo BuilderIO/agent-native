@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -208,7 +208,7 @@ describe("createPtyWebSocketServer", () => {
     ws.close();
   });
 
-  it("sanitizes env var writes sent through the terminal bridge", async () => {
+  it("does not write env vars sent through the terminal bridge to .env", async () => {
     const appDir = mkdtempSync(path.join(os.tmpdir(), "agent-terminal-"));
     tempDirs.push(appDir);
     const server = await createServer({ appDir, command: "builder" });
@@ -228,15 +228,13 @@ describe("createPtyWebSocketServer", () => {
     );
 
     const message = JSON.parse(await nextMessage(ws));
-    const envFile = readFileSync(path.join(appDir, ".env"), "utf-8");
 
     expect(message).toEqual({
       type: "env-vars-saved",
       keys: ["GOOD_KEY", "MULTILINE"],
+      storage: "scoped-secrets",
     });
-    expect(envFile).toContain('GOOD_KEY="hello \\"world\\""');
-    expect(envFile).toContain("MULTILINE=alphabeta");
-    expect(envFile).not.toContain("BAD-KEY");
+    expect(existsSync(path.join(appDir, ".env"))).toBe(false);
     ws.close();
   });
 });

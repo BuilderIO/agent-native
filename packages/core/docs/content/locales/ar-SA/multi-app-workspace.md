@@ -168,7 +168,7 @@ pnpm dev
 
 ## متغيرات البيئة المشتركة {#shared-env}
 
-يتم تحميل جذر مساحة العمل `.env` في كل تطبيق تلقائيًا. ضع المفاتيح المشتركة مرة واحدة في الجذر — `ANTHROPIC_API_KEY`، `A2A_SECRET`، `BETTER_AUTH_SECRET`، `DATABASE_URL`، `BUILDER_PRIVATE_KEY`، وما إلى ذلك — وسيلتقطها كل تطبيق. يتم إجراء التجاوزات لكل تطبيق في `apps/<name>/.env` والفوز في الصراع.
+The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
 بالنسبة لبيانات اعتماد تطبيق وقت التشغيل، تفضل Dispatch vault على تحرير ملفات `.env` يدويًا. يتم تعيين الوصول الافتراضي للمخزن إلى جميع التطبيقات، لذلك يكون كل مفتاح مخزن محفوظ متاحًا لكل تطبيق مساحة عمل ويمكن دفعه باستخدام `sync-vault-to-app`. قم بتبديل المخزن إلى الوضع اليدوي فقط عندما تحتاج التطبيقات إلى منح صريحة لكل مفتاح.
 
@@ -182,8 +182,8 @@ my-company-platform/
 
 هناك عدد قليل من عمليات الإعداد التي تكون جاهزة للاستخدام في مساحة العمل:
 
-- **Builder `/cli-auth`**: يؤدي النقر على "Connect Builder" من أي تطبيق إلى كتابة `BUILDER_PRIVATE_KEY` والأصدقاء إلى **جذر مساحة العمل** `.env`، بحيث يتمكن كل تطبيق من الوصول إلى المتصفح مرة واحدة.
-- **مسار إعدادات Env-vars** (`POST /_agent-native/env-vars`): عندما تكون داخل مساحة عمل، يتم كتابة جذر مساحة العمل بشكل افتراضي `.env`. قم بتمرير `scope: "app"` في النص لتجاوز تطبيق واحد.
+- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## بيانات الاعتماد المشتركة {#shared-credentials}
 

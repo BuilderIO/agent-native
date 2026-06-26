@@ -58,12 +58,12 @@ export const getGoogleDocsAuthUrlHandler = defineEventHandler(
       return { error: "not_authenticated" };
     }
 
-    if (!isGoogleDocsOAuthConfigured()) {
+    if (!(await isGoogleDocsOAuthConfigured(owner))) {
       setResponseStatus(event, 422);
       return {
         error: "missing_credentials",
         message:
-          "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+          "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
       };
     }
 
@@ -96,7 +96,7 @@ export const getGoogleDocsAuthUrlHandler = defineEventHandler(
         returnUrl,
         flowId,
       });
-      const url = getGoogleDocsAuthUrl(redirectUri, state);
+      const url = await getGoogleDocsAuthUrl(redirectUri, state, owner);
       if (q.redirect === "1") {
         return sendRedirect(event, url, 302);
       }
@@ -170,9 +170,9 @@ export const getGoogleDocsStatus = defineEventHandler(
 
     try {
       const accounts = await listGoogleDocsAccounts(owner);
-      const picker = getGooglePickerConfig();
+      const picker = await getGooglePickerConfig(owner);
       return {
-        configured: isGoogleDocsOAuthConfigured(),
+        configured: await isGoogleDocsOAuthConfigured(owner),
         connected: accounts.length > 0,
         accounts,
         pickerConfigured: !!(picker.apiKey && picker.appId),
@@ -193,22 +193,22 @@ export const getGoogleDocsPickerToken = defineEventHandler(
       return { error: "not_authenticated" };
     }
 
-    if (!isGoogleDocsOAuthConfigured()) {
+    if (!(await isGoogleDocsOAuthConfigured(owner))) {
       setResponseStatus(event, 422);
       return {
         error: "missing_credentials",
         message:
-          "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+          "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
       };
     }
 
-    const picker = getGooglePickerConfig();
+    const picker = await getGooglePickerConfig(owner);
     if (!picker.apiKey || !picker.appId) {
       setResponseStatus(event, 422);
       return {
         error: "missing_picker_config",
         message:
-          "Google Picker is not configured. Set GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID.",
+          "Google Picker is not configured. Save GOOGLE_PICKER_API_KEY and GOOGLE_PICKER_APP_ID in settings.",
       };
     }
 
