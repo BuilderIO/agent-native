@@ -5,7 +5,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
-import { ToolCallDisplay } from "./tool-call-display.js";
+import type { ContentPart } from "../sse-event-processor.js";
+import {
+  ChatRunningContext,
+  ReconnectStreamMessage,
+  ToolCallDisplay,
+} from "./tool-call-display.js";
 import {
   clearReservedToolRenderersForTests,
   clearToolRenderersForTests,
@@ -19,6 +24,18 @@ import {
 
 vi.mock("../mcp-apps/McpAppRenderer.js", () => ({
   McpAppRenderer: () => <div data-testid="mcp-app">MCP APP</div>,
+}));
+
+vi.mock("../extensions/InlineExtensionFrame.js", () => ({
+  InlineExtensionFrame: ({ extensionId, extension }: any) => (
+    <div
+      data-testid="inline-extension-frame"
+      data-extension-id={extensionId ?? extension?.id}
+      data-extension-mode={extension?.mode}
+    >
+      {extension?.name}
+    </div>
+  ),
 }));
 
 function dataInsightPayload(extra: Record<string, unknown> = {}) {
@@ -185,6 +202,38 @@ describe("ToolCallDisplay native renderers", () => {
     expect(container.textContent).toContain("Ada");
   });
 
+  it("renders action-declared inline extensions natively", () => {
+    act(() => {
+      root.render(
+        <ToolCallDisplay
+          toolName="render-inline-extension"
+          args={{}}
+          result={JSON.stringify({
+            ok: true,
+            inlineExtension: {
+              mode: "transient",
+              id: "inline-1",
+              name: "Sensitivity controls",
+              description: "Adjust the threshold",
+              content: "<div>Controls</div>",
+            },
+          })}
+          chatUI={{ renderer: "core.inline-extension" }}
+          isRunning={false}
+        />,
+      );
+    });
+
+    const frame = container.querySelector(
+      '[data-testid="inline-extension-frame"]',
+    );
+    expect(frame).toBeTruthy();
+    expect(frame?.getAttribute("data-extension-id")).toBe("inline-1");
+    expect(frame?.getAttribute("data-extension-mode")).toBe("transient");
+    expect(container.textContent).toContain("Sensitivity controls");
+    expect(container.textContent).not.toContain("render inline extension");
+  });
+
   it("keeps built-in data widget renderer identities stable across resolves", () => {
     const context = {
       toolName: "top-customers",
@@ -282,5 +331,66 @@ describe("ToolCallDisplay native renderers", () => {
 
     expect(container.textContent).toContain("Responses by day");
     expect(container.textContent).toContain("Recent rows");
+  });
+
+  it("smooth-streams only the tail text part during reconnect replay", () => {
+    const longText = (label: string) => `${label} ${"text ".repeat(140)}`;
+    const content: ContentPart[] = [
+      { type: "text", text: longText("before") },
+      {
+        type: "tool-call",
+        toolCallId: "tc_1",
+        toolName: "read-file",
+        args: {},
+        result: "done",
+      },
+      { type: "text", text: longText("middle") },
+      {
+        type: "tool-call",
+        toolCallId: "tc_2",
+        toolName: "write-file",
+        args: {},
+        result: "done",
+      },
+      { type: "text", text: longText("tail") },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const textParts = Array.from(container.querySelectorAll(".agent-markdown"));
+    expect(
+      textParts.map((part) => part.getAttribute("data-streaming")),
+    ).toEqual([null, null, "true"]);
+  });
+
+  it("does not smooth-stream completed text when reconnect replay is on a tool", () => {
+    const content: ContentPart[] = [
+      { type: "text", text: `done ${"text ".repeat(140)}` },
+      {
+        type: "tool-call",
+        toolCallId: "tc_1",
+        toolName: "update-dashboard",
+        args: {},
+      },
+    ];
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={true}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
+    const textParts = Array.from(container.querySelectorAll(".agent-markdown"));
+    expect(
+      textParts.map((part) => part.getAttribute("data-streaming")),
+    ).toEqual([null]);
   });
 });

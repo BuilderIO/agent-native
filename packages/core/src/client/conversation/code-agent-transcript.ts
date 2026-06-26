@@ -175,9 +175,12 @@ function toConversationTool(
         : item.state === "activity"
           ? "activity"
           : "running",
+    args: recordValue(item.input),
     input: preview(item.input),
+    resultJson: item.result,
     result: preview(item.result),
     ...(item.mcpApp ? { mcpApp: item.mcpApp } : {}),
+    ...(item.chatUI ? { chatUI: item.chatUI } : {}),
     summary:
       item.state === "completed"
         ? "finished"
@@ -227,6 +230,12 @@ function toConversationArtifact(
     path: artifactPath,
     url: artifactUrl,
   };
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function preview(value: unknown): string | undefined {

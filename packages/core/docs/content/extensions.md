@@ -7,6 +7,12 @@ description: "Mini-apps your users build inside your template — a custom KPI t
 
 Extensions are **mini-apps your users build inside your template**.
 
+When the agent needs a one-time interactive answer inside the chat itself, use
+[Generative UI](/docs/generative-ui) instead. Generative UI uses the same
+sandbox and bridge helpers, but `render-inline-extension` keeps the result
+transient, while `create-extension` saves a reusable extension that also appears
+in the Extensions view.
+
 If you've used QuickBooks Online, you've seen the model: QBO ships a core accounting product, and users layer on small custom widgets — a custom report, a payroll calculator, a tax-rule checker — that live inside the same app and use the same data. Extensions are the agent-native version of that idea, except your users don't write any code. They describe what they want, and the agent builds it.
 
 The framing matters: an extension isn't a generic "do whatever you want" sandbox. It's a **mini-app that extends a specific template** — Mail, Analytics, Calendar, Clips, Design — and uses that template's actions and data. A Mail extension reads emails. An Analytics extension reads a dashboard's metrics. A Calendar extension acts on the open event. They feel like part of the host product because they _are_ part of the host product.
@@ -169,12 +175,16 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 | `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`           |
 | `extensionData.get(collection, id, opts?)`       | Get a single item                                         | `extensionData.get('notes', 'note-1')`                    |
 | `extensionData.remove(collection, id, opts?)`    | Delete a persisted item                                   | `extensionData.remove('notes', 'note-1')`                 |
+| `window.slotContext`                             | Read the page/chat context passed into this slot          | `window.slotContext?.contactEmail`                        |
+| `agentNative.ui.output(value, opts?)`            | Record passive inline UI output in application state      | `agentNative.ui.output({ threshold })`                    |
+| `agentNative.chat.send(message, opts?)`          | Send a prompt or selected value back to the agent chat    | `agentNative.chat.send('Use Q2', { context: { q: 2 } })`  |
 
 Three rules of thumb:
 
 - **Prefer `appAction` over `dbQuery`.** Actions are the template's official surface — they handle access control, scoping, and validation for you. Reach for raw SQL only when no action fits.
 - **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
 - **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
+- **Use `agentNative.ui.output` for inline control values the agent should read later.** It writes `inline-ui:<extensionId>:output` to application state; `agentNative.chat.send` is for visible submit/apply messages.
 
 ```html
 <script>

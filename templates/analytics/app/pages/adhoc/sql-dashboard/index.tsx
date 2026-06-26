@@ -14,16 +14,18 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import {
-  closestCenter,
   useDroppable,
   DndContext,
+  DragOverlay,
   pointerWithin,
   PointerSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragOverEvent,
+  type DragStartEvent,
   type CollisionDetection,
+  type Collision,
 } from "@dnd-kit/core";
 import {
   IconArchive,
@@ -31,6 +33,7 @@ import {
   IconDots,
   IconEye,
   IconEyeOff,
+  IconGripVertical,
   IconInfoCircle,
   IconMail,
   IconPencil,
@@ -42,6 +45,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Fragment,
+  memo,
   useState,
   useEffect,
   useCallback,
@@ -102,6 +106,7 @@ import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
   buildDashboardPanelGroups,
+  distanceFromPointerToRect,
   dropSlotId,
   isDropSlotAvailable,
   movePanelToDropSlot,
@@ -189,6 +194,100 @@ function DashboardDropLine({
   );
 }
 
+function DashboardDragPreview({ panel }: { panel: SqlPanel | null }) {
+  if (!panel) return null;
+
+  return (
+    <div className="dashboard-drag-preview flex max-w-64 items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-sm font-medium text-foreground shadow-lg ring-1 ring-primary/20">
+      <IconGripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{panel.title}</span>
+    </div>
+  );
+}
+
+/**
+ * A single chart cell, memoized so that drag interactions — which re-render the
+ * dashboard page on every drop-slot change — do NOT re-render every chart's
+ * Recharts subtree. During a drag the panel, vars, remoteEditor, and the
+ * stable callbacks below don't change, so React skips these cells entirely and
+ * only the lightweight drop-line indicators update. This keeps dragging smooth
+ * on dense dashboards. Outside a drag, prop changes (filter/vars edits, remote
+ * collaborator highlights, panel edits) still re-render normally.
+ */
+const PanelCell = memo(function PanelCell({
+  panel,
+  vars,
+  remoteEditor,
+  editable,
+  eagerLoad,
+  onRemovePanel,
+  onEditPanel,
+  onSavePanel,
+}: {
+  panel: SqlPanel;
+  vars: Record<string, string>;
+  remoteEditor: { color: string; name: string } | undefined;
+  editable: boolean;
+  eagerLoad: boolean;
+  onRemovePanel: (panelId: string) => void;
+  onEditPanel: (panel: SqlPanel) => void;
+  onSavePanel: (panel: SqlPanel) => Promise<void>;
+}) {
+  const resolved = useMemo(
+    () =>
+      panel.config?.description
+        ? {
+            ...panel,
+            config: {
+              ...panel.config,
+              description: interpolate(panel.config.description, vars),
+            },
+          }
+        : panel,
+    [panel, vars],
+  );
+  const resolvedSql = useMemo(
+    () => interpolate(serializePanelSql(panel.sql), vars),
+    [panel.sql, vars],
+  );
+
+  return (
+    <div
+      className="dashboard-grid-cell relative h-full"
+      style={
+        remoteEditor
+          ? {
+              outline: `2px solid ${remoteEditor.color}`,
+              outlineOffset: 2,
+              borderRadius: 8,
+            }
+          : undefined
+      }
+    >
+      {remoteEditor && (
+        <span
+          className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
+          style={{
+            backgroundColor: remoteEditor.color,
+            color: "#fff",
+          }}
+        >
+          {remoteEditor.name}
+        </span>
+      )}
+      <SqlChartCard
+        panel={resolved}
+        resolvedSql={resolvedSql}
+        onRemove={() => onRemovePanel(panel.id)}
+        onEdit={() => onEditPanel(panel)}
+        onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
+        editable={editable}
+        eagerLoad={eagerLoad}
+      />
+    </div>
+  );
+});
+
 type FetchedDashboard = {
   id: string;
   config: SqlDashboardConfig;
@@ -237,7 +336,7 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   try {
     const data: any = await callAction(
       "get-sql-dashboard",
-      { id },
+      { id, includeConfig: true },
       { method: "GET" },
     );
     if (!data || data.error) return null;
@@ -319,6 +418,9 @@ export default function SqlDashboardPage() {
   const [emailReportOpen, setEmailReportOpen] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
+  const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
+    null,
+  );
   const viewedDashboardIdRef = useRef<string | null>(null);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
@@ -636,6 +738,24 @@ export default function SqlDashboardPage() {
     [collabDocId],
   );
 
+  const updateCachedDashboardConfig = useCallback(
+    (updated: SqlDashboardConfig) => {
+      if (!dashboardId) return;
+      queryClient.setQueriesData<FetchedDashboard | null>(
+        { queryKey: ["data", "sql-dashboard", dashboardId] },
+        (prev) => (prev ? { ...prev, config: updated } : prev),
+      );
+      queryClient.setQueryData<PrefetchSnapshot<FetchedDashboard | null>>(
+        sqlDashboardPrefetchKey(dashboardId),
+        (prev) =>
+          prev?.data
+            ? { ...prev, data: { ...prev.data, config: updated } }
+            : prev,
+      );
+    },
+    [dashboardId, queryClient],
+  );
+
   /**
    * Persist without throwing — background save used for drag reorder, width
    * toggle, title/description edits, and panel delete. If the save fails
@@ -650,6 +770,7 @@ export default function SqlDashboardPage() {
         return;
       }
       setDashboard(updated);
+      updateCachedDashboardConfig(updated);
       pushToCollab(updated);
       saveDashboard(dashboardId, updated)
         .then(() => {
@@ -676,7 +797,14 @@ export default function SqlDashboardPage() {
           );
         });
     },
-    [dashboardId, canEdit, queryClient, pushToCollab, t],
+    [
+      dashboardId,
+      canEdit,
+      queryClient,
+      pushToCollab,
+      t,
+      updateCachedDashboardConfig,
+    ],
   );
 
   /**
@@ -691,6 +819,7 @@ export default function SqlDashboardPage() {
       }
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
+      updateCachedDashboardConfig(updated);
       pushToCollab(updated);
       queryClient.removeQueries({
         queryKey: sqlDashboardPrefetchKey(dashboardId),
@@ -701,7 +830,14 @@ export default function SqlDashboardPage() {
         queryKey: ["data", "sql-dashboard", dashboardId],
       });
     },
-    [dashboardId, canEdit, queryClient, pushToCollab, t],
+    [
+      dashboardId,
+      canEdit,
+      queryClient,
+      pushToCollab,
+      t,
+      updateCachedDashboardConfig,
+    ],
   );
 
   const removePanel = useCallback(
@@ -756,13 +892,22 @@ export default function SqlDashboardPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
 
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragPanelId(String(event.active.id));
+  }, []);
+
   const handleDragOver = useCallback((event: DragOverEvent) => {
-    setActiveDropSlot(readDropSlot(event.over?.data.current));
+    const nextSlot = readDropSlot(event.over?.data.current);
+    setActiveDropSlot((currentSlot) => {
+      if (!nextSlot) return currentSlot === null ? currentSlot : null;
+      return sameDropSlot(currentSlot, nextSlot) ? currentSlot : nextSlot;
+    });
   }, []);
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
       setActiveDropSlot(null);
+      setActiveDragPanelId(null);
       if (!dashboard) return;
       const slot = readDropSlot(event.over?.data.current);
       if (!slot) return;
@@ -784,6 +929,7 @@ export default function SqlDashboardPage() {
 
   const handleDragCancel = useCallback(() => {
     setActiveDropSlot(null);
+    setActiveDragPanelId(null);
   }, []);
 
   const handleSaveName = useCallback(() => {
@@ -889,6 +1035,14 @@ export default function SqlDashboardPage() {
   const panelGroups = useMemo(() => {
     return buildDashboardPanelGroups(visiblePanels, dashboardColumns);
   }, [visiblePanels, dashboardColumns]);
+  const activeDragPanel = useMemo(
+    () =>
+      activeDragPanelId
+        ? (visiblePanels.find((panel) => panel.id === activeDragPanelId) ??
+          null)
+        : null,
+    [activeDragPanelId, visiblePanels],
+  );
 
   const dashboardCollisionDetection = useCallback<CollisionDetection>(
     (args) => {
@@ -910,9 +1064,28 @@ export default function SqlDashboardPage() {
       });
       if (exactCollisions.length > 0) return exactCollisions;
 
-      return closestCenter({
-        ...args,
-        droppableContainers,
+      if (!args.pointerCoordinates) return [];
+
+      const collisions: Collision[] = [];
+      for (const droppableContainer of droppableContainers) {
+        const rect = args.droppableRects.get(droppableContainer.id);
+        if (!rect) continue;
+
+        collisions.push({
+          id: droppableContainer.id,
+          data: {
+            droppableContainer,
+            value: distanceFromPointerToRect(args.pointerCoordinates, rect),
+          },
+        });
+      }
+
+      return collisions.sort((a, b) => {
+        const aValue =
+          typeof a.data?.value === "number" ? a.data.value : Number.MAX_VALUE;
+        const bValue =
+          typeof b.data?.value === "number" ? b.data.value : Number.MAX_VALUE;
+        return aValue - bValue;
       });
     },
     [panelGroups],
@@ -1418,71 +1591,16 @@ export default function SqlDashboardPage() {
         <DndContext
           sensors={sensors}
           collisionDetection={dashboardCollisionDetection}
+          onDragStart={canEdit ? handleDragStart : undefined}
           onDragOver={canEdit ? handleDragOver : undefined}
           onDragEnd={canEdit ? handleDragEnd : undefined}
           onDragCancel={handleDragCancel}
         >
-          <div className="dashboard-grid-container flex flex-col gap-1">
+          <div
+            className="dashboard-grid-container flex flex-col gap-1"
+            data-dashboard-dragging={activeDragPanel ? "true" : undefined}
+          >
             {panelGroups.map((group) => {
-              const renderPanelCell = (panel: SqlPanel) => {
-                const resolved = panel.config?.description
-                  ? {
-                      ...panel,
-                      config: {
-                        ...panel.config,
-                        description: interpolate(
-                          panel.config.description,
-                          vars,
-                        ),
-                      },
-                    }
-                  : panel;
-                const remoteEditor = reportScreenshot
-                  ? undefined
-                  : remoteEditingPanels.get(panel.id);
-                return (
-                  <div
-                    key={panel.id}
-                    className="dashboard-grid-cell relative h-full"
-                    style={
-                      {
-                        ...(remoteEditor
-                          ? {
-                              outline: `2px solid ${remoteEditor.color}`,
-                              outlineOffset: 2,
-                              borderRadius: 8,
-                            }
-                          : null),
-                      } as React.CSSProperties
-                    }
-                  >
-                    {remoteEditor && (
-                      <span
-                        className="absolute -top-2.5 left-3 px-1.5 text-[10px] font-medium rounded z-10"
-                        style={{
-                          backgroundColor: remoteEditor.color,
-                          color: "#fff",
-                        }}
-                      >
-                        {remoteEditor.name}
-                      </span>
-                    )}
-                    <SqlChartCard
-                      panel={resolved}
-                      resolvedSql={interpolate(
-                        serializePanelSql(panel.sql),
-                        vars,
-                      )}
-                      onRemove={() => removePanel(panel.id)}
-                      onEdit={() => openEditPanel(panel)}
-                      onSaveSql={(sql) => handleSavePanel({ ...panel, sql })}
-                      editable={canEdit}
-                      eagerLoad={reportScreenshot}
-                    />
-                  </div>
-                );
-              };
-
               const renderSection = (section: SqlPanel) => {
                 const remoteEditor = reportScreenshot
                   ? undefined
@@ -1501,7 +1619,7 @@ export default function SqlDashboardPage() {
                   : section;
                 return (
                   <div
-                    className="relative"
+                    className="dashboard-section-cell relative"
                     style={
                       remoteEditor
                         ? {
@@ -1571,7 +1689,20 @@ export default function SqlDashboardPage() {
                           />
                           {row.panels.map((panel, columnIndex) => (
                             <Fragment key={panel.id}>
-                              {renderPanelCell(panel)}
+                              <PanelCell
+                                panel={panel}
+                                vars={vars}
+                                remoteEditor={
+                                  reportScreenshot
+                                    ? undefined
+                                    : remoteEditingPanels.get(panel.id)
+                                }
+                                editable={canEdit}
+                                eagerLoad={reportScreenshot}
+                                onRemovePanel={removePanel}
+                                onEditPanel={openEditPanel}
+                                onSavePanel={handleSavePanel}
+                              />
                               <DashboardDropLine
                                 slot={{
                                   type: "column",
@@ -1593,6 +1724,9 @@ export default function SqlDashboardPage() {
               );
             })}
           </div>
+          <DragOverlay adjustScale={false} dropAnimation={null} zIndex={1000}>
+            <DashboardDragPreview panel={activeDragPanel} />
+          </DragOverlay>
         </DndContext>
       )}
 

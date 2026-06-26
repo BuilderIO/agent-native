@@ -144,7 +144,8 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    sampleRate: 1,
+    requireSignedInUser: true,
+    sampleRate: 0.1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,
@@ -156,14 +157,19 @@ configureTracking({
 
 When `sessionReplay.enabled` is truthy, the client dynamically imports `@rrweb/record` after startup and posts replay chunks to the replay endpoint. If `endpoint` ends in `/api/analytics/track` or `/track`, the replay endpoint is derived automatically as `/api/analytics/replay`. Override it explicitly with `sessionReplay.endpoint` when the replay collector lives somewhere else.
 
-Agent Native template roots already call `configureTracking()`, so hosted template deployments can use Vite/Netlify environment variables instead of editing code:
+Agent Native template roots already call `configureTracking()`. Hosted template deployments can turn replay on with Vite/Netlify environment variables, while library consumers should prefer the explicit `configureTracking({ key, endpoint, sessionReplay })` form above:
 
 ```bash
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
+VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
 ```
+
+The browser helper also performs a best-effort, non-blocking read of the current Agent Native auth session. When `requireSignedInUser` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH` is enabled, replay does not start unless the session resolves to a signed-in user. Signed-in replays include `userId`/`userEmail` plus `orgId`; if auth gating is disabled, anonymous recordings remain queryable by anonymous visitor, session, app/template, hostname, and path.
+
+Session replay is sampled deterministically per browser session. A `sampleRate` of `0.1` records about 10% of eligible sessions; use `1` when the eligible population is intentionally small, such as logged-in-only dogfooding.
 
 Privacy defaults are intentionally conservative but still useful for playback:
 

@@ -1,24 +1,19 @@
 import { CodeSurface } from "@agent-native/core/blocks";
 import { useActionQuery, useT } from "@agent-native/core/client";
 import {
+  IconChevronDown,
   IconCode,
   IconFilter,
   IconPlayerPlay,
   IconRefresh,
   IconSearch,
 } from "@tabler/icons-react";
-import { useMemo } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -28,14 +23,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
@@ -74,7 +61,9 @@ const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
 
 export default function SessionsPage() {
   const t = useT();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
   const query = searchParams.get("q") ?? "";
@@ -105,76 +94,39 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 md:px-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0 space-y-2">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5 md:px-6">
+      <div className="flex items-center">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <IconPlayerPlay className="h-5 w-5 text-primary" />
-            <h1 className="text-2xl font-semibold tracking-normal">
+            <h1 className="text-xl font-semibold tracking-normal">
               {t("sessions.title")}
             </h1>
           </div>
-          <p className="max-w-3xl text-sm text-muted-foreground">
-            {t("sessions.description")}
-          </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void refetch()}
-          disabled={isFetching}
-        >
-          <IconRefresh
-            className={cn("h-4 w-4", isFetching && "animate-spin")}
-          />
-          {t("sessions.refresh")}
-        </Button>
       </div>
 
       <Card>
-        <CardHeader className="pb-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <IconFilter className="h-4 w-4" />
-                {t("sessions.filters")}
-              </CardTitle>
-              <CardDescription>
-                {t("sessions.filtersDescription")}
-              </CardDescription>
+        <CardContent className="p-3">
+          <div className="grid gap-2 lg:grid-cols-[150px_minmax(260px,1fr)_160px_auto_auto] lg:items-center">
+            <div className="flex items-center gap-2 px-1 text-sm font-medium">
+              <IconFilter className="h-4 w-4 text-muted-foreground" />
+              {t("sessions.segmentFilters")}
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              {data ? (
-                <Badge variant="outline">
-                  {t("sessions.showing", {
-                    count: String(recordings.length),
-                  })}
-                </Badge>
-              ) : null}
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(160px,0.7fr)_160px]">
             <div className="relative">
               <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event) => updateFilter("q", event.target.value)}
                 placeholder={t("sessions.searchPlaceholder")}
-                className="ps-9"
+                className="h-9 ps-9"
               />
             </div>
-            <Input
-              value={app}
-              onChange={(event) => updateFilter("app", event.target.value)}
-              placeholder={t("sessions.appPlaceholder")}
-            />
             <Select
               value={range}
               onValueChange={(value) => updateFilter("range", value)}
             >
-              <SelectTrigger aria-label={t("sessions.range")}>
+              <SelectTrigger className="h-9" aria-label={t("sessions.range")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -185,7 +137,59 @@ export default function SessionsPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 justify-between gap-2"
+              onClick={() => setFiltersOpen((value) => !value)}
+              aria-expanded={filtersOpen}
+            >
+              {t("sessions.filters")}
+              <IconChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  filtersOpen && "rotate-180",
+                )}
+              />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9"
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              aria-label={t("sessions.refresh")}
+            >
+              <IconRefresh
+                className={cn("h-4 w-4", isFetching && "animate-spin")}
+              />
+            </Button>
           </div>
+          {filtersOpen ? (
+            <div className="mt-3 grid gap-3 border-t pt-3 lg:grid-cols-2">
+              <div className="rounded-md border bg-muted/20 p-3">
+                <div className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">
+                  {t("sessions.userFilters")}
+                </div>
+                <Input
+                  value={app}
+                  onChange={(event) => updateFilter("app", event.target.value)}
+                  placeholder={t("sessions.appPlaceholder")}
+                  className="h-9"
+                />
+              </div>
+              <div className="rounded-md border bg-muted/20 p-3">
+                <div className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">
+                  {t("sessions.eventFilters")}
+                </div>
+                <div className="flex h-9 items-center rounded-md border bg-background px-3 text-sm text-muted-foreground">
+                  {t("sessions.anyActivity")}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -200,40 +204,65 @@ export default function SessionsPage() {
           ) : recordings.length === 0 ? (
             <EmptySessionsState />
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("sessions.session")}</TableHead>
-                    <TableHead>{t("sessions.app")}</TableHead>
-                    <TableHead>{t("sessions.visitor")}</TableHead>
-                    <TableHead>{t("sessions.lastSeen")}</TableHead>
-                    <TableHead>{t("sessions.duration")}</TableHead>
-                    <TableHead className="text-end">
-                      {t("sessions.events")}
-                    </TableHead>
-                    <TableHead className="text-end">
-                      {t("sessions.chunks")}
-                    </TableHead>
-                    <TableHead className="text-end">
-                      {t("sessions.pages")}
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recordings.map((recording) => (
-                    <TableRow key={recording.id}>
-                      <TableCell className="min-w-[240px]">
-                        <Link
-                          to={`/sessions/${encodeURIComponent(recording.id)}`}
-                          className="font-mono text-xs font-medium text-primary hover:underline"
-                        >
-                          {shortId(recording.sessionId)}
-                        </Link>
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                          <Badge className="bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300">
-                            {t("sessions.replayReady")}
-                          </Badge>
+            <div>
+              <div className="flex items-center justify-between border-b px-4 py-3">
+                <div className="text-sm font-medium">
+                  {t("sessions.sessionPlaylist")}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("sessions.showing", {
+                    count: String(recordings.length),
+                  })}
+                </div>
+              </div>
+              <div className="divide-y">
+                {recordings.map((recording) => {
+                  const href = `/sessions/${encodeURIComponent(recording.id)}`;
+                  const lastSeen =
+                    recording.endedAt ??
+                    recording.lastIngestedAt ??
+                    recording.startedAt;
+                  return (
+                    <button
+                      key={recording.id}
+                      type="button"
+                      className="grid w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none md:grid-cols-[104px_minmax(170px,0.85fr)_minmax(260px,1.25fr)_minmax(130px,0.55fr)] md:items-center"
+                      onClick={() => navigate(href)}
+                      aria-label={t("sessions.watchReplay")}
+                    >
+                      <span className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-md bg-primary/10 font-medium text-primary">
+                        <IconPlayerPlay className="h-4 w-4 fill-current" />
+                        {formatDuration(recording.durationMs)}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-foreground">
+                          {visitorLabel(recording, t)}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {formatDateTime(lastSeen)} ·{" "}
+                          {t("sessions.eventCountCompact", {
+                            count: formatNumber(recording.eventCount),
+                          })}
+                        </span>
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium text-primary">
+                          {pathLabel(recording)}
+                        </span>
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {recording.hostname ||
+                            recording.app ||
+                            recording.template ||
+                            shortId(recording.sessionId)}
+                        </span>
+                      </span>
+                      <span className="min-w-0 text-left md:text-right">
+                        <span className="block truncate text-sm text-muted-foreground">
+                          {recording.app ||
+                            recording.template ||
+                            t("sessions.unknownApp")}
+                        </span>
+                        <span className="mt-1 flex flex-wrap gap-1.5 md:justify-end">
                           {recording.errorCount > 0 ? (
                             <Badge variant="destructive">
                               {t("sessions.errorCount", {
@@ -248,39 +277,20 @@ export default function SessionsPage() {
                               })}
                             </Badge>
                           ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="min-w-[130px]">
-                        {recording.app || recording.template || "-"}
-                      </TableCell>
-                      <TableCell className="min-w-[160px]">
-                        <div className="truncate">
-                          {visitorLabel(recording, t)}
-                        </div>
-                      </TableCell>
-                      <TableCell className="min-w-[140px]">
-                        {formatDateTime(
-                          recording.endedAt ??
-                            recording.lastIngestedAt ??
-                            recording.startedAt,
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {formatDuration(recording.durationMs)}
-                      </TableCell>
-                      <TableCell className="text-end">
-                        {formatNumber(recording.eventCount)}
-                      </TableCell>
-                      <TableCell className="text-end">
-                        {formatNumber(recording.chunkCount)}
-                      </TableCell>
-                      <TableCell className="text-end">
-                        {formatNumber(recording.pageCount)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                          {recording.errorCount === 0 &&
+                          recording.rageClickCount === 0 ? (
+                            <span className="text-xs text-muted-foreground">
+                              {t("sessions.pageCountCompact", {
+                                count: formatNumber(recording.pageCount),
+                              })}
+                            </span>
+                          ) : null}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           )}
         </CardContent>
@@ -374,6 +384,22 @@ function shortId(value: string): string {
     : value;
 }
 
+function pathLabel(recording: SessionRecordingSummary): string {
+  if (recording.path) return recording.path;
+  if (recording.lastUrl) return safePathFromUrl(recording.lastUrl);
+  if (recording.firstUrl) return safePathFromUrl(recording.firstUrl);
+  return shortId(recording.sessionId);
+}
+
+function safePathFromUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    return `${url.pathname}${url.search}` || url.hostname;
+  } catch {
+    return value;
+  }
+}
+
 function formatDateTime(value: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return value;
@@ -409,7 +435,8 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    sampleRate: 1,
+    requireSignedInUser: true,
+    sampleRate: 0.1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,

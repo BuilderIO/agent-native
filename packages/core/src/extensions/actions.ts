@@ -1,3 +1,4 @@
+import { ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER } from "../action-ui.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
@@ -256,10 +257,196 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       readOnly: true,
     },
 
+    "render-inline-extension": {
+      tool: {
+        description:
+          "Render a one-time, transient sandboxed Alpine.js mini-app directly inside the chat. Use this for generated UI that should answer the current turn inline without saving anything to the Extensions view: calculators, adjustable controls, knobs, pickers, visualizers, temporary dashboards, and interactive results. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<inline extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. For transient UIs, extensionData is browser-local throwaway state; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) so it inherits the parent app theme. Use create-extension instead when the user wants the UI saved or reusable.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: {
+              type: "string",
+              description: "Short display name for the inline UI.",
+            },
+            description: {
+              type: "string",
+              description: "One-sentence summary of what the inline UI does.",
+            },
+            content: {
+              type: "string",
+              description:
+                "Self-contained Alpine.js HTML body snippet. Do not include a full app build, React code, or source files. Required unless contentFromAttachment is set.",
+            },
+            contentFromAttachment: {
+              type: "string",
+              description:
+                'Render a pasted/attached HTML file verbatim without re-typing it. Set to an attachment name or "latest".',
+            },
+            context: {
+              type: "string",
+              description:
+                "Optional JSON object passed to the iframe as slotContext for initial inputs from chat.",
+            },
+            initialHeight: {
+              type: "number",
+              description:
+                "Optional initial iframe height in pixels before auto-resize reports. Defaults to 260.",
+            },
+          },
+          required: ["name"],
+        },
+      },
+      chatUI: {
+        renderer: ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+        title: "Inline extension",
+      },
+      maxResultChars: 220_000,
+      readOnly: true,
+      run: async (args, ctx) => {
+        const name = String(args?.name ?? "").trim();
+        if (!name) return "Error: name is required.";
+        const resolved = resolveExtensionContent(args, ctx);
+        if ("error" in resolved) return resolved.error;
+        const content = resolved.content.trim();
+        if (!content) return "Error: content is required.";
+        const description = String(args?.description ?? "").trim();
+        const id = `inline-${Date.now().toString(36)}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`;
+        return {
+          ok: true,
+          inlineExtension: {
+            mode: "transient",
+            id,
+            name,
+            description,
+            content,
+            context: parseInlineContext(args?.context),
+            initialHeight: coerceInlineHeight(args?.initialHeight),
+          },
+          next: "Rendered inline in chat only. It is not saved in the Extensions view.",
+        };
+      },
+    },
+
+    "show-extension-inline": {
+      tool: {
+        description:
+          "Render an existing saved extension inline in the chat. Use this when the user asks to load, reopen, reuse, or show a saved extension/widget/dashboard/calculator/mini-app in the conversation. Inline extensions can expose passive current values through agentNative.ui.output(value, opts?), which writes application state at inline-ui:<extension id>:output for the agent to read later with readAppState. Pass id when known; otherwise pass a search string and the action will use the best visible extension match.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "Extension id to render inline.",
+            },
+            search: {
+              type: "string",
+              description:
+                "Fallback search matched against id, name, description, and owner email when id is unknown.",
+            },
+            context: {
+              type: "string",
+              description:
+                "Optional JSON object passed to the iframe as slotContext for chat-provided inputs.",
+            },
+            initialHeight: {
+              type: "number",
+              description:
+                "Optional initial iframe height in pixels before auto-resize reports. Defaults to 260.",
+            },
+          },
+        },
+      },
+      chatUI: {
+        renderer: ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+        title: "Inline extension",
+      },
+      readOnly: true,
+      run: async (args) => {
+        let id = String(args?.id ?? "").trim();
+        const search = String(args?.search ?? "")
+          .trim()
+          .toLowerCase();
+
+        if (!id && search) {
+          const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+          const rows: Array<ExtensionRow | LocalExtensionRow> = [
+            ...(await listExtensions({
+              includeHidden: false,
+              includeGloballyHidden: false,
+            })),
+            ...(await listLocalExtensions()),
+          ];
+          const match = rows.find((row) =>
+            [row.id, row.name, row.description, row.ownerEmail]
+              .join("\n")
+              .toLowerCase()
+              .includes(search),
+          );
+          if (match) {
+            id = match.id;
+          } else {
+            return {
+              ok: false,
+              error: `No extension matched "${args?.search}".`,
+              available: await Promise.all(
+                rows
+                  .slice(0, 10)
+                  .map((row) => summarizeExtension(row, hiddenIds, false)),
+              ),
+            };
+          }
+        }
+
+        if (!id) return "Error: provide id or search.";
+
+        const localExtension = await getLocalExtension(id);
+        const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
+        if (localExtension) {
+          const summary = await summarizeExtension(
+            localExtension,
+            hiddenIds,
+            false,
+          );
+          return {
+            ok: true,
+            inlineExtension: {
+              mode: "persisted",
+              id: summary.id,
+              name: summary.name,
+              description: summary.description,
+              path: summary.path,
+              updatedAt: summary.updatedAt,
+              context: parseInlineContext(args?.context),
+              initialHeight: coerceInlineHeight(args?.initialHeight),
+            },
+          };
+        }
+
+        const extension = await getExtension(id);
+        if (!extension) return `Error: extension not found: ${id}`;
+        const summary = await summarizeExtension(extension, hiddenIds, false);
+        return {
+          ok: true,
+          inlineExtension: {
+            mode: "persisted",
+            id: summary.id,
+            name: summary.name,
+            description: summary.description,
+            path: summary.path,
+            updatedAt: summary.updatedAt,
+            context: parseInlineContext(args?.context),
+            initialHeight: coerceInlineHeight(args?.initialHeight),
+          },
+        };
+      },
+    },
+
     "create-extension": {
       tool: {
         description:
-          'Create a sandboxed Alpine.js mini-app extension. Use this when the user asks to create, build, or make an extension/widget/dashboard/calculator. Call this action exactly once per requested extension. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), and extensionData. IMPORTANT — hosting a pasted file: if the user pasted a large HTML/Alpine file (it appears in your context as an <attachment name="pasted-text-…"> block) and asked you to host it as-is, do NOT copy that file into `content`. Instead leave `content` empty and pass `contentFromAttachment` set to that attachment\'s name (or the literal "latest" for the most recent pasted block) — the server reads the file verbatim. Re-emitting a large pasted file as `content` regularly gets cut off mid-stream and stalls the turn. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data(\'name\', () => ({...})) and reference it with x-data="name" — do NOT cram methods, template literals, or branching logic into an inline x-data="{...}" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object\'s initial state. If the extension\'s value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in the Dispatch Vault, or in app Settings → API Keys & Connections for standalone apps, if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.',
+          'Create a persisted sandboxed Alpine.js mini-app extension and render it inline in the chat. Use this when the user wants generated UI that should be saved, reusable, or visible in the Extensions view: extensions, widgets, dashboards, calculators, mini-apps, and reusable interactive utilities. For one-time chat-only UI, use render-inline-extension instead. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. Persist reusable user-edited state with extensionData: if the extension has checkboxes, todos, notes, filters, preferences, or any control whose value should survive reload/reopen, load that state on init and save changes with extensionData, usually at user scope, instead of keeping it only in Alpine state. IMPORTANT — hosting a pasted file: if the user pasted a large HTML/Alpine file (it appears in your context as an <attachment name="pasted-text-…"> block) and asked you to host it as-is, do NOT copy that file into `content`. Instead leave `content` empty and pass `contentFromAttachment` set to that attachment\'s name (or the literal "latest" for the most recent pasted block) — the server reads the file verbatim. Re-emitting a large pasted file as `content` regularly gets cut off mid-stream and stalls the turn. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery()/dbExec() only for known existing SQL tables. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous initial tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data(\'name\', () => ({...})) and reference it with x-data="name" — do NOT cram methods, template literals, or branching logic into an inline x-data="{...}" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object\'s initial state. If the extension\'s value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in the Dispatch Vault, or in app Settings → API Keys & Connections for standalone apps, if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.',
         parameters: {
           type: "object",
           properties: {
@@ -289,6 +476,10 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           },
           required: ["name"],
         },
+      },
+      chatUI: {
+        renderer: ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+        title: "Extension",
       },
       run: async (args, ctx) => {
         const name = String(args?.name ?? "").trim();
@@ -1008,6 +1199,32 @@ function resolveExtensionContent(
 
 function coerceBoolean(value: unknown): boolean {
   return value === true || value === "true";
+}
+
+function parseInlineContext(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed =
+    typeof value === "string"
+      ? (() => {
+          try {
+            return JSON.parse(value);
+          } catch {
+            return undefined;
+          }
+        })()
+      : value;
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : undefined;
+}
+
+function coerceInlineHeight(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const height = Number(value);
+  if (!Number.isFinite(height) || height <= 0) return undefined;
+  return Math.min(Math.max(Math.round(height), 120), 1000);
 }
 
 function coerceLimit(value: unknown): number {

@@ -205,11 +205,17 @@ async function launchScreenshotBrowser() {
 
   if (isServerlessBrowserRuntime()) {
     const { default: chromium } = await import("@sparticuz/chromium-min");
+    chromium.setGraphicsMode = false;
     const packUrl =
       process.env.DASHBOARD_REPORT_CHROMIUM_PACK_URL?.trim() ||
       DEFAULT_SERVERLESS_CHROMIUM_PACK_URL;
     return playwright.launch({
-      args: chromium.args,
+      args: [
+        ...chromium.args,
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--hide-scrollbars",
+      ],
       executablePath: await chromium.executablePath(packUrl),
       headless: true,
     });
@@ -219,22 +225,40 @@ async function launchScreenshotBrowser() {
 }
 
 async function waitForDashboardReportReady(page: any): Promise<void> {
-  await page.waitForFunction(
-    `(() => {
-      const root = document.querySelector("[data-dashboard-report-capture]");
-      if (!root) return false;
-      if (root.getAttribute("data-dashboard-report-ready") !== "true") {
-        return false;
-      }
-      return !root.querySelector("[data-dashboard-report-loading='true']");
-    })()`,
-    undefined,
-    { timeout: 90_000 },
-  );
-  await page.evaluate(`(async () => {
-    await document.fonts?.ready;
-  })()`);
-  await page.waitForTimeout(750);
+  try {
+    await page.waitForFunction(
+      `(() => {
+        const root = document.querySelector("[data-dashboard-report-capture]");
+        if (!root) return false;
+        if (root.getAttribute("data-dashboard-report-ready") !== "true") {
+          return false;
+        }
+        return !root.querySelector("[data-dashboard-report-loading='true']");
+      })()`,
+      undefined,
+      { timeout: 90_000 },
+    );
+    await page.evaluate(`(async () => {
+      await document.fonts?.ready;
+    })()`);
+    await page.waitForTimeout(750);
+  } catch (err: any) {
+    const detail = await page
+      .evaluate(`(() => {
+        const root = document.querySelector("[data-dashboard-report-capture]");
+        return {
+          ready: root?.getAttribute("data-dashboard-report-ready") ?? null,
+          loadingCount: root?.querySelectorAll("[data-dashboard-report-loading='true']").length ?? null,
+          text: document.body?.innerText?.slice(0, 1000) ?? "",
+          url: location.href,
+        };
+      })()`)
+      .catch(() => null);
+    const message = detail
+      ? `${err?.message ?? String(err)}; dashboard state: ${JSON.stringify(detail)}`
+      : `${err?.message ?? String(err)}; dashboard page was not inspectable`;
+    throw new Error(message);
+  }
 }
 
 async function scrollDashboardForLazyRendering(page: any): Promise<void> {
