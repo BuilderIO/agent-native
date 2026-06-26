@@ -598,13 +598,20 @@ function ReplayPlayer({
                   transformOrigin: "center center",
                 }}
               />
+              <button
+                type="button"
+                className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
+                disabled={disabled}
+                aria-label={playing ? t("sessions.pause") : t("sessions.play")}
+                onClick={togglePlay}
+              />
               {status === "loading" ? (
-                <div className="absolute inset-0 grid place-items-center bg-background/70 text-sm text-muted-foreground">
+                <div className="absolute inset-0 z-30 grid place-items-center bg-background/70 text-sm text-muted-foreground">
                   {t("sessions.replayLoading")}
                 </div>
               ) : null}
               {status === "error" && error ? (
-                <div className="absolute inset-0 grid place-items-center bg-background/85 p-6 text-center text-sm text-destructive">
+                <div className="absolute inset-0 z-30 grid place-items-center bg-background/85 p-6 text-center text-sm text-destructive">
                   {t("sessions.loadFailed", { message: error })}
                 </div>
               ) : null}
