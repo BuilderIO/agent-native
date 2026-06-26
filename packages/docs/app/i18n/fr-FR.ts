@@ -5,6 +5,10 @@ const frFR = {
     label: "Langue",
     system: "Système",
     systemDescription: "Utiliser la langue du navigateur",
+    suggestionTitle: "Lire cette page en {{language}} ?",
+    suggestionDescription: "La langue de votre navigateur est {{language}}.",
+    suggestionSwitch: "Passer à {{language}}",
+    suggestionKeepEnglish: "Garder l'anglais",
   },
   header: {
     docs: "Documents",

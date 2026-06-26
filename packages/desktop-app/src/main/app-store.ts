@@ -5,6 +5,7 @@ import path from "path";
 import {
   DESKTOP_DEFAULT_APPS,
   TEMPLATE_APPS,
+  sortDesktopApps,
   type AppConfig,
   type FrameSettings,
 } from "@shared/app-registry";
@@ -646,6 +647,13 @@ export function loadApps(): AppConfig[] {
         }
       }
     }
+
+    const orderedApps = sortDesktopApps(apps);
+    if (orderedApps.some((app, index) => app !== apps[index])) {
+      apps = orderedApps;
+      migrated = true;
+    }
+
     if (migrated) saveApps(apps);
     return apps;
   } catch {

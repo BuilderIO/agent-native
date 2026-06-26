@@ -346,7 +346,7 @@ const messages = {
     cleanupBuilderFailed:
       "Builder.io가 연결되어 있어도 정리를 완료할 수 없습니다. 원어민 성적표가 보관되었습니다.",
     cleanupPaused:
-      "정리가 일시중지되었습니다. 활성화하려면 설정에서 Builder.io를 연결하세요.",
+      "정리가 일시중지되었습니다. 설정에서 AI를 연결하세요: Builder.io(무료 크레딧) 또는 직접 보유한 LLM 키.",
     builderNoResponse:
       "Builder로부터 답변을 듣지 못했습니다. 팝업을 허용하고 다시 시도하세요.",
     saveFailed: "저장 실패({{status}})",
@@ -588,7 +588,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Builder.io는 Clips 업로드의 기본 저장 경로입니다. 자체 버킷이 필요할 때 S3를 사용할 수 있습니다.",
     checkingBuilder: "Builder.io 확인 중",
     builderConnected: "Builder.io 연결됨",
-    connectBuilder: "Builder.io 연결",
+    connectBuilder: "Builder.io 사용 (무료)",
     builderConnectedFor: "{{orgName}}에 Builder.io를 사용 중입니다.",
     builderConnectedGeneric: "새 클립은 연결된 Builder.io 제공자를 사용합니다.",
     builderIncludes:
@@ -614,12 +614,12 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     s3PublicBaseUrlLabel: "공개 기본 URL",
     apiSetup: "AI 설정",
     apiSetupDescription:
-      "Builder.io는 관리형 AI 크레딧의 기본 경로입니다. 제공자 키는 선택 사항이며 여기에서 추가할 수 있습니다.",
-    builderEasySetup: "Builder.io가 가장 쉬운 설정입니다",
+      "Builder.io 무료 크레딧 또는 직접 보유한 LLM 키로 AI를 연결하세요.",
+    builderEasySetup: "Builder.io 무료 크레딧",
     builderAiAvailable:
       "포함된 AI 크레딧과 관리형 전사를 Clips에서 사용할 수 있습니다.",
     builderAiDescription:
-      "포함된 AI 크레딧, 객체 저장소, 업로드, 관리형 전사를 사용하려면 먼저 Builder를 연결하세요.",
+      "포함된 AI 크레딧, 객체 스토리지, 업로드, 관리형 전사에는 먼저 Builder.io를 사용하세요.",
     providerKeyTitle: "자체 제공자 키 사용",
     providerKeyDescription:
       "제공자 과금 사용을 위해 Anthropic, OpenAI, Gemini, Groq 또는 OpenRouter 키를 추가하세요.",
@@ -761,7 +761,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     pickAtLeastTwo: "이어붙일 녹화를 2개 이상 선택하세요",
     videoUrlMissing: "하나 이상의 녹화에 준비된 동영상 URL이 아직 없습니다",
     connectStorage:
-      "녹화를 이어붙이기 전에 Builder.io 또는 S3 호환 스토리지를 연결하세요.",
+      "녹화를 이어붙이기 전에 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지.",
     created: "이어붙인 녹화가 생성됨",
     failed: "녹화 이어붙이기 실패",
     noOtherRecordings: "사용 가능한 다른 녹화가 없습니다.",
@@ -990,9 +990,12 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    connectBuilder: "Builder.io 연결",
+    connectBuilder: "Builder.io 사용 (무료)",
     free: "무료",
     configureS3: "S3 호환 스토리지 구성",
+    whyPrompt: "왜 이 화면이 보이나요?",
+    whyDescription:
+      "Clips는 100% 무료 오픈 소스 앱이므로 클립을 저장할 방법을 연결해야 합니다. Builder.io로 무료 티어 스토리지와 AI를 사용하거나, S3 호환 객체 스토리지와 직접 보유한 LLM 키를 사용하세요.",
   },
   captureInstall: {
     title: "Choose your recorder (현지화됨)",
@@ -1195,9 +1198,9 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     downloadRecording: "Download recording (현지화됨)",
     openRecorderInTab: "Open recorder in tab (현지화됨)",
     connectStorageToFinish:
-      "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it. (현지화됨)",
+      "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
-      "Connect Builder.io or S3 storage on the next screen and Clips will retry the import. (현지화됨)",
+      "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (현지화됨)",

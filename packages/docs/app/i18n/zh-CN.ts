@@ -5,6 +5,10 @@ const zhCN = {
     label: "语言",
     system: "系统",
     systemDescription: "使用浏览器语言",
+    suggestionTitle: "要用{{language}}阅读此页面吗？",
+    suggestionDescription: "你的浏览器语言是{{language}}。",
+    suggestionSwitch: "切换到{{language}}",
+    suggestionKeepEnglish: "继续使用英文",
   },
   header: {
     docs: "文档",

@@ -5,6 +5,10 @@ const deDE = {
     label: "Sprache",
     system: "System",
     systemDescription: "Browsersprache verwenden",
+    suggestionTitle: "Diese Seite auf {{language}} lesen?",
+    suggestionDescription: "Ihre Browsersprache ist {{language}}.",
+    suggestionSwitch: "Zu {{language}} wechseln",
+    suggestionKeepEnglish: "Englisch behalten",
   },
   header: {
     docs: "Dokumente",

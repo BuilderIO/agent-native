@@ -5,6 +5,10 @@ const ptBR = {
     label: "Idioma",
     system: "Sistema",
     systemDescription: "Usar o idioma do navegador",
+    suggestionTitle: "Ler esta página em {{language}}?",
+    suggestionDescription: "O idioma do seu navegador é {{language}}.",
+    suggestionSwitch: "Mudar para {{language}}",
+    suggestionKeepEnglish: "Manter em inglês",
   },
   header: {
     docs: "Documentos",

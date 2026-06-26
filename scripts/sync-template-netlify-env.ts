@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { TEMPLATES } from "../packages/core/src/cli/templates-meta.js";
 
@@ -23,6 +23,16 @@ type Options = {
 type ApiResult = {
   ok: boolean;
   status: number;
+};
+
+type TemplateEnvPlan = {
+  entries: Array<readonly [string, string]>;
+  forbiddenKeys: string[];
+  foundSources: string[];
+  normalizedKeys: string[];
+  skippedKeys: string[];
+  sourcesByKey: Map<string, string[]>;
+  template: string;
 };
 
 const REPO_ROOT = path.resolve(
@@ -55,27 +65,57 @@ const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
 ]);
-const BLOCKED_TEMPLATE_ENV_KEYS = new Set([
+const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
+  "APP_URL",
+  "BETTER_AUTH_URL",
+  "DATABASE_AUTH_TOKEN",
+  "DATABASE_URL",
+  "EMAIL_FROM",
+  "ENABLE_BUILDER",
+  "GA4_PROPERTY_ID",
+  "GA_MEASUREMENT_ID",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_PICKER_APP_ID",
+  "GOOGLE_SIGN_IN_CLIENT_ID",
+  "NEON_AUTH_BASE_URL",
+  "NETLIFY_DATABASE_AUTH_TOKEN",
+  "NETLIFY_DATABASE_URL",
+  "NETLIFY_DATABASE_URL_UNPOOLED",
+  "NITRO_PRESET",
+  "SUPABASE_URL",
+  "ZOOM_CLIENT_ID",
+]);
+const HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES = ["VITE_"];
+const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
+  "DATABASE_AUTH_TOKEN",
+  "DATABASE_URL",
+  "NETLIFY_DATABASE_AUTH_TOKEN",
+  "NETLIFY_DATABASE_URL",
+  "NETLIFY_DATABASE_URL_UNPOOLED",
+]);
+const FORBIDDEN_HOSTED_TEMPLATE_ENV_EXACT = new Set([
   "ANTHROPIC_API_KEY",
   "OPENAI_API_KEY",
 ]);
+const FORBIDDEN_HOSTED_TEMPLATE_ENV_PREFIXES = ["BUILDER_"];
+const SECRET_LIKE_ENV_KEY_PATTERN =
+  /(^|_)(API_KEY|ACCESS_KEY|PRIVATE_KEY|PUBLIC_KEY|SECRET|TOKEN|PASSWORD|KEY)$/;
 const PUBLIC_KEY_EXACT = new Set([
   "APP_URL",
   "BETTER_AUTH_URL",
-  "BUILDER_ORG_KIND",
-  "BUILDER_ORG_NAME",
-  "BUILDER_PUBLIC_KEY",
-  "BUILDER_USER_ID",
   "EMAIL_FROM",
   "ENABLE_BUILDER",
+  "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_SIGN_IN_CLIENT_ID",
-  "GOOGLE_PICKER_API_KEY",
   "GOOGLE_PICKER_APP_ID",
   "NEON_AUTH_BASE_URL",
+  "NITRO_PRESET",
+  "SUPABASE_URL",
+  "ZOOM_CLIENT_ID",
 ]);
-const PUBLIC_KEY_PREFIXES = ["VITE_"];
+const PUBLIC_KEY_PREFIXES = HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES;
 const PRODUCTION_URL_KEYS = new Set(["APP_URL", "BETTER_AUTH_URL"]);
 const TEMPLATE_PROD_URL_BY_NAME = new Map(
   TEMPLATES.map((template) => [template.name, template.prodUrl]).filter(
@@ -257,22 +297,100 @@ function findClosingDoubleQuote(value: string): number {
 function loadTemplateEnv(template: string, sources: string[]) {
   const values = new Map<string, string>(DEFAULT_HOSTED_TEMPLATE_ENV);
   const foundSources: string[] = [];
+  const sourcesByKey = new Map<string, string[]>();
 
   for (const source of sources) {
     const filePath = path.join(REPO_ROOT, "templates", template, source);
     if (!existsSync(filePath)) continue;
 
-    foundSources.push(path.relative(REPO_ROOT, filePath));
+    const relativePath = path.relative(REPO_ROOT, filePath);
+    foundSources.push(relativePath);
     for (const [key, value] of parseEnvFile(filePath)) {
       values.set(key, value);
+      sourcesByKey.set(key, [...(sourcesByKey.get(key) ?? []), relativePath]);
     }
   }
 
-  return { foundSources, values };
+  return { foundSources, sourcesByKey, values };
 }
 
 function redactedKeyList(keys: string[]): string {
   return keys.length > 0 ? keys.join(", ") : "(none)";
+}
+
+export function isAllowedHostedTemplateEnvKey(key: string): boolean {
+  return (
+    HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT.has(key) ||
+    HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES.some((prefix) =>
+      key.startsWith(prefix),
+    )
+  );
+}
+
+export function isForbiddenHostedTemplateEnvKey(key: string): boolean {
+  if (HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT.has(key)) return false;
+  if (FORBIDDEN_HOSTED_TEMPLATE_ENV_EXACT.has(key)) return true;
+  if (
+    FORBIDDEN_HOSTED_TEMPLATE_ENV_PREFIXES.some((prefix) =>
+      key.startsWith(prefix),
+    )
+  ) {
+    return true;
+  }
+  return SECRET_LIKE_ENV_KEY_PATTERN.test(key);
+}
+
+function formatKeySources(
+  key: string,
+  sourcesByKey: Map<string, string[]>,
+): string {
+  const sources = sourcesByKey.get(key) ?? [];
+  return sources.length > 0 ? `${key} (${sources.join(", ")})` : key;
+}
+
+function buildTemplateEnvPlan(
+  template: string,
+  context: string,
+  sources: string[],
+): TemplateEnvPlan {
+  const { foundSources, sourcesByKey, values } = loadTemplateEnv(
+    template,
+    sources,
+  );
+  const forbiddenKeys = [...values.keys()]
+    .filter((key) => isForbiddenHostedTemplateEnvKey(key))
+    .sort();
+  const normalizedKeys: string[] = [];
+  const skippedKeys: string[] = [];
+  const entries: Array<readonly [string, string]> = [];
+
+  for (const [key, value] of values) {
+    if (value === "") continue;
+    if (isForbiddenHostedTemplateEnvKey(key)) continue;
+    if (!isAllowedHostedTemplateEnvKey(key)) {
+      skippedKeys.push(key);
+      continue;
+    }
+
+    const normalized = normalizeProductionUrlEntry(
+      template,
+      context,
+      key,
+      value,
+    );
+    if (normalized.normalized) normalizedKeys.push(key);
+    entries.push([key, normalized.value] as const);
+  }
+
+  return {
+    entries,
+    forbiddenKeys,
+    foundSources,
+    normalizedKeys,
+    skippedKeys: [...new Set(skippedKeys)].sort(),
+    sourcesByKey,
+    template,
+  };
 }
 
 function isLoopbackUrl(value: string): boolean {
@@ -459,51 +577,58 @@ async function main() {
     );
   }
 
+  const plans = options.templates.map((template) =>
+    buildTemplateEnvPlan(template, options.context, options.sources),
+  );
+  const forbidden = plans.flatMap((plan) =>
+    plan.forbiddenKeys.map((key) => ({
+      key,
+      template: plan.template,
+      sources: formatKeySources(key, plan.sourcesByKey),
+    })),
+  );
+  if (forbidden.length > 0) {
+    const details = forbidden
+      .map(({ template, sources }) => `  - ${template}: ${sources}`)
+      .join("\n");
+    throw new Error(
+      [
+        "Refusing to sync forbidden hosted template env key(s).",
+        "Remove these from local template env files or set them manually in the host when they are truly deploy-owned:",
+        details,
+      ].join("\n"),
+    );
+  }
+
   console.log(
     options.write
       ? `Writing Netlify env vars for context=${options.context} scopes=${options.scopes.join(",")}`
       : `Dry run: no Netlify changes will be made. Add --write to apply.`,
   );
 
-  for (const template of options.templates) {
-    const site = SITE_BY_NAME.get(template);
-    if (!site) throw new Error(`Missing site mapping for ${template}.`);
+  for (const plan of plans) {
+    const site = SITE_BY_NAME.get(plan.template);
+    if (!site) throw new Error(`Missing site mapping for ${plan.template}.`);
 
-    const { foundSources, values } = loadTemplateEnv(template, options.sources);
-    const blockedKeys = [...values.keys()]
-      .filter((key) => BLOCKED_TEMPLATE_ENV_KEYS.has(key))
-      .sort();
-    const normalizedKeys: string[] = [];
-    const entries = [...values.entries()]
-      .filter(
-        ([key, value]) => value !== "" && !BLOCKED_TEMPLATE_ENV_KEYS.has(key),
-      )
-      .map(([key, value]) => {
-        const normalized = normalizeProductionUrlEntry(
-          template,
-          options.context,
-          key,
-          value,
-        );
-        if (normalized.normalized) normalizedKeys.push(key);
-        return [key, normalized.value] as const;
-      });
+    const entries = plan.entries;
     const keys = entries.map(([key]) => key).sort();
 
     console.log("");
-    console.log(`[${template}] site=${site.siteId}`);
+    console.log(`[${plan.template}] site=${site.siteId}`);
     console.log(
-      `  sources: ${foundSources.length > 0 ? foundSources.join(", ") : "(none)"}`,
+      `  sources: ${plan.foundSources.length > 0 ? plan.foundSources.join(", ") : "(none)"}`,
     );
     console.log(`  keys: ${redactedKeyList(keys)}`);
-    if (blockedKeys.length > 0) {
+    if (plan.skippedKeys.length > 0) {
       console.log(
-        `  skipped blocked hosted LLM key(s): ${blockedKeys.join(", ")}`,
+        `  skipped non-hosted key(s): ${plan.skippedKeys.join(", ")}`,
       );
     }
-    if (normalizedKeys.length > 0) {
+    if (plan.normalizedKeys.length > 0) {
       console.log(
-        `  normalized production URL key(s): ${normalizedKeys.sort().join(", ")}`,
+        `  normalized production URL key(s): ${plan.normalizedKeys
+          .sort()
+          .join(", ")}`,
       );
     }
 
@@ -554,7 +679,13 @@ function parseOptionsOrExit(argv: string[]): Options {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
-});
+const isDirectRun =
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
+
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+}

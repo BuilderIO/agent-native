@@ -3,6 +3,10 @@ const messages = {
     label: "語言",
     system: "系統",
     systemDescription: "使用瀏覽器語言",
+    suggestionTitle: "要用{{language}}閱讀此頁面嗎？",
+    suggestionDescription: "你的瀏覽器語言是{{language}}。",
+    suggestionSwitch: "切換到{{language}}",
+    suggestionKeepEnglish: "保留英文",
   },
   header: {
     docs: "檔案",

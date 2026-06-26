@@ -3,6 +3,7 @@ import {
   IconArrowLeft,
   IconCircleCheck,
   IconDownload,
+  IconExternalLink,
   IconFolderOpen,
   IconPencil,
   IconInfoCircle,
@@ -117,6 +118,15 @@ type MeetingTranscriptionMode = "manual" | "ask" | "auto";
 
 type CaptureMode = "screen" | "screen-camera" | "camera";
 type VideoStorageStatus = "checking" | "configured" | "missing";
+
+const STORAGE_SETUP_HELP_TEXT =
+  "Clips is 100% free and open source, so you need to hook up a way to store your clips. Connect storage with Builder.io for free-tier storage and AI, or use S3-compatible object storage and your own LLM keys.";
+const STORAGE_SETUP_FAILURE_RE =
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
+
+function isStorageSetupFailureMessage(message: string | null | undefined) {
+  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
 
 const STORAGE_KEY = "clips:server-url";
 const MODE_KEY = "clips:last-mode";
@@ -1559,7 +1569,11 @@ export function App() {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[clips-tray] retry saved upload failed:", err);
-      setRecError(message);
+      setRecError(
+        isStorageSetupFailureMessage(message)
+          ? "Connect storage to finish uploading this saved clip: Builder.io (free tier storage + AI) or S3-compatible storage."
+          : message,
+      );
       await loadPendingUploads();
     } finally {
       setRetryingUploadId(null);
@@ -1636,20 +1650,23 @@ export function App() {
     });
   }
 
-  const openVideoStorageSetup = useCallback(() => {
-    const base = serverUrl.replace(/\/+$/, "");
-    setRecError(
-      "Connect Builder.io or S3-compatible storage before recording from desktop. Opening storage setup...",
-    );
-    void openExternal(`${base}/record`).catch((err) => {
+  const openVideoStorageSetup = useCallback(
+    (targetServerUrl?: string) => {
+      const base = (targetServerUrl?.trim() || serverUrl).replace(/\/+$/, "");
       setRecError(
-        err instanceof Error
-          ? err.message
-          : "Could not open Clips storage setup.",
+        "Connect storage before recording from desktop: Builder.io (free tier storage + AI) or S3-compatible storage. Opening storage setup...",
       );
-    });
-    void refreshVideoStorageStatus();
-  }, [refreshVideoStorageStatus, serverUrl]);
+      void openExternal(`${base}/record`).catch((err) => {
+        setRecError(
+          err instanceof Error
+            ? err.message
+            : "Could not open Clips storage setup.",
+        );
+      });
+      void refreshVideoStorageStatus();
+    },
+    [refreshVideoStorageStatus, serverUrl],
+  );
 
   async function handleStartRecording(options?: {
     ignoreActiveRecorder?: boolean;
@@ -2148,6 +2165,7 @@ export function App() {
           onRetry={retryPendingUpload}
           onDiscard={discardPendingUpload}
           onOpenFolder={openPendingUploadFolder}
+          onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
         />
       ) : null}
 
@@ -2407,6 +2425,7 @@ function PendingUploadBanner({
   onRetry,
   onDiscard,
   onOpenFolder,
+  onConnectStorage,
 }: {
   uploads: PendingDesktopUpload[];
   retryingUploadId: string | null;
@@ -2416,11 +2435,13 @@ function PendingUploadBanner({
   onRetry: (upload: PendingDesktopUpload) => void;
   onDiscard: (upload: PendingDesktopUpload) => void;
   onOpenFolder: (upload: PendingDesktopUpload) => void;
+  onConnectStorage: (upload: PendingDesktopUpload) => void;
 }) {
   const latest = uploads[0];
   if (!latest) return null;
 
   const retrying = retryingUploadId === latest.recordingId;
+  const storageSetupFailure = isStorageSetupFailureMessage(latest.lastError);
   const exporting = exportingUploadId === latest.recordingId;
   const canOpenFolder = latest.kind === "native" && !!latest.folderPath;
   const canExport = latest.kind === "browser";
@@ -2430,6 +2451,16 @@ function PendingUploadBanner({
     uploads.length === 1
       ? "1 Clip saved locally"
       : `${uploads.length} Clips saved locally`;
+  const nativeCorrupt = latest.kind === "native" && !!latest.corrupt;
+  const title = nativeCorrupt
+    ? uploads.length === 1
+      ? "Clip could not be finalized"
+      : "Some Clips could not be finalized"
+    : storageSetupFailure
+      ? uploads.length === 1
+        ? "Connect storage to upload saved Clip"
+        : "Connect storage to upload saved Clips"
+      : savedLabel;
   const details = [
     latest.savedAt ? `saved ${formatAgo(latest.savedAt)}` : null,
     formatFileSize(latest.bytes),
@@ -2444,11 +2475,36 @@ function PendingUploadBanner({
         <IconUpload size={17} stroke={1.8} />
       </div>
       <div className="pending-upload-copy">
-        <div className="pending-upload-title">{savedLabel}</div>
-        <div className="pending-upload-sub">
-          {details.join(" · ")}
-          {errorText ? ` · ${errorText}` : ""}
+        <div className="pending-upload-title">{title}</div>
+        <div
+          className={
+            storageSetupFailure
+              ? "pending-upload-sub pending-upload-sub-wrap"
+              : "pending-upload-sub"
+          }
+        >
+          {nativeCorrupt
+            ? `${details.join(" · ")} · discard and record again`
+            : storageSetupFailure
+              ? `${details.join(" · ")} · your clip is safe locally`
+              : `${details.join(" · ")}${errorText ? ` · ${errorText}` : ""}`}
         </div>
+        {storageSetupFailure ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button type="button" className="pending-upload-why">
+                Why am I seeing this?
+              </button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="bottom"
+              align="start"
+              className="tooltip-content-wide"
+            >
+              {STORAGE_SETUP_HELP_TEXT}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
       </div>
       <div className="pending-upload-actions">
         {canOpenFolder ? (
@@ -2488,6 +2544,17 @@ function PendingUploadBanner({
           </button>
         ) : (
           <>
+            {storageSetupFailure ? (
+              <button
+                type="button"
+                className="pending-upload-connect"
+                disabled={actionsDisabled}
+                onClick={() => onConnectStorage(latest)}
+              >
+                <IconExternalLink size={14} stroke={2} />
+                Connect
+              </button>
+            ) : null}
             <button
               type="button"
               className="pending-upload-retry"
@@ -3705,7 +3772,7 @@ function Setup({
                 className="secondary"
                 onClick={connectBuilder}
               >
-                Connect Builder.io
+                Use Builder.io (free)
               </button>
             ) : null}
           </div>

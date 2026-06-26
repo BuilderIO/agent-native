@@ -146,7 +146,7 @@ const messages = {
     savingWentWrong: "儲存此剪輯時出現問題。",
     finishingClip: "正在完成您的剪輯...",
     loomSourcePreserved:
-      "Loom 來源連結被保留。連線 Builder.io 或 S3 存儲，Clips 將重試儲存其自己的副本。",
+      "Loom 來源連結被保留。連接儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存，Clips 將重試儲存自己的副本。",
     clipDataPreserved:
       "Your clip data is still preserved.連線Builder.io或S3存儲，Clips將自動上傳。",
     details: "細節",
@@ -223,12 +223,13 @@ const messages = {
     savingWentWrong: "儲存此剪輯時出現問題。",
     finishingClip: "完成這個剪輯...",
     loomPreservedManage:
-      "Loom 來源連結被保留。連線 Builder.io 或 S3 存儲，然後重試匯入。",
+      "Loom 來源連結被保留。連接儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存，然後重試匯入。",
     videoPreservedManage:
       "影片被保留。連線Builder.io或S3存儲，Clips將完成上傳。",
-    creatorNeedsStorage: "建立者需要連線 Builder.io 或 S3 存儲才能完成此剪輯。",
+    creatorNeedsStorage:
+      "建立者需要先連接儲存才能完成此剪輯：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。",
     signInStorage:
-      "如果這是您的剪輯，請在此處登入以連線 Builder.io 或 S3 存儲並完成上傳。",
+      "如果這是您的剪輯，請在此處登入以連接儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存，並完成上傳。",
     uploadNotCompleteSession:
       "上傳尚未完成。開啟此剪輯的儀表板或要求建立者檢查存儲空間。",
     uploadNotCompleteSignIn:
@@ -330,7 +331,8 @@ const messages = {
     cleanupKept: "清理工作無法完成。保留了本機轉錄本。",
     cleanupBuilderFailed:
       "即使 Builder.io 已連線，清理也無法完成。保留了本機轉錄本。",
-    cleanupPaused: "清理已暫停。在“設定”中連線 Builder.io 即可啟用它。",
+    cleanupPaused:
+      "清理已暫停。請在「設定」中連接 AI：Builder.io（免費額度）或你自己的 LLM 金鑰。",
     builderNoResponse: "沒有收到Builder的回複。允許快顯窗口並重試。",
     saveFailed: "儲存失敗（{{status}}）",
     savedRetrying: "已儲存。正在重試轉錄...",
@@ -555,7 +557,7 @@ const messages = {
       "Builder.io 是 Clips 上傳的主要存儲路徑。需要自帶存儲桶時，也可以使用 S3。",
     checkingBuilder: "正在檢查 Builder.io",
     builderConnected: "Builder.io 已連線",
-    connectBuilder: "連線 Builder.io",
+    connectBuilder: "使用 Builder.io（免費）",
     builderConnectedFor: "正在為 {{orgName}} 使用 Builder.io。",
     builderConnectedGeneric: "新的剪輯會使用已連線的 Builder.io 提供方。",
     builderIncludes: "包含物件存儲、上傳，以及新剪輯的託管轉錄。",
@@ -579,12 +581,11 @@ const messages = {
     s3RegionLabel: "區域",
     s3PublicBaseUrlLabel: "公開基礎 URL",
     apiSetup: "AI 設定",
-    apiSetupDescription:
-      "Builder.io 是託管 AI 額度的預設路徑。也可以在這裡新增可選的提供方金鑰。",
-    builderEasySetup: "Builder.io 是最簡單的設定方式",
+    apiSetupDescription: "使用 Builder.io 免費額度或你自己的 LLM 金鑰連接 AI。",
+    builderEasySetup: "Builder.io 免費額度",
     builderAiAvailable: "Clips 可使用包含的 AI 額度和託管轉錄。",
     builderAiDescription:
-      "先連線 Builder，即可使用包含的 AI 額度、物件存儲、上傳和託管轉錄。",
+      "優先使用 Builder.io，可獲得內建 AI 額度、物件儲存、上傳和託管轉錄。",
     providerKeyTitle: "使用自己的提供方金鑰",
     providerKeyDescription:
       "新增 Anthropic、OpenAI、Gemini、Groq 或 OpenRouter 金鑰，用於按提供方計費的使用。",
@@ -723,7 +724,8 @@ const messages = {
     title: "拼接錄製",
     pickAtLeastTwo: "請選取至少 2 個錄製進行拼接",
     videoUrlMissing: "一個或多個錄製還沒有可用的影片 URL",
-    connectStorage: "拼接錄製前請連線 Builder.io 或 S3 兼容存儲。",
+    connectStorage:
+      "拼接錄製前請連接儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。",
     created: "拼接錄製已建立",
     failed: "拼接錄製失敗",
     noOtherRecordings: "沒有其他可用錄製。",
@@ -947,9 +949,12 @@ const messages = {
     builderTimeout: "5 分鐘內未收到 Builder 回應。請檢查快顯窗口並重試。",
     builderConnected: "Builder.io 已連線",
     waitingForBuilder: "正在等待 Builder...",
-    connectBuilder: "連線 Builder.io",
+    connectBuilder: "使用 Builder.io（免費）",
     free: "免費",
     configureS3: "設定 S3 兼容存儲",
+    whyPrompt: "為什麼我會看到這個？",
+    whyDescription:
+      "Clips 是 100% 免費且開源的，因此你需要連接一種儲存 clips 的方式。使用 Builder.io 可取得免費方案儲存和 AI，或使用 S3 相容物件儲存和你自己的 LLM 金鑰。",
   },
   captureInstall: {
     title: "Choose your recorder (已本機化)",
@@ -1152,9 +1157,9 @@ const messages = {
     downloadRecording: "Download recording (已本機化)",
     openRecorderInTab: "Open recorder in tab (已本機化)",
     connectStorageToFinish:
-      "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it. (已本機化)",
+      "在下一屏連接儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將完成儲存。",
     connectStorageToRetryLoom:
-      "Connect Builder.io or S3 storage on the next screen and Clips will retry the import. (已本機化)",
+      "在下一屏連接儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將重試匯入。",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (已本機化)",

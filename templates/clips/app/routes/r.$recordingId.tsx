@@ -114,6 +114,13 @@ function failureDetail(reason: string | null | undefined): string | null {
 
 function nativeSaveFailureMessage(reason: string | null | undefined): string {
   const text = reason ?? "";
+  if (
+    /finalization callback failed|missing required metadata|missing playback metadata|corrupted or incomplete|missing moov/i.test(
+      text,
+    )
+  ) {
+    return "macOS could not finish writing this desktop recording. The local file is incomplete, so discard it from the Clips menu and record again.";
+  }
   if (/too large|compression/i.test(text)) {
     return "Clips tried to compress this desktop recording, but it is still too large to upload. The original is saved locally and can be retried from the Clips menu.";
   }

@@ -1,9 +1,11 @@
-import { readBody } from "@agent-native/core/server";
+import { gunzipSync } from "node:zlib";
+
 import {
   defineEventHandler,
   getHeader,
   getQuery,
   getRouterParam,
+  readRawBody,
   setResponseHeader,
   setResponseStatus,
 } from "h3";
@@ -48,7 +50,7 @@ function setCors(event: any): void {
   setResponseHeader(
     event,
     "Access-Control-Allow-Headers",
-    "content-type, x-agent-native-analytics-key",
+    "content-type, content-encoding, x-agent-native-analytics-key",
   );
   setResponseHeader(event, "Access-Control-Max-Age", "86400");
 }
@@ -76,13 +78,58 @@ function injectHeaderKey(body: unknown, headerKey?: string): unknown {
   return { publicKey: headerKey };
 }
 
-function requestByteLength(body: unknown): number {
-  if (typeof body === "string") return Buffer.byteLength(body, "utf8");
-  try {
-    return Buffer.byteLength(JSON.stringify(body), "utf8");
-  } catch {
-    return 0;
+function statusError(message: string, statusCode: number): Error {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+export function decodeSessionReplayRequestBody(
+  rawBody: Buffer | Uint8Array | string | undefined,
+  contentEncoding?: string | null,
+): { body: unknown; requestBytes: number } {
+  const requestBytes =
+    typeof rawBody === "string"
+      ? Buffer.byteLength(rawBody, "utf8")
+      : (rawBody?.byteLength ?? 0);
+  const bytes = Buffer.isBuffer(rawBody)
+    ? rawBody
+    : rawBody instanceof Uint8Array
+      ? Buffer.from(rawBody)
+      : Buffer.from(rawBody ?? "", "utf8");
+  const encoding = (contentEncoding ?? "").split(";")[0]?.trim().toLowerCase();
+  let decoded = bytes;
+
+  if (encoding === "gzip" || encoding === "x-gzip") {
+    try {
+      decoded = gunzipSync(bytes);
+    } catch {
+      throw statusError("Invalid gzip-compressed replay body", 400);
+    }
+  } else if (encoding && encoding !== "identity") {
+    throw statusError(
+      `Unsupported replay request content-encoding: ${encoding}`,
+      415,
+    );
   }
+
+  const text = decoded.toString("utf8");
+  if (!text.trim()) {
+    return { body: undefined, requestBytes };
+  }
+  try {
+    return { body: JSON.parse(text), requestBytes };
+  } catch {
+    return { body: text, requestBytes };
+  }
+}
+
+async function readSessionReplayRequestBody(
+  event: any,
+): Promise<{ body: unknown; requestBytes: number }> {
+  const rawBody = await readRawBody(event, false);
+  return decodeSessionReplayRequestBody(
+    rawBody,
+    getHeader(event, "content-encoding"),
+  );
 }
 
 function asString(value: unknown): string | undefined {
@@ -153,12 +200,13 @@ export const handleSessionReplayIngest = defineEventHandler(async (event) => {
     }
 
     const headerKey = getHeader(event, "x-agent-native-analytics-key");
-    const rawBody = await readBody(event);
+    const { body: rawBody, requestBytes } =
+      await readSessionReplayRequestBody(event);
     const body = injectHeaderKey(rawBody, headerKey);
     const parsed = parseSessionReplayIngestPayload(body);
     const result = await recordSessionReplayChunks(parsed, {
       origin: readOrigin(event),
-      requestBytes: requestByteLength(rawBody),
+      requestBytes,
     });
     setResponseStatus(event, 202);
     return { success: true, ...result };

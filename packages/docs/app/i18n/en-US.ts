@@ -3,6 +3,10 @@ const enUS = {
     label: "Language",
     system: "System",
     systemDescription: "Use your browser language",
+    suggestionTitle: "Read this page in {{language}}?",
+    suggestionDescription: "Your browser language is {{language}}.",
+    suggestionSwitch: "Switch to {{language}}",
+    suggestionKeepEnglish: "Keep English",
   },
   header: {
     docs: "Docs",

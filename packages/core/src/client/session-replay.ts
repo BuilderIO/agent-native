@@ -630,6 +630,72 @@ function buildReplayBody(
   return `${envelopeJson.slice(0, -1)},"events":[${eventJsonParts.join(",")}]}`;
 }
 
+interface ReplayUploadBody {
+  body: BodyInit;
+  headers: Record<string, string>;
+  compressed: boolean;
+}
+
+async function gzipReplayBody(body: string): Promise<Blob | null> {
+  if (
+    typeof CompressionStream === "undefined" ||
+    typeof Blob === "undefined" ||
+    typeof Response === "undefined"
+  ) {
+    return null;
+  }
+  try {
+    const stream = new Blob([body], { type: "application/json" })
+      .stream()
+      .pipeThrough(new CompressionStream("gzip"));
+    const compressed = await new Response(stream).arrayBuffer();
+    return new Blob([compressed], { type: "application/json" });
+  } catch {
+    return null;
+  }
+}
+
+async function buildReplayUploadBody(body: string): Promise<ReplayUploadBody> {
+  const compressed = await gzipReplayBody(body);
+  if (compressed) {
+    return {
+      body: compressed,
+      compressed: true,
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip",
+      },
+    };
+  }
+  return {
+    body,
+    compressed: false,
+    headers: {
+      "Content-Type": "text/plain;charset=UTF-8",
+    },
+  };
+}
+
+async function sendReplayUpload(
+  options: NormalizedSessionReplayOptions,
+  body: string,
+): Promise<void> {
+  const upload = await buildReplayUploadBody(body);
+  if (!upload.compressed && navigator.sendBeacon) {
+    const sent = navigator.sendBeacon(options.endpoint, body);
+    if (sent) return;
+  }
+  await fetch(options.endpoint, {
+    method: "POST",
+    body: upload.body,
+    keepalive: true,
+    headers: {
+      ...upload.headers,
+      "X-Agent-Native-Analytics-Key": options.publicKey,
+    },
+  }).catch(() => {});
+}
+
 function isFinalFlushReason(reason: string): boolean {
   return [
     "manual",
@@ -649,19 +715,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   if (!body || !state.options) return;
   state.flushing = true;
   try {
-    if (navigator.sendBeacon) {
-      const sent = navigator.sendBeacon(state.options.endpoint, body);
-      if (sent) return;
-    }
-    await fetch(state.options.endpoint, {
-      method: "POST",
-      body,
-      keepalive: true,
-      headers: {
-        "Content-Type": "text/plain;charset=UTF-8",
-        "X-Agent-Native-Analytics-Key": state.options.publicKey,
-      },
-    }).catch(() => {});
+    await sendReplayUpload(state.options, body);
   } finally {
     state.flushing = false;
   }

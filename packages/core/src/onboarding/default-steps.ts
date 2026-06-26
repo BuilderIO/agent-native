@@ -121,9 +121,9 @@ const llmStep: OnboardingStep = {
         await import("../server/credential-provider.js");
       if (await resolveHasCompleteBuilderConnection()) return true;
     } catch {
-      if (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) {
-        return true;
-      }
+      // Credential storage may be unavailable during early boot. Do not fall
+      // back to deployment-level Builder env here; the scoped resolver owns the
+      // policy for when that is safe.
     }
     try {
       if (await detectEngineFromUserSecrets()) return true;

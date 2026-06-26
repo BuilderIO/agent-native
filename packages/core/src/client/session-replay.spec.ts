@@ -1,3 +1,5 @@
+import { gunzipSync } from "node:zlib";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const recordMock = vi.hoisted(() => vi.fn());
@@ -22,6 +24,53 @@ async function tick() {
   await Promise.resolve();
   await Promise.resolve();
   await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+async function waitForAssertion(assertion: () => void): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  throw lastError;
+}
+
+function headerValue(
+  headers: RequestInit["headers"],
+  name: string,
+): string | undefined {
+  if (headers instanceof Headers) return headers.get(name) ?? undefined;
+  if (Array.isArray(headers)) {
+    const match = headers.find(([key]) => key.toLowerCase() === name);
+    return match?.[1];
+  }
+  const lowerName = name.toLowerCase();
+  return Object.entries(headers ?? {}).find(
+    ([key]) => key.toLowerCase() === lowerName,
+  )?.[1] as string | undefined;
+}
+
+async function requestBodyBuffer(body: RequestInit["body"]): Promise<Buffer> {
+  if (typeof body === "string") return Buffer.from(body, "utf8");
+  if (body instanceof Blob) return Buffer.from(await body.arrayBuffer());
+  if (body instanceof ArrayBuffer) return Buffer.from(body);
+  if (ArrayBuffer.isView(body)) {
+    return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  }
+  return Buffer.from(String(body ?? ""), "utf8");
+}
+
+async function parseReplayUpload(init: RequestInit): Promise<any> {
+  let bytes = await requestBodyBuffer(init.body);
+  if (headerValue(init.headers, "content-encoding") === "gzip") {
+    bytes = gunzipSync(bytes);
+  }
+  return JSON.parse(bytes.toString("utf8"));
 }
 
 function setLocation(
@@ -246,15 +295,16 @@ describe("session replay", () => {
     });
     await tick();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("https://analytics.example.test/session-replay");
     expect(url).not.toContain("anpk_test");
-    expect(init.headers).toMatchObject({
-      "Content-Type": "text/plain;charset=UTF-8",
-      "X-Agent-Native-Analytics-Key": "anpk_test",
-    });
-    const body = JSON.parse(String(init.body));
+    expect(headerValue(init.headers, "content-type")).toBe("application/json");
+    expect(headerValue(init.headers, "content-encoding")).toBe("gzip");
+    expect(headerValue(init.headers, "x-agent-native-analytics-key")).toBe(
+      "anpk_test",
+    );
+    const body = await parseReplayUpload(init);
     expect(body).toMatchObject({
       publicKey: "anpk_test",
       type: "session_replay",
@@ -272,6 +322,35 @@ describe("session replay", () => {
 
     stopSessionReplay();
     expect(stop).toHaveBeenCalled();
+  });
+
+  it("falls back to raw sendBeacon uploads when gzip is unavailable", async () => {
+    installBrowser("https://app.agent-native.com/inbox");
+    const sendBeacon = vi.fn(() => true);
+    vi.stubGlobal("navigator", { sendBeacon });
+    vi.stubGlobal("CompressionStream", undefined);
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay } = await freshSessionReplay();
+
+    await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    await waitForAssertion(() => expect(sendBeacon).toHaveBeenCalledTimes(1));
+
+    expect(sendBeacon).toHaveBeenCalledWith(
+      "https://analytics.example.test/session-replay",
+      expect.any(String),
+    );
+    const body = JSON.parse(String(sendBeacon.mock.calls[0][1]));
+    expect(body.events[0].data.href).toBe("/inbox");
   });
 
   it("passes custom rrweb event sampling through to the recorder", async () => {
@@ -312,7 +391,7 @@ describe("session replay", () => {
       flushIntervalMs: 100_000,
     });
     recordOptions[0].emit({ type: 3, data: { href: "/first" } });
-    await tick();
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     first.stopSessionReplay();
     await tick();
 
@@ -325,11 +404,13 @@ describe("session replay", () => {
       flushIntervalMs: 100_000,
     });
     recordOptions[1].emit({ type: 3, data: { href: "/second" } });
-    await tick();
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     second.stopSessionReplay();
 
-    const bodies = fetchMock.mock.calls.map(([, init]) =>
-      JSON.parse(String((init as RequestInit).body)),
+    const bodies = await Promise.all(
+      fetchMock.mock.calls.map(([, init]) =>
+        parseReplayUpload(init as RequestInit),
+      ),
     );
     expect(bodies.map((body) => body.sequence)).toEqual([0, 1]);
     expect(new Set(bodies.map((body) => body.replayId)).size).toBe(1);
@@ -367,7 +448,7 @@ describe("session replay", () => {
     await startSessionReplay();
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
     stopSessionReplay();
-    await tick();
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0][0]).toBe(
@@ -396,7 +477,13 @@ describe("session replay", () => {
     expect(recordOptions).toBeDefined();
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
     await stopSessionReplay();
-    await tick();
+    await waitForAssertion(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes("/api/analytics/replay"),
+        ),
+      ).toHaveLength(1),
+    );
 
     const replayCalls = fetchMock.mock.calls.filter(([url]) =>
       String(url).includes("/api/analytics/replay"),
@@ -434,14 +521,20 @@ describe("session replay", () => {
 
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
     await stopSessionReplay();
-    await tick();
+    await waitForAssertion(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes("/api/analytics/replay"),
+        ),
+      ).toHaveLength(1),
+    );
 
     const replayCalls = fetchMock.mock.calls.filter(([url]) =>
       String(url).includes("/api/analytics/replay"),
     );
     expect(replayCalls).toHaveLength(1);
     const [, init] = replayCalls[0] as [string, RequestInit];
-    const body = JSON.parse(String(init.body));
+    const body = await parseReplayUpload(init);
     expect(body.userId).toBe("user_123");
     expect(body.properties).toMatchObject({
       app: "agent-native-test",
@@ -478,14 +571,20 @@ describe("session replay", () => {
 
     recordOptions.emit({ type: 3, data: { href: "/inbox" } });
     await stopSessionReplay();
-    await tick();
+    await waitForAssertion(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes("/api/analytics/replay"),
+        ),
+      ).toHaveLength(1),
+    );
 
     const replayCalls = fetchMock.mock.calls.filter(([url]) =>
       String(url).includes("/api/analytics/replay"),
     );
     expect(replayCalls).toHaveLength(1);
     const [, init] = replayCalls[0] as [string, RequestInit];
-    const body = JSON.parse(String(init.body));
+    const body = await parseReplayUpload(init);
     expect(body.userId).toBe("dev@example.com");
     expect(body.properties).toMatchObject({
       app: "agent-native-clips",

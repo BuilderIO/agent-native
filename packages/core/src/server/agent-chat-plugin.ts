@@ -148,6 +148,12 @@ import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
+  resolveAgentRunOwnerContext,
+  runWithAgentRunContext,
+  seedBackgroundAgentRunOwnerContext,
+  type AgentRunOwnerContext,
+} from "./agent-run-context.js";
+import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   getCurrentDelegationDepth,
   processAgentTeamRun,
@@ -4994,45 +5000,13 @@ export function createAgentChatPlugin(
         });
       }
 
-      type OwnerContext = {
-        owner: string;
-        anonymous: boolean;
-        name?: string;
-      };
-      const OWNER_CONTEXT_KEY = "__agentNativeOwnerContext";
-
       // Resolve owner from the H3 event's session, with an optional
       // template-provided anonymous owner for public read-only surfaces.
-      const resolveOwnerContext = async (event: any): Promise<OwnerContext> => {
-        const eventContext = event?.context as
-          | (Record<string, unknown> & { [OWNER_CONTEXT_KEY]?: OwnerContext })
-          | undefined;
-        if (eventContext?.[OWNER_CONTEXT_KEY]) {
-          return eventContext[OWNER_CONTEXT_KEY];
-        }
-
-        const session = await getSession(event);
-        if (session?.email) {
-          const resolved = {
-            owner: session.email,
-            anonymous: false,
-            name: session.name,
-          };
-          if (eventContext) eventContext[OWNER_CONTEXT_KEY] = resolved;
-          return resolved;
-        }
-
-        const anonymousOwner = await options?.anonymousOwner?.(event);
-        if (anonymousOwner) {
-          const resolved = { owner: anonymousOwner, anonymous: true };
-          if (eventContext) eventContext[OWNER_CONTEXT_KEY] = resolved;
-          return resolved;
-        }
-
-        const { createError } = await import("h3");
-        throw createError({
-          statusCode: 401,
-          statusMessage: "Unauthenticated",
+      const resolveOwnerContext = async (
+        event: any,
+      ): Promise<AgentRunOwnerContext> => {
+        return resolveAgentRunOwnerContext(event, {
+          anonymousOwner: options?.anonymousOwner,
         });
       };
 
@@ -7749,92 +7723,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       // the background worker), so both go through identical context + handler
       // selection.
       const invokeAgentChatHandler = async (event: any) => {
-        // Resolve per-request auth context
+        // Resolve per-request auth context.
         const ownerContext = await resolveOwnerContext(event);
-        const owner = ownerContext.owner;
 
-        // Resolve org ID: explicit callback > session.orgId from Better Auth
-        // > implicit org membership. Better Auth leaves session.orgId null
-        // until the user explicitly switches orgs, so a fresh signup with
-        // implicit membership (e.g. domain-matched org) would otherwise see
-        // no org-scoped credentials. getOrgContext() does the same DB lookup
-        // the /builder/status endpoint uses to decide "Connected".
-        let resolvedOrgId: string | undefined;
-        if (options?.resolveOrgId) {
-          resolvedOrgId = (await options.resolveOrgId(event)) ?? undefined;
-        } else {
-          try {
-            const session = await getSession(event);
-            resolvedOrgId = session?.orgId ?? undefined;
-          } catch {
-            // Session not available
-          }
-          if (!resolvedOrgId) {
-            try {
-              const { getOrgContext } = await import("../org/context.js");
-              const ctx = await getOrgContext(event);
-              resolvedOrgId = ctx.orgId ?? undefined;
-            } catch {
-              // org_members table may not exist yet on first boot
-            }
-          }
-        }
-        // Cookieless durable background worker: getSession()/getOrgContext()
-        // resolve from the (absent) session, so org-scoped credential resolution
-        // (the Builder engine) would miss the owner's org and resolveEngine would
-        // fall back to the anthropic default — bailing on a missing key before
-        // the worker claims its run. The owner IS known here (seeded via
-        // OWNER_CONTEXT_KEY from the run's thread), so resolve the org directly
-        // from the owner email, the same active-org logic the foreground session
-        // would yield.
-        if (!resolvedOrgId && owner) {
-          try {
-            const { resolveOrgIdForEmail } = await import("../org/context.js");
-            resolvedOrgId = (await resolveOrgIdForEmail(owner)) ?? undefined;
-          } catch {
-            // org tables unavailable — proceed without org (foreground-equivalent)
-          }
-        }
-
-        // DURABLE OWNER CONTEXT, PART 2: ORG.
-        // The cookieless `_process-run` self-dispatch (and any other background
-        // re-entry) resolves the owner from the run row, but has NO session —
-        // every org resolver above ultimately derives identity from
-        // getSession(event), so they all come back null here. That silently
-        // scopes the agent to `org_id IS NULL` rows only: it sees and writes
-        // resources outside the user's org, while the foreground UI — which
-        // carries the session cookie — resolves the real org. The result is the
-        // observed split where the agent can't list/read the same resources the
-        // UI shows and writes new rows with a null org. Resolve the org from the
-        // now-known owner email (the same active-org / membership logic
-        // getOrgContext uses, minus the session) so the agent and the UI operate
-        // over the same org-scoped data.
-        if (!resolvedOrgId && owner && !ownerContext.anonymous) {
-          try {
-            const { resolveOrgIdForEmail } = await import("../org/context.js");
-            resolvedOrgId = (await resolveOrgIdForEmail(owner)) ?? undefined;
-          } catch {
-            // org tables unavailable (first boot) — leave org unscoped
-          }
-        }
-
-        // Propagate the caller's IANA timezone from `x-user-timezone` so that
-        // tool calls made by the agent (e.g. log-meal with no explicit date)
-        // resolve "today" in the user's local timezone instead of server UTC.
-        const tzRaw = getHeader(event, "x-user-timezone");
-        const timezone =
-          typeof tzRaw === "string" &&
-          tzRaw.trim().length > 0 &&
-          tzRaw.trim().length < 64
-            ? tzRaw.trim()
-            : undefined;
-
-        return runWithRequestContext(
+        return runWithAgentRunContext(
           {
-            userEmail: owner,
-            userName: ownerContext.name,
-            orgId: resolvedOrgId,
-            timezone,
+            event,
+            ownerContext,
+            resolveOrgId: options?.resolveOrgId,
+            isBackgroundWorker: Boolean(
+              (event as any).context?.__agentChatBackgroundBody,
+            ),
           },
           () => {
             // App-rendered chat can't host direct code edits — HMR/full
@@ -7949,48 +7848,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           (event as any).context = (event as any).context ?? {};
           (event as any).context.__agentChatBackgroundBody = prepared.body;
 
-          // DURABLE OWNER CONTEXT: this self-dispatch is cookieless (HMAC-only —
-          // the foreground POST carried the user's session, but this background-
-          // function invocation does not). Without a session, resolveOwnerContext()
-          // falls through to its 401 "Unauthenticated" throw and the worker dies
-          // before it can even claim the run (observed in prod as the `route_threw`
-          // diag stage — every durable run only completed via the foreground
-          // circuit-breaker's inline recovery). The run's chat thread already
-          // records the authenticated owner (written by the foreground under the
-          // signed-in user), so resolve the owner from the run row — NOT from the
-          // request body, which the HMAC does not cover and a caller could forge —
-          // and pre-seed the owner context the handler reads (resolveOwnerContext
-          // returns it before attempting any session lookup).
-          let backgroundOwner: string | null = null;
-          try {
-            const { getRunOwnerEmail } = await import("../agent/run-store.js");
-            backgroundOwner = await getRunOwnerEmail(prepared.runId);
-            if (backgroundOwner) {
-              (event as any).context[OWNER_CONTEXT_KEY] = {
-                owner: backgroundOwner,
-                anonymous: false,
-              };
-            }
-          } catch {
-            // Best-effort: if the lookup fails, resolveOwnerContext runs as before
-            // and throws its normal 401, surfaced via the route_threw diagnostic.
-          }
+          // Durable owner context: this self-dispatch is cookieless (HMAC-only).
+          // Resolve the owner from the persisted run row, never the request body,
+          // then invoke the normal handler. The shared agent-run context helper
+          // expands that owner into the same user/org AsyncLocalStorage context the
+          // foreground request uses, so credential and data scoping stay aligned.
+          await seedBackgroundAgentRunOwnerContext(event, prepared.runId);
 
           try {
-            // Run the worker INSIDE the owner's AsyncLocalStorage request context.
-            // Seeding OWNER_CONTEXT_KEY (above) only feeds getOwnerFromEvent; the
-            // engine-resolution path (detectEngineFromUserSecrets) and other
-            // owner-scoped reads use getRequestUserEmail()/getRequestOrgId(),
-            // which a cookieless background worker otherwise leaves empty. Without
-            // this, resolveEngine can't see the owner's Builder credential, falls
-            // back to the anthropic default, and — when the owner has no stored
-            // anthropic key and deploy-credential fallback is blocked — bails at
-            // the API-key check BEFORE claiming its run (the analytics durable
-            // worker's "stalls at post_model, never claims" bug).
-            const invoke = () => invokeAgentChatHandler(event);
-            return await (backgroundOwner
-              ? runWithRequestContext({ userEmail: backgroundOwner }, invoke)
-              : invoke());
+            return await invokeAgentChatHandler(event);
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
             // DIAGNOSTIC: the worker invocation threw at the route boundary —
