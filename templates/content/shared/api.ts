@@ -731,6 +731,14 @@ export interface AddContentDatabaseSourceFieldPropertyRequest {
   sourceFieldId: string;
 }
 
+export interface BindContentDatabaseSourceFieldRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceFieldId: string;
+  // Target column to bind the source field to, or null to unbind.
+  propertyId: string | null;
+}
+
 export interface StageBuilderRevisionRequest {
   databaseId?: string;
   documentId?: string;

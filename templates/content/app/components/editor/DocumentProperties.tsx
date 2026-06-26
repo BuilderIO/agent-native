@@ -104,6 +104,7 @@ import {
 } from "@shared/properties";
 import type {
   AddContentDatabaseSourceFieldPropertyRequest,
+  BindContentDatabaseSourceFieldRequest,
   ContentDatabaseResponse,
   ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSource,
@@ -810,6 +811,22 @@ function PropertyRow({
   );
 }
 
+// Mirror of the server's propertyTypeForSourceField — keep in sync. Used to
+// gate which source fields can bind into a column (type compatibility).
+function propertyTypeForSourceFieldType(
+  sourceFieldType: string,
+): DocumentPropertyType {
+  if (sourceFieldType === "number") return "number";
+  if (sourceFieldType === "datetime" || sourceFieldType === "date") {
+    return "date";
+  }
+  if (sourceFieldType === "url") return "url";
+  if (sourceFieldType === "boolean" || sourceFieldType === "checkbox") {
+    return "checkbox";
+  }
+  return "text";
+}
+
 export function PropertyManagementPopover({
   property,
   documentId,
@@ -819,6 +836,7 @@ export function PropertyManagementPopover({
   triggerTrailing,
   sourceField,
   sourceAttached = false,
+  sources,
 }: {
   property: DocumentProperty;
   documentId: string;
@@ -828,11 +846,51 @@ export function PropertyManagementPopover({
   triggerTrailing?: ReactNode;
   sourceField?: ContentDatabaseSource["fields"][number] | null;
   sourceAttached?: boolean;
+  sources?: ContentDatabaseSource[];
 }) {
   const configure = useConfigureDocumentProperty(documentId);
   const duplicate = useDuplicateDocumentProperty(documentId);
   const remove = useDeleteDocumentProperty(documentId);
   const { data: propertiesData } = useDocumentProperties(documentId);
+  const bindQueryClient = useQueryClient();
+  const bindSourceField = useActionMutation<
+    ContentDatabaseResponse,
+    BindContentDatabaseSourceFieldRequest
+  >("bind-content-database-source-field", {
+    onSuccess: () => {
+      bindQueryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
+      bindQueryClient.invalidateQueries({
+        queryKey: ["action", "list-document-properties", { documentId }],
+      });
+    },
+  });
+  // Per-source field bindings for THIS column (row-union): which source fields
+  // feed it, and which unmapped, type-compatible fields could be bound into it
+  // (at most one field per source per column).
+  const allSourceFieldEntries = (sources ?? []).flatMap((src) =>
+    src.fields.map((field) => ({ source: src, field })),
+  );
+  const boundSourceFields = allSourceFieldEntries.filter(
+    (entry) => entry.field.propertyId === property.definition.id,
+  );
+  const boundSourceIds = new Set(boundSourceFields.map((b) => b.source.id));
+  const columnType = property.definition.type;
+  const bindableSourceFields = allSourceFieldEntries.filter(
+    (entry) =>
+      !entry.field.propertyId &&
+      entry.field.mappingType !== "title" &&
+      entry.field.mappingType !== "system" &&
+      entry.field.writeOwner !== "derived" &&
+      !boundSourceIds.has(entry.source.id) &&
+      (columnType === "text" ||
+        columnType === propertyTypeForSourceFieldType(entry.field.sourceFieldType)),
+  );
+  const showBindingEditor =
+    !isComputedPropertyType(columnType) &&
+    columnType !== "blocks" &&
+    (boundSourceFields.length > 0 || bindableSourceFields.length > 0);
   // Whether deleting THIS property removes the last Blocks field of the type —
   // i.e. the body. Drives the yellow warning in the delete dialog.
   const blocksFieldCount = (propertiesData?.properties ?? []).filter(
@@ -1128,7 +1186,85 @@ export function PropertyManagementPopover({
             </div>
           ) : null}
 
-          {sourceAttached ? (
+          {showBindingEditor ? (
+            <>
+              <DropdownMenuSeparator />
+              <div className="grid gap-1.5 px-2 py-1.5 text-xs">
+                <div className="font-medium text-foreground">
+                  Sources feeding this column
+                </div>
+                {boundSourceFields.length > 0 ? (
+                  <div className="grid gap-1">
+                    {boundSourceFields.map(({ source: src, field }) => (
+                      <div
+                        key={field.id}
+                        className="flex min-w-0 items-center gap-1.5"
+                      >
+                        <IconLink className="size-3.5 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                          <span className="text-foreground">
+                            {src.sourceName}
+                          </span>{" "}
+                          · {field.sourceFieldLabel}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label={`Unbind ${field.sourceFieldLabel} from ${src.sourceName}`}
+                          disabled={bindSourceField.isPending}
+                          className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                          onClick={() =>
+                            void bindSourceField.mutateAsync({
+                              documentId,
+                              sourceFieldId: field.id,
+                              propertyId: null,
+                            })
+                          }
+                        >
+                          <IconX className="size-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-muted-foreground">
+                    No source fields bound yet.
+                  </div>
+                )}
+                {bindableSourceFields.length > 0 ? (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="mt-0.5 rounded px-1.5 py-1 text-xs">
+                      <IconPlus className="mr-1.5 size-3.5 text-muted-foreground" />
+                      Bind a field from a source
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="max-h-80 w-64 overflow-auto">
+                      {bindableSourceFields.map(({ source: src, field }) => (
+                        <DropdownMenuItem
+                          key={field.id}
+                          disabled={bindSourceField.isPending}
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            void bindSourceField.mutateAsync({
+                              documentId,
+                              sourceFieldId: field.id,
+                              propertyId: property.definition.id,
+                            });
+                          }}
+                        >
+                          <IconLink className="mr-2 size-3.5 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0 flex-1 truncate">
+                            {field.sourceFieldLabel}
+                          </span>
+                          <span className="ml-2 shrink-0 truncate text-[11px] text-muted-foreground">
+                            {src.sourceName}
+                          </span>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                ) : null}
+              </div>
+            </>
+          ) : sourceAttached ? (
             <>
               <DropdownMenuSeparator />
               <div className="grid gap-1 px-2 py-1.5 text-xs">

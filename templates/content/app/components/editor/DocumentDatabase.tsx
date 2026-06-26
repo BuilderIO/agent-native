@@ -3175,6 +3175,7 @@ function DatabaseTableView({
                 property={property}
                 documentId={databaseDocumentId}
                 source={source}
+                sources={sources}
                 canEdit={canEdit}
                 isDragging={draggedPropertyId === property.definition.id}
                 dropSide={
@@ -11570,6 +11571,7 @@ function DatabasePropertyHeader({
   property,
   documentId,
   source,
+  sources,
   canEdit,
   isDragging,
   dropSide,
@@ -11581,6 +11583,7 @@ function DatabasePropertyHeader({
   property: DocumentProperty;
   documentId: string;
   source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
   canEdit: boolean;
   isDragging: boolean;
   dropSide: DatabaseDropSide | null;
@@ -11627,6 +11630,7 @@ function DatabasePropertyHeader({
             property.definition.id,
           )}
           sourceAttached={!!source}
+          sources={sources}
         />
       ) : (
         <div className="flex h-7 min-w-0 flex-1 items-center gap-2 px-1">
