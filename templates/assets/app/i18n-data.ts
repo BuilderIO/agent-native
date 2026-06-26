@@ -1,5 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import zhTW from "./i18n/zh-TW";
+
 const brandKitDetailEnUS = {
   savedToGenerated: "Saved to Generated.",
   couldNotSaveCandidate: "Could not save candidate.",
@@ -2757,6 +2759,7 @@ function mergeMessages(overrides: PartialMessages): Messages {
 
 export const messagesByLocale = {
   "en-US": enUS,
+  "zh-TW": mergeMessages(zhTW),
   "zh-CN": mergeMessages({
     library: {
       addAssets: "添加资产",

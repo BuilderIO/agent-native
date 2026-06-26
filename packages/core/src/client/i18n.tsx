@@ -111,6 +111,11 @@ const LANGUAGE_PICKER_COPY: Record<
     system: "系统",
     systemDescription: "使用浏览器语言",
   },
+  "zh-TW": {
+    label: "語言",
+    system: "系統",
+    systemDescription: "使用瀏覽器語言",
+  },
   "es-ES": {
     label: "Idioma",
     system: "Sistema",
