@@ -215,6 +215,14 @@ type PanelPatch = {
   description?: string;
 };
 
+type PanelInput = PanelPatch & {
+  id: string;
+  title: string;
+  chartType: NonNullable<PanelPatch["chartType"]>;
+  source?: PanelPatch["source"]; // required for non-section panels
+  sql?: string; // required for non-section panels
+};
+
 type PanelFilter = {
   id?: string;
   ids?: string[];

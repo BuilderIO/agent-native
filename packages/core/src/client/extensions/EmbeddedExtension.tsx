@@ -252,11 +252,10 @@ export function EmbeddedExtension({
         // (audit H4) Role-aware gating: viewer-shared extensions can read but not
         // write. The bridge policy is decided here in the parent before the
         // request leaves; the server enforces a second layer.
-        const policy = checkBridgePolicy(
-          path,
-          options.method ?? "GET",
-          bridgeContextRef.current,
-        );
+        const policy = checkBridgePolicy(path, options.method ?? "GET", {
+          ...bridgeContextRef.current,
+          extensionId,
+        });
         if (!policy.ok) {
           respond({
             response: {

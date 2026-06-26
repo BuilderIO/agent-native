@@ -194,6 +194,13 @@ describe("dashboard mutation api", () => {
         ].join("\n"),
       ),
     ).toThrow(/statement 2 .*width must be a finite number/);
+
+    expect(() =>
+      parseDashboardMutationScript(
+        config(),
+        'dashboard.panel("b").setConfigPath("yAxis.format");',
+      ),
+    ).toThrow(/statement 1 .*setConfigPath requires path and value/);
   });
 
   it("rejects panel id changes and gives structured op context", () => {

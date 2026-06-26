@@ -164,6 +164,8 @@ export type ExtensionBridgeRole = "owner" | "admin" | "editor" | "viewer";
 const READ_METHODS = new Set(["GET", "HEAD"]);
 
 export interface BridgePolicyContext {
+  /** Extension id currently owning the iframe. Used for narrow helper-specific exceptions. */
+  extensionId?: string;
   /** Resolved role of the viewer on this extension. */
   role: ExtensionBridgeRole;
   /** True when viewer is the extension's owner_email — equivalent to role "owner"
@@ -267,6 +269,12 @@ export function checkBridgePolicy(
   // application-state — viewers can read but not write.
   if (path.startsWith("/_agent-native/application-state/")) {
     if (READ_METHODS.has(upperMethod)) return { ok: true };
+    if (
+      upperMethod === "PUT" &&
+      isInlineUiOutputApplicationStatePath(path, ctx.extensionId)
+    ) {
+      return { ok: true };
+    }
     return {
       ok: false,
       error: deniedMessage("appFetch (mutation)", ctx.role),
@@ -339,9 +347,31 @@ function checkLocalFileBridgePolicy(
 
   if (path.startsWith("/_agent-native/application-state/")) {
     if (READ_METHODS.has(upperMethod)) return { ok: true };
+    if (
+      upperMethod === "PUT" &&
+      isInlineUiOutputApplicationStatePath(path, ctx.extensionId)
+    ) {
+      return { ok: true };
+    }
     return { ok: false, error: localDeniedMessage("applicationState") };
   }
 
   if (READ_METHODS.has(upperMethod)) return { ok: true };
   return { ok: false, error: localDeniedMessage("appFetch") };
+}
+
+function isInlineUiOutputApplicationStatePath(
+  path: string,
+  extensionId?: string,
+): boolean {
+  if (!extensionId) return false;
+  try {
+    const pathname = new URL(path, "http://agent-native.local").pathname;
+    const prefix = "/_agent-native/application-state/";
+    if (!pathname.startsWith(prefix)) return false;
+    const key = decodeURIComponent(pathname.slice(prefix.length));
+    return key === `inline-ui:${extensionId}:output`;
+  } catch {
+    return false;
+  }
 }

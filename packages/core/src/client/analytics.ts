@@ -928,6 +928,7 @@ function configuredSessionReplayOptions(
     };
   };
 
+  if (config === false) return null;
   if (config === true) return withTrackingDefaults({});
   if (config && typeof config === "object") {
     if (config.enabled === false) return null;

@@ -164,7 +164,7 @@ VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
 ```
 
 The browser helper also performs a best-effort, non-blocking read of the current Agent Native auth session. When `requireSignedInUser` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH` is enabled, replay does not start unless the session resolves to a signed-in user. Signed-in replays include `userId`/`userEmail` plus `orgId`; if auth gating is disabled, anonymous recordings remain queryable by anonymous visitor, session, app/template, hostname, and path.

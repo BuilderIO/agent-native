@@ -163,6 +163,18 @@ describe("session replay", () => {
     expect(recordMock).not.toHaveBeenCalled();
   });
 
+  it("lets explicit sessionReplay false override replay env vars", async () => {
+    installBrowser();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv("VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED", "true");
+    const { configureTracking } = await import("./analytics.js");
+
+    configureTracking({ sessionReplay: false });
+    await tick();
+
+    expect(recordMock).not.toHaveBeenCalled();
+  });
+
   it("does not start auth-required replay for anonymous sessions", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
       error: "not authenticated",

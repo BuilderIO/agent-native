@@ -887,11 +887,10 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
         // (audit H4) Role-aware policy gate: viewer-shared extensions can read
         // but not write. Decided here in the parent before the request
         // leaves; the server enforces a second layer.
-        const policy = checkBridgePolicy(
-          path,
-          options.method ?? "GET",
-          bridgeContextRef.current,
-        );
+        const policy = checkBridgePolicy(path, options.method ?? "GET", {
+          ...bridgeContextRef.current,
+          extensionId,
+        });
         if (!policy.ok) {
           respond({
             response: {

@@ -521,19 +521,11 @@ async function syncToCollab(
 
 export default defineAction({
   description:
-    "Edit a SQL dashboard config (scope-aware) atomically in ONE call. Prefer this over raw db-patch on the settings table — " +
-    "it resolves org vs. user scope correctly so the edit lands on the row the UI actually renders. " +
-    "BATCH ALL EDITS INTO A SINGLE CALL. Never call this action repeatedly in a loop: hosted agent runs have a ~40s budget, and many sequential update-dashboard calls time out mid-way and leave the dashboard in a partial state even though earlier calls looked like they succeeded. Put every change you want to make into one `ops` array, one `panelOrder`, or one `config`. " +
-    "`ops` is an array of { op, path, from?, value? } applied in order in a single atomic save. " +
-    "When calling this as a native tool, pass `ops` as a real array, not a JSON string; the shell examples quote JSON only for CLI parsing. If a call fails because `ops` was stringified, retry this action with a native array instead of switching to db-patch or settings writes. " +
-    "`op` is one of: set | replace | remove | insert | move | move-before. " +
-    "`path` is a JSON Pointer into the config (e.g. `/panels/3` is the 4th panel, `/panels/3/title` is its title, `/name` is the dashboard name). The special index `-` means the end of an array: `/panels/-` appends. " +
-    "`value` is the panel or object to set/insert. `from` is the source JSON Pointer for move / move-before. " +
-    "To ADD N panels in one call, pass N entries of { op: 'insert', path: '/panels/-', value: <panel> }. " +
-    "To reorder: [{ op: 'move', from: '/panels/2', path: '/panels/0' }]. " +
-    "For simple panel reorders by id, pass `panelOrder: ['panel-a','panel-b']`; those ids move to the front in that order and omitted panels keep their existing relative order. " +
-    "To edit a field: [{ op: 'replace', path: '/panels/0/title', value: 'Events by Day' }]. " +
-    "Use `config` to replace the entire dashboard config in one call. Provide only one of `ops`, `panelOrder`, or `config`. " +
+    "Save or replace a SQL dashboard full config (scope-aware) atomically in ONE call. " +
+    "For existing dashboard panel/layout edits, use `mutate-dashboard` instead; it has the typed `dashboard.*` API for moves, inserts, deletes, duplicates, SQL/title/config edits, and bulk edits without JSON-pointer index math. " +
+    "Use this action when creating a brand-new dashboard from a complete config, for the UI full-config save path, or for an explicitly requested low-level JSON-pointer compatibility edit. " +
+    "Do not use `ops` or `panelOrder` for ordinary agent edits like moving charts, adding panels to an existing dashboard, changing widths, or updating panel config; call `mutate-dashboard` once with the full edit script. " +
+    "When this action is appropriate, provide only one of `ops`, `panelOrder`, or `config`; `config` replaces the whole dashboard config. " +
     "To add a shipped catalog template's panels to an existing dashboard, prefer `install-dashboard-template` with `mergePanels: true` — it appends the template's panels in one call without you having to author each panel. " +
     "The result is compact by default: `panelCount`, `appliedOps`, `panelOrder`, `firstPanelIds`, and `summary`. Set `returnConfig: true` only when you truly need the full config in the tool result. " +
     "The UI auto-refreshes after this action — do NOT call `refresh-screen`.",
@@ -549,14 +541,10 @@ export default defineAction({
       .optional()
       .describe("Legacy alias for dashboardId. Prefer dashboardId."),
     ops: jsonOpsInputSchema.describe(
-      "Array of JSON-patch-style ops applied in order in ONE atomic save (or a JSON string). " +
-        "Each op is { op, path, from?, value? }. op ∈ set|replace|remove|insert|move|move-before. " +
-        "path is a JSON Pointer (e.g. '/panels/3', and '/panels/-' appends to the end). " +
-        "Add N panels at once with N {op:'insert', path:'/panels/-', value:<panel>} entries. " +
-        "For simple reorders by id, use panelOrder instead of counting shifted indexes.",
+      "Legacy low-level JSON-pointer compatibility ops. Agents should use mutate-dashboard for existing dashboard edits; only use this when the user explicitly requests raw JSON-pointer operations.",
     ),
     panelOrder: panelOrderInputSchema.describe(
-      "Panel ids to move to the front in this exact order. Omitted panels keep their existing relative order. Accepts a native array, or a JSON string for shell/legacy callers.",
+      "Legacy compatibility reorder input. Agents should use mutate-dashboard id-based move methods for ordinary chart/section moves.",
     ),
     config: configInputSchema.describe(
       "Replace the whole dashboard config (or a JSON string).",

@@ -85,7 +85,11 @@ export function createExtensionsHandler() {
     }
 
     const orgCtx = await getOrgContext(event).catch(() => null);
-    const userEmail = session.email;
+    const userEmail = normalizeExtensionUserEmail(session.email);
+    if (!userEmail) {
+      setResponseStatus(event, 401);
+      return { error: "Authentication required" };
+    }
     const orgId = orgCtx?.orgId ?? session.orgId ?? undefined;
 
     try {
@@ -101,6 +105,10 @@ export function createExtensionsHandler() {
       throw err;
     }
   });
+}
+
+function normalizeExtensionUserEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
 async function dispatch(
@@ -499,7 +507,7 @@ async function handleExtensionDataList(
       sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, scope, org_id, created_at, updated_at
         FROM tool_data
         WHERE tool_id = ? AND collection = ?
-          AND ((scope = 'user' AND owner_email = ?) OR (scope = 'org' AND org_id = ?))
+          AND ((scope = 'user' AND lower(owner_email) = ?) OR (scope = 'org' AND org_id = ?))
         ORDER BY created_at DESC
         LIMIT ?`,
       args: [extensionId, collection, userEmail, orgId ?? "", limit],
@@ -510,7 +518,7 @@ async function handleExtensionDataList(
   const result = await client.execute({
     sql: `SELECT COALESCE(item_id, id) AS id, tool_id, collection, data, owner_email, scope, org_id, created_at, updated_at
       FROM tool_data
-      WHERE tool_id = ? AND collection = ? AND scope = 'user' AND owner_email = ?
+      WHERE tool_id = ? AND collection = ? AND scope = 'user' AND lower(owner_email) = ?
       ORDER BY updated_at DESC
       LIMIT ?`,
     args: [extensionId, collection, userEmail, limit],
@@ -614,7 +622,7 @@ async function handleExtensionDataDelete(
   }
 
   await client.execute({
-    sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND scope = 'user' AND owner_email = ?`,
+    sql: `DELETE FROM tool_data WHERE COALESCE(item_id, id) = ? AND tool_id = ? AND collection = ? AND scope = 'user' AND lower(owner_email) = ?`,
     args: [itemId, extensionId, collection, userEmail],
   });
   return { ok: true };

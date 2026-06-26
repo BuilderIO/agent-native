@@ -103,4 +103,63 @@ describe("session replay sanitization", () => {
     });
     expect(event?.data.adds[0].node.attributes).toEqual({ title: "Preview" });
   });
+
+  it("strips stylesheet text that can trigger external replay fetches", () => {
+    const [event] = sanitizeReplayEvents([
+      {
+        type: 2,
+        timestamp: 1000,
+        data: {
+          node: {
+            type: 2,
+            tagName: "body",
+            attributes: {},
+            childNodes: [
+              {
+                type: 2,
+                tagName: "style",
+                attributes: { nonce: "replay" },
+                childNodes: [
+                  {
+                    type: 3,
+                    textContent:
+                      '@import "https://evil.example.test/app.css"; body { background: url(https://evil.example.test/bg.png); }',
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ]);
+
+    expect(event?.data.node.childNodes[0]).toMatchObject({
+      tagName: "style",
+      attributes: { nonce: "replay" },
+      childNodes: [],
+    });
+  });
+
+  it("strips replay text mutations that can inject stylesheet fetches", () => {
+    const [event] = sanitizeReplayEvents([
+      {
+        type: 3,
+        timestamp: 1000,
+        data: {
+          source: 0,
+          texts: [
+            {
+              id: 10,
+              value:
+                '@import "https://evil.example.test/app.css"; .x { background: url(https://evil.example.test/bg.png); }',
+            },
+            { id: 11, value: "Normal page copy" },
+          ],
+        },
+      },
+    ]);
+
+    expect(event?.data.texts[0].value).toBe("");
+    expect(event?.data.texts[1].value).toBe("Normal page copy");
+  });
 });

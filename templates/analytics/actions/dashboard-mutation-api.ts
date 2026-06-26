@@ -31,6 +31,14 @@ type PanelPatch = {
   description?: string; // shorthand for config.description
 };
 
+type PanelInput = PanelPatch & {
+  id: string;
+  title: string;
+  chartType: NonNullable<PanelPatch["chartType"]>;
+  source?: PanelPatch["source"]; // required for non-section panels
+  sql?: string; // required for non-section panels
+};
+
 type PanelFilter = {
   id?: string;
   ids?: string[];
@@ -946,6 +954,9 @@ function operationFromPanelCommand(
       }));
     }
     case "setConfigPath": {
+      if (command.args.length < 2) {
+        throw new Error("setConfigPath requires path and value arguments");
+      }
       const path = assertString(command.args[0], "config path");
       return panelIds.map((panelId) => ({
         op: "updatePanelPath",

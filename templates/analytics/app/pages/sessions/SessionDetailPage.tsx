@@ -1000,6 +1000,25 @@ function sanitizeMutationData(data: AnyRecord): AnyRecord {
       };
     });
   }
+  if (Array.isArray(next.texts)) {
+    next.texts = next.texts.map((textMutation) => {
+      if (!isRecord(textMutation)) return textMutation;
+      const copy = { ...textMutation };
+      if (
+        typeof copy.value === "string" &&
+        containsStylesheetNetworkLoad(copy.value)
+      ) {
+        copy.value = "";
+      }
+      if (
+        typeof copy.textContent === "string" &&
+        containsStylesheetNetworkLoad(copy.textContent)
+      ) {
+        copy.textContent = "";
+      }
+      return copy;
+    });
+  }
   return next;
 }
 
@@ -1015,6 +1034,22 @@ function sanitizeSerializedNode(node: unknown): AnyRecord | null {
       attributes: {},
       childNodes: [],
     };
+  }
+  if (next.type === 2 && tagName === "style") {
+    return {
+      ...next,
+      attributes: isRecord(next.attributes)
+        ? sanitizeAttributes(next.attributes)
+        : {},
+      childNodes: [],
+    };
+  }
+  if (
+    next.type === 3 &&
+    typeof next.textContent === "string" &&
+    containsStylesheetNetworkLoad(next.textContent)
+  ) {
+    next.textContent = "";
   }
   if (
     next.type === 2 &&
@@ -1032,6 +1067,10 @@ function sanitizeSerializedNode(node: unknown): AnyRecord | null {
       .filter(Boolean);
   }
   return next;
+}
+
+function containsStylesheetNetworkLoad(value: string): boolean {
+  return /@import\b/i.test(value) || /\burl\s*\(/i.test(value);
 }
 
 function sanitizeAttributes(attributes: AnyRecord): AnyRecord {

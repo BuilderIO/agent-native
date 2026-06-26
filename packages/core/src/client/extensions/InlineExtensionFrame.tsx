@@ -222,11 +222,13 @@ async function handleTransientExtensionData(
       typeof body.id === "string" && body.id.trim()
         ? body.id.trim()
         : `item-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const requestedScope =
+      body.scope === "org" || parsed.scope === "org" ? "org" : "user";
     const now = new Date().toISOString();
     const rows = readTransientRows(
       extensionId,
       parsed.collection,
-      parsed.scope,
+      requestedScope,
     );
     const existing = rows.find((row) => row.id === itemId);
     const row: TransientDataRow = {
@@ -237,12 +239,12 @@ async function handleTransientExtensionData(
       data:
         typeof body.data === "string" ? body.data : JSON.stringify(body.data),
       ownerEmail: "",
-      scope: parsed.scope === "org" ? "org" : "user",
-      orgId: parsed.scope === "org" ? "inline" : null,
+      scope: requestedScope,
+      orgId: requestedScope === "org" ? "inline" : null,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    writeTransientRows(extensionId, parsed.collection, parsed.scope, [
+    writeTransientRows(extensionId, parsed.collection, requestedScope, [
       row,
       ...rows.filter((item) => item.id !== itemId),
     ]);
@@ -557,11 +559,10 @@ export function InlineExtensionFrame({
         const options = sanitizeExtensionRequestOptions(
           (message as any).options,
         );
-        const policy = checkBridgePolicy(
-          path,
-          options.method ?? "GET",
-          bridgeContextRef.current,
-        );
+        const policy = checkBridgePolicy(path, options.method ?? "GET", {
+          ...bridgeContextRef.current,
+          extensionId: resolvedId,
+        });
         if (!policy.ok) {
           respond({
             response: {

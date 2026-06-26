@@ -25,6 +25,7 @@ describe("InlineExtensionFrame", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     vi.mocked(sendToAgentChat).mockClear();
+    localStorage.clear();
   });
 
   afterEach(() => {
@@ -184,5 +185,67 @@ describe("InlineExtensionFrame", () => {
     const headers = (request as RequestInit).headers as Headers;
     expect(headers.get("X-Request-Source")).toBe("inline-ui");
     expect(headers.get("X-Agent-Native-Extension-Id")).toBe("inline-test");
+  });
+
+  it("honors extensionData.set scope from the request body in transient previews", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await act(async () => {
+      root.render(
+        <InlineExtensionFrame
+          extension={{
+            id: "inline-test",
+            mode: "transient",
+            name: "Inline controls",
+            content: "<button>Save</button>",
+          }}
+        />,
+      );
+    });
+
+    const iframe = container.querySelector("iframe");
+    await act(async () => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: iframe?.contentWindow ?? window,
+          data: {
+            type: "agent-native-extension-request",
+            requestId: "req-1",
+            path: "/_agent-native/extensions/data/inline-test/preferences",
+            options: {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                id: "theme",
+                data: { value: "dark" },
+                scope: "org",
+              }),
+            },
+          },
+        }),
+      );
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(
+        localStorage.getItem(
+          "agent-native:inline-extension-data:inline-test:org:preferences",
+        ) ?? "[]",
+      ),
+    ).toMatchObject([
+      {
+        id: "theme",
+        scope: "org",
+        orgId: "inline",
+        data: JSON.stringify({ value: "dark" }),
+      },
+    ]);
+    expect(
+      localStorage.getItem(
+        "agent-native:inline-extension-data:inline-test:user:preferences",
+      ),
+    ).toBeNull();
   });
 });
