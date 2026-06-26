@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { extensionPath } from "../../extensions/path.js";
+import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import {
   Popover,
@@ -49,6 +50,16 @@ interface Extension {
     mode?: "database" | "local-files";
     permissions?: BridgePolicyContext["permissions"];
   };
+}
+
+function serializeChatValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 export interface EmbeddedExtensionProps {
@@ -205,6 +216,18 @@ export function EmbeddedExtension({
         if (Number.isFinite(h) && h > 0) {
           setHeight(Math.ceil(h));
         }
+        return;
+      }
+
+      if (message.type === "agent-native-send-to-chat") {
+        const text = serializeChatValue((message as any).message);
+        if (!text?.trim()) return;
+        sendToAgentChat({
+          message: text,
+          context: serializeChatValue((message as any).context),
+          submit: (message as any).submit !== false,
+          openSidebar: (message as any).openSidebar !== false,
+        });
         return;
       }
 

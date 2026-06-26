@@ -134,6 +134,16 @@ function extensionRole(value: unknown): ExtensionBridgeRole {
     : "viewer";
 }
 
+function serializeChatValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function buildExtensionViewerSrcDoc(
   extension: Extension,
   isDark: boolean,
@@ -742,6 +752,18 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
           });
           setRefreshKey((k) => k + 1);
         }
+        return;
+      }
+
+      if (message.type === "agent-native-send-to-chat") {
+        const text = serializeChatValue(message.message);
+        if (!text?.trim()) return;
+        sendToAgentChat({
+          message: text,
+          context: serializeChatValue(message.context),
+          submit: message.submit !== false,
+          openSidebar: message.openSidebar !== false,
+        });
         return;
       }
 
