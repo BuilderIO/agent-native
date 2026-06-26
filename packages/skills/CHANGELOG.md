@@ -1,5 +1,12 @@
 # @agent-native/skills
 
+## 0.2.145
+
+### Patch Changes
+
+- Updated dependencies [fed6702]
+  - @agent-native/core@0.79.17
+
 ## 0.2.144
 
 ### Patch Changes
