@@ -82,16 +82,16 @@ describe("BuilderSourceReviewDialog publication intent helpers", () => {
 
   it("maps execution status to plain-language result labels", () => {
     expect(builderReviewResultStatus("succeeded")).toEqual({
-      label: "Pushed",
+      labelKey: "pushed",
       tone: "ok",
     });
-    expect(builderReviewResultStatus("validated").label).toBe("Ready");
+    expect(builderReviewResultStatus("validated").labelKey).toBe("ready");
     expect(builderReviewResultStatus("blocked")).toEqual({
-      label: "Needs attention",
+      labelKey: "needsAttention",
       tone: "warn",
     });
-    expect(builderReviewResultStatus("write_disabled").label).toBe(
-      "Checks only",
+    expect(builderReviewResultStatus("write_disabled").labelKey).toBe(
+      "checksOnly",
     );
   });
 

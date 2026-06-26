@@ -1275,7 +1275,7 @@ function DatabaseTable({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-52">
-                  <DropdownMenuLabel>Add a row to…</DropdownMenuLabel>
+                  <DropdownMenuLabel>{db("addARowTo")}</DropdownMenuLabel>
                   {sourceTagPicker.collections.map((collection) => (
                     <DropdownMenuItem
                       key={collection.label}
@@ -1310,7 +1310,7 @@ function DatabaseTable({
                     }
                   >
                     <IconLayoutGrid className="mr-2 size-3.5 shrink-0" />
-                    <span className="truncate">Local (no collection)</span>
+                    <span className="truncate">{db("localNoCollection")}</span>
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1692,7 +1692,7 @@ function DatabaseTable({
             {
               onSuccess: () => {
                 const enabled = settings.writeMode !== "read_only";
-                toast.success("Builder write mode updated", {
+                toast.success(db("builderWriteModeUpdated"), {
                   description:
                     settings.writeMode === "publish_updates"
                       ? "Approved updates can write through to Builder while preserving publication state."
@@ -3974,31 +3974,34 @@ export function builderSourceLiveWriteControlState(
 
 const BUILDER_WRITE_MODE_OPTIONS: Array<{
   mode: ContentDatabaseSourceWriteMode;
-  label: string;
-  description: string;
+  labelKey: string;
+  descriptionKey: string;
 }> = [
   {
     mode: "read_only",
-    label: "Read-only",
-    description: "No Builder writes.",
+    labelKey: "readOnly",
+    descriptionKey: "noBuilderWrites",
   },
   {
     mode: "stage_only",
-    label: "Stage only",
-    description: "Saves drafts to Builder — never publishes.",
+    labelKey: "stageOnly",
+    descriptionKey: "savesDraftsNeverPublishes",
   },
   {
     mode: "publish_updates",
-    label: "Publish updates",
-    description: "Writes updates to live entries.",
+    labelKey: "publishUpdates",
+    descriptionKey: "writesUpdatesToLiveEntries",
   },
 ];
 
-function builderWriteModeSummary(mode: ContentDatabaseSourceWriteMode) {
-  return (
-    BUILDER_WRITE_MODE_OPTIONS.find((option) => option.mode === mode)
-      ?.description ?? "No Builder writes."
+function builderWriteModeSummary(
+  mode: ContentDatabaseSourceWriteMode,
+  db: DatabaseT,
+) {
+  const option = BUILDER_WRITE_MODE_OPTIONS.find(
+    (candidate) => candidate.mode === mode,
   );
+  return db(option?.descriptionKey ?? "noBuilderWrites");
 }
 
 export function buildClientBuilderReviewPayload(
@@ -4458,8 +4461,7 @@ function DatabaseSettingsSourcePanel({
           </div>
           {!liveWriteControl.safeTarget ? (
             <div className="text-[11px] text-muted-foreground">
-              Live writes are only available for the Agent Native test
-              collection.
+              {db("liveWritesTestCollectionOnly")}
             </div>
           ) : null}
           <div className="min-w-0 break-words text-xs text-muted-foreground">
@@ -4491,13 +4493,13 @@ function DatabaseSettingsSourcePanel({
             <div className="grid min-w-0 gap-2 text-xs text-muted-foreground">
               <div className="flex items-center justify-between gap-3">
                 <span className="font-medium text-foreground">
-                  Builder write mode
+                  {db("builderWriteMode")}
                 </span>
-                <span>{builderWriteModeSummary(builderWriteMode)}</span>
+                <span>{builderWriteModeSummary(builderWriteMode, db)}</span>
               </div>
               <div
                 className="grid grid-cols-3 gap-0.5 rounded-md border border-border bg-muted/35 p-0.5"
-                aria-label="Builder write mode"
+                aria-label={db("builderWriteMode")}
               >
                 {BUILDER_WRITE_MODE_OPTIONS.map((option) => {
                   const selected = builderWriteMode === option.mode;
@@ -4506,7 +4508,7 @@ function DatabaseSettingsSourcePanel({
                       key={option.mode}
                       type="button"
                       aria-pressed={selected}
-                      title={option.description}
+                      title={db(option.descriptionKey)}
                       disabled={builderLiveWritesDisabled}
                       className={cn(
                         "min-w-0 rounded px-2 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
@@ -4527,7 +4529,9 @@ function DatabaseSettingsSourcePanel({
                         )
                       }
                     >
-                      <span className="block truncate">{option.label}</span>
+                      <span className="block truncate">
+                        {db(option.labelKey)}
+                      </span>
                     </button>
                   );
                 })}
@@ -4564,7 +4568,7 @@ function DatabaseSettingsSourcePanel({
                   </span>
                   <span className="min-w-0">
                     <span className="block text-foreground">
-                      Allow publish/unpublish per item
+                      {db("allowPublishUnpublishPerItem")}
                     </span>
                     <span className="block break-words">
                       Requires explicit item intent; unpublish still needs
@@ -4581,11 +4585,11 @@ function DatabaseSettingsSourcePanel({
         leafAppliedChangeSets.length > 0 ||
         isCodeMode ? (
           <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
-            <div className="font-medium">Builder changes</div>
+            <div className="font-medium">{db("builderChanges")}</div>
             <div className="text-xs text-muted-foreground">
               {leafSource.capabilities.liveWritesEnabled
-                ? "Review local edits before they reach Builder."
-                : "Live writes are off — local edits are staged for review only."}
+                ? db("reviewLocalEditsBeforeBuilder")
+                : db("liveWritesOffStagedForReview")}
             </div>
 
             {leafPendingChangeSets.length > 0 ? (
@@ -4601,7 +4605,7 @@ function DatabaseSettingsSourcePanel({
               </div>
             ) : isCodeMode ? (
               <div className="text-xs text-muted-foreground">
-                No pending changes. Edit a source-backed row to queue one here.
+                {db("noPendingChangesEditASourceBackedRow")}
               </div>
             ) : null}
 
@@ -4614,7 +4618,7 @@ function DatabaseSettingsSourcePanel({
                   onClick={() => onReviewBuilderUpdate(leafSource.id)}
                 >
                   <IconCheck className="mr-1.5 size-3.5" />
-                  Review changes
+                  {db("reviewChanges")}
                 </Button>
               </div>
             ) : null}
@@ -4622,7 +4626,7 @@ function DatabaseSettingsSourcePanel({
             {leafAppliedChangeSets.length > 0 ? (
               <div className="mt-1 grid min-w-0 gap-1.5 border-t border-border/60 pt-2">
                 <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Recently pushed
+                  {db("recentlyPushed")}
                 </div>
                 {leafAppliedChangeSets.slice(0, 3).map((changeSet) => (
                   <SourceChangeSetReviewCard
@@ -4707,6 +4711,7 @@ function SourcesListView({
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
+  const db = useDatabaseT();
   const connectedSources =
     sources.length > 0 ? sources : source ? [source] : [];
 
@@ -4716,11 +4721,11 @@ function SourcesListView({
     return (
       <div className="grid min-w-0 gap-2">
         <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
-          Connect a Builder collection or another table to map onto these rows.
+          {db("connectABuilderCollectionToMapRows")}
         </div>
         <DatabaseSettingsRow
           icon={<IconPlus className="size-4" />}
-          label="Add a source"
+          label={db("addASource")}
           onClick={onAddSource}
         />
       </div>
@@ -4730,7 +4735,7 @@ function SourcesListView({
   return (
     <div className="grid min-w-0 gap-1.5">
       <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        Connected sources
+        {db("connectedSources")}
       </div>
       {connectedSources.map((connected, index) => (
         <DatabaseSettingsRow
@@ -4771,7 +4776,7 @@ function SourcesListView({
       ))}
       <DatabaseSettingsRow
         icon={<IconPlus className="size-4" />}
-        label="Add another source"
+        label={db("addAnotherSource")}
         onClick={onAddSource}
       />
     </div>
@@ -5048,7 +5053,7 @@ function AddSourceView({
       </div>
       <div className="grid min-w-0 gap-1.5">
         <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          Agent-Native apps
+          <DatabaseText k="agentNativeApps" />
         </div>
         <DatabaseSettingsRow
           icon={<IconTimeline className="size-4" />}

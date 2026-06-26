@@ -1245,7 +1245,7 @@ export function PropertyManagementPopover({
               <DropdownMenuSeparator />
               <div className="grid gap-1.5 px-2 py-1.5 text-xs">
                 <div className="font-medium text-foreground">
-                  Sources feeding this column
+                  {t("database.sourcesFeedingThisColumn")}
                 </div>
                 {boundSourceFields.length > 0 ? (
                   <div className="grid gap-1">
@@ -1281,14 +1281,14 @@ export function PropertyManagementPopover({
                   </div>
                 ) : (
                   <div className="text-muted-foreground">
-                    No source fields bound yet.
+                    {t("database.noSourceFieldsBoundYet")}
                   </div>
                 )}
                 {bindableSourceFields.length > 0 ? (
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger className="mt-0.5 rounded px-1.5 py-1 text-xs">
                       <IconPlus className="mr-1.5 size-3.5 text-muted-foreground" />
-                      Bind a field from a source
+                      {t("database.bindAFieldFromASource")}
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent className="max-h-80 w-64 overflow-auto">
                       {bindableSourceFields.map(({ source: src, field }) => (

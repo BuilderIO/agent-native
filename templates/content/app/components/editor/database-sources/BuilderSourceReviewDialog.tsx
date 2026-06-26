@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useT } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
   IconCheck,
@@ -136,27 +137,28 @@ export function builderReviewDestinationLine(args: {
 }
 
 export function builderReviewResultStatus(status?: string): {
-  label: string;
+  // i18n key under the `database.` namespace; resolved by the caller via t().
+  labelKey: string;
   tone: "ok" | "warn" | "danger" | "muted";
 } {
   switch (status) {
     case "succeeded":
-      return { label: "Pushed", tone: "ok" };
+      return { labelKey: "pushed", tone: "ok" };
     case "validated":
-      return { label: "Ready", tone: "ok" };
+      return { labelKey: "ready", tone: "ok" };
     case "partial":
     case "blocked":
-      return { label: "Needs attention", tone: "warn" };
+      return { labelKey: "needsAttention", tone: "warn" };
     case "failed":
-      return { label: "Failed — you can retry", tone: "danger" };
+      return { labelKey: "failedYouCanRetry", tone: "danger" };
     case "stale":
-      return { label: "Needs a fresh review", tone: "warn" };
+      return { labelKey: "needsAFreshReview", tone: "warn" };
     case "running":
-      return { label: "Working…", tone: "muted" };
+      return { labelKey: "working", tone: "muted" };
     case "write_disabled":
-      return { label: "Checks only", tone: "muted" };
+      return { labelKey: "checksOnly", tone: "muted" };
     default:
-      return { label: "Ready", tone: "muted" };
+      return { labelKey: "ready", tone: "muted" };
   }
 }
 
@@ -232,6 +234,7 @@ export function BuilderSourceReviewDialog({
   onClose: () => void;
   onValidate: (transitions: BuilderReviewPublicationTransitions) => void;
 }) {
+  const t = useT();
   const checked = !!checkedAt;
   const safeModel =
     source?.sourceType === "builder-cms" &&
@@ -415,7 +418,7 @@ export function BuilderSourceReviewDialog({
               id="builder-source-review-title"
               className="truncate text-sm font-semibold"
             >
-              Review Builder update
+              {t("database.reviewBuilderUpdate")}
             </DialogTitle>
             <DialogDescription className="truncate text-xs text-muted-foreground">
               {review?.summary ?? "No pending Builder changes."}
@@ -423,7 +426,7 @@ export function BuilderSourceReviewDialog({
           </div>
           <button
             type="button"
-            aria-label="Close Builder update review"
+            aria-label={t("database.closeBuilderUpdateReview")}
             className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={onClose}
           >
@@ -435,7 +438,9 @@ export function BuilderSourceReviewDialog({
           {review ? (
             <div className="grid gap-4">
               <section className="grid gap-2">
-                <div className="text-sm font-medium">What changed</div>
+                <div className="text-sm font-medium">
+                  {t("database.whatChanged")}
+                </div>
                 <div className="grid gap-2">
                   {reviewRows.map((row) => {
                     const selection = transitionSelections[row.changeSetId];
@@ -541,7 +546,7 @@ export function BuilderSourceReviewDialog({
                                       )
                                     }
                                   />
-                                  Confirm unpublish
+                                  {t("database.confirmUnpublish")}
                                 </label>
                               ) : null}
                             </div>
@@ -570,8 +575,7 @@ export function BuilderSourceReviewDialog({
                                 {row.bodyChange.summary}
                               </div>
                               <div className="mt-1 text-muted-foreground">
-                                Builder body edits need a safer push path before
-                                they can be sent.
+                                {t("database.builderBodyEditsNeedSaferPath")}
                               </div>
                             </div>
                           ) : null}
@@ -579,8 +583,7 @@ export function BuilderSourceReviewDialog({
                             <div className="flex items-start gap-1.5 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                               <IconAlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                               <span>
-                                Changed in Builder since you synced — review
-                                before pushing.
+                                {t("database.changedInBuilderSinceSync")}
                               </span>
                             </div>
                           ) : null}
@@ -588,7 +591,7 @@ export function BuilderSourceReviewDialog({
                             <div className="flex items-start gap-1.5 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
                               <IconAlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                               <span>
-                                This unpublishes the live entry in Builder.
+                                {t("database.thisUnpublishesTheLiveEntry")}
                               </span>
                             </div>
                           ) : null}
@@ -612,7 +615,7 @@ export function BuilderSourceReviewDialog({
               {batchResult && batchIssueResults.length > 0 ? (
                 <section className="grid gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
                   <div className="font-medium">
-                    Needs attention before this can finish
+                    {t("database.needsAttentionBeforeFinish")}
                   </div>
                   {batchIssueResults.map((result) => (
                     <div key={result.changeSetId} className="break-words">
@@ -629,7 +632,7 @@ export function BuilderSourceReviewDialog({
             </div>
           ) : (
             <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
-              No pending local Builder changes yet.
+              {t("database.noPendingLocalBuilderChanges")}
             </div>
           )}
         </div>
@@ -652,7 +655,7 @@ export function BuilderSourceReviewDialog({
                 ) : null}
                 <span>
                   {checked
-                    ? `${resultStatus.label} · ${intentSummary}`
+                    ? `${t(`database.${resultStatus.labelKey}`)} · ${intentSummary}`
                     : intentSummary}
                 </span>
               </div>

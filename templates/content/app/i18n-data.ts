@@ -278,12 +278,93 @@ const databaseMessages = {
   pick: "& Pick",
   addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
     "Add a status, select, multi-select, or checkbox property to group.",
+  // Row-union multi-source (slices 6a–6c).
+  addARowTo: "Add a row to…",
+  addASource: "Add a source",
+  localNoCollection: "Local (no collection)",
+  liveWritesTestCollectionOnly:
+    "Live writes are only available for the Agent Native test collection.",
+  builderWriteMode: "Builder write mode",
+  builderWriteModeUpdated: "Builder write mode updated",
+  allowPublishUnpublishPerItem: "Allow publish/unpublish per item",
+  builderChanges: "Builder changes",
+  reviewLocalEditsBeforeBuilder:
+    "Review local edits before they reach Builder.",
+  liveWritesOffStagedForReview:
+    "Live writes are off — local edits are staged for review only.",
+  noPendingChangesEditASourceBackedRow:
+    "No pending changes. Edit a source-backed row to queue one here.",
+  reviewChanges: "Review changes",
+  recentlyPushed: "Recently pushed",
+  connectABuilderCollectionToMapRows:
+    "Connect a Builder collection or another table to map onto these rows.",
+  noBuilderWrites: "No Builder writes.",
+  stageOnly: "Stage only",
+  savesDraftsNeverPublishes: "Saves drafts to Builder — never publishes.",
+  publishUpdates: "Publish updates",
+  writesUpdatesToLiveEntries: "Writes updates to live entries.",
+  sourcesFeedingThisColumn: "Sources feeding this column",
+  noSourceFieldsBoundYet: "No source fields bound yet.",
+  bindAFieldFromASource: "Bind a field from a source",
+  confirmUnpublish: "Confirm unpublish",
+  changedInBuilderSinceSync:
+    "Changed in Builder since you synced — review before pushing.",
+  thisUnpublishesTheLiveEntry: "This unpublishes the live entry in Builder.",
+  needsAttentionBeforeFinish: "Needs attention before this can finish",
+  noPendingLocalBuilderChanges: "No pending local Builder changes yet.",
+  needsAttention: "Needs attention",
+  failedYouCanRetry: "Failed — you can retry",
+  needsAFreshReview: "Needs a fresh review",
+  working: "Working…",
+  ready: "Ready",
 };
 
 const databaseMessagesByLocale = {
   "en-US": databaseMessages,
   "zh-TW": zhTW.database,
   "zh-CN": {
+    addARowTo: "添加行到…",
+    addASource: "添加来源",
+    localNoCollection: "本地（无集合）",
+    liveWritesTestCollectionOnly: "仅 Agent Native 测试集合支持实时写入。",
+    builderWriteMode: "Builder 写入模式",
+    builderWriteModeUpdated: "已更新 Builder 写入模式",
+    allowPublishUnpublishPerItem: "允许逐项发布/取消发布",
+    builderChanges: "Builder 更改",
+    reviewLocalEditsBeforeBuilder: "在本地编辑到达 Builder 之前进行审查。",
+    liveWritesOffStagedForReview: "实时写入已关闭 — 本地编辑仅暂存以供审查。",
+    noPendingChangesEditASourceBackedRow:
+      "没有待处理的更改。编辑来源支持的行以在此排队。",
+    reviewChanges: "审查更改",
+    recentlyPushed: "最近推送",
+    connectABuilderCollectionToMapRows:
+      "连接 Builder 集合或其他表以映射到这些行。",
+    noBuilderWrites: "无 Builder 写入。",
+    stageOnly: "仅暂存",
+    savesDraftsNeverPublishes: "将草稿保存到 Builder — 从不发布。",
+    publishUpdates: "发布更新",
+    writesUpdatesToLiveEntries: "将更新写入实时条目。",
+    sourcesFeedingThisColumn: "为此列供数的来源",
+    noSourceFieldsBoundYet: "尚未绑定来源字段。",
+    bindAFieldFromASource: "从来源绑定字段",
+    reviewBuilderUpdate: "审查 Builder 更新",
+    closeBuilderUpdateReview: "关闭 Builder 更新审查",
+    whatChanged: "更改内容",
+    confirmUnpublish: "确认取消发布",
+    builderBodyEditsNeedSaferPath:
+      "Builder 正文编辑需要更安全的推送路径才能发送。",
+    changedInBuilderSinceSync:
+      "自您同步以来在 Builder 中已更改 — 推送前请审查。",
+    thisUnpublishesTheLiveEntry: "这将取消发布 Builder 中的实时条目。",
+    needsAttentionBeforeFinish: "完成前需要处理",
+    noPendingLocalBuilderChanges: "尚无待处理的本地 Builder 更改。",
+    needsAttention: "需要处理",
+    failedYouCanRetry: "失败 — 您可以重试",
+    needsAFreshReview: "需要重新审查",
+    working: "处理中…",
+    checksOnly: "仅检查",
+    pushed: "已推送",
+    ready: "就绪",
     openAsFullPage: "作为完整页面打开",
     pick: "并选择",
     addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
@@ -354,6 +435,54 @@ const databaseMessagesByLocale = {
     wrapAllContent: "换行显示所有内容",
   },
   "es-ES": {
+    addARowTo: "Añadir una fila a…",
+    addASource: "Añadir una fuente",
+    localNoCollection: "Local (sin colección)",
+    liveWritesTestCollectionOnly:
+      "La escritura en vivo solo está disponible para la colección de prueba de Agent Native.",
+    builderWriteMode: "Modo de escritura de Builder",
+    builderWriteModeUpdated: "Modo de escritura de Builder actualizado",
+    allowPublishUnpublishPerItem: "Permitir publicar/retirar por elemento",
+    builderChanges: "Cambios de Builder",
+    reviewLocalEditsBeforeBuilder:
+      "Revisa las ediciones locales antes de que lleguen a Builder.",
+    liveWritesOffStagedForReview:
+      "La escritura en vivo está desactivada — las ediciones locales solo se preparan para revisión.",
+    noPendingChangesEditASourceBackedRow:
+      "No hay cambios pendientes. Edita una fila respaldada por una fuente para añadir uno aquí.",
+    reviewChanges: "Revisar cambios",
+    recentlyPushed: "Enviado recientemente",
+    connectABuilderCollectionToMapRows:
+      "Conecta una colección de Builder u otra tabla para asignarla a estas filas.",
+    noBuilderWrites: "Sin escrituras en Builder.",
+    stageOnly: "Solo preparar",
+    savesDraftsNeverPublishes: "Guarda borradores en Builder — nunca publica.",
+    publishUpdates: "Publicar actualizaciones",
+    writesUpdatesToLiveEntries:
+      "Escribe actualizaciones en las entradas en vivo.",
+    sourcesFeedingThisColumn: "Fuentes que alimentan esta columna",
+    noSourceFieldsBoundYet: "Aún no hay campos de fuente vinculados.",
+    bindAFieldFromASource: "Vincular un campo de una fuente",
+    reviewBuilderUpdate: "Revisar actualización de Builder",
+    closeBuilderUpdateReview: "Cerrar revisión de actualización de Builder",
+    whatChanged: "Qué cambió",
+    confirmUnpublish: "Confirmar retirada de publicación",
+    builderBodyEditsNeedSaferPath:
+      "Las ediciones del cuerpo en Builder necesitan una ruta de envío más segura antes de poder enviarse.",
+    changedInBuilderSinceSync:
+      "Cambió en Builder desde tu sincronización — revisa antes de enviar.",
+    thisUnpublishesTheLiveEntry:
+      "Esto retira de publicación la entrada en vivo en Builder.",
+    needsAttentionBeforeFinish: "Necesita atención antes de poder finalizar",
+    noPendingLocalBuilderChanges:
+      "Aún no hay cambios locales de Builder pendientes.",
+    needsAttention: "Necesita atención",
+    failedYouCanRetry: "Falló — puedes reintentar",
+    needsAFreshReview: "Necesita una nueva revisión",
+    working: "Procesando…",
+    checksOnly: "Solo comprobaciones",
+    pushed: "Enviado",
+    ready: "Listo",
     openAsFullPage: "Abrir como página completa",
     pick: "y elegir",
     addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
@@ -429,6 +558,56 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Ajustar todo el contenido",
   },
   "fr-FR": {
+    addARowTo: "Ajouter une ligne à…",
+    addASource: "Ajouter une source",
+    localNoCollection: "Local (aucune collection)",
+    liveWritesTestCollectionOnly:
+      "Les écritures en direct ne sont disponibles que pour la collection de test Agent Native.",
+    builderWriteMode: "Mode d'écriture Builder",
+    builderWriteModeUpdated: "Mode d'écriture Builder mis à jour",
+    allowPublishUnpublishPerItem: "Autoriser publier/dépublier par élément",
+    builderChanges: "Modifications Builder",
+    reviewLocalEditsBeforeBuilder:
+      "Vérifiez les modifications locales avant qu'elles n'atteignent Builder.",
+    liveWritesOffStagedForReview:
+      "Écritures en direct désactivées — les modifications locales sont uniquement préparées pour révision.",
+    noPendingChangesEditASourceBackedRow:
+      "Aucune modification en attente. Modifiez une ligne issue d'une source pour en ajouter une ici.",
+    reviewChanges: "Vérifier les modifications",
+    recentlyPushed: "Récemment envoyé",
+    connectABuilderCollectionToMapRows:
+      "Connectez une collection Builder ou une autre table pour la mapper sur ces lignes.",
+    noBuilderWrites: "Aucune écriture Builder.",
+    stageOnly: "Préparer seulement",
+    savesDraftsNeverPublishes:
+      "Enregistre des brouillons dans Builder — ne publie jamais.",
+    publishUpdates: "Publier les mises à jour",
+    writesUpdatesToLiveEntries:
+      "Écrit les mises à jour dans les entrées en direct.",
+    sourcesFeedingThisColumn: "Sources alimentant cette colonne",
+    noSourceFieldsBoundYet: "Aucun champ source lié pour l'instant.",
+    bindAFieldFromASource: "Lier un champ depuis une source",
+    reviewBuilderUpdate: "Vérifier la mise à jour Builder",
+    closeBuilderUpdateReview: "Fermer la révision de mise à jour Builder",
+    whatChanged: "Ce qui a changé",
+    confirmUnpublish: "Confirmer la dépublication",
+    builderBodyEditsNeedSaferPath:
+      "Les modifications du corps dans Builder nécessitent un chemin d'envoi plus sûr avant de pouvoir être envoyées.",
+    changedInBuilderSinceSync:
+      "Modifié dans Builder depuis votre synchronisation — vérifiez avant d'envoyer.",
+    thisUnpublishesTheLiveEntry:
+      "Cela dépublie l'entrée en direct dans Builder.",
+    needsAttentionBeforeFinish:
+      "Nécessite une attention avant de pouvoir se terminer",
+    noPendingLocalBuilderChanges:
+      "Aucune modification Builder locale en attente pour l'instant.",
+    needsAttention: "Nécessite une attention",
+    failedYouCanRetry: "Échec — vous pouvez réessayer",
+    needsAFreshReview: "Nécessite une nouvelle révision",
+    working: "En cours…",
+    checksOnly: "Vérifications uniquement",
+    pushed: "Envoyé",
+    ready: "Prêt",
     openAsFullPage: "Ouvrir en pleine page",
     pick: "et choisir",
     addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
@@ -503,6 +682,56 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Renvoyer tout le contenu à la ligne",
   },
   "de-DE": {
+    addARowTo: "Zeile hinzufügen zu…",
+    addASource: "Quelle hinzufügen",
+    localNoCollection: "Lokal (keine Sammlung)",
+    liveWritesTestCollectionOnly:
+      "Live-Schreibvorgänge sind nur für die Agent-Native-Testsammlung verfügbar.",
+    builderWriteMode: "Builder-Schreibmodus",
+    builderWriteModeUpdated: "Builder-Schreibmodus aktualisiert",
+    allowPublishUnpublishPerItem:
+      "Veröffentlichen/Zurückziehen pro Element zulassen",
+    builderChanges: "Builder-Änderungen",
+    reviewLocalEditsBeforeBuilder:
+      "Lokale Änderungen prüfen, bevor sie Builder erreichen.",
+    liveWritesOffStagedForReview:
+      "Live-Schreibvorgänge sind aus — lokale Änderungen werden nur zur Prüfung bereitgestellt.",
+    noPendingChangesEditASourceBackedRow:
+      "Keine ausstehenden Änderungen. Bearbeite eine quellengestützte Zeile, um hier eine einzureihen.",
+    reviewChanges: "Änderungen prüfen",
+    recentlyPushed: "Kürzlich übertragen",
+    connectABuilderCollectionToMapRows:
+      "Verbinde eine Builder-Sammlung oder eine andere Tabelle, um sie diesen Zeilen zuzuordnen.",
+    noBuilderWrites: "Keine Builder-Schreibvorgänge.",
+    stageOnly: "Nur bereitstellen",
+    savesDraftsNeverPublishes:
+      "Speichert Entwürfe in Builder — veröffentlicht nie.",
+    publishUpdates: "Updates veröffentlichen",
+    writesUpdatesToLiveEntries: "Schreibt Updates in Live-Einträge.",
+    sourcesFeedingThisColumn: "Quellen, die diese Spalte speisen",
+    noSourceFieldsBoundYet: "Noch keine Quellfelder verknüpft.",
+    bindAFieldFromASource: "Ein Feld aus einer Quelle verknüpfen",
+    reviewBuilderUpdate: "Builder-Update prüfen",
+    closeBuilderUpdateReview: "Builder-Update-Prüfung schließen",
+    whatChanged: "Was sich geändert hat",
+    confirmUnpublish: "Zurückziehen bestätigen",
+    builderBodyEditsNeedSaferPath:
+      "Builder-Textänderungen benötigen einen sichereren Übertragungsweg, bevor sie gesendet werden können.",
+    changedInBuilderSinceSync:
+      "Seit deiner Synchronisierung in Builder geändert — vor dem Übertragen prüfen.",
+    thisUnpublishesTheLiveEntry:
+      "Dies zieht den Live-Eintrag in Builder zurück.",
+    needsAttentionBeforeFinish:
+      "Erfordert Aufmerksamkeit, bevor dies abgeschlossen werden kann",
+    noPendingLocalBuilderChanges:
+      "Noch keine ausstehenden lokalen Builder-Änderungen.",
+    needsAttention: "Erfordert Aufmerksamkeit",
+    failedYouCanRetry: "Fehlgeschlagen — du kannst es erneut versuchen",
+    needsAFreshReview: "Erfordert eine erneute Prüfung",
+    working: "Wird ausgeführt…",
+    checksOnly: "Nur Prüfungen",
+    pushed: "Übertragen",
+    ready: "Bereit",
     openAsFullPage: "Als vollständige Seite öffnen",
     pick: "und auswählen",
     addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
@@ -577,6 +806,54 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Gesamten Inhalt umbrechen",
   },
   "ja-JP": {
+    addARowTo: "行の追加先…",
+    addASource: "ソースを追加",
+    localNoCollection: "ローカル（コレクションなし）",
+    liveWritesTestCollectionOnly:
+      "ライブ書き込みは Agent Native テストコレクションでのみ利用できます。",
+    builderWriteMode: "Builder 書き込みモード",
+    builderWriteModeUpdated: "Builder 書き込みモードを更新しました",
+    allowPublishUnpublishPerItem: "項目ごとの公開/非公開を許可",
+    builderChanges: "Builder の変更",
+    reviewLocalEditsBeforeBuilder:
+      "Builder に反映される前にローカル編集を確認します。",
+    liveWritesOffStagedForReview:
+      "ライブ書き込みはオフです — ローカル編集は確認用にステージングされるだけです。",
+    noPendingChangesEditASourceBackedRow:
+      "保留中の変更はありません。ソースに基づく行を編集すると、ここにキューされます。",
+    reviewChanges: "変更を確認",
+    recentlyPushed: "最近プッシュ",
+    connectABuilderCollectionToMapRows:
+      "Builder コレクションまたは別のテーブルを接続して、これらの行にマッピングします。",
+    noBuilderWrites: "Builder への書き込みなし。",
+    stageOnly: "ステージングのみ",
+    savesDraftsNeverPublishes:
+      "Builder に下書きを保存します — 公開はしません。",
+    publishUpdates: "更新を公開",
+    writesUpdatesToLiveEntries: "ライブエントリに更新を書き込みます。",
+    sourcesFeedingThisColumn: "この列に供給するソース",
+    noSourceFieldsBoundYet: "まだソースフィールドがバインドされていません。",
+    bindAFieldFromASource: "ソースからフィールドをバインド",
+    reviewBuilderUpdate: "Builder の更新を確認",
+    closeBuilderUpdateReview: "Builder 更新の確認を閉じる",
+    whatChanged: "変更内容",
+    confirmUnpublish: "非公開を確認",
+    builderBodyEditsNeedSaferPath:
+      "Builder の本文編集は、送信する前により安全なプッシュ経路が必要です。",
+    changedInBuilderSinceSync:
+      "同期以降に Builder で変更されました — プッシュ前に確認してください。",
+    thisUnpublishesTheLiveEntry:
+      "これにより Builder のライブエントリが非公開になります。",
+    needsAttentionBeforeFinish: "完了する前に対応が必要です",
+    noPendingLocalBuilderChanges:
+      "保留中のローカル Builder 変更はまだありません。",
+    needsAttention: "対応が必要",
+    failedYouCanRetry: "失敗しました — 再試行できます",
+    needsAFreshReview: "再確認が必要",
+    working: "処理中…",
+    checksOnly: "チェックのみ",
+    pushed: "プッシュ済み",
+    ready: "準備完了",
     openAsFullPage: "フルページで開く",
     pick: "して選択",
     addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
@@ -650,6 +927,54 @@ const databaseMessagesByLocale = {
     wrapAllContent: "すべての内容を折り返す",
   },
   "ko-KR": {
+    addARowTo: "행 추가 대상…",
+    addASource: "소스 추가",
+    localNoCollection: "로컬(컬렉션 없음)",
+    liveWritesTestCollectionOnly:
+      "라이브 쓰기는 Agent Native 테스트 컬렉션에서만 사용할 수 있습니다.",
+    builderWriteMode: "Builder 쓰기 모드",
+    builderWriteModeUpdated: "Builder 쓰기 모드 업데이트됨",
+    allowPublishUnpublishPerItem: "항목별 게시/게시 취소 허용",
+    builderChanges: "Builder 변경 사항",
+    reviewLocalEditsBeforeBuilder:
+      "Builder에 도달하기 전에 로컬 편집을 검토합니다.",
+    liveWritesOffStagedForReview:
+      "라이브 쓰기가 꺼져 있습니다 — 로컬 편집은 검토용으로만 준비됩니다.",
+    noPendingChangesEditASourceBackedRow:
+      "대기 중인 변경 사항이 없습니다. 소스 기반 행을 편집하여 여기에 추가하세요.",
+    reviewChanges: "변경 사항 검토",
+    recentlyPushed: "최근 푸시됨",
+    connectABuilderCollectionToMapRows:
+      "Builder 컬렉션 또는 다른 테이블을 연결하여 이 행에 매핑하세요.",
+    noBuilderWrites: "Builder 쓰기 없음.",
+    stageOnly: "준비만",
+    savesDraftsNeverPublishes:
+      "Builder에 초안을 저장합니다 — 게시하지 않습니다.",
+    publishUpdates: "업데이트 게시",
+    writesUpdatesToLiveEntries: "라이브 항목에 업데이트를 씁니다.",
+    sourcesFeedingThisColumn: "이 열에 공급하는 소스",
+    noSourceFieldsBoundYet: "아직 바인딩된 소스 필드가 없습니다.",
+    bindAFieldFromASource: "소스에서 필드 바인딩",
+    reviewBuilderUpdate: "Builder 업데이트 검토",
+    closeBuilderUpdateReview: "Builder 업데이트 검토 닫기",
+    whatChanged: "변경 내용",
+    confirmUnpublish: "게시 취소 확인",
+    builderBodyEditsNeedSaferPath:
+      "Builder 본문 편집은 전송하기 전에 더 안전한 푸시 경로가 필요합니다.",
+    changedInBuilderSinceSync:
+      "동기화 이후 Builder에서 변경됨 — 푸시하기 전에 검토하세요.",
+    thisUnpublishesTheLiveEntry:
+      "이렇게 하면 Builder의 라이브 항목이 게시 취소됩니다.",
+    needsAttentionBeforeFinish: "완료하기 전에 주의가 필요합니다",
+    noPendingLocalBuilderChanges:
+      "아직 대기 중인 로컬 Builder 변경 사항이 없습니다.",
+    needsAttention: "주의 필요",
+    failedYouCanRetry: "실패함 — 다시 시도할 수 있습니다",
+    needsAFreshReview: "새로운 검토 필요",
+    working: "처리 중…",
+    checksOnly: "검사만",
+    pushed: "푸시됨",
+    ready: "준비됨",
     openAsFullPage: "전체 페이지로 열기",
     pick: "및 선택",
     addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
@@ -721,6 +1046,54 @@ const databaseMessagesByLocale = {
     wrapAllContent: "모든 콘텐츠 줄바꿈",
   },
   "pt-BR": {
+    addARowTo: "Adicionar uma linha a…",
+    addASource: "Adicionar uma fonte",
+    localNoCollection: "Local (sem coleção)",
+    liveWritesTestCollectionOnly:
+      "As gravações ao vivo estão disponíveis apenas para a coleção de teste do Agent Native.",
+    builderWriteMode: "Modo de gravação do Builder",
+    builderWriteModeUpdated: "Modo de gravação do Builder atualizado",
+    allowPublishUnpublishPerItem:
+      "Permitir publicar/cancelar publicação por item",
+    builderChanges: "Alterações do Builder",
+    reviewLocalEditsBeforeBuilder:
+      "Revise as edições locais antes que cheguem ao Builder.",
+    liveWritesOffStagedForReview:
+      "Gravações ao vivo desativadas — as edições locais são apenas preparadas para revisão.",
+    noPendingChangesEditASourceBackedRow:
+      "Nenhuma alteração pendente. Edite uma linha baseada em fonte para enfileirar uma aqui.",
+    reviewChanges: "Revisar alterações",
+    recentlyPushed: "Enviado recentemente",
+    connectABuilderCollectionToMapRows:
+      "Conecte uma coleção do Builder ou outra tabela para mapeá-la nessas linhas.",
+    noBuilderWrites: "Sem gravações no Builder.",
+    stageOnly: "Apenas preparar",
+    savesDraftsNeverPublishes: "Salva rascunhos no Builder — nunca publica.",
+    publishUpdates: "Publicar atualizações",
+    writesUpdatesToLiveEntries: "Grava atualizações nas entradas ao vivo.",
+    sourcesFeedingThisColumn: "Fontes que alimentam esta coluna",
+    noSourceFieldsBoundYet: "Nenhum campo de fonte vinculado ainda.",
+    bindAFieldFromASource: "Vincular um campo de uma fonte",
+    reviewBuilderUpdate: "Revisar atualização do Builder",
+    closeBuilderUpdateReview: "Fechar revisão de atualização do Builder",
+    whatChanged: "O que mudou",
+    confirmUnpublish: "Confirmar cancelamento de publicação",
+    builderBodyEditsNeedSaferPath:
+      "As edições de corpo do Builder precisam de um caminho de envio mais seguro antes de poderem ser enviadas.",
+    changedInBuilderSinceSync:
+      "Alterado no Builder desde a sua sincronização — revise antes de enviar.",
+    thisUnpublishesTheLiveEntry:
+      "Isso cancela a publicação da entrada ao vivo no Builder.",
+    needsAttentionBeforeFinish: "Precisa de atenção antes de poder concluir",
+    noPendingLocalBuilderChanges:
+      "Ainda não há alterações locais do Builder pendentes.",
+    needsAttention: "Precisa de atenção",
+    failedYouCanRetry: "Falhou — você pode tentar novamente",
+    needsAFreshReview: "Precisa de uma nova revisão",
+    working: "Processando…",
+    checksOnly: "Apenas verificações",
+    pushed: "Enviado",
+    ready: "Pronto",
     openAsFullPage: "Abrir como página completa",
     pick: "e escolher",
     addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
@@ -794,6 +1167,55 @@ const databaseMessagesByLocale = {
     wrapAllContent: "Quebrar todo o conteúdo",
   },
   "hi-IN": {
+    addARowTo: "पंक्ति यहाँ जोड़ें…",
+    addASource: "स्रोत जोड़ें",
+    localNoCollection: "लोकल (कोई संग्रह नहीं)",
+    liveWritesTestCollectionOnly:
+      "लाइव राइट केवल Agent Native टेस्ट संग्रह के लिए उपलब्ध हैं।",
+    builderWriteMode: "Builder राइट मोड",
+    builderWriteModeUpdated: "Builder राइट मोड अपडेट किया गया",
+    allowPublishUnpublishPerItem:
+      "प्रति आइटम प्रकाशित/अप्रकाशित करने की अनुमति दें",
+    builderChanges: "Builder परिवर्तन",
+    reviewLocalEditsBeforeBuilder:
+      "Builder तक पहुँचने से पहले स्थानीय संपादन की समीक्षा करें।",
+    liveWritesOffStagedForReview:
+      "लाइव राइट बंद हैं — स्थानीय संपादन केवल समीक्षा के लिए तैयार किए जाते हैं।",
+    noPendingChangesEditASourceBackedRow:
+      "कोई लंबित परिवर्तन नहीं। यहाँ एक को कतारबद्ध करने के लिए स्रोत-समर्थित पंक्ति संपादित करें।",
+    reviewChanges: "परिवर्तन समीक्षा करें",
+    recentlyPushed: "हाल ही में पुश किया गया",
+    connectABuilderCollectionToMapRows:
+      "इन पंक्तियों पर मैप करने के लिए एक Builder संग्रह या अन्य तालिका कनेक्ट करें।",
+    noBuilderWrites: "कोई Builder राइट नहीं।",
+    stageOnly: "केवल स्टेज करें",
+    savesDraftsNeverPublishes:
+      "Builder में ड्राफ़्ट सहेजता है — कभी प्रकाशित नहीं करता।",
+    publishUpdates: "अपडेट प्रकाशित करें",
+    writesUpdatesToLiveEntries: "लाइव प्रविष्टियों में अपडेट लिखता है।",
+    sourcesFeedingThisColumn: "इस कॉलम को आपूर्ति करने वाले स्रोत",
+    noSourceFieldsBoundYet: "अभी तक कोई स्रोत फ़ील्ड बाध्य नहीं है।",
+    bindAFieldFromASource: "किसी स्रोत से एक फ़ील्ड बाँधें",
+    reviewBuilderUpdate: "Builder अपडेट की समीक्षा करें",
+    closeBuilderUpdateReview: "Builder अपडेट समीक्षा बंद करें",
+    whatChanged: "क्या बदला",
+    confirmUnpublish: "अप्रकाशित करने की पुष्टि करें",
+    builderBodyEditsNeedSaferPath:
+      "Builder बॉडी संपादनों को भेजे जाने से पहले एक सुरक्षित पुश पथ की आवश्यकता होती है।",
+    changedInBuilderSinceSync:
+      "आपके सिंक के बाद से Builder में बदला गया — पुश करने से पहले समीक्षा करें।",
+    thisUnpublishesTheLiveEntry:
+      "यह Builder में लाइव प्रविष्टि को अप्रकाशित कर देता है।",
+    needsAttentionBeforeFinish: "समाप्त होने से पहले ध्यान देने की आवश्यकता है",
+    noPendingLocalBuilderChanges:
+      "अभी तक कोई लंबित स्थानीय Builder परिवर्तन नहीं।",
+    needsAttention: "ध्यान देने की आवश्यकता है",
+    failedYouCanRetry: "विफल — आप पुनः प्रयास कर सकते हैं",
+    needsAFreshReview: "एक नई समीक्षा की आवश्यकता है",
+    working: "कार्य हो रहा है…",
+    checksOnly: "केवल जाँच",
+    pushed: "पुश किया गया",
+    ready: "तैयार",
     openAsFullPage: "पूरे पेज के रूप में खोलें",
     pick: "और चुनें",
     addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
@@ -812,7 +1234,8 @@ const databaseMessagesByLocale = {
       "डेटाबेस पंक्तियां और स्थानीय प्रॉपर्टीज़ सुरक्षित रहीं।",
     failedToDeleteRow: "पंक्ति हटाने में विफल",
     failedToDeleteSelectedRows: "चुनी गई पंक्तियां हटाने में विफल",
-    failedToDuplicateEverySelectedRow: "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",
+    failedToDuplicateEverySelectedRow:
+      "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",
     failedToDuplicateRow: "पंक्ति डुप्लिकेट करने में विफल",
     failedToMoveCard: "कार्ड ले जाने में विफल",
     failedToMoveRow: "पंक्ति ले जाने में विफल",
@@ -865,6 +1288,51 @@ const databaseMessagesByLocale = {
     wrapAllContent: "सभी सामग्री रैप करें",
   },
   "ar-SA": {
+    addARowTo: "إضافة صف إلى…",
+    addASource: "إضافة مصدر",
+    localNoCollection: "محلي (بدون مجموعة)",
+    liveWritesTestCollectionOnly:
+      "الكتابة المباشرة متاحة فقط لمجموعة اختبار Agent Native.",
+    builderWriteMode: "وضع كتابة Builder",
+    builderWriteModeUpdated: "تم تحديث وضع كتابة Builder",
+    allowPublishUnpublishPerItem: "السماح بالنشر/إلغاء النشر لكل عنصر",
+    builderChanges: "تغييرات Builder",
+    reviewLocalEditsBeforeBuilder:
+      "راجع التعديلات المحلية قبل أن تصل إلى Builder.",
+    liveWritesOffStagedForReview:
+      "الكتابة المباشرة معطّلة — التعديلات المحلية تُجهَّز للمراجعة فقط.",
+    noPendingChangesEditASourceBackedRow:
+      "لا توجد تغييرات معلّقة. عدّل صفًا مدعومًا بمصدر لإضافة واحد هنا.",
+    reviewChanges: "مراجعة التغييرات",
+    recentlyPushed: "تم الدفع مؤخرًا",
+    connectABuilderCollectionToMapRows:
+      "اربط مجموعة Builder أو جدولًا آخر لتعيينه على هذه الصفوف.",
+    noBuilderWrites: "لا توجد عمليات كتابة في Builder.",
+    stageOnly: "التجهيز فقط",
+    savesDraftsNeverPublishes: "يحفظ المسودات في Builder — لا ينشر أبدًا.",
+    publishUpdates: "نشر التحديثات",
+    writesUpdatesToLiveEntries: "يكتب التحديثات في الإدخالات المباشرة.",
+    sourcesFeedingThisColumn: "المصادر التي تغذّي هذا العمود",
+    noSourceFieldsBoundYet: "لم يتم ربط أي حقول مصدر بعد.",
+    bindAFieldFromASource: "ربط حقل من مصدر",
+    reviewBuilderUpdate: "مراجعة تحديث Builder",
+    closeBuilderUpdateReview: "إغلاق مراجعة تحديث Builder",
+    whatChanged: "ما الذي تغيّر",
+    confirmUnpublish: "تأكيد إلغاء النشر",
+    builderBodyEditsNeedSaferPath:
+      "تتطلب تعديلات نص Builder مسار دفع أكثر أمانًا قبل أن يمكن إرسالها.",
+    changedInBuilderSinceSync: "تغيّر في Builder منذ مزامنتك — راجع قبل الدفع.",
+    thisUnpublishesTheLiveEntry:
+      "يؤدي هذا إلى إلغاء نشر الإدخال المباشر في Builder.",
+    needsAttentionBeforeFinish: "يتطلب الانتباه قبل أن يكتمل",
+    noPendingLocalBuilderChanges: "لا توجد تغييرات Builder محلية معلّقة بعد.",
+    needsAttention: "يتطلب الانتباه",
+    failedYouCanRetry: "فشل — يمكنك إعادة المحاولة",
+    needsAFreshReview: "يتطلب مراجعة جديدة",
+    working: "جارٍ العمل…",
+    checksOnly: "عمليات التحقق فقط",
+    pushed: "تم الدفع",
+    ready: "جاهز",
     openAsFullPage: "فتح كصفحة كاملة",
     pick: "واختيار",
     addAStatusSelectMultiSelectOrCheckboxPropertyToGroup:
@@ -3375,7 +3843,8 @@ const databaseExactEnglishMessagesByLocale = {
     noMatchingOptions: "कोई मेल खाते विकल्प नहीं",
     noMatchingPages: "कोई मेल खाते पेज नहीं",
     noMatchingProperties: "कोई मेल खाते गुण नहीं",
-    noOtherDatabasesAvailableToAdd: "जोड़ने के लिए कोई अन्य डेटाबेस उपलब्ध नहीं है।",
+    noOtherDatabasesAvailableToAdd:
+      "जोड़ने के लिए कोई अन्य डेटाबेस उपलब्ध नहीं है।",
     noPropertiesFound: "कोई गुण नहीं मिले",
     notMappedToBuilder: "Builder से मैप नहीं है।",
     openPagesIn: "पेज इसमें खोलें",
@@ -5702,7 +6171,8 @@ const editorMessagesByLocale = {
       addImage: "एक छवि जोड़ें",
       addVideo: "एक वीडियो जोड़ें",
       altText: "वैकल्पिक पाठ",
-      altTextGenerationFailed: "वैकल्पिक टेक्स्ट जनरेशन प्रारंभ नहीं किया जा सका.",
+      altTextGenerationFailed:
+        "वैकल्पिक टेक्स्ट जनरेशन प्रारंभ नहीं किया जा सका.",
       assets: "संपत्ति",
       assetsImagePicker: "संपत्ति छवि चयनकर्ता",
       assetsMissingImageUrl: "एसेट ने कोई छवि URL नहीं लौटाया.",
@@ -5713,7 +6183,8 @@ const editorMessagesByLocale = {
       audioPreview: "ऑडियो पूर्वावलोकन",
       audioView: "ऑडियो दृश्य",
       chooseFromAssets: "संपत्तियों में से चुनें",
-      clickToEditAltText: "वैकल्पिक टेक्स्ट देखने और संपादित करने के लिए क्लिक करें",
+      clickToEditAltText:
+        "वैकल्पिक टेक्स्ट देखने और संपादित करने के लिए क्लिक करें",
       closeAltTextEditor: "वैकल्पिक टेक्स्ट संपादक बंद करें",
       closeAudioPreview: "ऑडियो पूर्वावलोकन बंद करें",
       closeImagePreview: "छवि पूर्वावलोकन बंद करें",
@@ -5980,7 +6451,8 @@ const editorMessagesByLocale = {
       notionSync: "धारणा सिंक",
       openInNotion: "धारणा में खोलें",
       orgCanFindAndView: "आपके संगठन का कोई भी व्यक्ति ढूंढ और देख सकता है",
-      orgLinkCanView: "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
+      orgLinkCanView:
+        "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
       printDialogOpened: "प्रिंट संवाद खोला गया",
       printDialogOpenedDescription:
         "निर्यात समाप्त करने के लिए पीडीएफ के रूप में सहेजें चुनें।",
@@ -5994,7 +6466,8 @@ const editorMessagesByLocale = {
       revealedLocalFile: "स्थानीय फ़ाइल का खुलासा",
       searchNotionPages: "धारणा पृष्ठ खोजें...",
       setUpNotion: "धारणा स्थापित करें",
-      setUpNotionFirst: "सबसे पहले साइडबार में नोशन सेट करें - नोशन आइकन पर क्लिक करें।",
+      setUpNotionFirst:
+        "सबसे पहले साइडबार में नोशन सेट करें - नोशन आइकन पर क्लिक करें।",
       setUpNotionToSync: "इस दस्तावेज़ को सिंक करने के लिए नोशन सेट करें।",
       share: "साझा करें",
       shareableCopyReady: "साझा करने योग्य प्रति तैयार",
@@ -7328,10 +7801,12 @@ export const messagesByLocale = {
       title: "सेटिंग्स",
       description: "Content के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
       languageTitle: "भाषा",
-      languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
+      languageDescription:
+        "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
       languageLabel: "इंटरफ़ेस भाषा",
       workspaceTitle: "कार्यस्थान",
-      workspaceDescription: "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
+      workspaceDescription:
+        "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
       openTeamSettings: "कार्यस्थान पहुंच खोलें",
       agentTitle: "एजेंट सेटिंग्स",
       agentDescription:
@@ -7639,7 +8114,8 @@ const contentExactEnglishTranslations = {
         copiedPageLink: "पेज लिंक कॉपी किया गया",
         copyPageLink: "पेज लिंक कॉपी करें",
         couldNotCopyLink: "लिंक कॉपी नहीं किया जा सका",
-        clipboardAccessUnavailable: "इस ब्राउज़र में क्लिपबोर्ड एक्सेस उपलब्ध नहीं है।",
+        clipboardAccessUnavailable:
+          "इस ब्राउज़र में क्लिपबोर्ड एक्सेस उपलब्ध नहीं है।",
         pageBreadcrumb: "पेज ब्रेडक्रंब",
       },
       versionRestoreQuestion: "यह संस्करण पुनर्स्थापित करें?",
