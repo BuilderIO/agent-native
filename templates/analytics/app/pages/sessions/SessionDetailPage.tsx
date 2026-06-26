@@ -734,6 +734,7 @@ function ReplayScrubber({
   disabled: boolean;
   onSeek: (ms: number) => void;
 }) {
+  const t = useT();
   return (
     <div className="relative min-h-8 min-w-[180px] flex-1">
       <input
@@ -745,7 +746,7 @@ function ReplayScrubber({
         value={Math.min(currentTime, totalTime)}
         disabled={disabled}
         onChange={(event) => onSeek(Number(event.target.value))}
-        aria-label="Replay timeline"
+        aria-label={t("sessions.replayTimeline")}
       />
       <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 h-2 -translate-y-1/2 overflow-hidden rounded-full">
         {skipRanges.map((range) => {
