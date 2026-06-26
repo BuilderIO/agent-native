@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.77.21
+
+### Patch Changes
+
+- c1f7fe7: DIAGNOSTIC: background-worker breadcrumb sink. The bg fn fire-and-forget POSTs
+  its `[bg-presend]` breadcrumbs to a key-gated foreground `/bg-log-sink` route so
+  the worker's post-`model_done` setup progress is readable — the worker's own DB
+  diag writes stall there and Netlify doesn't surface background-function logs.
+  Also disambiguates event-loop-block vs DB-hang (if the POSTs land, the event loop
+  is fine). Temporary; removed once the analytics worker freeze is fixed.
+
 ## 0.77.20
 
 ### Patch Changes
