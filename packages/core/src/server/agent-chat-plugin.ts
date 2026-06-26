@@ -7758,6 +7758,28 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
         }
 
+        // DURABLE OWNER CONTEXT, PART 2: ORG.
+        // The cookieless `_process-run` self-dispatch (and any other background
+        // re-entry) resolves the owner from the run row, but has NO session —
+        // every org resolver above ultimately derives identity from
+        // getSession(event), so they all come back null here. That silently
+        // scopes the agent to `org_id IS NULL` rows only: it sees and writes
+        // resources outside the user's org, while the foreground UI — which
+        // carries the session cookie — resolves the real org. The result is the
+        // observed split where the agent can't list/read the same resources the
+        // UI shows and writes new rows with a null org. Resolve the org from the
+        // now-known owner email (the same active-org / membership logic
+        // getOrgContext uses, minus the session) so the agent and the UI operate
+        // over the same org-scoped data.
+        if (!resolvedOrgId && owner && !ownerContext.anonymous) {
+          try {
+            const { resolveOrgIdForEmail } = await import("../org/context.js");
+            resolvedOrgId = (await resolveOrgIdForEmail(owner)) ?? undefined;
+          } catch {
+            // org tables unavailable (first boot) — leave org unscoped
+          }
+        }
+
         // Propagate the caller's IANA timezone from `x-user-timezone` so that
         // tool calls made by the agent (e.g. log-meal with no explicit date)
         // resolve "today" in the user's local timezone instead of server UTC.
