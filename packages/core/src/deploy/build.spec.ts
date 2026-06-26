@@ -140,7 +140,7 @@ describe("generateWorkerEntry", () => {
     );
 
     expect(source).toContain(
-      'import { markDefaultPluginProvided as markGeneratedPluginProvided } from "@agent-native/core/server";',
+      'import { markDefaultPluginProvided as markGeneratedPluginProvided } from "@agent-native/core/server/edge";',
     );
     expect(source).toContain(
       'markGeneratedPluginProvided(nitroApp, "core-routes");',
@@ -156,6 +156,9 @@ describe("generateWorkerEntry", () => {
   it("pre-marks slots before generated default plugin calls", () => {
     const source = generateWorkerEntry([], [], ["core-routes"]);
 
+    expect(source).toContain(
+      'import { defaultCoreRoutesPlugin as defaultPlugin_0 } from "@agent-native/core/server/edge";',
+    );
     expect(source).toContain(
       'markGeneratedPluginProvided(nitroApp, "core-routes");',
     );
@@ -776,7 +779,7 @@ describe("generateProvidedPluginsNitroPluginSource", () => {
     ]);
 
     expect(source).toContain(
-      'import { markDefaultPluginProvided } from "@agent-native/core/server";',
+      'import { markDefaultPluginProvided } from "@agent-native/core/server/edge";',
     );
     expect(source).toContain(
       'const pluginStems = ["agent-chat","core-routes"]',

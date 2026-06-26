@@ -691,6 +691,7 @@ function getCoreSourceAliases(
   const entries: Record<string, string> = {
     "@agent-native/core": path.join(coreSrc, "index.browser.ts"),
     "@agent-native/core/server": path.join(coreSrc, "server/index.ts"),
+    "@agent-native/core/server/edge": path.join(coreSrc, "server/edge.ts"),
     "@agent-native/core/client": path.join(coreSrc, "client/index.ts"),
     "@agent-native/core/client/chat": path.join(
       coreSrc,

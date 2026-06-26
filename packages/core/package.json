@@ -40,6 +40,7 @@
     },
     "./vite": "./dist/vite/index.js",
     "./server": "./dist/server/index.js",
+    "./server/edge": "./dist/server/edge.js",
     "./server/entry-server": "./dist/server/entry-server.js",
     "./server/ssr-handler": "./dist/server/ssr-handler.js",
     "./server/agent-discovery": "./dist/server/agent-discovery.js",
