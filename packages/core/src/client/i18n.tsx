@@ -16,6 +16,7 @@ import {
   useTranslation,
 } from "react-i18next";
 
+import defaultEnglishMessages from "../localization/default-messages.js";
 import {
   DEFAULT_LOCALE,
   LOCALE_HYDRATION_GLOBAL,
@@ -31,7 +32,6 @@ import {
   type LocalePreference,
   type LocalizationPreference,
 } from "../localization/shared.js";
-import defaultEnglishMessages from "../localization/default-messages.js";
 import { setClientAppState } from "./application-state.js";
 import { callAction } from "./use-action.js";
 
