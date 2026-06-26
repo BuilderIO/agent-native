@@ -7,9 +7,9 @@ import { z } from "zod";
 
 import { sendDashboardReportSubscription } from "../server/lib/dashboard-report";
 import {
+  claimDashboardReportSubscription,
   getDashboardReportSubscription,
   markDashboardReportResult,
-  markDashboardReportRunning,
 } from "../server/lib/dashboard-report-subscriptions";
 
 export default defineAction({
@@ -34,15 +34,23 @@ export default defineAction({
       });
     }
 
-    const startedAt = new Date().toISOString();
-    await markDashboardReportRunning(sub.id, startedAt);
+    const claimed = await claimDashboardReportSubscription(sub.id, {
+      email,
+      orgId,
+    });
+    if (!claimed) {
+      throw Object.assign(new Error("Report subscription is already sending"), {
+        statusCode: 409,
+      });
+    }
+
     try {
-      const result = await sendDashboardReportSubscription(sub);
-      await markDashboardReportResult(sub, "success");
-      return { id: sub.id, success: true, ...result };
+      const result = await sendDashboardReportSubscription(claimed);
+      await markDashboardReportResult(claimed, "success");
+      return { id: claimed.id, success: true, ...result };
     } catch (err: any) {
       await markDashboardReportResult(
-        sub,
+        claimed,
         "error",
         err?.message ?? String(err),
       );

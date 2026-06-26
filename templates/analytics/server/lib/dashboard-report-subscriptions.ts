@@ -240,18 +240,23 @@ function ownerWhere(ctx: AccessCtx, dashboardId?: string, id?: string) {
 
 function dueReportWhere(now: Date) {
   const table = schema.dashboardReportSubscriptions;
-  const staleRunningBefore = new Date(
-    now.getTime() - 30 * 60 * 1000,
-  ).toISOString();
   return and(
     eq(table.enabled, true),
     lte(table.nextRunAt, now.toISOString()),
-    or(
-      isNull(table.lastStatus),
-      sql`${table.lastStatus} <> 'running'`,
-      isNull(table.lastRunAt),
-      lte(table.lastRunAt, staleRunningBefore),
-    ),
+    reportNotRunningWhere(now),
+  );
+}
+
+function reportNotRunningWhere(now: Date) {
+  const table = schema.dashboardReportSubscriptions;
+  const staleRunningBefore = new Date(
+    now.getTime() - 30 * 60 * 1000,
+  ).toISOString();
+  return or(
+    isNull(table.lastStatus),
+    sql`${table.lastStatus} <> 'running'`,
+    isNull(table.lastRunAt),
+    lte(table.lastRunAt, staleRunningBefore),
   );
 }
 
@@ -427,12 +432,14 @@ export async function claimDueDashboardReportSubscriptions(
   return claimed;
 }
 
-export async function markDashboardReportRunning(
+export async function claimDashboardReportSubscription(
   id: string,
-  startedAt: string,
-): Promise<void> {
+  ctx: AccessCtx,
+  now: Date = new Date(),
+): Promise<DashboardReportSubscription | null> {
   const db = getDb() as any;
-  await db
+  const startedAt = now.toISOString();
+  const rows = await db
     .update(schema.dashboardReportSubscriptions)
     .set({
       lastRunAt: startedAt,
@@ -440,7 +447,11 @@ export async function markDashboardReportRunning(
       lastError: null,
       updatedAt: startedAt,
     })
-    .where(eq(schema.dashboardReportSubscriptions.id, id));
+    .where(
+      and(ownerWhere(ctx, undefined, id), reportNotRunningWhere(now)),
+    )
+    .returning();
+  return rows[0] ? rowToSubscription(rows[0]) : null;
 }
 
 export async function markDashboardReportResult(

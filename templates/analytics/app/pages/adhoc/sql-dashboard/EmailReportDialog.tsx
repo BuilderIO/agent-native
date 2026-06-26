@@ -5,6 +5,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  IconFilter,
   IconMail,
   IconPencil,
   IconPlus,
@@ -27,6 +28,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+
+import {
+  normalizeReportFilterSnapshot,
+  reportFilterSnapshotKey,
+  savedReportFiltersForEdit,
+} from "./report-filters";
 
 type DashboardReportSubscription = {
   id: string;
@@ -94,6 +101,9 @@ export function EmailReportDialog({
   const [selectedId, setSelectedId] = useState<string | undefined>();
   const [name, setName] = useState(defaultName);
   const [recipientsText, setRecipientsText] = useState(defaultEmail);
+  const [reportFilters, setReportFilters] = useState<Record<string, string>>(
+    () => normalizeReportFilterSnapshot(filters),
+  );
   const [timeOfDay, setTimeOfDay] = useState("09:00");
   const [timezone, setTimezone] = useState(localTimezone());
   const [enabled, setEnabled] = useState(true);
@@ -121,12 +131,27 @@ export function EmailReportDialog({
   const selectedSubscription = subscriptions.find(
     (sub) => sub.id === selectedId,
   );
-  const filterCount = Object.keys(filters).filter((key) => filters[key]).length;
+  const currentFilterSnapshot = useMemo(
+    () => normalizeReportFilterSnapshot(filters),
+    [filters],
+  );
+  const currentFilterSnapshotKey = useMemo(
+    () => reportFilterSnapshotKey(currentFilterSnapshot),
+    [currentFilterSnapshot],
+  );
+  const reportFilterKey = useMemo(
+    () => reportFilterSnapshotKey(reportFilters),
+    [reportFilters],
+  );
+  const reportFilterCount = Object.keys(reportFilters).length;
+  const reportFiltersMatchCurrent =
+    reportFilterKey === currentFilterSnapshotKey;
 
   const loadSubscription = (sub: DashboardReportSubscription) => {
     setSelectedId(sub.id);
     setName(sub.name);
     setRecipientsText(sub.recipients.join("\n"));
+    setReportFilters(savedReportFiltersForEdit(sub.filters));
     setTimeOfDay(sub.timeOfDay);
     setTimezone(sub.timezone);
     setEnabled(sub.enabled);
@@ -136,6 +161,7 @@ export function EmailReportDialog({
     setSelectedId(undefined);
     setName(defaultName);
     setRecipientsText(defaultEmail);
+    setReportFilters(currentFilterSnapshot);
     setTimeOfDay("09:00");
     setTimezone(localTimezone());
     setEnabled(true);
@@ -167,7 +193,7 @@ export function EmailReportDialog({
         dashboardId,
         name: name.trim() || defaultName,
         recipients,
-        filters,
+        filters: reportFilters,
         timeOfDay,
         timezone,
         enabled,
@@ -323,11 +349,23 @@ export function EmailReportDialog({
                 <Label>{t("sqlDashboard.reportEnabled")}</Label>
                 <p className="text-xs text-muted-foreground">
                   {t("sqlDashboard.reportFilterSnapshot", {
-                    count: filterCount,
+                    count: reportFilterCount,
                   })}
                 </p>
               </div>
-              <Switch checked={enabled} onCheckedChange={setEnabled} />
+              <div className="flex shrink-0 items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setReportFilters(currentFilterSnapshot)}
+                  disabled={reportFiltersMatchCurrent}
+                >
+                  <IconFilter className="mr-1.5 h-3.5 w-3.5" />
+                  {t("sqlDashboard.reportUseCurrentFilters")}
+                </Button>
+                <Switch checked={enabled} onCheckedChange={setEnabled} />
+              </div>
             </div>
 
             {selectedSubscription ? (

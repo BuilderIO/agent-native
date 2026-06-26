@@ -763,7 +763,7 @@ export interface SessionReplayIngestContext {
   now?: Date;
 }
 
-async function assertReplayKeyBudget(
+export async function assertReplayKeyBudget(
   key: {
     id: string;
     replayAllowedOrigins?: string | null;
@@ -774,7 +774,13 @@ async function assertReplayKeyBudget(
 ): Promise<void> {
   const origin = normalizeReplayOrigin(context.origin);
   const allowedOrigins = parseAllowedReplayOrigins(key.replayAllowedOrigins);
-  if (origin && allowedOrigins.length > 0 && !allowedOrigins.includes(origin)) {
+  if (allowedOrigins.length > 0 && !origin) {
+    throw replayError(
+      "Origin is required for replay ingestion with this analytics public key",
+      403,
+    );
+  }
+  if (allowedOrigins.length > 0 && !allowedOrigins.includes(origin ?? "")) {
     throw replayError(
       "Origin is not allowed for this analytics public key",
       403,
@@ -802,10 +808,9 @@ async function assertReplayKeyBudget(
   const sinceMinute = isoBefore(now, 60_000);
   const db = getDb() as any;
   // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
-  const recentRows = await db
+  const [dailyUsage] = await db
     .select({
-      byteLength: schema.sessionReplayIngests.byteLength,
-      createdAt: schema.sessionReplayIngests.createdAt,
+      bytes: sql<number>`COALESCE(SUM(${schema.sessionReplayIngests.byteLength}), 0)`,
     })
     .from(schema.sessionReplayIngests)
     .where(
@@ -813,13 +818,9 @@ async function assertReplayKeyBudget(
         eq(schema.sessionReplayIngests.publicKeyId, key.id),
         gte(schema.sessionReplayIngests.createdAt, sinceDay),
       ),
-    )
-    .limit(10_000);
+    );
 
-  const bytesToday = recentRows.reduce(
-    (sum: number, row: any) => sum + Number(row.byteLength ?? 0),
-    0,
-  );
+  const bytesToday = Number(dailyUsage?.bytes ?? 0);
   if (bytesToday + requestBytes > maxBytesPerDay) {
     throw replayError(
       "Replay ingest byte quota exceeded for this public key",
@@ -827,9 +828,20 @@ async function assertReplayKeyBudget(
     );
   }
 
-  const recentRequests = recentRows.filter(
-    (row: any) => String(row.createdAt ?? "") >= sinceMinute,
-  ).length;
+  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key and use append-only ingest usage rows.
+  const [minuteUsage] = await db
+    .select({
+      requests: sql<number>`COUNT(*)`,
+    })
+    .from(schema.sessionReplayIngests)
+    .where(
+      and(
+        eq(schema.sessionReplayIngests.publicKeyId, key.id),
+        gte(schema.sessionReplayIngests.createdAt, sinceMinute),
+      ),
+    );
+
+  const recentRequests = Number(minuteUsage?.requests ?? 0);
   if (recentRequests >= maxRequestsPerMinute) {
     throw replayError(
       "Replay ingest rate limit exceeded for this public key",
