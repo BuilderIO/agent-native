@@ -593,8 +593,18 @@ function ChartTooltip({
     left: number;
     top: number;
   } | null>(null);
-  const items = sortTooltipPayloadItems(
-    payload?.filter((item) => item.value != null && item.value !== "") ?? [],
+  const items = useMemo(
+    () =>
+      sortTooltipPayloadItems(
+        payload?.filter((item) => item.value != null && item.value !== "") ??
+          [],
+      ),
+    [payload],
+  );
+  const portalVisible = portalPosition !== null;
+  const clearPortalPosition = useCallback(
+    () => setPortalPosition((prev) => (prev === null ? prev : null)),
+    [],
   );
 
   const labelText =
@@ -606,7 +616,7 @@ function ChartTooltip({
 
   useBrowserLayoutEffect(() => {
     if (!active || items.length === 0 || typeof window === "undefined") {
-      setPortalPosition(null);
+      clearPortalPosition();
       return;
     }
 
@@ -688,7 +698,7 @@ function ChartTooltip({
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
     };
-  });
+  }, [active, clearPortalPosition, items.length, portalVisible]);
 
   if (!active || items.length === 0) return null;
 

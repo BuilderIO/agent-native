@@ -964,6 +964,10 @@ function retryDelay(attempt: number, abortSignal: AbortSignal): Promise<void> {
   return delay(ms, abortSignal);
 }
 
+function shouldCaptureRecoveryHttpStatus(status: number): boolean {
+  return status < 500 || status >= 600;
+}
+
 function generateTurnId(): string {
   if (
     typeof crypto !== "undefined" &&
@@ -1518,15 +1522,17 @@ export function createAgentChatAdapter(
                 lastReconnectError = new Error(
                   `Reconnect failed: ${reconnectRes.status}`,
                 );
-                captureChatClientError(
-                  lastReconnectError,
-                  "reconnect-current-response",
-                  {
-                    status: reconnectRes.status,
-                    hasBody: Boolean(reconnectRes.body),
-                    attempt,
-                  },
-                );
+                if (shouldCaptureRecoveryHttpStatus(reconnectRes.status)) {
+                  captureChatClientError(
+                    lastReconnectError,
+                    "reconnect-current-response",
+                    {
+                      status: reconnectRes.status,
+                      hasBody: Boolean(reconnectRes.body),
+                      attempt,
+                    },
+                  );
+                }
                 reconnectErrorCaptured = true;
                 break;
               }
@@ -1610,11 +1616,13 @@ export function createAgentChatAdapter(
                 lastActiveRunError = new Error(
                   `Active run lookup failed: ${activeRes.status}`,
                 );
-                captureChatClientError(
-                  lastActiveRunError,
-                  "reconnect-active-response",
-                  { status: activeRes.status, attempt },
-                );
+                if (shouldCaptureRecoveryHttpStatus(activeRes.status)) {
+                  captureChatClientError(
+                    lastActiveRunError,
+                    "reconnect-active-response",
+                    { status: activeRes.status, attempt },
+                  );
+                }
                 return false;
               }
               const active = await activeRes.json();

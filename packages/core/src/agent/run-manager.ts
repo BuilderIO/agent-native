@@ -153,10 +153,12 @@ function shouldCaptureRunError(err: unknown): boolean {
   if (isLlmCredentialError(err, errorCode)) return false;
   if (err.statusCode === 401 || err.statusCode === 403) return false;
   if (/^40[13] status code\b/i.test(err.message)) return false;
+  if (err.message.trim().toLowerCase() === "connection error.") return false;
   if (!errorCode) return true;
   const normalizedCode = errorCode.toLowerCase();
   return (
     !normalizedCode.startsWith("credits-limit") &&
+    normalizedCode !== "builder_gateway_network_error" &&
     normalizedCode !== "provider_rate_limited" &&
     normalizedCode !== "rate_limit_exceeded"
   );

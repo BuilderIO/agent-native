@@ -920,6 +920,43 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("does not capture provider connection failures while preserving the terminal event", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-provider-connection-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-provider-connection-no-capture",
+        "thread-provider-connection-no-capture",
+        async () => {
+          throw new EngineError("Connection error.");
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-provider-connection-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: "Connection error.",
+    });
+  });
+
   it("emits terminal events only after the completion callback resolves", async () => {
     let resolveComplete!: () => void;
     const onComplete = vi.fn(
