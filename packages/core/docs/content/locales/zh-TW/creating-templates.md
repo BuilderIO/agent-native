@@ -1,18 +1,18 @@
 ---
 title: "建立範本"
-description: "如何建立和發布您自己的代理本機應用範本。"
+description: "如何建立和發布您自己的 Agent-Native 應用範本。"
 ---
 
 # 建立範本
 
-範本是完整的、可分叉的代理本機應用程式，可解決實際工作流程。第一方範本使用您使用的相同框架表面建置：用於 UI 的 React 路由、用於資料的 Drizzle SQL、用於操作的 actions、用於代理行為的工作區資源以及輪詢同步，以便代理和 UI 保持一致。
+範本是完整的、可分叉的 Agent-Native 應用程式，可解決實際工作流程。第一方範本使用您使用的相同框架表面建置：用於 UI 的 React 路由、用於資料的 Drizzle SQL、用於操作的 actions、用於代理行為的工作區資源以及輪詢同步，以便代理和 UI 保持一致。
 
 一個好的範本：
 
 - 使用有用的種子資料或空狀態流端對端地解決一個工作流。
-- 將持久狀態存儲在 SQL 中，而不是 JSON 檔案中。
+- 將持久狀態儲存在 SQL 中，而不是 JSON 檔案中。
 - 將應用操作定義為 `defineAction()` actions。
-- 通過應用程式狀態公開導覽和選取。
+- 透過應用程式狀態公開導覽和選取。
 - 為不明顯的工作流程提供清晰的 `AGENTS.md` 和重點 skills。
 - 註冊所需提供者和機密的加入步驟。
 - 作為獨立應用和多應用工作區的一部分工作。
@@ -31,7 +31,7 @@ npx @agent-native/core@latest create my-template --template chat --standalone
 npx @agent-native/core@latest create my-platform
 ```
 
-聊天為您提供驗證、持久聊天線程、SQL 支持的資源、工具、應用程式狀態、actions 和輪詢同步。您新增域模型和產品 UI。
+聊天為您提供驗證、持久聊天對話串、SQL 支援的資源、工具、應用程式狀態、actions 和輪詢同步。您新增域模型和產品 UI。
 
 如果您尚未建置可重複使用的 UI 範本，請使用 [Getting Started](/docs/getting-started#1-create-your-app) 中的無頭入口：定義一個操作，使用 `pnpm agent` 執行它，並在工作流程需要耐用表面時新增 UI。
 
@@ -63,20 +63,20 @@ npx @agent-native/core@latest create my-platform
 }
 ```
 
-不要為應用程式狀態新增 `data/` 目錄。持久應用資料屬於 SQL，UI 通過 actions 或型別化伺服器處理程序讀取它。
+不要為應用程式狀態新增 `data/` 目錄。持久應用資料屬於 SQL，UI 透過 actions 或型別化伺服器處理常式讀取它。
 
-每個範本的四個區域通過一個共用操作介面和一個 SQL 資料庫連線在一起 - 代理和 UI 是執行相同操作的平等合作伙伴：
+每個範本的四個區域透過一個共用操作介面和一個 SQL 資料庫連線在一起 - 代理和 UI 是執行相同操作的平等合作伙伴：
 
-```an-diagram title="範本的四個區域如何連線" summary="UI 和代理都通過相同的操作到達 SQL；應用程式狀態和輪詢同步使它們保持一致。"
+```an-diagram title="範本的四個區域如何連線" summary="UI 和代理都透過相同的操作到達 SQL；應用程式狀態和輪詢同步使它們保持一致。"
 {
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React 介面<br><small class=\"diagram-muted\">app/routes · 元件</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">行動</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>通過 Drizzle 使用 SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">輪詢ing sync</div></div>",
+  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React 介面<br><small class=\"diagram-muted\">app/routes · 元件</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">行動</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>透過 Drizzle 使用 SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">輪詢ing sync</div></div>",
   "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
 
-## SQL中的模型資料 {#data-models}
+## SQL 中的模型資料 {#data-models}
 
-使用框架 Drizzle 幫助程序定義域表，以便架構在 SQLite、Postgres、D1、Turso、Supabase、Neon 和其他支持的後端之間保持可移植性：
+使用框架 Drizzle 幫助程式定義域表，以便架構在 SQLite、Postgres、D1、Turso、Supabase、Neon 和其他支援的後端之間保持可移植性：
 
 ```ts
 // server/db/schema.ts
@@ -106,9 +106,9 @@ export const projects = table("projects", {
 export const projectShares = createSharesTable("project_shares");
 ```
 
-架構更改必須是附加的。 `server/plugins/db.ts`中通過`runMigrations()`新增表和列；切勿使用破壞性的 SQL、`drizzle-kit push`、表重命名或列刪除。
+架構更改必須是附加的。 `server/plugins/db.ts`中透過`runMigrations()`新增表和列；切勿使用破壞性的 SQL、`drizzle-kit push`、表重新命名或列刪除。
 
-對於應用程式讀取和寫入，請使用 Drizzle 的查詢生成器和 `drizzle-orm` 的可移植運算符。當Drizzle可以表達查詢時，不要使用原始SQL編寫產品程式碼，並且不要在範本中從`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`匯入。
+對於應用程式讀取和寫入，請使用 Drizzle 的查詢生成器和 `drizzle-orm` 的可移植運算符。當 Drizzle 可以表達查詢時，不要使用原始 SQL 編寫產品程式碼，並且不要在範本中從`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`匯入。
 
 ```ts
 // server/plugins/db.ts
@@ -139,7 +139,7 @@ export default runMigrations(
 
 ## 將操作定義為行動 {#actions}
 
-行動 是應用行為的單一事實來源。代理將它們作為工具調用，前端通過鉤子調用它們，其他應用程式可以通過 MCP/A2A 存取它們。
+行動 是應用行為的單一事實來源。代理將它們作為工具呼叫，前端透過鉤子呼叫它們，其他應用程式可以透過 MCP/A2A 存取它們。
 
 ```an-annotated-code title="actions/create-project.ts"
 {
@@ -148,18 +148,18 @@ export default runMigrations(
   "code": "import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});",
   "annotations": [
     { "lines": "2", "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`." },
-    { "lines": "8", "label": "工具表面", "note": "`description` 是代理讀取的內容，以決定何時將此操作作為工具調用。" },
+    { "lines": "8", "label": "工具表面", "note": "`description` 是代理讀取的內容，以決定何時將此操作作為工具呼叫。" },
     { "lines": "9-11", "label": "型別化契約", "note": "一個 zod `schema` 會驗證來自代理、UI、HTTP、MCP 和 A2A 的輸入。" },
     { "lines": "18-19", "label": "範圍寫入", "note": "從 `ctx` 標記 `ownerEmail` / `orgId`，以便該行正確地確定共用和存取檢查的範圍。" }
   ]
 }
 ```
 
-使用 `http: { method: "GET" }` 或 `readOnly: true` 表示唯讀 actions。僅將 `parallelSafe: true` 用於變異 actions，這些 actions 可以安全地與同輪工具調用同時執行。將 `toolCallable: false` 用於不應從沙盒工具執行的高爆炸半徑 actions。
+使用 `http: { method: "GET" }` 或 `readOnly: true` 表示唯讀 actions。僅將 `parallelSafe: true` 用於變異 actions，這些 actions 可以安全地與同輪工具呼叫同時執行。將 `toolCallable: false` 用於不應從沙盒工具執行的高爆炸半徑 actions。
 
 ## 建置 UI {#ui}
 
-路由位於 `app/routes/` 中並使用 React Router v8 檔案路由。通過actions或API處理程序查詢資料，並預設使突變樂觀。
+路由位於 `app/routes/` 中並使用 React Router v8 檔案路由。透過actions或 API 處理常式查詢資料，並預設使突變樂觀。
 
 ```tsx
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
@@ -176,7 +176,7 @@ export default function ProjectsPage() {
 }
 ```
 
-在應用程式 shell 附近連線一次實時同步，以便在代理、另一個分頁或操作更改資料時刷新 React 查詢快取：
+在應用程式 shell 附近連線一次即時同步，以便在代理、另一個分頁或操作更改資料時重新整理 React 查詢快取：
 
 ```tsx
 import { useDbSync } from "@agent-native/core/client";
@@ -189,7 +189,7 @@ export function AppSync() {
 }
 ```
 
-**代理原生承諾：代理寫入顯示在 UI 中，無需手動刷新。** `useActionQuery` 是簡單路徑 - 當變異操作發出 `source: "action"` 時，每個鉤子都會重新獲取。如果您使用自訂金鑰（例如，讀取整合狀態的低級用戶端幫助程序）獲取原始 `useQuery`，請將每個來源計數器折疊到 queryKey 中以進行有針對性的刷新：
+**Agent-Native 承諾：代理寫入顯示在 UI 中，無需手動重新整理。** `useActionQuery` 是簡單路徑 - 當變異操作發出 `source: "action"` 時，每個鉤子都會重新取得。如果您使用自訂金鑰（例如，讀取整合狀態的低階用戶端幫助程式）取得原始 `useQuery`，請將每個來源計數器折疊到 queryKey 中以進行有針對性的重新整理：
 
 ```tsx
 import { useChangeVersions } from "@agent-native/core/client";
@@ -202,14 +202,14 @@ useQuery({
 });
 ```
 
-常見來源：`"action"`（每個成功的代理操作 - 可靠的後備）、`"app-state"`、`"settings"`，以及您的商店通過 `recordChange` 發出的任何自訂資源來源。完整模式請參見 `real-time-sync` 技能。
+常見來源：`"action"`（每個成功的代理操作 - 可靠的後備）、`"app-state"`、`"settings"`，以及您的商店透過 `recordChange` 發出的任何自訂資源來源。完整模式請參見 `real-time-sync` 技能。
 
 ## 新增應用程式狀態 {#application-state}
 
 應用程式狀態是代理如何了解使用者所看到的內容。至少新增：
 
 - 一個 UI 鉤子，當路由、所選紀錄、活動分頁或編輯器選取發生更改時，它會寫入語義 `navigation` 狀態。
-- 讀取該狀態並返回目前螢幕快照的 `view-screen` 操作。
+- 讀取該狀態並返回目前螢幕截圖的 `view-screen` 操作。
 - 一個 `navigate` 操作，寫入一次性 `navigate` 指令以供 UI 使用。
 
 使用 `useAgentRouteState` 作為 UI 掛鉤，以便應用程式狀態寫入、分頁範圍指令讀取、讀取後刪除和重複指令保護保持一致：
@@ -232,7 +232,7 @@ export function useNavigationState() {
 }
 ```
 
-在 URL 查詢參數中保留可共用過濾器。框架將它們公開為 `<current-url>` 代理，內置代理可以使用 `set-search-params` 更改它們； `navigation` 應儲存語義 ID 和別名，而不是完整查詢字串的第二個副本。
+在 URL 查詢參數中保留可共用過濾器。框架將它們公開為 `<current-url>` 代理，內建代理可以使用 `set-search-params` 更改它們； `navigation` 應儲存語義 ID 和別名，而不是完整查詢字串的第二個副本。
 
 對於應用導覽，首選包含同來源的 `navigate` 指令
 `path`（當 URL 已知時）。同一動作不要寫為 `__set_url__`；
@@ -262,14 +262,14 @@ export default defineAction({
 
 ## 謹慎使用 API 路由 {#api-routes}
 
-首選 actions 進行應用操作。僅為無法幹淨地成為 actions 的表面建立自訂 Nitro 路線：
+首選 actions 進行應用操作。僅為無法幹淨地成為 actions 的表面建立自訂 Nitro 路由：
 
 - 檔案上傳或二進制流。
 - 公開匿名頁面和webhooks。
-- OAuth 回呼和特定於提供者的協議處理程序。
+- OAuth 回呼和特定於提供者的協議處理常式。
 - 伺服器渲染的公開內容。
 
-在使用存取助手之前，接觸可擁有資料的自訂路由必須調用 `getSession(event)` 並將資料庫工作包裝在 `runWithRequestContext({ userEmail, orgId }, fn)` 中。
+在使用存取助手之前，接觸可擁有資料的自訂路由必須呼叫 `getSession(event)` 並將資料庫工作包裝在 `runWithRequestContext({ userEmail, orgId }, fn)` 中。
 
 ## 編寫代理指令 {#write-agents-md}
 
@@ -284,7 +284,7 @@ One workspace for projects, tasks, and notes.
 
 ## 核心規則
 
-- Data lives in 通過 Drizzle 使用 SQL. Use actions for all writes; schema is additive.
+- Data lives in 透過 Drizzle 使用 SQL. Use actions for all writes; schema is additive.
 - Use `view-screen` before acting on "this project" if the screen is unclear.
 
 ## 應用狀態
@@ -300,15 +300,15 @@ One workspace for projects, tasks, and notes.
 | `create-project` | Create a project         |
 ```
 
-每當新增新操作、路線、狀態鍵或重複操作時更新 `AGENTS.md`
+每當新增新操作、路由、狀態鍵或重複操作時更新 `AGENTS.md`
 工作流程。 [Writing Agent Instructions](/docs/writing-agent-instructions) 是
-完整指南 - 如何保持 `AGENTS.md` 可略讀，這四個分別屬於什么
+完整指南 - 如何保持 `AGENTS.md` 可略讀，這四個分別屬於什麼
 指導面，以及如何表達技能和工具描述，以便代理
 可靠地觸發它們。
 
 ## 新增Skills {#skills}
 
-使用 skills 來獲取會使 `AGENTS.md` 膨脹的詳細模式：特定於提供者的 API、匯入/匯出格式、複雜的編輯流程或域術語。
+使用 skills 來取得會使 `AGENTS.md` 膨脹的詳細模式：特定於提供者的 API、匯入/匯出格式、複雜的編輯流程或域術語。
 
 ```markdown
 ---
@@ -327,7 +327,7 @@ Use this skill when the user uploads a legacy project CSV.
 - Save rejected rows as a note attached to the import summary.
 ```
 
-將範本 skills 存儲在 `.agents/skills/<name>/SKILL.md` 中。如果使用者應該能夠在執行時編輯指南，也可以通過工作區資源來顯示它。
+將範本 skills 儲存在 `.agents/skills/<name>/SKILL.md` 中。如果使用者應該能夠在執行時編輯指南，也可以透過工作區資源來顯示它。
 
 ## 註冊設定步驟 {#onboarding}
 
@@ -370,23 +370,23 @@ export default defineNitroPlugin(() => {
 
 清單：
 
-- 通過框架代理聊天外掛或 `mountA2A()` 掛載 A2A，以便同級應用程式可以調用您的代理。
+- 透過框架代理聊天外掛或 `mountA2A()` 掛載 A2A，以便同級應用程式可以呼叫您的代理。
 - 保持代理卡描述足夠具體，以便 Dispatch 準確地安排工作。
 - 註冊所需的機密/加入，以便設定出現在側欄中，並且 Dispatch 可以管理共用憑證。
 - 將橫切指令保留在工作區 `AGENTS.md` 或工作區資源中，而不是複製到每個應用程式中。
-- 對所有可擁有的資源使用共用/存取幫助程序，以便組織範圍內的工作空間保持隔離。
+- 對所有可擁有的資源使用共用/存取幫助程式，以便組織範圍內的工作空間保持隔離。
 
 ## 發布範本 {#publishing}
 
 分享之前：
 
 1. 執行 `pnpm install`、`pnpm typecheck` 和範本的測試。
-2. 驗證其是否可以在未設定可選提供程序金鑰的情況下正常工作。
+2. 驗證其是否可以在未設定可選提供者金鑰的情況下正常工作。
 3. 檢查驗證、共用和兩個使用者資料隔離。
 4. 紀錄所需的環境變數和入門步驟。
-5. 通過附加遷移包含範例或種子行，而不是跟蹤的執行時資料檔案。
+5. 透過附加遷移包含範例或種子行，而不是跟蹤的執行時資料檔案。
 
-可以從 GitHub 儲存庫建立社區範本：
+可以從 GitHub 儲存庫建立社群範本：
 
 ```bash
 npx @agent-native/core@latest create my-app --template github:user/repo
@@ -398,14 +398,14 @@ npx @agent-native/core@latest create my-app --template github:user/repo
 
 當您在框架 monorepo 中工作並需要生成時
 工作區使用未發布的包或範本更改，使用
-本機包標志：
+本機包標誌：
 
 ```bash
 AGENT_NATIVE_CREATE_USE_LOCAL_CORE=1 pnpm --filter @agent-native/core create my-platform
 ```
 
-生成的工作空間連結本機`@agent-native/core`和
-`@agent-native/dispatch` 軟件包，因此更改為 Core API、Dispatch 工作區
+產生的工作空間連結本機`@agent-native/core`和
+`@agent-native/dispatch` 套件，因此更改為 Core API、Dispatch 工作區
 可以在發布之前測試行為或第一方範本。包裹
-`prepack` 腳本在連結之前建置 `dist`，這會保留生成的
+`prepack` 指令碼在連結之前建置 `dist`，這會保留產生的
 工作空間指向目前建置輸出。

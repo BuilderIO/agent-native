@@ -6,35 +6,35 @@ description: "操作聲明的本機聊天渲染器、可重用的 DataTable/Data
 # 原生聊天 UI
 
 本機聊天 UI 是第一方代理輸出的應用內渲染路徑。一個
-操作返回結構化JSON，聊天執行時識別顯式小部件
+操作返回結構化JSON，聊天執行時識別顯式小工具
 判別式，`<AssistantChat>`在
 對話。您不會為
 正常的應用聊天。
 
 當使用者應該檢查代理所在位置的輸出時，使用本機聊天 UI
 已經講過：查詢結果、回應見解、設定摘要，
-批準/拒絕控制，或應用程式視圖的連結。使用[MCP Apps](/docs/mcp-apps)
+核准/拒絕控制，或應用程式檢視的連結。使用[MCP Apps](/docs/mcp-apps)
 當外部主機（例如 Claude、ChatGPT、Copilot 或 Cursor）應該渲染時
-來自您的應用的內聯路由。
+來自您的應用的行內路由。
 
-```an-diagram title="原生渲染路徑" summary="操作返回 JSON；執行時匹配顯式小部件判別式或 chatUI.renderer； AssistantChat 安裝真實的 React 元件。沒有 iframe，沒有 HTML 執行。"
+```an-diagram title="原生渲染路徑" summary="操作返回 JSON；執行時匹配顯式小工具判別式或 chatUI.renderer； AssistantChat 安裝真實的 React 元件。沒有 iframe，沒有 HTML 執行。"
 {
   "html": "<div class=\"diagram-render\"><div class=\"diagram-node\">Action 執行<br><small class=\"diagram-muted\">返回結構化 JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Match</span><small class=\"diagram-muted\">explicit widget &middot; chatUI.renderer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;AssistantChat&gt;<br><small class=\"diagram-muted\">掛載 React widget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill ok\">DataTable</div><div class=\"diagram-pill ok\">DataChart</div><div class=\"diagram-pill ok\">DataInsights</div></div></div>",
   "css": ".diagram-render{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-render .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-render .col{display:flex;flex-direction:column;gap:6px;padding:12px}.diagram-render .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
 
-## 動作聲明的小部件 {#action-declared-widgets}
+## 動作聲明的小工具 {#action-declared-widgets}
 
 本機路徑有兩個顯式部分：
 
 - `outputSchema` 驗證操作的回應形狀。
 - `chatUI.renderer` 為驗證結果選取原生 React 渲染器。
 
-內置資料渲染器使用普通的 JSON 結果和 `widget` 加上
+內建資料渲染器使用普通的 JSON 結果和 `widget` 加上
 匹配有效負載：
 
-| 小部件            | 所需的有效負載              | 渲染為                        |
+| 小工具            | 所需的有效負載              | 渲染為                        |
 | ----------------- | --------------------------- | ----------------------------- |
 | `"data-table"`    | `table`                     | 原生的、可重用的資料表        |
 | `"data-chart"`    | `chartSeries`               | 原生條形圖、折線圖或面積圖    |
@@ -100,20 +100,20 @@ export default defineAction({
 ```an-callout
 {
   "tone": "success",
-  "body": "僅當操作聲明 `chatUI`**或**結果攜帶顯式已知的 `widget` 判別式時，渲染器才會接管。它從不形​​狀推斷任意物件，也從不從工具結果執行 HTML 或 JavaScript - 因此本機小部件不能成為注入向量。"
+  "body": "僅當操作聲明 `chatUI`**或**結果攜帶顯式已知的 `widget` 判別式時，渲染器才會接管。它從不形​​狀推斷任意物件，也從不從工具結果執行 HTML 或 JavaScript - 因此本機小工具不能成為注入向量。"
 }
 ```
 
 當使用者請求圖表、圖形、表格、趨勢或精簡報告時，應用代理
 應該更喜歡聲明這些本機渲染器之一的操作。決賽
-輔助文本應保持簡短並讓小部件攜帶資料；請勿複製
-除非使用者明確要求輸入文本，否則將相同的行放入 Markdown 表中
+輔助文字應保持簡短並讓小工具攜帶資料；請勿複製
+除非使用者明確要求輸入文字，否則將相同的行放入 Markdown 表中
 匯出。
 
 當不存在域操作但代理已檢索緊湊時，
-真實的資料，它可以通過以下方式調用框架`render-data-widget`操作
+真實的資料，它可以透過以下方式呼叫框架`render-data-widget`操作
 相同的 `data-table`、`data-chart` 或 `data-insights` JSON 形狀。僅此操作
-驗證並渲染小部件；它不是資料來源，不得使用
+驗證並渲染小工具；它不是資料來源，不得使用
 發明預留位置指標。
 
 ## 資料表輸出 {#data-table}
@@ -138,7 +138,7 @@ export default defineAction({
 
 ## 資料圖表輸出 {#data-chart}
 
-`chartSeries` 支持座席答案中使用的常見圖表形狀，無需
+`chartSeries` 支援座席答案中使用的常見圖表形狀，無需
 要求每個範本提供自己的聊天渲染器：
 
 ```ts
@@ -153,27 +153,27 @@ export default defineAction({
 ```
 
 保持圖表資料緊湊。對於大型資料集，在操作和連結中聚合
-到包含 `display.primaryAction` 或操作 `link` 元資料的完整應用視圖。
+到包含 `display.primaryAction` 或操作 `link` 中繼資料的完整應用檢視。
 
-## 本機小部件與 MCP 應用程式 {#native-vs-mcp-apps}
+## 本機小工具與 MCP 應用程式 {#native-vs-mcp-apps}
 
-本機聊天小部件和 MCP 應用程式是互補的：
+本機聊天小工具和 MCP 應用程式是互補的：
 
-- **本機小部件**用於應用程式自己的聊天執行時。動作結果為
-  JSON，框架渲染內置的React小部件。
+- **本機小工具**用於應用程式自己的聊天執行時。動作結果為
+  JSON，框架渲染內建的 React 小工具。
 - **MCP 應用程式**適用於外部主機。該操作聲明 `mcpApp` 並且通常
-  `link`，並且主機在支持時內聯渲染真實的應用程式路由。
+  `link`，並且主機在支援時行內渲染真實的應用程式路由。
 - **深層連結**仍然是通用的後備方案。使用操作 `link` 或
-  `display.primaryAction`、CLI 用戶端、較舊的 MCP 主機和純文本紀錄
-  讀者可以開啟完整的應用視圖。
+  `display.primaryAction`、CLI 用戶端、較舊的 MCP 主機和純文字紀錄
+  讀者可以開啟完整的應用檢視。
 
-當本機小部件負載和 MCP 應用元資料都存在時，應用內
-聊天更喜歡本機小部件。外部主機使用 MCP Apps 資源或
+當本機小工具負載和 MCP 應用中繼資料都存在時，應用內
+聊天更喜歡本機小工具。外部主機使用 MCP Apps 資源或
 深層連結回退。
 
 ## 自訂原生渲染器 {#custom-native-renderers}
 
-通過精確的渲染器 ID 註冊特定於產品的元件，然後聲明該 ID
+透過精確的渲染器 ID 註冊特定於產品的元件，然後聲明該 ID
 關於行動：
 
 ```tsx
@@ -203,13 +203,13 @@ export default defineAction({
 `AgentChatRuntime` 是聊天 shell 的自帶代理合約，並且
 本節是其規範參考。它允許您在其他地方建置代理
 將標準化事件流式傳輸到 Agent-Native 的對話 UI 中，同時保持
-共用作曲家、腳本渲染、工具卡、批準、本機小部件，
+共用撰寫器、指令碼渲染、工具卡、核准、本機小工具，
 和週圍的應用程式布局。 [Drop-in Agent](/docs/drop-in-agent#custom-chat-ui)
-此處為執行時故事的教程點，以及 [Component API](/docs/components#agent-chat-ui)
-列出每個連線器和適配器及其匯入路徑；合約本身是
+此處為執行時故事的教學點，以及 [Component API](/docs/components#agent-chat-ui)
+列出每個連線器和轉接器及其匯入路徑；合約本身是
 如下所述。
 
-```an-diagram title="BYO 執行時保留 Agent-Native 聊天 shell" summary="您的外部代理通過連線器傳輸標準化事件； Agent-Native 保留作曲家、成績單、工具卡、批準和本機小部件。"
+```an-diagram title="BYO 執行時保留 Agent-Native 聊天 shell" summary="您的外部代理透過連線器傳輸標準化事件； Agent-Native 保留撰寫器、逐字稿、工具卡、核准和本機小工具。"
 {
   "html": "<div class=\"diagram-byo\"><div class=\"diagram-box\" data-rough>你的代理<br><small class=\"diagram-muted\">OpenAI &middot; Claude &middot; Vercel AI &middot; AG-UI &middot; HTTP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">connector</span><small class=\"diagram-muted\">標準化 message-* / tool-* 事件</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill\">&lt;AssistantChat runtime=&hellip; /&gt;</div><small class=\"diagram-muted\">composer &middot; transcript &middot; tool cards</small><small class=\"diagram-muted\">approvals &middot; native widgets</small></div></div>",
   "css": ".diagram-byo{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-byo .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-byo .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-byo .diagram-arrow{font-size:22px;line-height:1}"
@@ -284,13 +284,13 @@ data: {"type":"done","reason":"complete"}
 ```
 
 對於非常簡單的代理，接受 JSON 回應 `{ "text": "..." }` 並且
-轉換為單個助理訊息。對於更丰富的代理，請流式傳輸
+轉換為單一助理訊息。對於更豐富的代理，請流式傳輸
 `message-*`, `tool-*`, `approval-request`, `status`, `artifact`, `file`,
 `usage`、`error` 和 `done` 事件。工具結果可以攜帶`mcpApp`或
-`chatUI` 元資料，因此操作聲明的本機小部件仍然會在沒有
+`chatUI` 中繼資料，因此操作聲明的本機小工具仍然會在沒有
 iframe。
 
-當您希望內置 Agent-Native 傳輸作為執行時物件時，請使用：
+當您希望內建 Agent-Native 傳輸作為執行時物件時，請使用：
 
 ```ts
 import { createAgentNativeChatRuntime } from "@agent-native/core/client/chat";
@@ -302,20 +302,20 @@ const runtime = createAgentNativeChatRuntime({
 ```
 
 僅在需要完整時才使用`<AssistantChat createAdapter={...} />`
-assist-ui 適配器控件。當您的產品時單獨使用`PromptComposer`
-擁有整個外部轉錄本並且只想要 Agent-Native 的作曲家
+assist-ui 轉接器控制項。當您的產品時單獨使用`PromptComposer`
+擁有整個外部轉錄本並且只想要 Agent-Native 的撰寫器
 欄位。
 
 OpenAI、AG-UI、Claude Agent SDK 和 Vercel AI SDK 流可以使用標準
 連線器助手。 ACP 保留編碼代理/編輯器互操作性，而不是
-最終使用者的通用應用程式聊天執行時。此處未聲明支持 A2UI；
-如果它成熟，它應該適應這個相同的顯式執行時/小部件契約。
+最終使用者的通用應用程式聊天執行時。此處未聲明支援 A2UI；
+如果它成熟，它應該適應這個相同的顯式執行時/小工具契約。
 
 ## 相關檔案 {#related-docs}
 
-- [Actions](/docs/actions) — 定義返回本機小部件資料的操作。
+- [Actions](/docs/actions) — 定義返回本機小工具資料的操作。
 - [Agent Surfaces](/docs/agent-surfaces) — 決定您是否需要無頭、聊天、邊車或完整應用程式。
-- [Drop-in Agent](/docs/drop-in-agent) — 安裝標準聊天執行時的教程。
+- [Drop-in Agent](/docs/drop-in-agent) — 安裝標準聊天執行時的教學。
 - [Component API](/docs/components) — 用於聊天層、執行時和工具渲染器的每次匯出 API 對應。
-- [MCP Apps](/docs/mcp-apps) — 用於外部 MCP 主機的內聯 UI。
+- [MCP Apps](/docs/mcp-apps) — 用於外部 MCP 主機的行內 UI。
 - [Key Concepts](/docs/key-concepts#protocols) — 協議狀態和定位。

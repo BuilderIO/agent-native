@@ -7,7 +7,7 @@ description: "具有自然語言條件的事件觸發和計畫自動化"
 
 **自動化**是一條規則：_當 X 發生時，執行 Y_ — 用自然語言描述。代理執行指令，因此自動化可以存取代理可以在互動式聊天中使用的每個操作、工具和 MCP 伺服器。
 
-自動化通過 `web-request` 工具使用**事件觸發器**、**自然語言條件**和**出站 HTTP** 擴充功能 [recurring jobs](/docs/recurring-jobs)。它們使用與重複作業相同的 `jobs/<name>.md` 檔案格式、存儲和“建立三種方式”工作流程 - 請參閱 [Recurring Jobs](/docs/recurring-jobs#job-file) 了解共用格式。本頁面僅涵蓋事件驅動自動化的新增內容。
+自動化透過 `web-request` 工具使用**事件觸發器**、**自然語言條件**和**出站 HTTP** 擴充功能 [recurring jobs](/docs/recurring-jobs)。它們使用與重複作業相同的 `jobs/<name>.md` 檔案格式、儲存和“建立三種方式”工作流程 - 請參閱 [Recurring Jobs](/docs/recurring-jobs#job-file) 了解共用格式。本頁面僅涵蓋事件驅動自動化的新增內容。
 
 ```an-diagram title="當X發生時，做Y" summary="總線上觸發事件，可選的自然語言條件對其進行門控，代理執行具有完整工具存取權限的自動化主體。"
 {
@@ -27,17 +27,17 @@ description: "具有自然語言條件的事件觸發和計畫自動化"
 
 ## 建立自動化 {#creating}
 
-### 通過詢問代理
+### 透過詢問代理
 
-> “當有人使用 @builder.io 電子郵件預訂會議時，請通過 Slack 向我發送訊息。”
+> “當有人使用 @builder.io 電子郵件預訂會議時，請透過 Slack 向我傳送訊息。”
 
 代理發現可用事件，確認計畫，並為您編寫自動化。
 
-### 來自設定UI
+### 來自設定 UI
 
 自動化出現在設定面板中。使用者可以在那裡檢視、啟用/停用和刪除它們。
 
-第三條路徑 - 通過 `resourcePut` 手動寫入 `jobs/<name>.md` 檔案 - 與 [recurring jobs](/docs/recurring-jobs#creating) 的工作方式完全相同。對於事件驅動的自動化，您可以將下面的事件觸發 frontmatter 新增到同一檔案中。事件觸發作業設定 `schedule: ""` 並提供 `triggerType: event`、`event` 名稱和可選的 `condition`：
+第三條路徑 - 透過 `resourcePut` 手動寫入 `jobs/<name>.md` 檔案 - 與 [recurring jobs](/docs/recurring-jobs#creating) 的工作方式完全相同。對於事件驅動的自動化，您可以將下面的事件觸發 frontmatter 新增到同一檔案中。事件觸發作業設定 `schedule: ""` 並提供 `triggerType: event`、`event` 名稱和可選的 `condition`：
 
 ```an-annotated-code title="事件觸發的自動化"
 {
@@ -62,16 +62,16 @@ description: "具有自然語言條件的事件觸發和計畫自動化"
 | `triggerType` | `"schedule"` \| `"event"`        | `"schedule"` | 自動化如何啟動                                                                                                         |
 | `event`       | 字串                             | _（可選）_   | 要訂閱的事件名稱（僅限事件觸發器）                                                                                     |
 | `condition`   | 字串                             | _（可選）_   | 在調度之前評估自然語言條件                                                                                             |
-| `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`  | 完整的代理循環。 （`"deterministic"` 已保留，但尚未實現 - 設定它的自動化將被跳過。對所有目前自動化使用 `"agentic"`。） |
+| `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`  | 完整的代理迴圈。 （`"deterministic"` 已保留，但尚未實現 - 設定它的自動化將被跳過。對所有目前自動化使用 `"agentic"`。） |
 | `domain`      | 字串                             | _（可選）_   | 分組標籤（郵件、行事曆、剪輯等）                                                                                       |
 
-對於事件觸發器，`schedule`為`""`（空）；對於計畫觸發器，它帶有 cron 表達式。調度程序還寫入與調度程序相同的託管 `lastRun` / `lastStatus` / `lastError` 欄位，以及當條件評估為 false 時的 `"skipped"` 狀態。
+對於事件觸發器，`schedule`為`""`（空）；對於計畫觸發器，它帶有 cron 表達式。調度程式還寫入與調度程式相同的託管 `lastRun` / `lastStatus` / `lastError` 欄位，以及當條件評估為 false 時的 `"skipped"` 狀態。
 
 ## 事件總線 {#event-bus}
 
-整合在模塊載入時註冊事件。總線根據 [Standard Schema](https://standardschema.dev) 定義驗證有效負載並將其分派給訂閱者。
+整合在模組載入時註冊事件。總線根據 [Standard Schema](https://standardschema.dev) 定義驗證有效負載並將其分派給訂閱者。
 
-### 內置事件 {#built-in-events}
+### 內建事件 {#built-in-events}
 
 | 活動                   | 來源                                       |
 | ---------------------- | ------------------------------------------ |
@@ -81,11 +81,11 @@ description: "具有自然語言條件的事件觸發和計畫自動化"
 | `clip.*`               | 剪輯整合                                   |
 | `mail.*`               | 郵件整合                                   |
 
-從代理中使用 `action=list-events` 調用 `manage-automations`，以檢視所有已註冊事件以及目前範本的描述和負載模式。
+從代理中使用 `action=list-events` 呼叫 `manage-automations`，以檢視所有已註冊事件以及目前範本的描述和負載模式。
 
 ### 發出自訂事件 {#emitting-events}
 
-在伺服器外掛中註冊事件型別，然後從 actions 或 webhook 處理程序發出它：
+在伺服器外掛中註冊事件型別，然後從 actions 或 webhook 處理常式發出它：
 
 ```ts
 import { registerEvent, emit } from "@agent-native/core/event-bus";
@@ -119,15 +119,15 @@ emit(
 );
 ```
 
-自動化觸發的發出元資料範圍中的 `owner` - 僅評估同一使用者擁有的自動化（或共用自動化）。
+自動化觸發的發出中繼資料範圍中的 `owner` - 僅評估同一使用者擁有的自動化（或共用自動化）。
 
 ## 條件 {#conditions}
 
 條件是 Claude Haiku 針對事件負載評估的自然語言字串。這是一個是/否分類，而不是生成工作。
 
 - **空或缺失條件** = 無條件（始終觸發）。
-- 結果通過 5 分鐘 TTL 和 500 個條目的 LRU 快取進行記憶（條件 + 負載的 SHA-256）。
-- 有效負載在發送到 Haiku 之前被截斷為 4000 個字符。
+- 結果透過 5 分鐘 TTL 和 500 個條目的 LRU 快取進行記憶（條件 + 負載的 SHA-256）。
+- 有效負載在傳送到 Haiku 之前被截斷為 4000 個字符。
 - 在 API 失敗時，條件評估為 `false`（安全預設值 - 跳過自動化）。
 
 條件範例：
@@ -138,7 +138,7 @@ emit(
 
 ## 網路請求工具 {#web-request}
 
-自動化使用 `web-request` 工具進行出站 HTTP。它支持 URL、標頭和內文中的 `${keys.NAME}` 預留位置：
+自動化使用 `web-request` 工具進行出站 HTTP。它支援 URL、標頭和內文中的 `${keys.NAME}` 預留位置：
 
 ```
 POST to ${keys.SLACK_WEBHOOK}
@@ -148,13 +148,13 @@ Headers: {"Authorization": "Bearer ${keys.API_TOKEN}"}
 Body: {"text": "New booking from ${attendeeEmail}"}
 ```
 
-在代理發出工具調用後，預留位置在**伺服器端**解析 - 原始秘密值永遠不會進入代理的上下文。
+在代理發出工具呼叫後，預留位置在**伺服器端**解析 - 原始秘密值永遠不會進入代理的脈絡。
 
 ### 參數 {#web-request-params}
 
 | 參數         | 型別 | 預設  | 描述                                               |
 | ------------ | ---- | ----- | -------------------------------------------------- |
-| `url`        | 字串 | —     | 完整的URL。可能包含 `${keys.NAME}` 引用。          |
+| `url`        | 字串 | —     | 完整的 URL。可能包含 `${keys.NAME}` 引用。         |
 | `method`     | 字串 | `GET` | HTTP 方法（GET、POST、PUT、PATCH、DELETE、HEAD）。 |
 | `headers`    | 字串 | `{}`  | JSON 標頭物件。可能包含 `${keys.NAME}`。           |
 | `body`       | 字串 | —     | 請求內文。可能包含 `${keys.NAME}`。                |
@@ -162,16 +162,16 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ## 按鍵 {#keys}
 
-金鑰是由使用者或代理建立的用於自動化使用的臨時秘密（例如 `SLACK_WEBHOOK`、`HUBSPOT_API_KEY`）。它們與註冊機密 (`registerRequiredSecret`) 的不同之處在於它們沒有範本定義的元資料或入門步驟。
+金鑰是由使用者或代理建立的用於自動化使用的臨時秘密（例如 `SLACK_WEBHOOK`、`HUBSPOT_API_KEY`）。它們與註冊機密 (`registerRequiredSecret`) 的不同之處在於它們沒有範本定義的中繼資料或入門步驟。
 
-- 通過設定 UI 或 `/_agent-native/secrets/adhoc` API 建立。
-- 每個金鑰都可以有一個 **URL 允許清單**，用於限制金鑰可以發送到哪些來源（來源級別匹配）。
-- 原始值永遠不會暴露給 AI - 只有 `${keys.NAME}` 預留位置出現在代理的上下文中。
+- 透過設定 UI 或 `/_agent-native/secrets/adhoc` API 建立。
+- 每個金鑰都可以有一個 **URL 允許清單**，用於限制金鑰可以傳送到哪些來源（來源層級匹配）。
+- 原始值永遠不會暴露給 AI - 只有 `${keys.NAME}` 預留位置出現在代理的脈絡中。
 - 分辨率從使用者範圍回退到工作區範圍，因此使用者可以覆蓋共用金鑰。
 
 ## 代理工具 {#agent-tools}
 
-所有自動化操作均通過帶有 `action` 參數的單個 `manage-automations` 工具存取：
+所有自動化操作均透過帶有 `action` 參數的單一 `manage-automations` 工具存取：
 
 | 行動          | 目的                                                 |
 | ------------- | ---------------------------------------------------- |
@@ -184,7 +184,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 附加工具：`web-request` — 出站 HTTP 替換為 `${keys.NAME}`。
 
-## API端點 {#api}
+## API 端點 {#api}
 
 | 端點                                   | 方法   | 描述                         |
 | -------------------------------------- | ------ | ---------------------------- |
@@ -210,7 +210,7 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 ```an-diagram title="調度路徑" summary="從觸發事件到完成代理執行，由所有權範圍和自然語言條件控制。"
 {
-  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> body 作為提示、payload 作為上下文，5 分鐘超時</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
+  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> body 作為提示、payload 作為脈絡，5 分鐘超時</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
   "css": ".disp{display:flex;flex-direction:column;gap:6px;max-width:540px}.disp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.disp .diagram-box{align-self:flex-start}.disp .diagram-arrow{font-size:18px;align-self:center}"
 }
 ```
@@ -221,9 +221,9 @@ Body: {"text": "New booking from ${attendeeEmail}"}
 
 **代理流程：**
 
-1. 使用 `action=list-events` 調用 `manage-automations` — 找到 `calendar.booking.created`。
+1. 使用 `action=list-events` 呼叫 `manage-automations` — 找到 `calendar.booking.created`。
 2. 與使用者確認計畫。
-3. 使用 `action=define` 調用 `manage-automations`：
+3. 使用 `action=define` 呼叫 `manage-automations`：
    - `name`: `slack-on-builder-booking`
    - `trigger_type`: `event`
    - `event`: `calendar.booking.created`
@@ -231,11 +231,11 @@ Body: {"text": "New booking from ${attendeeEmail}"}
    - `mode`: `agentic`
    - `domain`: `calendar`
    - `body`: `Send a Slack message to #sales with the booking details. Use the web-request tool to POST to ${keys.SLACK_WEBHOOK}.`
-4. 自動化儲存為 `jobs/slack-on-builder-booking.md` 並立即開始監听。
+4. 自動化儲存為 `jobs/slack-on-builder-booking.md` 並立即開始監聽。
 
 ## 更多範例 {#more-examples}
 
-### 當計畫被評論時通過 webhook 通知
+### 當計畫被評論時透過 webhook 通知
 
 詢問計畫代理：_“當有人對計畫新增人工評論時，POST a
 向我的 webhook 發出通知。"_
@@ -257,12 +257,12 @@ POST to ${keys.NOTIFY_WEBHOOK} with a JSON body:
 將 `NOTIFY_WEBHOOK` 設定為任何 HTTP 端點 - Slack 傳入 Webhook，通用
 通知服務，或自訂接收器。 `web-request`工具解決
 `${keys.NOTIFY_WEBHOOK}` 伺服器端；原始的 URL 永遠不會出現在代理的
-上下文。見[Visual Plans — Events and notifications](/docs/template-plan#events)
+脈絡。見[Visual Plans — Events and notifications](/docs/template-plan#events)
 完整的 `plan.commented` 有效負載參考和所有四個計畫事件。
 
-## 下一步是什么
+## 下一步是什麼
 
-- [**Recurring Jobs**](/docs/recurring-jobs) - 計畫觸發的自動化重用相同的計畫程序
-- [**Actions**](/docs/actions) - 自動化可以通過代理循環調用任何註冊的操作
+- [**Recurring Jobs**](/docs/recurring-jobs) - 計畫觸發的自動化重用相同的計畫程式
+- [**Actions**](/docs/actions) - 自動化可以透過代理迴圈呼叫任何註冊的操作
 - [**Security**](/docs/security) - 輸入驗證和秘密處理
 - [**Visual Plans — Events**](/docs/template-plan#events) - 計畫事件參考和自動化秘訣
