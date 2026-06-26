@@ -1089,13 +1089,12 @@ function fixStandaloneTsconfig(targetDir: string, templateName?: string): void {
     if (hasUiApp) {
       paths["@/*"] ??= ["./app/*"];
       paths["@shared/*"] ??= ["./shared/*"];
-      // Child baseUrl anchors @/* for apps extending legacy core tsconfig bases
-      // that still ship baseUrl. Headless scaffolds omit it so raw tsgo --noEmit
-      // keeps working under TS 6.
-      tsconfig.compilerOptions.baseUrl = ".";
-    } else {
-      delete tsconfig.compilerOptions.baseUrl;
     }
+    // baseUrl is deprecated/errors in TS 6 (TS5101/TS5102) and removed in TS 7
+    // (tsgo, which CI runs). paths already resolve relative to this tsconfig,
+    // and the "*": ["./*"] entry replaces baseUrl's bare-specifier resolution,
+    // so never emit baseUrl into scaffolds.
+    delete tsconfig.compilerOptions.baseUrl;
     tsconfig.compilerOptions.paths = paths;
     fs.writeFileSync(tsconfigPath, `${JSON.stringify(tsconfig, null, 2)}\n`);
   } catch {}
