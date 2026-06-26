@@ -6551,11 +6551,20 @@ const translatedAnalyticsDebtCorrections = {
     sqlDashboard: {
       addDescriptionPlaceholder: "أضف وصفًا",
       collapseFilters: "طي عوامل التصفية",
+      refreshing: "جارٍ التحديث...",
     },
   },
   "de-DE": {
     routeTitles: {
       team: "Team-Bereich - Analytics",
+    },
+    sqlDashboard: {
+      refreshing: "Wird aktualisiert...",
+    },
+  },
+  "es-ES": {
+    sqlDashboard: {
+      refreshing: "Actualizando...",
     },
   },
   "fr-FR": {
@@ -6564,6 +6573,32 @@ const translatedAnalyticsDebtCorrections = {
     },
     sqlDashboard: {
       formatSql: "Formater SQL",
+      refreshing: "Actualisation...",
+    },
+  },
+  "hi-IN": {
+    sqlDashboard: {
+      refreshing: "रीफ़्रेश हो रहा है...",
+    },
+  },
+  "ja-JP": {
+    sqlDashboard: {
+      refreshing: "更新中...",
+    },
+  },
+  "ko-KR": {
+    sqlDashboard: {
+      refreshing: "새로고침 중...",
+    },
+  },
+  "pt-BR": {
+    sqlDashboard: {
+      refreshing: "Atualizando...",
+    },
+  },
+  "zh-CN": {
+    sqlDashboard: {
+      refreshing: "正在刷新...",
     },
   },
 } satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
