@@ -877,16 +877,25 @@ export function PropertyManagementPopover({
   );
   const boundSourceIds = new Set(boundSourceFields.map((b) => b.source.id));
   const columnType = property.definition.type;
-  const bindableSourceFields = allSourceFieldEntries.filter(
-    (entry) =>
-      !entry.field.propertyId &&
-      entry.field.mappingType !== "title" &&
-      entry.field.mappingType !== "system" &&
-      entry.field.writeOwner !== "derived" &&
-      !boundSourceIds.has(entry.source.id) &&
-      (columnType === "text" ||
-        columnType === propertyTypeForSourceFieldType(entry.field.sourceFieldType)),
-  );
+  const bindableSourceFields = allSourceFieldEntries.filter((entry) => {
+    if (
+      entry.field.propertyId ||
+      entry.field.mappingType === "title" ||
+      entry.field.mappingType === "system" ||
+      entry.field.writeOwner === "derived" ||
+      boundSourceIds.has(entry.source.id)
+    ) {
+      return false;
+    }
+    const fieldIsMultiValue = ["list", "array", "tags", "multi_select"].includes(
+      entry.field.sourceFieldType.trim().toLowerCase(),
+    );
+    // text columns accept any SCALAR field but not multi-value ones (lossy);
+    // otherwise the derived type must match the column type.
+    return columnType === "text"
+      ? !fieldIsMultiValue
+      : columnType === propertyTypeForSourceFieldType(entry.field.sourceFieldType);
+  });
   const showBindingEditor =
     !isComputedPropertyType(columnType) &&
     columnType !== "blocks" &&

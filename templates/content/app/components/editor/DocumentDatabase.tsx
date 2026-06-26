@@ -446,22 +446,21 @@ function DatabaseTable({
         item.definition.type === "select",
     );
     if (!property) return null;
-    const optionIdByName = new Map(
-      (property.definition.options.options ?? []).map((option) => [
-        option.name,
-        option.id,
-      ]),
+    // Each Source option's id IS the source id (and "local" is the Local
+    // sentinel), so a collection always resolves to a valid tag — never a
+    // missing option that would silently create an untagged row.
+    const optionIds = new Set(
+      (property.definition.options.options ?? []).map((option) => option.id),
     );
     const collections = sources
-      .filter((item) => item.sourceType === "builder-cms")
-      .map((item) => ({
-        label: item.sourceName,
-        optionId: optionIdByName.get(item.sourceName) ?? null,
-      }));
+      .filter(
+        (item) => item.sourceType === "builder-cms" && optionIds.has(item.id),
+      )
+      .map((item) => ({ label: item.sourceName, optionId: item.id }));
     return {
       propertyId: property.definition.id,
       collections,
-      localOptionId: optionIdByName.get("Local") ?? null,
+      localOptionId: optionIds.has("local") ? "local" : null,
     };
   }, [properties, sources]);
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(

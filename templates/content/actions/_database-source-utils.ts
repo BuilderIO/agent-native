@@ -959,16 +959,14 @@ async function loadSourceSnapshot(
         );
       otherSourceDocumentIds = new Set(ownedRows.map((row) => row.documentId));
     }
-    // Multi-source: map each row's visible "Source" tag (an option id) to the
-    // owning sourceId so a new, still-unlinked row tagged for a collection is
-    // created against THAT collection. Option name === source name (names are
-    // unique per database; "Local" maps to nothing).
+    // Multi-source: a row's visible "Source" tag value IS its owning source id
+    // (the Source option id equals the source id), so adoption is pure id
+    // matching — no source-name hop, immune to duplicate names or a "Local"
+    // collision. The "Local" sentinel isn't a real source id, so untagged rows
+    // fall through to the primary-only path.
     if (dbSources.length > 1) {
       const [sourceProp] = await db
-        .select({
-          id: schema.documentPropertyDefinitions.id,
-          optionsJson: schema.documentPropertyDefinitions.optionsJson,
-        })
+        .select({ id: schema.documentPropertyDefinitions.id })
         .from(schema.documentPropertyDefinitions)
         .where(
           and(
@@ -978,21 +976,11 @@ async function loadSourceSnapshot(
           ),
         );
       if (sourceProp) {
-        const options = parsePropertyOptions(sourceProp.optionsJson).options ?? [];
-        const sourceNameByOptionId = new Map(
-          options.map((option) => [option.id, option.name]),
-        );
-        const sourceIdByName = new Map(
-          dbSources.map((row) => [row.sourceName, row.id]),
-        );
+        const validSourceIds = new Set(dbSources.map((row) => row.id));
         for (const [documentId, byProperty] of localValuesByDocument) {
           const optionId = byProperty.get(sourceProp.id);
-          if (typeof optionId !== "string") continue;
-          const name = sourceNameByOptionId.get(optionId);
-          if (!name) continue;
-          const taggedSourceId = sourceIdByName.get(name);
-          if (taggedSourceId) {
-            taggedSourceByDocumentId.set(documentId, taggedSourceId);
+          if (typeof optionId === "string" && validSourceIds.has(optionId)) {
+            taggedSourceByDocumentId.set(documentId, optionId);
           }
         }
       }
@@ -2516,6 +2504,9 @@ export async function databaseSourceExistsForTable(
 }
 
 export const SOURCE_PROPERTY_NAME = "Source";
+// The "Local" (no collection) option id. A fixed non-UUID sentinel so it never
+// collides with a source id (which is what every collection option's id is).
+export const SOURCE_LOCAL_OPTION_ID = "local";
 
 const SOURCE_OPTION_PALETTE: DocumentPropertyOptionColor[] = [
   "blue",
@@ -2550,10 +2541,6 @@ export async function ensureDatabaseSourceProperty(args: {
     .orderBy(asc(schema.contentDatabaseSources.createdAt));
   if (sources.length < 2) return;
 
-  const optionNames = Array.from(
-    new Set([...sources.map((source) => source.sourceName), "Local"]),
-  );
-
   const [existing] = await db
     .select()
     .from(schema.documentPropertyDefinitions)
@@ -2568,21 +2555,26 @@ export async function ensureDatabaseSourceProperty(args: {
   const priorOptions = existing
     ? (parsePropertyOptions(existing.optionsJson).options ?? [])
     : [];
-  const priorByName = new Map(
-    priorOptions.map((option) => [option.name, option]),
-  );
-  const options = optionNames.map((name, index) => {
-    const prior = priorByName.get(name);
-    if (prior) return prior;
-    return {
-      id: crypto.randomUUID(),
-      name,
+  // Each source option's id IS the sourceId (and "Local" uses a fixed sentinel
+  // that can't collide with a UUID source id). Resolving a row's tag back to a
+  // source is then pure id matching — no source-name hop — so duplicate display
+  // names or a collection literally named "Local" can never misroute a row.
+  const priorById = new Map(priorOptions.map((option) => [option.id, option]));
+  const options = [
+    ...sources.map((source, index) => ({
+      id: source.id,
+      name: source.sourceName,
       color:
-        name === "Local"
-          ? ("gray" as DocumentPropertyOptionColor)
-          : SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length],
-    };
-  });
+        priorById.get(source.id)?.color ??
+        SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length],
+    })),
+    {
+      id: SOURCE_LOCAL_OPTION_ID,
+      name: "Local",
+      color: (priorById.get(SOURCE_LOCAL_OPTION_ID)?.color ??
+        "gray") as DocumentPropertyOptionColor,
+    },
+  ];
   const optionsJson = serializePropertyOptions({ options });
 
   let propertyId: string;
@@ -2615,14 +2607,8 @@ export async function ensureDatabaseSourceProperty(args: {
     });
   }
 
-  // Select VALUES are matched against option IDs throughout the UI (board
-  // grouping, pills, filters), not names — store the option id per row.
-  const optionIdByName = new Map(
-    options.map((option) => [option.name, option.id]),
-  );
-  const sourceNameById = new Map(
-    sources.map((source) => [source.id, source.sourceName]),
-  );
+  // A row's Source value IS its owning source id (= the option id); unsourced
+  // rows get the "Local" sentinel. Pure id mapping, no source-name hop.
   const rows = await db
     .select({
       documentId: schema.contentDatabaseSourceRows.documentId,
@@ -2635,11 +2621,9 @@ export async function ensureDatabaseSourceProperty(args: {
         sources.map((source) => source.id),
       ),
     );
-  const sourceNameByDocumentId = new Map<string, string>();
+  const ownerSourceIdByDocumentId = new Map<string, string>();
   for (const row of rows) {
-    if (!row.documentId) continue;
-    const name = sourceNameById.get(row.sourceId);
-    if (name) sourceNameByDocumentId.set(row.documentId, name);
+    if (row.documentId) ownerSourceIdByDocumentId.set(row.documentId, row.sourceId);
   }
 
   const items = await db
@@ -2647,10 +2631,9 @@ export async function ensureDatabaseSourceProperty(args: {
     .from(schema.contentDatabaseItems)
     .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
   for (const item of items) {
-    const optionName = sourceNameByDocumentId.get(item.documentId) ?? "Local";
-    const valueJson = serializePropertyValue(
-      optionIdByName.get(optionName) ?? "",
-    );
+    const optionId =
+      ownerSourceIdByDocumentId.get(item.documentId) ?? SOURCE_LOCAL_OPTION_ID;
+    const valueJson = serializePropertyValue(optionId);
     const [existingValue] = await db
       .select({ id: schema.documentPropertyValues.id })
       .from(schema.documentPropertyValues)

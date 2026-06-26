@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 import type {
   BindContentDatabaseSourceFieldRequest,
@@ -105,11 +105,47 @@ export default defineAction({
     ) {
       throw new Error("The Source tag column can't be bound to a source field.");
     }
+    // Don't silently repoint a field that's already feeding another column —
+    // that would orphan the old column's materialized values. Require an
+    // explicit unbind first. (Re-binding to the SAME column is an idempotent
+    // refresh and is allowed.)
+    if (field.propertyId && field.propertyId !== property.id) {
+      throw new Error(
+        "This source field is already bound to another column. Unbind it first.",
+      );
+    }
+    // At most one field per source per column: a column reads one value per row,
+    // and a row belongs to one source. Enforce server-side, not just in the UI.
+    const [conflictingField] = await db
+      .select({ id: schema.contentDatabaseSourceFields.id })
+      .from(schema.contentDatabaseSourceFields)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceFields.sourceId, source.id),
+          eq(schema.contentDatabaseSourceFields.propertyId, property.id),
+          ne(schema.contentDatabaseSourceFields.id, field.id),
+        ),
+      );
+    if (conflictingField) {
+      throw new Error(
+        "This source already feeds this column from another field. Unbind it first.",
+      );
+    }
     // Only type-compatible fields can share a column. A `text` column is a
-    // permissive target (it can render any scalar); otherwise the field's
-    // derived type must match the column's type.
+    // permissive target for SCALAR fields; a multi-value (list) field would be
+    // lossily stringified, so it needs a matching list/multi-select column.
+    // Otherwise the field's derived type must equal the column's type.
     const fieldType = propertyTypeForSourceField(field.sourceFieldType);
-    if (property.type !== "text" && property.type !== fieldType) {
+    const fieldIsMultiValue = ["list", "array", "tags", "multi_select"].includes(
+      field.sourceFieldType.trim().toLowerCase(),
+    );
+    if (property.type === "text") {
+      if (fieldIsMultiValue) {
+        throw new Error(
+          "A multi-value source field can't be bound to a text column.",
+        );
+      }
+    } else if (property.type !== fieldType) {
       throw new Error(
         `Field type "${fieldType}" is not compatible with the "${property.type}" column.`,
       );
@@ -151,18 +187,28 @@ export default defineAction({
         field.sourceFieldKey,
         property.type,
       );
-      if (itemValues.length > 0) {
-        const documentIds = itemValues.map((row) => row.documentId);
-        // Replace any prior values for these rows on this column so re-binding
-        // is idempotent (this source owns these documents' values).
+      // Clear this column's values for ALL of this source's rows first — not
+      // just the rows that now have a value — so a row whose new bound field is
+      // empty doesn't keep showing a stale/previous value. Then write the
+      // non-empty ones. (This source owns these documents' values for the row-
+      // union, so clearing them is safe.)
+      const sourceDocumentIds = sourceRows
+        .map((row) => row.documentId)
+        .filter((id): id is string => Boolean(id));
+      if (sourceDocumentIds.length > 0) {
         await db
           .delete(schema.documentPropertyValues)
           .where(
             and(
               eq(schema.documentPropertyValues.propertyId, property.id),
-              inArray(schema.documentPropertyValues.documentId, documentIds),
+              inArray(
+                schema.documentPropertyValues.documentId,
+                sourceDocumentIds,
+              ),
             ),
           );
+      }
+      if (itemValues.length > 0) {
         await db.insert(schema.documentPropertyValues).values(
           itemValues.map((row) => ({
             id: nanoid(),
