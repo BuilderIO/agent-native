@@ -80,10 +80,9 @@ export function DashboardChartCard({
   } = useSortable({ id: chart.id, disabled: !editable });
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: isDragging ? undefined : CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.7 : 1,
   };
 
   const { data: config } = useQuery({
@@ -106,6 +105,7 @@ export function DashboardChartCard({
     <div
       ref={setNodeRef}
       style={style}
+      data-dragging={isDragging ? "true" : undefined}
       className={`group relative ${chart.width === 2 ? "md:col-span-2" : ""}`}
     >
       <Card className="h-full">
@@ -172,7 +172,7 @@ export function DashboardChartCard({
             </div>
           ) : null}
         </CardHeader>
-        <CardContent className="pt-0">
+        <CardContent className="explorer-dashboard-chart-content pt-0">
           {isLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : config ? (

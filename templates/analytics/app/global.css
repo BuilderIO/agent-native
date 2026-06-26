@@ -438,6 +438,15 @@
   pointer-events: auto;
 }
 
+.explorer-dashboard-grid [data-dragging="true"] {
+  opacity: 0.55;
+}
+
+.explorer-dashboard-grid[data-dashboard-dragging="true"]
+  .explorer-dashboard-chart-content {
+  pointer-events: none;
+}
+
 @container dashboard-grid (min-width: 768px) {
   .dashboard-grid {
     flex-direction: row;
