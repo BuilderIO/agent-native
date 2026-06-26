@@ -10,6 +10,7 @@ import type { EventHandler as H3EventHandler } from "h3";
 import { isAgentActionStopError } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
+import { createDbExec, type DbExec } from "../db/client.js";
 import { isDemoModeEnabled } from "../demo/config.js";
 import { redactDemoData, redactDemoString } from "../demo/redact.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
@@ -3956,14 +3957,26 @@ export function createProductionAgentHandler(
     // write — it lands while the loop is still running, so the LAST milestone
     // visible in /runs/active is exactly the one right before the freeze (a sync
     // block, or a hung await).
+    // Dedicated, NON-pooled connection for the awaited milestone writes. The
+    // pooled connection becomes unusable right after the model-resolution block
+    // (model_done lands, the next pooled write hangs), so route these diag
+    // writes through a fresh connection: if they now land, the POOLED connection
+    // died (and the freeze point becomes visible past model_done); if they still
+    // don't land, the event loop itself is blocked.
+    let __diagExec: DbExec | null = null;
     const workerStepAwait = async (s: string) => {
       if (!bgRunId) return;
       try {
-        await recordRunDiagnostic(
-          bgRunId,
-          RUN_DIAG_STAGE.workerSetupStep,
-          `${s}=${Date.now() - setupT0}ms`,
-        );
+        if (!__diagExec) __diagExec = await createDbExec();
+        const payload = JSON.stringify({
+          stage: RUN_DIAG_STAGE.workerSetupStep,
+          detail: `${s}=${Date.now() - setupT0}ms`,
+          at: Date.now(),
+        }).slice(0, 2000);
+        await __diagExec.execute({
+          sql: `UPDATE agent_runs SET diag_stage = ? WHERE id = ?`,
+          args: [payload, bgRunId],
+        });
       } catch {}
     };
     // DIAGNOSTIC-ONLY: non-DB breadcrumb to the function log drain. `workerStep`
