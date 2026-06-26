@@ -248,7 +248,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
         scope={recordingScope}
         browserTabId={getBrowserTabId()}
       >
-        <div className="flex h-full w-full">
+        <div className="agent-layout-shell flex h-full w-full">
           {/* Mobile backdrop */}
           {sidebarOpen && (
             <div
@@ -260,7 +260,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           {/* Left sidebar */}
           <aside
             className={cn(
-              "fixed inset-y-0 start-0 z-50 flex h-full w-[260px] flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,transform] duration-200 ease-out md:static md:z-auto",
+              "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 flex h-full w-[260px] flex-col overflow-hidden border-e border-border bg-sidebar transition-[width,transform] duration-200 ease-out md:static md:z-auto",
               showCollapsedSidebar && "md:w-14",
               sidebarOpen
                 ? "translate-x-0"
@@ -541,7 +541,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           </aside>
 
           {/* Main content area */}
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="agent-layout-main-surface flex min-w-0 flex-1 flex-col">
             {!pageOwnsToolbar && (
               <header className="flex shrink-0 items-center gap-3 border-b border-border px-5 py-3">
                 <button
