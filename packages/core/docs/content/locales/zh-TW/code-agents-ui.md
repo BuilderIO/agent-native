@@ -1,6 +1,6 @@
 ---
 title: "Agent-Native 程式碼 UI"
-description: "使用共用的 UI 包、桌面主機橋和 CLI 執行存儲建置和自訂 Agent-Native 程式碼表面。"
+description: "使用共用的 UI 包、桌面主機橋和 CLI 執行儲存建置和自訂 Agent-Native 程式碼表面。"
 ---
 
 # Agent-Native 程式碼 UI
@@ -10,29 +10,29 @@ description: "使用共用的 UI 包、桌面主機橋和 CLI 執行存儲建置
 
 ## 我需要哪個編碼檔案？ {#which-doc}
 
-| 你想要……                                                 | 使用                                   |
-| -------------------------------------------------------- | -------------------------------------- |
-| 渲染 Claude-Code/Codex-style **編碼工作區 UI**           | **Agent-Native 程式碼 UI**（本頁面）   |
-| 使用自己的循環+工具**作為代理**執行Claude程式碼/Codex/Pi | [Harness Agents](/docs/harness-agents) |
-| 交換執行代理 **`run-code` 工具**的後端                   | [Adapters](/docs/sandbox-adapters)     |
-| 封裝一個CLI工具（`gh`、`ffmpeg`）供代理調用              | [Adapters](/docs/sandbox-adapters)     |
+| 你想要……                                                   | 使用                                   |
+| ---------------------------------------------------------- | -------------------------------------- |
+| 渲染 Claude-Code/Codex-style **編碼工作區 UI**             | **Agent-Native 程式碼 UI**（本頁面）   |
+| 使用自己的迴圈+工具**作為代理**執行 Claude 程式碼/Codex/Pi | [Harness Agents](/docs/harness-agents) |
+| 交換執行代理 **`run-code` 工具**的後端                     | [Adapters](/docs/sandbox-adapters)     |
+| 封裝一個 CLI 工具（`gh`、`ffmpeg`）供代理呼叫              | [Adapters](/docs/sandbox-adapters)     |
 
 Agent-Native Code 是 Agent-Native 編碼介面：本機 Claude Code/Codex 風格的工作區，用於編碼工作階段、斜線指令、遷移、審計、轉錄、執行控制和後續操作。一個簡單的 `npx @agent-native/core@latest` 指令可以開啟這個工作區； `npx @agent-native/core@latest code` 是相同體驗的顯式子指令。
 
 共有三層：
 
 - **CLI**：`npx @agent-native/core@latest` 和 `npx @agent-native/core@latest code` 啟動、恢復、檢查和停止執行。
-- **桌面**：左側邊欄“程式碼”分頁新增本機終端啟動、應用程式 Web 視圖和桌面深層連結，同時使用相同的執行模型。
+- **桌面**：左側邊欄“程式碼”分頁新增本機終端啟動、應用程式 Web 檢視和桌面深層連結，同時使用相同的執行模型。
 - **共用 UI**：`@agent-native/code-agents-ui` 渲染可重用的 React 表面。
 
-```an-diagram title="一間經營商店三層" summary="CLI、Desktop 和共用 UI 是同一檔案支持的執行存儲和執行器上的不同表面；主機通過 CodeAgentsHost 合約對其進行調整。"
+```an-diagram title="一間經營商店三層" summary="CLI、Desktop 和共用 UI 是同一檔案支援的執行儲存和執行器上的不同表面；主機透過 CodeAgentsHost 合約對其進行調整。"
 {
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">啟動 · 恢復 · 狀態 · 停止</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">原生終端 · webviews · 深連結</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">分享d UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>檔案支持的執行存儲 + 執行器<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
+  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">啟動 · 恢復 · 狀態 · 停止</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">原生終端 · webviews · 深連結</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">分享d UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>檔案支援的執行儲存 + 執行器<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
   "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px;align-items:center}.diagram-layers .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-layers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-layers .diagram-arrow{font-size:22px;line-height:1}.diagram-layers .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
 }
 ```
 
-目前的拆分是有意融合的：標準代理側邊欄和代理團隊在核心 `run-manager` 生命週期上執行，而 Agent-Native Code 使用由基於檔案的程式碼執行存儲和共用後台執行控制器詞匯表支持的本機長時間執行工作階段。
+目前的拆分是有意融合的：標準代理側邊欄和代理團隊在核心 `run-manager` 生命週期上執行，而 Agent-Native Code 使用由基於檔案的程式碼執行儲存和共用背景執行控制器詞匯表支援的本機長時間執行工作階段。
 
 共用的 UI 是主機驅動的。它不知道自己是在 Electron、瀏覽器範本還是未來的託管 shell 中執行。主機提供 `CodeAgentsHost` 實現。
 
@@ -60,11 +60,11 @@ export function CodeSurface() {
 }
 ```
 
-主機可以在同一列表中混合執行來源。本機 Agent-Native 程式碼工作階段
-可以出現在代理團隊或其他後台執行的適配器旁邊，只要每個適配器的長度相同
+主機可以在同一清單中混合執行來源。本機 Agent-Native 程式碼工作階段
+可以出現在代理團隊或其他背景執行的轉接器旁邊，只要每個轉接器的長度相同
 條目標準化為`CodeAgentRun`。當主機提供`sourceLabel`時，
 `source`或`kind`，集線器呈現一個小的來源標籤，例如“本機程式碼”
-或執行列表和選定工作階段標題中的“代理團隊”。省略這些欄位
+或執行清單和選定工作階段標題中的“代理團隊”。省略這些欄位
 對於單來源表面；空狀態和基本布局保持不變。
 
 ## 桌面主機
@@ -72,12 +72,12 @@ export function CodeSurface() {
 桌面使用共用的 UI 但保留 Electron 中的特權功能：
 
 - 開啟本機終端
-- 使用 `AppWebview` 渲染可選的應用程式支持的表面
+- 使用 `AppWebview` 渲染可選的應用程式支援的表面
 - 處理 `agentnative://open?...` 連結
-- 跟蹤本機執行進程
+- 跟蹤本機執行行程
 - 紀錄主動執行的轉向與排隊後續操作
 - 重試並重新執行本機程式碼工作階段，包括 `/migrate` 和 `/audit`
-- 停止它啟動的進程
+- 停止它啟動的行程
 
 分離很重要。 UI 可以被範本重用，但本機流程控制應保留在 Desktop 或 CLI 中。
 
@@ -96,7 +96,7 @@ codex login status
 桌面和 CLI 讀取 `codex login status` 並執行 `codex exec`，因此它們
 重用您安裝的 Codex CLI 的任何 ChatGPT 訂閱或 API 金鑰驗證
 報告。這與使用的 `@ai-sdk/harness-codex` 包是分開的
-[Harness Agents](/docs/harness-agents)；線束適配器可以複製本機
+[Harness Agents](/docs/harness-agents)；線束轉接器可以複製本機
 僅當 `codexCliAuth: true` 為時，Codex CLI 才授權進入可信沙箱
 顯式啟用。
 
@@ -112,22 +112,22 @@ pnpm install
 pnpm dev
 ```
 
-您的主機可以通過正常的 actions 包裝本機執行存儲。這些是
+您的主機可以透過正常的 actions 包裝本機執行儲存。這些是
 主機擁有的 actions 您可以自己定義 - 它們不是附帶的框架
-actions — 將每個 `CodeAgentsHost` 方法對應到執行存儲，例如：
+actions — 將每個 `CodeAgentsHost` 方法對應到執行儲存，例如：
 
-- 支持 `listRuns` 的“列表執行”操作
-- 支持 `listCodePacks` 的“列出程式碼包”操作
-- 支持 `createRun` 的“建立執行”操作
-- 支持 `readTranscript` 的“閱讀紀錄”操作
-- 支持 `appendFollowUp` 的“追加後續”操作
-- 支持 `updateRun` 的“更新執行”操作
-- 支持`controlRun`的“控制執行”動作
+- 支援 `listRuns` 的“清單執行”操作
+- 支援 `listCodePacks` 的“列出程式碼包”操作
+- 支援 `createRun` 的“建立執行”操作
+- 支援 `readTranscript` 的“閱讀紀錄”操作
+- 支援 `appendFollowUp` 的“追加後續”操作
+- 支援 `updateRun` 的“更新執行”操作
+- 支援`controlRun`的“控制執行”動作
 
-每個都調用 `@agent-native/core/code-agents`，它公開相同的內容
-CLI 使用的檔案支持的執行存儲和執行器。
+每個都呼叫 `@agent-native/core/code-agents`，它公開相同的內容
+CLI 使用的檔案支援的執行儲存和執行器。
 
-## CLI 執行控件
+## CLI 執行控制項
 
 頂級 CLI 的行為類似於 Claude 程式碼或 Codex：
 
@@ -137,7 +137,7 @@ npx @agent-native/core@latest "fix the failing auth tests"
 npx @agent-native/core@latest code
 ```
 
-當您需要顯式命名空間時，請使用 `npx @agent-native/core@latest code`。內置斜線
+當您需要顯式命名空間時，請使用 `npx @agent-native/core@latest code`。內建斜線
 目標和專案指令可以在互動式工作區中執行或直接執行
 來自外殼：
 
@@ -147,12 +147,12 @@ npx @agent-native/core@latest code /audit --url https://example.com
 npx @agent-native/core@latest code /release-check
 ```
 
-這裡`/migrate`和`/audit`是內置目標（內置目標是
+這裡`/migrate`和`/audit`是內建目標（內建目標是
 `task`、`migrate` 和 `audit`）。 `/release-check` 作為範例顯示
-專案指令 - 在 `.agents/commands/` 中定義，不是內置目標。專案
+專案指令 - 在 `.agents/commands/` 中定義，不是內建目標。專案
 指令來自`.agents/commands/*.md`；專案skills來自
 `.agents/skills/*/SKILL.md`。控制指令在同一執行中執行
-紀錄桌面程式碼分頁和共用UI顯示：
+紀錄桌面程式碼分頁和共用 UI 顯示：
 
 ```bash
 npx @agent-native/core@latest code list
@@ -164,15 +164,15 @@ npx @agent-native/core@latest code stop --last
 npx @agent-native/core@latest code ui
 ```
 
-`resume` 附加上下文並繼續執行，`status` 報告最新執行
+`resume` 附加脈絡並繼續執行，`status` 報告最新執行
 狀態，`stop`要求主動控制器停止工作，`ui`開啟本機
 程式碼表面。這些是執行控制，而不是單獨的實施路徑。如果一個
-高風險指令暫停等待批準，`approve --last` 執行該指令
+高風險指令暫停等待核准，`approve --last` 執行該指令
 指令，然後指示您返回以恢復工作階段。
 
 執行模式使每個工作階段的編輯策略變得明確：
 
-| 模式         | CLI 標志 | 行為                                                                      |
+| 模式         | CLI 標誌 | 行為                                                                      |
 | ------------ | -------- | ------------------------------------------------------------------------- |
 | **計畫模式** | `--plan` | 檢查、計畫和解釋，無需編寫檔案或執行突變。                                |
 | **自動模式** | `--auto` | 僅針對真正具有破壞性的檔案、git、發布或資料操作編輯檔案、執行檢查和暫停。 |
@@ -181,21 +181,21 @@ npx @agent-native/core@latest code ui
 評估、架構、審核或您之前需要提案的任何工作
 編輯。
 
-對於跨表面列表、儀表板或監控窗格，首選共用
-通過讀取程式碼從 `@agent-native/core/code-agents` 後台執行匯出
+對於跨表面清單、儀表板或監控窗格，首選共用
+透過讀取程式碼從 `@agent-native/core/code-agents` 背景執行匯出
 直接執行檔案。他們將本機程式碼工作階段標準化為相同的詞匯表
-由託管後台工作使用：執行 ID、狀態、cwd、需求輸入，
-需求批準、轉錄事件和工件根。
+由託管背景工作使用：執行 ID、狀態、cwd、需求輸入，
+需求核准、轉錄事件和工件根。
 
 託管代理團隊也會從瀏覽器的代理聊天路由中公開
-需要程式碼中心兼容列表而不直接伺服器匯入的主機：
+需要程式碼中心相容清單而不直接伺服器匯入的主機：
 `GET /_agent-native/agent-chat/runs/list?goalId=agent-team` 返回
 `{ status: "ok", goalId, runs }`，其中每次執行都包含 `kind`，
-`source`、`sourceLabel`、`status`、`title`、時間戳和工作元資料。
+`source`、`sourceLabel`、`status`、`title`、時間戳和工作中繼資料。
 `GET /_agent-native/agent-chat/runs/:id/background-events` 返回
-為代理團隊執行共用後台轉錄事件。
+為代理團隊執行共用背景轉錄事件。
 
-適配器支持的主機還可以附加來源元資料：
+轉接器支援的主機還可以附加來源中繼資料：
 
 ```ts
 {
@@ -213,13 +213,13 @@ npx @agent-native/core@latest code ui
 
 ## 執行商店
 
-本機 Agent-Native 程式碼執行存儲在：
+本機 Agent-Native 程式碼執行儲存在：
 
 ```text
 ~/.agent-native/code-agents
 ```
 
-設定 `AGENT_NATIVE_CODE_AGENTS_HOME` 以隔離範本或測試執行存儲。
+設定 `AGENT_NATIVE_CODE_AGENTS_HOME` 以隔離範本或測試執行儲存。
 
 ```bash
 AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
@@ -235,64 +235,64 @@ AGENT_NATIVE_CODE_AGENTS_HOME=./data/code-agents pnpm dev
 | `listCodePacks?()`                                    | 列出`.agents/commands`和`.agents/skills` |
 | `createRun(request)`                                  | 開始新的執行                             |
 | `subscribeTranscript?(request, callback)`             | 將紀錄更新推送到共用對話                 |
-| `readTranscript(request)`                             | 輪詢紀錄事件作為兼容性回退               |
+| `readTranscript(request)`                             | 輪詢紀錄事件作為相容性回退               |
 | `appendFollowUp(request)`                             | 新增後續工作，引導活動工作或排隊         |
-| `updateRun(request)`                                  | 更新模式或執行元資料                     |
+| `updateRun(request)`                                  | 更新模式或執行中繼資料                   |
 | `retryRun?(request)`                                  | 就地重試所選執行                         |
 | `rerunRun?(request)`                                  | 從先前的提示開始新的執行                 |
-| `controlRun(goalId, runId, command, permissionMode?)` | 恢復、批準、刷新或停止                   |
+| `controlRun(goalId, runId, command, permissionMode?)` | 恢復、核准、重新整理或停止               |
 | `openTerminal?(request)`                              | 可選的本機終端掛鉤                       |
 
 瀏覽器主機應該返回一個正常的 `openTerminal` 錯誤，而不是嘗試模擬本機終端啟動。
 
-## 共用作曲家
+## 共用撰寫器
 
 Agent-Native 程式碼使用相同的 `AgentComposerFrame` + `PromptComposer` /
 從 `@agent-native/core/client/composer` 匯出的 `TiptapComposer` 堆堆疊作為
 框架代理側邊欄。不要分叉單獨的
-文本區域、編碼工具選取器、上傳選取器、語音按鈕、模型選取器或 Enter-to-submit
+文字區、編碼工具選取器、上傳選取器、語音按鈕、模型選取器或 Enter-to-submit
 類似程式碼表面的實現。如果主機需要一個額外的控制，請傳遞
-它通過共用的composer擴充功能點，所以側邊欄，程式碼UI，和
+它透過共用的composer擴充功能點，所以側邊欄，程式碼 UI，和
 大腦聊天保持相同的互動模型和視野。
 
-Brain 的 Ask 路線使用 `AgentChatSurface`，該路線已得到支持
+Brain 的 Ask 路由使用 `AgentChatSurface`，該路由已得到支援
 標準側邊欄編輯器。程式碼直接使用`PromptComposer`，因為主機
-擁有執行建立、成績單和後續交付。
+擁有執行建立、逐字稿和後續交付。
 
 ## 共用編碼工具
 
-側邊欄開發代理和Agent-Native程式碼都使用相同的最小值
+側邊欄開發代理和 Agent-Native 程式碼都使用相同的最小值
 編碼工具設定檔案：`bash`、`read`、`edit` 和 `write`。預設為`bash`
-用於列出/搜尋檔案、執行測試以及調用專案 CLIs； `read`
-顯示行編號的檔案切片； `edit` 應用精確的文本替換；和
+用於列出/搜尋檔案、執行測試以及呼叫專案 CLIs； `read`
+顯示行編號的檔案切片； `edit` 應用精確的文字替換；和
 `write` 保留用於新檔案或有意完全重寫。舊別名
 例如`shell`、`read-file`、`write-file`、`list-files`和`search-files`
-僅兼容，不屬於預設廣告表面的一部分。
+僅相容，不屬於預設廣告表面的一部分。
 
-特定於程式碼的 UI 屬於作曲家週圍，而不是分叉的聊天欄位內。
+特定於程式碼的 UI 屬於撰寫器週圍，而不是分叉的聊天欄位內。
 共用程式碼 UI 可能會新增插槽：
 
-- 自動/計畫模式控件。
-- 選定的 cwd、專案選取器和執行元資料。
+- 自動/計畫模式控制項。
+- 選定的 cwd、專案選取器和執行中繼資料。
 - 僅限主機的功能，例如開啟終端。
 
 其他所有內容都保留在共用編輯器中：附件、引用、斜杠和
-技能插入、貼上文本處理、語音听寫、草稿、鍵盤
+技能插入、貼上文字處理、語音聽寫、草稿、鍵盤
 快捷方式和提交語義。
 
 面向使用者的文字紀錄應保持工作階段式。程式碼主機標準化原始
 將轉錄/狀態/工具事件寫入共用對話渲染器：助手
-文本合並為一圈，低信號生命週期噪音遠離主線
-表面和工具活動呈現為帶有詳細資訊的緊湊內聯摘要
+文字合併為一圈，低信號生命週期噪音遠離主線
+表面和工具活動呈現為帶有詳細資訊的緊湊行內摘要
 需要時可用。
 
 ## 斜線指令
 
-Agent-Native 程式碼將遷移視為一種功能，而不是單獨的應用程式類別。 `/migrate` 可以是內置目標、專案指令或同一主機合約之上的自訂指令包。
+Agent-Native 程式碼將遷移視為一種功能，而不是單獨的應用程式類別。 `/migrate` 可以是內建目標、專案指令或同一主機合約之上的自訂指令包。
 
-### 使用`/migrate`遷移到Agent-Native {#migrate}
+### 使用`/migrate`遷移到 Agent-Native {#migrate}
 
-`/migrate` 是將現有應用程式、URL 或描述的產品行動到 Agent-Native 的內置目標。它是程式碼工作區中的一個斜線目標 - 不是一個單獨的腳手架範本，也不是一次性產品 - 因此它與其他所有程式碼工作階段共用相同的工作階段存儲、腳本、執行控件和桌面中心，並且您可以以相同的方式恢復、附加、檢查和停止它。
+`/migrate` 是將現有應用程式、URL 或描述的產品行動到 Agent-Native 的內建目標。它是程式碼工作區中的一個斜線目標 - 不是一個單獨的腳手架範本，也不是一次性產品 - 因此它與其他所有程式碼工作階段共用相同的工作階段儲存、指令碼、執行控制項和桌面中心，並且您可以以相同的方式恢復、附加、檢查和停止它。
 
 ```bash
 npx @agent-native/core@latest code /migrate ./my-next-app --out ../migrated-app
@@ -301,7 +301,7 @@ npx @agent-native/core@latest code /migrate --describe "A Rails admin app with r
 npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # shortcut into the same goal
 ```
 
-本機來源路徑是唯讀的；生成的輸出必須位於來源樹之外。使用 `--emit <dir>` 編寫便攜式遷移檔案（`AGENTS.md`、`MIGRATION_PLAYBOOK.md`、評估和 `ir.json` 庫存（如果可用））並將其交給另一個編碼代理，而不是開啟內部執行表面。 `/migrate` 重用框架的正常憑證系統 - 沒有特定於遷移的金鑰存儲。 `@agent-native/migrate` 包公開了一個用於自訂工作流程的可重用引擎（`createMigrationRun`、`discoverMigration`、`planMigration`、來源/目標適配器）。
+本機來源路徑是唯讀的；產生的輸出必須位於來源樹之外。使用 `--emit <dir>` 編寫便攜式遷移檔案（`AGENTS.md`、`MIGRATION_PLAYBOOK.md`、評估和 `ir.json` 庫存（如果可用））並將其交給另一個編碼代理，而不是開啟內部執行表面。 `/migrate` 重用框架的正常憑證系統 - 沒有特定於遷移的金鑰儲存。 `@agent-native/migrate` 包公開了一個用於自訂工作流程的可重用引擎（`createMigrationRun`、`discoverMigration`、`planMigration`、來源/目標轉接器）。
 
 特定於專案的指令位於：
 
@@ -317,40 +317,40 @@ npx @agent-native/core@latest migrate ./my-next-app --out ../migrated-app   # sh
 .agents/skills/*/SKILL.md
 ```
 
-當主機實現`listCodePacks`時，共用的UI在導軌中顯示專案指令和skills。指令行插入 `/<command>`，技能行插入重點“使用 <skill> 技能...”提示，以便導軌保持可操作性。內置斜線目標 `/migrate` 和 `/audit` 保留為全域 Agent-Native 程式碼控件保留，執行控制名稱（例如 `status` 和 `resume`）也是如此 — 這些是不帶斜線調用的子指令（`npx @agent-native/core@latest code status`、`npx @agent-native/core@latest code resume`），而不是斜線目標。
+當主機實現`listCodePacks`時，共用的 UI 在導軌中顯示專案指令和skills。指令行插入 `/<command>`，技能行插入重點“使用 <skill> 技能...”提示，以便導軌保持可操作性。內建斜線目標 `/migrate` 和 `/audit` 保留為全域 Agent-Native 程式碼控制項保留，執行控制名稱（例如 `status` 和 `resume`）也是如此 — 這些是不帶斜線呼叫的子指令（`npx @agent-native/core@latest code status`、`npx @agent-native/core@latest code resume`），而不是斜線目標。
 
 不要為新的程式碼主機建立單獨的斜杠指令註冊表。專案
 指令和skills是從`.agents/commands/*.md`發現的
 `.agents/skills/*/SKILL.md`； UI 應該渲染這些包並插入提示
-通過共用作曲家。
+透過共用撰寫器。
 
-## 後台代理執行管理器
+## 背景代理執行管理器
 
-後台編碼代理工作應重用與執行管理器相同的基礎
+背景編碼代理工作應重用與執行管理器相同的基礎
 Agent-Native 的其餘部分：
 
-- 使用程式碼執行存儲/執行器進行本機程式碼工作階段。
-- 當表面需要列出時，使用共用後台執行適配器/基礎，
-  檢查或橋接本機程式碼工作階段以及其他後台工作。
+- 使用程式碼執行儲存/執行器進行本機程式碼工作階段。
+- 當表面需要列出時，使用共用背景執行轉接器/基礎，
+  檢查或橋接本機程式碼工作階段以及其他背景工作。
 - 使用核心 `run-manager` 進行託管代理執行，以便進行流式傳輸、中止、心跳，
   可恢復性、軟超時和卡住執行清理的行為一致。
 - 當 UI 將工作委派給 a 時使用 `agent-teams` / `spawnTask()`
-  來自普通應用聊天的後台子代理。
+  來自普通應用聊天的背景子代理。
 
-不要僅僅因為新表面需要一個並行的後台代理執行程序
-不同的布局。在共用頂部建置主機適配器或 UI 插槽
+不要僅僅因為新表面需要一個並行的背景代理執行程式
+不同的布局。在共用頂部建置主機轉接器或 UI 插槽
 改為執行管理器基礎。
 
 ## 後續行動
 
-主動執行的後續支持兩種交付模式：
+主動執行的後續支援兩種交付模式：
 
-- 按 Enter 或點選發送會紀錄立即轉向提示
+- 按 Enter 或點選傳送會紀錄立即轉向提示
   活躍跑步者在下一個安全繼續點申請。
 - 在 macOS 上按 Cmd+Enter 或在其他地方按 Ctrl+Enter 會將提示排隊執行
   目前回合結束後。
 
-非活動執行保持兼容行為：追加後續操作並立即恢復執行。
+非活動執行保持相容行為：追加後續操作並立即恢復執行。
 
 這為程式碼提供了與代理團隊相同的面向使用者的雙向訊息傳遞形式：
 使用者可以繼續與活動工作對話，但執行僅消耗該內容
@@ -359,23 +359,23 @@ Agent-Native 的其餘部分：
 
 ## 遠端調度
 
-桌面可以將本機程式碼代理執行程序公開給已部署的調度中繼，因此
+桌面可以將本機程式碼代理執行程式公開給已部署的調度中繼，因此
 電話或 Telegram 聊天可以啟動、監控和繼續工作階段，而
-計算機已喚醒。
+電腦已喚醒。
 
 連線僅從桌面出站：
 
-1. 桌面與 Dispatch 配對並在本機存儲設備權杖。
+1. 桌面與 Dispatch 配對並在本機儲存設備權杖。
 2. 桌面長輪詢 `/_agent-native/integrations/remote/poll`。
 3. 行動工作階段和 Telegram `/code` 在中繼資料庫中排隊指令。
-4. 桌面聲明指令、驅動本機執行存儲並發布結果
+4. 桌面聲明指令、驅動本機執行儲存並發布結果
    將事件紀錄回 Dispatch。
 5. 行動設備從 Dispatch 讀取 `hosts`、`runs` 和 `transcript`；它從不說話
    直接到桌面。
 
-```an-diagram title="遠端 Dispatch 僅限出站" summary="行動設備從不直接與桌面對話。 Desktop 長輪詢 Dispatch，聲明指令，驅動本機執行存儲，並將結果鏡像回來。"
+```an-diagram title="遠端 Dispatch 僅限出站" summary="行動設備從不直接與桌面對話。 Desktop 長輪詢 Dispatch，聲明指令，驅動本機執行儲存，並將結果鏡像回來。"
 {
-  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>行動端 / Telegram<br><small class=\"diagram-muted\">/code · 工作階段</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Dispatch 中繼<br><small class=\"diagram-muted\">主機 · 執行 · 轉錄</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">長輪詢 · 領取 · 驅動執行存儲</small></div></div>",
+  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>行動端 / Telegram<br><small class=\"diagram-muted\">/code · 工作階段</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Dispatch 中繼<br><small class=\"diagram-muted\">主機 · 執行 · 轉錄</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">長輪詢 · 領取 · 驅動執行儲存</small></div></div>",
   "css": ".diagram-remote{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-remote .diagram-arrow{font-size:22px;line-height:1}"
 }
 ```
@@ -395,7 +395,7 @@ Agent-Native 的其餘部分：
 }
 ```
 
-| 方法       | 路線                                                     | 呼叫者            | 目的                       |
+| 方法       | 路由                                                     | 呼叫者            | 目的                       |
 | ---------- | -------------------------------------------------------- | ----------------- | -------------------------- |
 | `POST`     | `/_agent-native/integrations/remote/register`            | 桌面工作階段      | 配對桌面主機並返回權杖一次 |
 | `GET`      | `/_agent-native/integrations/remote/hosts`               | 行動/工作階段     | 列出配對的主機             |
@@ -409,7 +409,7 @@ Agent-Native 的其餘部分：
 | `GET`      | `/_agent-native/integrations/remote/runs/:id/transcript` | 行動設備/工作階段 | 讀取鏡像轉錄本             |
 | `POST`     | `/_agent-native/integrations/remote/push/register`       | 行動設備/工作階段 | 註冊博覽會/行動推送權杖    |
 
-Telegram 通過 Dispatch 使用相同的中繼。支持的指令有：
+Telegram 透過 Dispatch 使用相同的中繼。支援的指令有：
 
 ```text
 /code <prompt>
@@ -433,4 +433,4 @@ import "@agent-native/code-agents-ui/styles.css";
 
 ## 限制
 
-瀏覽器範本是本機優先的。當其本機節點伺服器處於活動狀態時，它可以啟動和恢復執行。對於本機進程生命週期、終端啟動和應用程式 Web 視圖，請使用桌面。
+瀏覽器範本是本機優先的。當其本機節點伺服器處於活動狀態時，它可以啟動和恢復執行。對於本機行程生命週期、終端啟動和應用程式 Web 檢視，請使用桌面。
