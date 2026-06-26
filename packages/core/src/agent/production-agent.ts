@@ -3963,10 +3963,15 @@ export function createProductionAgentHandler(
         );
       } catch {}
     };
-    // DIAGNOSTIC + DEFENSIVE: race an optional context read against a short
-    // timeout and fall back to a safe default, logging start/done/error/timeout.
-    // A single stuck optional read can no longer block the worker from reaching
-    // claim, and the TIMEOUT breadcrumb names the culprit in the function logs.
+    // DIAGNOSTIC: pre-send branches that hit their timeout/error fallback,
+    // recorded in memory so the FINAL run diag (setupDetail) can name them even
+    // when the Netlify function-log drain is unreadable. Readable via
+    // /runs/active once the worker claims past the stuck branch.
+    const bgTimedOut: string[] = [];
+    // DIAGNOSTIC + DEFENSIVE: race a pre-send read against a short timeout and
+    // fall back to a safe default, logging start/done/error/timeout. A single
+    // stuck read can no longer block the worker from reaching claim, and the
+    // recorded `bgTimedOut` set names the culprit in the run diag.
     const withBgFallback = <T>(
       label: string,
       ms: number,
@@ -3980,6 +3985,7 @@ export function createProductionAgentHandler(
           if (done) return;
           done = true;
           bgLog(`${label}:TIMEOUT@${ms}ms`);
+          bgTimedOut.push(`${label}:timeout`);
           resolve(fallback);
         }, ms);
         fn().then(
@@ -3997,6 +4003,7 @@ export function createProductionAgentHandler(
             bgLog(
               `${label}:error ${(e as { message?: string })?.message ?? e}`,
             );
+            bgTimedOut.push(`${label}:error`);
             resolve(fallback);
           },
         );
@@ -4270,13 +4277,12 @@ export function createProductionAgentHandler(
     // that starts but never finishes; the OPTIONAL context reads additionally
     // race a short timeout + "" fallback (withBgFallback) so one stuck read
     // cannot block the worker from reaching claim.
-    bgLog("enrich:start");
-    const enrichedMessagePromise = Promise.resolve(
-      enrichMessage(requestMessage, references),
-    ).then((v) => {
-      bgLog("enrich:done");
-      return v;
-    });
+    const enrichedMessagePromise = withBgFallback(
+      "enrich",
+      5000,
+      requestMessage,
+      () => Promise.resolve(enrichMessage(requestMessage, references)),
+    );
     bgLog("loop:start");
     const loopSettingsPromise = readAgentLoopSettings({
       userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
@@ -4289,27 +4295,32 @@ export function createProductionAgentHandler(
       });
 
     let systemPromptError: any = null;
-    const systemPromptPromise = (async (): Promise<string> => {
-      const sysPromptStart = Date.now();
-      bgLog("sysprompt:start");
-      try {
-        const sp =
-          typeof options.systemPrompt === "function"
-            ? await options.systemPrompt(event)
-            : options.systemPrompt;
-        bgLog("sysprompt:done");
-        return sp;
-      } catch (error) {
-        systemPromptError = error;
-        bgLog(
-          "sysprompt:error " +
-            ((error as { message?: string })?.message ?? error),
-        );
-        return "";
-      } finally {
-        setupMarks.sysPromptMs = Date.now() - sysPromptStart;
-      }
-    })();
+    const systemPromptPromise = withBgFallback(
+      "sysprompt",
+      5000,
+      "",
+      async (): Promise<string> => {
+        const sysPromptStart = Date.now();
+        bgLog("sysprompt:start");
+        try {
+          const sp =
+            typeof options.systemPrompt === "function"
+              ? await options.systemPrompt(event)
+              : options.systemPrompt;
+          bgLog("sysprompt:done");
+          return sp;
+        } catch (error) {
+          systemPromptError = error;
+          bgLog(
+            "sysprompt:error " +
+              ((error as { message?: string })?.message ?? error),
+          );
+          return "";
+        } finally {
+          setupMarks.sysPromptMs = Date.now() - sysPromptStart;
+        }
+      },
+    );
 
     const screenContextPromise = withBgFallback(
       "screen",
@@ -5164,7 +5175,9 @@ export function createProductionAgentHandler(
     const setupDetail =
       Object.entries(setupMarks)
         .map(([k, v]) => `${k}=${v}`)
-        .join(" ") + ` total=${Date.now() - setupT0}`;
+        .join(" ") +
+      ` total=${Date.now() - setupT0}` +
+      ` to=${bgTimedOut.join(",") || "none"}`;
 
     bgLog("startRun:invoked");
     startRun(
