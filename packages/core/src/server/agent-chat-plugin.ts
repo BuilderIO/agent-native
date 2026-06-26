@@ -3036,21 +3036,29 @@ function buildFrameworkPrompts(
     ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
     : "source-code handoffs and app-created artifacts such as documents, designs, slides, or videos";
   const planModeBlockedTools = extensionToolsEnabled
-    ? "`create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
+    ? "`render-inline-extension`, `create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
     : "`connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data";
   const extensionConnectBuilderGuard = extensionToolsEnabled
-    ? "If the request matches the Extensions section above, use `create-extension` or `update-extension` instead — do NOT route it to `connect-builder`."
+    ? "If the request matches the Extensions section above, use `render-inline-extension`, `create-extension`, `show-extension-inline`, or `update-extension` instead — do NOT route it to `connect-builder`."
     : "Because extension tools are disabled, do NOT invent an extension workflow. Only use `connect-builder` when the request genuinely requires changing the host app's source code.";
   const extensionInstructionsFull = extensionToolsEnabled
-    ? `### Extensions (Mini-Apps) — Use \`create-extension\` for extensions / widgets / dashboards
+    ? `### Generative UI and Extensions (Mini-Apps)
 
-In Act mode, if the user asks you to create, build, or make an **extension**, **widget**, **dashboard**, **calculator**, **mini-app**, or any small self-contained interactive utility — call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is **NOT** a code change and does **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps stored in the database — no source files are touched, no PR is opened, no build is required. The extension appears in the Extensions view and can be edited later via \`update-extension\`.
+In Act mode, if the user asks for generated interactive UI in chat, choose the smallest extension action that matches the lifetime:
+
+- For a **one-time inline UI** that answers the current chat turn (knobs, controls, pickers, calculators, temporary dashboards, visualizers), call \`render-inline-extension\` immediately with a self-contained Alpine.js HTML body. It renders inside the transcript and is not saved.
+- For a **reusable or saved UI** (an extension/widget/dashboard/calculator/mini-app the user can reopen from Extensions), call \`create-extension\` with a self-contained Alpine.js HTML body. It saves to the Extensions view and also renders inline in chat.
+- To **reuse an existing saved extension inline**, call \`show-extension-inline\` with its id, or a search string when the id is unknown.
+
+These are **NOT** source-code changes and do **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps — no source files are touched, no PR is opened, no build is required. Saved extensions can be edited later via \`update-extension\`.
 
 Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
 
+Generated UI content can use appAction(), appFetch(), dbQuery(), dbExec(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
+
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
 
-In Act mode, when in doubt — if the request mentions creating an extension, widget, dashboard, calculator, or asks for a new small interactive utility — choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
+In Act mode, when in doubt — if the request asks for a new small interactive utility and does not need reuse, choose \`render-inline-extension\`; if it mentions saving/reuse or asks for an extension/widget/dashboard/calculator/mini-app, choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
 
 Note: "extension" is the user-facing primitive (the sandboxed Alpine.js mini-app). Don't confuse it with the LLM concept of "tools" (function calls) — those are how you invoke ANY action, including \`create-extension\` itself.
 
@@ -3063,10 +3071,12 @@ Route by what the request changes, not how it is phrased. Extensions render in t
 <routing>
 | The request is for…                                              | Path                          |
 | ---------------------------------------------------------------- | ----------------------------- |
+| A one-off interactive answer inside chat (controls, picker, calculator, temporary visualizer) | \`render-inline-extension\` — inline only |
 | A new self-contained surface (widget, dashboard, calculator, viewer, list, tracker) | \`create-extension\` — ships instantly, no PR |
+| Loading a saved extension inside chat | \`show-extension-inline\` |
 | Editing an existing extension (fix, restyle, rename, add behavior) | \`update-extension\`           |
 | The host app's own chrome (nav bar, sidebar, layout, routes, shipped components, existing styles, business logic) | \`connect-builder\` — a real source-code change |
-| Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`create-extension\` (prefer the instant path) |
+| Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`render-inline-extension\` for chat-only, \`create-extension\` for reusable |
 </routing>
 
 Worked examples: "a widget showing unread emails grouped by sender", "a dashboard summarizing my pipeline", "a tracker for my newsletter subscriptions" → \`create-extension\`. "Add an Unread tab to the left navigation", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
@@ -3074,11 +3084,13 @@ Worked examples: "a widget showing unread emails grouped by sender", "a dashboar
 
 Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow. For requests that would otherwise be handled as an extension/widget/dashboard/calculator mini-app, explain that this app has disabled extension tools and use the app's available actions instead.`;
   const extensionInstructionsCompact = extensionToolsEnabled
-    ? `### Extensions (Mini-Apps) — Use \`create-extension\`
+    ? `### Generative UI and Extensions (Mini-Apps)
 
-In Act mode, if the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app**, call \`create-extension\` immediately with a self-contained Alpine.js HTML body. This is NOT a code change — extensions are sandboxed mini-apps stored in the database. Do not preface with "let me build…" — just call \`create-extension\`.
+In Act mode, if the user asks for generated interactive UI in chat, call \`render-inline-extension\` for one-time inline controls/knobs/calculators/visualizers that do not need saving. If the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app** that should be reusable or saved, call \`create-extension\` with a self-contained Alpine.js HTML body. To load a saved extension inline, call \`show-extension-inline\`. These are NOT code changes — extensions are sandboxed mini-apps. Do not preface with "let me build…" — just call the right extension action.
 
 Keep the first \`create-extension\` call compact and working. If the request is complex, create the v1 first and then refine with focused \`update-extension\` edits.
+
+Generated UI can read chat inputs from slotContext/window.onSlotContext, see/update app state through appFetch/appAction, use extensionData, record passive current values through agentNative.ui.output(value, opts?), and send visible results through agentNative.chat.send(...) or sendToAgentChat(...). ui.output writes \`inline-ui:<extensionId>:output\` in application state; when the user asks to use the current slider/selection/value, read \`readAppState("inline-ui:<id>:output")\`. Transient extensionData is browser-local only, so do not rely on it for values the agent or app must observe. Use semantic Tailwind theme classes.
 
 If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
 
@@ -3086,7 +3098,7 @@ For existing extensions, use \`get-extension\` or \`update-extension\` directly 
 
 ### Extensions vs. Code Changes — Pick the Right Path
 
-If the user wants a **new self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Use \`connect-builder\` only when the request **modifies the host app's existing chrome** (nav bar, sidebar, current components, layout, styles, routes). Extensions cannot change the host nav or restyle existing components.`
+If the user wants a **one-off interactive answer in chat**, use \`render-inline-extension\`. If they want a **new reusable self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Use \`connect-builder\` only when the request **modifies the host app's existing chrome** (nav bar, sidebar, current components, layout, styles, routes). Extensions cannot change the host nav or restyle existing components.`
     : `### Extensions Disabled
 
 Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow.`;

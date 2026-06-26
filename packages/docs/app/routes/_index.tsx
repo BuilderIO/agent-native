@@ -212,6 +212,7 @@ const featureCloudRows = [
         labelKey: "mcpApps",
         className: "text-xl uppercase opacity-[0.20]",
       },
+      { labelKey: "generativeUi", className: "text-4xl opacity-[0.76]" },
       { labelKey: "toolCalls", className: "text-2xl opacity-[0.26]" },
       {
         labelKey: "agentSidebar",

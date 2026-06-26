@@ -59,6 +59,13 @@ type SentryUser = {
   username?: string;
 };
 
+type TrackingIdentity = {
+  userId?: string;
+  userEmail?: string;
+  userName?: string;
+  orgId?: string | null;
+};
+
 let _getDefaultProps: GetDefaultProps | null = null;
 let _agentNativeAnalyticsPublicKey: string | null = null;
 let _agentNativeAnalyticsEndpoint: string | null = null;
@@ -67,6 +74,10 @@ let _sentryInitialized = false;
 let _llmConnectionStatus: LlmConnectionStatus | null = null;
 let _llmConnectionRefresh: Promise<void> | null = null;
 let _llmConnectionRefreshInstalled = false;
+let _trackingIdentity: TrackingIdentity | null = null;
+let _trackingIdentityResolved = false;
+let _trackingSessionRefresh: Promise<void> | null = null;
+let _trackingSessionRefreshInstalled = false;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: SentryUser | null | undefined = undefined;
@@ -247,6 +258,83 @@ function installLlmConnectionRefresh(): void {
   window.addEventListener("agent-engine:configured-changed", () => {
     void refreshLlmConnectionStatus();
   });
+}
+
+function readTrackingString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function setTrackingIdentityFromSession(data: unknown): void {
+  const session = data as Record<string, unknown> | null;
+  if (!session || typeof session !== "object" || session.error) {
+    _trackingIdentity = null;
+    return;
+  }
+  const email = readTrackingString(session.email);
+  const authUserId = readTrackingString(session.userId);
+  const userId = email || authUserId;
+  if (!userId) {
+    _trackingIdentity = null;
+    return;
+  }
+  const userName = readTrackingString(session.name);
+  _trackingIdentity = {
+    userId,
+    ...(email ? { userEmail: email } : {}),
+    ...(userName ? { userName } : {}),
+    orgId: readTrackingString(session.orgId) ?? null,
+  };
+}
+
+function refreshTrackingAuthSession(): Promise<void> {
+  if (typeof window === "undefined" || typeof fetch !== "function") {
+    _trackingIdentityResolved = true;
+    return Promise.resolve();
+  }
+  if (_trackingSessionRefresh) return _trackingSessionRefresh;
+  _trackingSessionRefresh = fetch(
+    agentNativePath("/_agent-native/auth/session"),
+  )
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      setTrackingIdentityFromSession(data);
+    })
+    .catch(() => {
+      _trackingIdentity = null;
+    })
+    .finally(() => {
+      _trackingIdentityResolved = true;
+      _trackingSessionRefresh = null;
+    });
+  return _trackingSessionRefresh;
+}
+
+function installTrackingAuthSessionRefresh(): void {
+  if (typeof window === "undefined" || _trackingSessionRefreshInstalled) return;
+  _trackingSessionRefreshInstalled = true;
+  void refreshTrackingAuthSession();
+  window.addEventListener("focus", () => {
+    void refreshTrackingAuthSession();
+  });
+}
+
+function applyTrackingIdentity(
+  properties: Record<string, unknown>,
+): Record<string, unknown> {
+  const identity = _trackingIdentity;
+  if (!identity) return properties;
+  let next = properties;
+  const assign = (key: string, value: unknown) => {
+    if (value !== undefined && value !== null && next[key] === undefined) {
+      if (next === properties) next = { ...properties };
+      next[key] = value;
+    }
+  };
+  assign("userId", identity.userId);
+  assign("userEmail", identity.userEmail);
+  assign("userName", identity.userName);
+  assign("orgId", identity.orgId);
+  return next;
 }
 
 function getOrCreateAnonymousId(): string | undefined {
@@ -665,6 +753,20 @@ export function setSentryUser(
   user: SentryUser | null,
   orgId?: string | null,
 ): void {
+  if (user) {
+    const userId = user.email || user.id;
+    _trackingIdentity = userId
+      ? {
+          userId,
+          ...(user.email ? { userEmail: user.email } : {}),
+          ...(user.username ? { userName: user.username } : {}),
+          orgId: orgId ?? null,
+        }
+      : null;
+  } else {
+    _trackingIdentity = null;
+  }
+  _trackingIdentityResolved = true;
   if (_sentryInitialized) {
     Sentry.setUser(user);
     if (orgId !== undefined) {
@@ -775,6 +877,7 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     ensureAmplitude();
     captureFirstTouchAttribution();
     installLlmConnectionRefresh();
+    installTrackingAuthSessionRefresh();
     installPageviewTracking();
     maybeInstallSessionReplay(options.sessionReplay, {
       endpoint: options.endpoint,
@@ -791,6 +894,14 @@ function sessionReplayEnabledFromEnv(): boolean {
   return /^(1|true|yes|on)$/i.test((value ?? "").trim());
 }
 
+function sessionReplayRequiresSignedInUserFromEnv(): boolean {
+  const env = (import.meta.env as Record<string, string | undefined>) ?? {};
+  const value =
+    env.VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH ||
+    env.VITE_SESSION_REPLAY_REQUIRE_AUTH;
+  return /^(1|true|yes|on)$/i.test((value ?? "").trim());
+}
+
 function configuredSessionReplayOptions(
   config: boolean | SessionReplayOptions | undefined,
   tracking: { endpoint?: string; publicKey?: string } = {},
@@ -802,18 +913,44 @@ function configuredSessionReplayOptions(
     : undefined;
   const withTrackingDefaults = (
     options: SessionReplayOptions,
-  ): SessionReplayOptions => ({
-    ...(publicKey && !options.publicKey ? { publicKey } : {}),
-    ...(endpoint && !options.endpoint ? { endpoint } : {}),
-    ...options,
-  });
+  ): SessionReplayOptions => {
+    const extraProperties = replayExtraPropertiesWithDefaults(
+      options.extraProperties,
+    );
+    return {
+      ...(publicKey && !options.publicKey ? { publicKey } : {}),
+      ...(endpoint && !options.endpoint ? { endpoint } : {}),
+      ...options,
+      requireSignedInUser:
+        options.requireSignedInUser ??
+        sessionReplayRequiresSignedInUserFromEnv(),
+      ...(extraProperties ? { extraProperties } : {}),
+    };
+  };
 
+  if (config === false) return null;
   if (config === true) return withTrackingDefaults({});
   if (config && typeof config === "object") {
     if (config.enabled === false) return null;
     return withTrackingDefaults(config);
   }
   return sessionReplayEnabledFromEnv() ? withTrackingDefaults({}) : null;
+}
+
+function replayExtraPropertiesWithDefaults(
+  source: SessionReplayOptions["extraProperties"],
+): SessionReplayOptions["extraProperties"] {
+  return () => {
+    const rawProps =
+      typeof source === "function"
+        ? source()
+        : source && typeof source === "object"
+          ? source
+          : {};
+    const props = rawProps && typeof rawProps === "object" ? rawProps : {};
+    const withDefaults = _getDefaultProps?.("session_replay", props) ?? props;
+    return applyTrackingIdentity(withDefaults);
+  };
 }
 
 function replayEndpointFromTrackingEndpoint(value: string): string | undefined {
@@ -849,23 +986,60 @@ function maybeInstallSessionReplay(
   if (typeof window === "undefined") return;
   const options = configuredSessionReplayOptions(config, tracking);
   if (!options) return;
-  import("./session-replay.js")
-    .then((mod) => mod.startSessionReplay(options))
-    .catch(() => {});
+  void startConfiguredSessionReplay(options);
+}
+
+async function waitForSessionReplayAuthIfRequired(
+  options: SessionReplayOptions,
+): Promise<boolean> {
+  if (!options.requireSignedInUser) return true;
+  if (_trackingIdentity?.userId) return true;
+  try {
+    if (_trackingSessionRefresh) {
+      await _trackingSessionRefresh;
+    } else if (!_trackingIdentityResolved) {
+      await refreshTrackingAuthSession();
+    }
+  } catch {
+    // best-effort; missing identity below keeps replay off
+  }
+  return !!_trackingIdentity?.userId;
+}
+
+async function startConfiguredSessionReplay(
+  options: SessionReplayOptions,
+): Promise<SessionReplayStartResult | null> {
+  if (!(await waitForSessionReplayAuthIfRequired(options))) {
+    return { started: false, reason: "missing-user-id" };
+  }
+  try {
+    const mod = await import("./session-replay.js");
+    return mod.startSessionReplay(options);
+  } catch {
+    return { started: false, reason: "import-failed" };
+  }
 }
 
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  const configured = configuredSessionReplayOptions(options) ?? options;
+  if (!(await waitForSessionReplayAuthIfRequired(configured))) {
+    return { started: false, reason: "missing-user-id" };
+  }
   const mod = await import("./session-replay.js");
-  return mod.startSessionReplay(options);
+  return mod.startSessionReplay(configured);
 }
 
 export async function maybeStartSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
+  const configured = configuredSessionReplayOptions(options) ?? options;
+  if (!(await waitForSessionReplayAuthIfRequired(configured))) {
+    return { started: false, reason: "missing-user-id" };
+  }
   const mod = await import("./session-replay.js");
-  return mod.maybeStartSessionReplay(options);
+  return mod.maybeStartSessionReplay(configured);
 }
 
 export async function stopSessionReplay(reason = "manual"): Promise<void> {
@@ -911,7 +1085,7 @@ function resolveProps(
   for (const [key, value] of Object.entries(llmProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }
-  return enriched;
+  return applyTrackingIdentity(enriched);
 }
 
 function pageviewKey(): string {
@@ -950,11 +1124,20 @@ function emitPageview(reason: string): void {
 
 function schedulePageview(reason: string): void {
   const run = () => emitPageview(reason);
+  const pendingStartupContext: Array<Promise<void>> = [];
   if (_llmConnectionRefresh && !_llmConnectionStatus) {
+    pendingStartupContext.push(_llmConnectionRefresh);
+  }
+  if (_trackingSessionRefresh && !_trackingIdentityResolved) {
+    pendingStartupContext.push(_trackingSessionRefresh);
+  }
+  if (pendingStartupContext.length > 0) {
     const timeout = new Promise<void>((resolve) =>
       window.setTimeout(resolve, 250),
     );
-    Promise.race([_llmConnectionRefresh, timeout]).finally(run);
+    Promise.race([Promise.allSettled(pendingStartupContext), timeout]).finally(
+      run,
+    );
     return;
   }
   if (typeof queueMicrotask === "function") {

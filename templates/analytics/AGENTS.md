@@ -65,6 +65,18 @@ details live in `.agents/skills/`.
 - For shipped dashboard templates, call `list-dashboard-templates` first, then
   `install-dashboard-template` with the selected `templateId`. Do not recreate a
   catalog template by hand unless the user asks for a custom variant.
+- For dashboard edits, default to `mutate-dashboard` with its typed
+  `dashboard.*` script API. It supports id-based panel moves, title/SQL/config
+  edits, inserts, duplication, removal, and dashboard field patches in one
+  atomic save. The main payload is a string, so it avoids native-array
+  serialization traps. The script is constrained: only documented dashboard
+  method calls with JSON-compatible arguments are parsed; variables, imports,
+  loops, functions, network, filesystem, and DB access are not available.
+- Do not count shifting `/panels/<index>` values for ordinary dashboard edit
+  requests. Use low-level JSON-pointer edits only when explicitly requested.
+- `get-sql-dashboard` is compact by default for agents. Use its `panels`
+  summaries and `layout.panelOrder` / `layout.firstPanelIds` for orientation and
+  proof. Pass `includeConfig: true` only when full panel SQL/config is needed.
 - Native dashboards and saved analyses are constrained artifacts. If a requested
   dashboard, analysis surface, visualization, interaction model, custom layout,
   or bespoke workflow cannot be done faithfully with the built-in dashboard JSON

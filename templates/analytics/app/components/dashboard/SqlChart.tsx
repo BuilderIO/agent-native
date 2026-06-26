@@ -89,6 +89,16 @@ const CHART_TOOLTIP_PROPS = {
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
 } as const;
 
+const BAR_TOOLTIP_CURSOR_PROPS = {
+  fill: "hsl(var(--muted))",
+  fillOpacity: 0.32,
+  stroke: "hsl(var(--border))",
+  strokeOpacity: 0.5,
+  strokeWidth: 1,
+  rx: 4,
+  ry: 4,
+} as const;
+
 const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
   fontSize: 11,
   paddingTop: 8,
@@ -1536,6 +1546,7 @@ function BarRenderer({
           />
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
+            cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xLabelFormatter}
             content={
               <ChartTooltip

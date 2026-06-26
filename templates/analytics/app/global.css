@@ -193,6 +193,48 @@
   box-shadow: none;
 }
 
+.an-replay-stage-root iframe {
+  display: block;
+  border: 0;
+}
+
+.an-replay-stage-root .replayer-wrapper {
+  transform-origin: top left;
+}
+
+.an-replay-scrub {
+  height: 0.25rem;
+  appearance: none;
+  border-radius: 9999px;
+  outline: none;
+  background: hsl(var(--muted));
+  cursor: pointer;
+}
+
+.an-replay-scrub:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.an-replay-scrub::-webkit-slider-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  appearance: none;
+  border: 2px solid hsl(var(--background));
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 0 1px hsl(var(--border));
+}
+
+.an-replay-scrub::-moz-range-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid hsl(var(--background));
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 0 1px hsl(var(--border));
+}
+
 .dark
   .analytics-chat-panel
   [data-agent-empty-state="centered"]
@@ -317,12 +359,12 @@
    when the agent sidebar is open — not the viewport. Rows are rendered
    explicitly so deleting a card only expands the remaining cards in that row. */
 .dashboard-grid-container {
+  --dashboard-drop-line: hsl(217 91% 60%);
   container: dashboard-grid / inline-size;
 }
 
 .dashboard-grid {
   --dashboard-grid-gap: 1rem;
-  --dashboard-drop-line: hsl(217 91% 60%);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -338,17 +380,17 @@
 .dashboard-column-drop-slot {
   position: relative;
   z-index: 30;
-  flex: 0 0 1rem;
+  flex: 0 0 1.5rem;
 }
 
 .dashboard-row-drop-slot {
-  height: 1rem;
-  margin-block: -0.125rem;
+  height: 1.5rem;
+  margin-block: -0.25rem;
 }
 
 .dashboard-column-drop-slot {
-  height: 1rem;
-  margin-block: -0.5rem;
+  height: 1.5rem;
+  margin-block: -0.75rem;
 }
 
 .dashboard-row-drop-slot::after,
@@ -367,13 +409,42 @@
   left: 0;
   right: 0;
   top: 50%;
-  height: 2px;
+  height: 3px;
   transform: translateY(-50%);
 }
 
 .dashboard-row-drop-slot[data-active="true"]::after,
 .dashboard-column-drop-slot[data-active="true"]::after {
   opacity: 1;
+}
+
+.dashboard-chart-card[data-dragging="true"],
+.dashboard-section-card[data-dragging="true"] {
+  opacity: 0.55;
+}
+
+.dashboard-grid-container[data-dashboard-dragging="true"] .dashboard-grid-cell,
+.dashboard-grid-container[data-dashboard-dragging="true"]
+  .dashboard-section-cell,
+.dashboard-grid-container[data-dashboard-dragging="true"]
+  .dashboard-chart-content {
+  pointer-events: none;
+}
+
+.dashboard-grid-container[data-dashboard-dragging="true"]
+  .dashboard-row-drop-slot,
+.dashboard-grid-container[data-dashboard-dragging="true"]
+  .dashboard-column-drop-slot {
+  pointer-events: auto;
+}
+
+.explorer-dashboard-grid [data-dragging="true"] {
+  opacity: 0.55;
+}
+
+.explorer-dashboard-grid[data-dashboard-dragging="true"]
+  .explorer-dashboard-chart-content {
+  pointer-events: none;
 }
 
 @container dashboard-grid (min-width: 768px) {
@@ -389,10 +460,10 @@
 
   .dashboard-column-drop-slot {
     align-self: stretch;
-    width: 1rem;
+    width: 1.5rem;
     height: auto;
     margin-block: 0;
-    margin-inline: -0.5rem;
+    margin-inline: -0.75rem;
   }
 
   .dashboard-column-drop-slot::after {
@@ -400,7 +471,7 @@
     bottom: 0;
     left: 50%;
     right: auto;
-    width: 2px;
+    width: 3px;
     height: auto;
     transform: translateX(-50%);
   }

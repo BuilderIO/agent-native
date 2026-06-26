@@ -26,8 +26,40 @@ export type DashboardDropSlot =
       columnIndex: number;
     };
 
+export type DashboardPointerCoordinates = {
+  x: number;
+  y: number;
+};
+
+export type DashboardClientRect = {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+};
+
 function rowKey(panels: SqlPanel[], index: number): string {
   return panels.map((panel) => panel.id).join(":") || `empty-${index}`;
+}
+
+export function distanceFromPointerToRect(
+  pointer: DashboardPointerCoordinates,
+  rect: DashboardClientRect,
+): number {
+  const dx =
+    pointer.x < rect.left
+      ? rect.left - pointer.x
+      : pointer.x > rect.right
+        ? pointer.x - rect.right
+        : 0;
+  const dy =
+    pointer.y < rect.top
+      ? rect.top - pointer.y
+      : pointer.y > rect.bottom
+        ? pointer.y - rect.bottom
+        : 0;
+
+  return Math.hypot(dx, dy);
 }
 
 export function rebalanceRowWidths(
