@@ -19,16 +19,20 @@
 import { sql } from "drizzle-orm";
 import {
   pgTable,
+  index as pgIndex,
   text as pgText,
   integer as pgInteger,
   boolean as pgBoolean,
   doublePrecision as pgDoublePrecision,
+  uniqueIndex as pgUniqueIndex,
 } from "drizzle-orm/pg-core";
 import {
   sqliteTable,
+  index as sqliteIndex,
   text as sqliteText,
   integer as sqliteInteger,
   real as sqliteReal,
+  uniqueIndex as sqliteUniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 import { getDialect } from "./client.js";
@@ -45,6 +49,14 @@ function pg(): boolean {
  */
 export const table: typeof sqliteTable = ((...args: any[]) =>
   pg() ? (pgTable as any)(...args) : (sqliteTable as any)(...args)) as any;
+
+export const index: typeof sqliteIndex = ((...args: any[]) =>
+  pg() ? (pgIndex as any)(...args) : (sqliteIndex as any)(...args)) as any;
+
+export const uniqueIndex: typeof sqliteUniqueIndex = ((...args: any[]) =>
+  pg()
+    ? (pgUniqueIndex as any)(...args)
+    : (sqliteUniqueIndex as any)(...args)) as any;
 
 /**
  * Text column. Works identically in both dialects.

@@ -179,6 +179,7 @@ const AGENT_PANEL_ROOT_STYLE = {
 } satisfies React.CSSProperties;
 type AgentPanelStyle = React.CSSProperties & {
   "--agent-sidebar-closed-transform"?: string;
+  "--agent-sidebar-inner-closed-transform"?: string;
   "--agent-sidebar-width"?: string;
 };
 const AGENT_PANEL_HEADER_CLASS =
@@ -383,11 +384,15 @@ export function shouldShowAgentPanelChatTabBar(
 }
 
 export function shouldShowAgentPanelPageNewChatButton(
-  _tabs: MultiTabAssistantChatHeaderProps["tabs"],
+  tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
-  _activeTabMessageCount: number,
+  activeTabMessageCount: number,
 ) {
-  return Boolean(activeTabId);
+  if (!activeTabId) return false;
+  if (activeTabMessageCount > 0) return true;
+
+  const activeTab = tabs.find((tab) => tab.id === activeTabId);
+  return activeTab?.status === "running" || activeTab?.status === "completed";
 }
 
 export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
@@ -2849,6 +2854,7 @@ export function AgentSidebar({
     panelStyle = {
       ...AGENT_PANEL_ROOT_STYLE,
       "--agent-sidebar-width": `${width}px`,
+      "--agent-sidebar-inner-closed-transform": `translateX(${isLeft ? "-" : ""}100%)`,
       width: desktopAnimationEnabled ? undefined : width,
       maxHeight: "100vh",
       borderLeft:
@@ -2894,21 +2900,23 @@ export function AgentSidebar({
         inert={sidebarAnimationEnabled && !panelOpen ? true : undefined}
         aria-hidden={sidebarAnimationEnabled && !panelOpen ? true : undefined}
       >
-        <AgentPanel
-          emptyStateText={emptyStateText}
-          suggestions={suggestions}
-          dynamicSuggestions={dynamicSuggestions}
-          missingApiKeySetupLayout="sidebar"
-          onCollapse={() => setOpenPersisted(false)}
-          isFullscreen={effectiveFullscreen}
-          onToggleFullscreen={
-            isMobile ? undefined : (onFullscreenRequest ?? toggleFullscreen)
-          }
-          storageKey={storageKey}
-          scope={scope}
-          browserTabId={browserTabId}
-          threadUrlSync={threadUrlSync}
-        />
+        <div className="agent-sidebar-panel-inner flex min-h-0 flex-1 flex-col">
+          <AgentPanel
+            emptyStateText={emptyStateText}
+            suggestions={suggestions}
+            dynamicSuggestions={dynamicSuggestions}
+            missingApiKeySetupLayout="sidebar"
+            onCollapse={() => setOpenPersisted(false)}
+            isFullscreen={effectiveFullscreen}
+            onToggleFullscreen={
+              isMobile ? undefined : (onFullscreenRequest ?? toggleFullscreen)
+            }
+            storageKey={storageKey}
+            scope={scope}
+            browserTabId={browserTabId}
+            threadUrlSync={threadUrlSync}
+          />
+        </div>
       </div>
       {showResizeHandle && isLeft && (
         <ResizeHandle position={position} onDrag={handleDrag} />

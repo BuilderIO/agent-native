@@ -58,10 +58,13 @@ describe("AgentPanel header tab visibility", () => {
     expect(shouldShowAgentPanelCliTabBar(["cli-1", "cli-2"])).toBe(true);
   });
 
-  it("shows the page new-chat button when there is an active chat", () => {
+  it("hides the page new-chat button for a brand-new empty chat", () => {
     expect(
       shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 0),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("shows the page new-chat button when there is an active chat", () => {
     expect(
       shouldShowAgentPanelPageNewChatButton([chatTab("main")], "main", 1),
     ).toBe(true);

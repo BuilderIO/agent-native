@@ -1,0 +1,355 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const recordMock = vi.hoisted(() => vi.fn());
+const sentryMock = vi.hoisted(() => ({
+  init: vi.fn(),
+  setTag: vi.fn(),
+  setUser: vi.fn(),
+}));
+const amplitudeMock = vi.hoisted(() => ({
+  init: vi.fn(),
+  track: vi.fn(),
+}));
+
+vi.mock("@rrweb/record", () => ({ record: recordMock }));
+vi.mock("@sentry/browser", () => sentryMock);
+vi.mock("@amplitude/analytics-browser", () => amplitudeMock);
+
+const replayStateKey = Symbol.for("agent-native.client.sessionReplay");
+const pageviewStateKey = Symbol.for("agent-native.client.pageviewTracking");
+
+async function tick() {
+  await Promise.resolve();
+  await Promise.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function setLocation(
+  location: {
+    href: string;
+    origin: string;
+    hostname: string;
+    pathname: string;
+    search: string;
+    hash: string;
+  },
+  next: string,
+) {
+  const url = new URL(next, location.href);
+  location.href = url.href;
+  location.origin = url.origin;
+  location.hostname = url.hostname;
+  location.pathname = url.pathname;
+  location.search = url.search;
+  location.hash = url.hash;
+}
+
+function installBrowser(url = "https://app.agent-native.com/inbox") {
+  const parsed = new URL(url);
+  const storage = new Map<string, string>();
+  const location = {
+    href: parsed.href,
+    origin: parsed.origin,
+    hostname: parsed.hostname,
+    pathname: parsed.pathname,
+    search: parsed.search,
+    hash: parsed.hash,
+  };
+  const windowListeners = new Map<string, Set<() => void>>();
+  const documentListeners = new Map<string, Set<() => void>>();
+  const addWindowListener = (event: string, listener: () => void) => {
+    const set = windowListeners.get(event) ?? new Set();
+    set.add(listener);
+    windowListeners.set(event, set);
+  };
+  const removeWindowListener = (event: string, listener: () => void) => {
+    windowListeners.get(event)?.delete(listener);
+  };
+  const addDocumentListener = (event: string, listener: () => void) => {
+    const set = documentListeners.get(event) ?? new Set();
+    set.add(listener);
+    documentListeners.set(event, set);
+  };
+  const removeDocumentListener = (event: string, listener: () => void) => {
+    documentListeners.get(event)?.delete(listener);
+  };
+  const history = {
+    pushState: vi.fn((_state: unknown, _title: string, next?: string | URL) => {
+      if (next !== undefined) setLocation(location, String(next));
+    }),
+    replaceState: vi.fn(
+      (_state: unknown, _title: string, next?: string | URL) => {
+        if (next !== undefined) setLocation(location, String(next));
+      },
+    ),
+  };
+  const localStorage = {
+    getItem: vi.fn((key: string) => storage.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      storage.set(key, value);
+    }),
+    removeItem: vi.fn((key: string) => {
+      storage.delete(key);
+    }),
+  };
+  vi.stubGlobal("window", {
+    location,
+    history,
+    localStorage,
+    gtag: vi.fn(),
+    addEventListener: vi.fn(addWindowListener),
+    removeEventListener: vi.fn(removeWindowListener),
+    setInterval,
+    clearInterval,
+    setTimeout,
+    clearTimeout,
+  });
+  vi.stubGlobal("document", {
+    referrer: "",
+    title: "Inbox",
+    visibilityState: "visible",
+    addEventListener: vi.fn(addDocumentListener),
+    removeEventListener: vi.fn(removeDocumentListener),
+    cookie: "",
+  });
+  vi.stubGlobal("navigator", { sendBeacon: vi.fn(() => false) });
+  let idCounter = 0;
+  vi.stubGlobal("crypto", {
+    randomUUID: vi.fn(() => `00000000-0000-4000-8000-${++idCounter}`),
+  });
+  const fetchMock = vi.fn(async () => new Response("{}"));
+  vi.stubGlobal("fetch", fetchMock);
+  return { fetchMock, history, location, storage };
+}
+
+async function freshSessionReplay() {
+  vi.resetModules();
+  return import("./session-replay.js");
+}
+
+describe("session replay", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    delete (globalThis as any)[replayStateKey];
+    delete (globalThis as any)[pageviewStateKey];
+    recordMock.mockReset();
+    sentryMock.init.mockReset();
+    sentryMock.setTag.mockReset();
+    sentryMock.setUser.mockReset();
+    amplitudeMock.init.mockReset();
+    amplitudeMock.track.mockReset();
+  });
+
+  it("does not import or start rrweb from configureTracking unless replay is enabled", async () => {
+    installBrowser();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await import("./analytics.js");
+
+    configureTracking({});
+    await tick();
+
+    expect(recordMock).not.toHaveBeenCalled();
+  });
+
+  it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
+    const { fetchMock } = installBrowser(
+      "https://app.agent-native.com/inbox?code=secret&keep=1",
+    );
+    let recordOptions: any;
+    const stop = vi.fn();
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return stop;
+    });
+    const { startSessionReplay, stopSessionReplay } =
+      await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+      extraProperties: { route: "/inbox?token=private" },
+    });
+
+    expect(result).toMatchObject({ started: true, sampled: true });
+    expect(recordOptions).toMatchObject({
+      blockSelector: expect.stringContaining("[data-an-private]"),
+      maskTextClass: "an-mask",
+      maskTextSelector: "[data-an-mask]",
+      maskAllInputs: true,
+      recordCanvas: false,
+      recordCrossOriginIframes: false,
+      collectFonts: false,
+      inlineImages: false,
+    });
+
+    recordOptions.emit({
+      type: 3,
+      data: {
+        href: "https://app.agent-native.com/path?token=secret&ok=1",
+        source: "/oauth/callback?code=private",
+      },
+    });
+    await tick();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://analytics.example.test/session-replay");
+    expect(url).not.toContain("anpk_test");
+    expect(init.headers).toMatchObject({
+      "Content-Type": "text/plain;charset=UTF-8",
+      "X-Agent-Native-Analytics-Key": "anpk_test",
+    });
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({
+      publicKey: "anpk_test",
+      type: "session_replay",
+      reason: "max-events",
+      sequence: 0,
+      url: "https://app.agent-native.com/inbox?code=%3Credacted%3E&keep=1",
+      properties: { route: "/inbox?token=%3Credacted%3E" },
+    });
+    expect(body.events[0].data.href).toBe(
+      "https://app.agent-native.com/path?token=%3Credacted%3E&ok=1",
+    );
+    expect(body.events[0].data.source).toBe(
+      "/oauth/callback?code=%3Credacted%3E",
+    );
+
+    stopSessionReplay();
+    expect(stop).toHaveBeenCalled();
+  });
+
+  it("continues replay sequence across reloads for the same replay id", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return vi.fn();
+    });
+    const endpoint = "https://analytics.example.test/session-replay";
+    const first = await freshSessionReplay();
+
+    await first.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint,
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions[0].emit({ type: 3, data: { href: "/first" } });
+    await tick();
+    first.stopSessionReplay();
+    await tick();
+
+    delete (globalThis as any)[replayStateKey];
+    const second = await freshSessionReplay();
+    await second.startSessionReplay({
+      publicKey: "anpk_test",
+      endpoint,
+      maxEventsPerBatch: 1,
+      flushIntervalMs: 100_000,
+    });
+    recordOptions[1].emit({ type: 3, data: { href: "/second" } });
+    await tick();
+    second.stopSessionReplay();
+
+    const bodies = fetchMock.mock.calls.map(([, init]) =>
+      JSON.parse(String((init as RequestInit).body)),
+    );
+    expect(bodies.map((body) => body.sequence)).toEqual([0, 1]);
+    expect(new Set(bodies.map((body) => body.replayId)).size).toBe(1);
+  });
+
+  it("blocks disallowed URLs before importing the recorder", async () => {
+    installBrowser("https://app.agent-native.com/settings/billing");
+    const { startSessionReplay } = await freshSessionReplay();
+
+    const result = await startSessionReplay({
+      publicKey: "anpk_test",
+      blockUrls: ["/settings/billing"],
+    });
+
+    expect(result).toMatchObject({ started: false, reason: "url-blocked" });
+    expect(recordMock).not.toHaveBeenCalled();
+  });
+
+  it("derives the replay endpoint from the first-party analytics endpoint env", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/api/analytics/track",
+    );
+    vi.stubEnv("VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE", "1");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    const { startSessionReplay, stopSessionReplay } =
+      await freshSessionReplay();
+
+    await startSessionReplay();
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    stopSessionReplay();
+    await tick();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://analytics.example.test/api/analytics/replay",
+    );
+  });
+
+  it("derives replay defaults from configureTracking key and endpoint", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    vi.resetModules();
+    const { configureTracking, stopSessionReplay } =
+      await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    expect(recordOptions).toBeDefined();
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    await stopSessionReplay();
+    await tick();
+
+    const replayCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    expect(replayCalls).toHaveLength(1);
+    const [url, init] = replayCalls[0] as [string, RequestInit];
+    expect(url).toBe("https://analytics.example.test/api/analytics/replay");
+    expect(init.headers).toMatchObject({
+      "X-Agent-Native-Analytics-Key": "anpk_configured",
+    });
+  });
+
+  it("uses deterministic per-session sampling", async () => {
+    const { shouldSampleSessionReplay, getSessionReplaySamplingScore } =
+      await freshSessionReplay();
+
+    const score = getSessionReplaySamplingScore("session-1", "salt-a");
+    expect(getSessionReplaySamplingScore("session-1", "salt-a")).toBe(score);
+    expect(shouldSampleSessionReplay("session-1", 0, "salt-a")).toBe(false);
+    expect(shouldSampleSessionReplay("session-1", 1, "salt-a")).toBe(true);
+    expect(
+      shouldSampleSessionReplay("session-1", score + 0.001, "salt-a"),
+    ).toBe(true);
+    expect(
+      shouldSampleSessionReplay("session-1", score - 0.001, "salt-a"),
+    ).toBe(false);
+  });
+});

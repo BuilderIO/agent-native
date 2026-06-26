@@ -243,21 +243,30 @@ describe("compose-dashboard", () => {
       );
       expect(panel.sql).not.toContain("NULLIF(user_id, '') IS NOT NULL");
       expect(panel.sql).toContain("NULLIF(user_key");
+      expect(panel.sql).toContain("lower(COALESCE");
       expect(panel.sql).toContain("<> 'docs'");
     }
   });
 
   it("smooths retention panels with rolling minimum-size cohorts", () => {
-    for (const metric of [
-      "retention-over-time",
-      "one-day-retention-by-template",
-      "seven-day-retention-by-template",
-    ]) {
-      const panel = buildPanel(metric)!;
-      expect(panel.title).toContain("7d Rolling");
-      expect(panel.sql).toContain("cohort_windows");
-      expect(panel.sql).toContain("cs.users >= 5");
-    }
+    const overall = buildPanel("retention-over-time")!;
+    expect(overall.title).toContain("7d Rolling");
+    expect(overall.chartType).toBe("line");
+    expect(overall.sql).toContain("cohort_windows");
+    expect(overall.sql).toContain("cs.users >= 5");
+    expect(overall.sql).toContain("'1-7d return'");
+    expect(overall.sql).toContain("'7-14d return'");
+    expect(overall.sql).toContain("b.event_date > cw.cohort_date");
+
+    const byTemplate = buildPanel("one-day-retention-by-template")!;
+    expect(byTemplate.chartType).toBe("bar");
+    expect(byTemplate.title).not.toContain("Rolling");
+    expect(byTemplate.title).toContain("Starting Template");
+    expect(byTemplate.sql).toContain("ROW_NUMBER() OVER");
+    expect(byTemplate.sql).toContain("cohorts AS");
+    expect(byTemplate.sql).toContain("users >= 20");
+    expect(byTemplate.sql).not.toContain("b.template = cw.template");
+    expect(byTemplate.sql).not.toContain("cohort_windows");
   });
 
   it("adds shared filters when appending filtered panels to an existing dashboard", async () => {

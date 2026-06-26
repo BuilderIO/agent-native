@@ -114,13 +114,14 @@ function fixed(sql: string): (window?: MetricWindow) => string {
 const TEMPLATE_EXPR =
   "COALESCE(NULLIF(template, ''), NULLIF(properties::jsonb ->> 'templateId', ''), NULLIF(properties::jsonb ->> 'agent_native_template', ''), NULLIF(properties::jsonb ->> 'agentNativeTemplate', ''), NULLIF(app, ''), NULLIF(properties::jsonb ->> 'agent_native_app', ''), NULLIF(properties::jsonb ->> 'agentNativeApp', ''), 'unknown')";
 const KNOWN_TEMPLATE_FILTER = `${TEMPLATE_EXPR} <> 'unknown'`;
-const PRODUCT_ACTIVITY_TEMPLATE_FILTER = `${TEMPLATE_EXPR} <> 'docs'`;
+const PRODUCT_ACTIVITY_TEMPLATE_FILTER = `lower(${TEMPLATE_EXPR}) <> 'docs'`;
 const KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER = `${KNOWN_TEMPLATE_FILTER} AND ${PRODUCT_ACTIVITY_TEMPLATE_FILTER}`;
 const EVENT_DATE_SQL = "event_date";
 const EVENT_DATE_FILTER_SQL = EVENT_DATE_SQL;
 const USER_KEY_SQL = "NULLIF(user_key, '')";
 const RETENTION_ROLLING_DAYS = 7;
 const RETENTION_MIN_COHORT_SIZE = 5;
+const PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE = 20;
 
 function daysAgoSql(days: number): string {
   const unit = days === 1 ? "day" : "days";
@@ -131,8 +132,11 @@ function windowStartFilter(days: number): string {
   return `${EVENT_DATE_SQL} >= ${daysAgoSql(days)}`;
 }
 
-function rollingWindowStartSql(anchorExpr = "a.date"): string {
-  return `to_char(${anchorExpr}::date - INTERVAL '${RETENTION_ROLLING_DAYS - 1} days', 'YYYY-MM-DD')`;
+function rollingWindowStartSql(
+  anchorExpr = "a.date",
+  rollingDays = RETENTION_ROLLING_DAYS,
+): string {
+  return `to_char(${anchorExpr}::date - INTERVAL '${rollingDays - 1} days', 'YYYY-MM-DD')`;
 }
 
 function dashboardTimeRangeFilter(dateExpr = EVENT_DATE_FILTER_SQL): string {
@@ -158,6 +162,14 @@ const DASHBOARD_EMAIL_FILTER =
 const SIGNED_IN_ACTIVITY_KEY_SQL = USER_KEY_SQL;
 const SIGNED_IN_ACTIVITY_FILTER = `event_name = 'session status' AND signed_in = 'true' AND ${SIGNED_IN_ACTIVITY_KEY_SQL} IS NOT NULL`;
 const SIGNED_IN_PRODUCT_ACTIVITY_FILTER = `${SIGNED_IN_ACTIVITY_FILTER} AND ${PRODUCT_ACTIVITY_TEMPLATE_FILTER}`;
+const REPLAY_RECORDING_DATE_SQL = "substr(started_at, 1, 10)";
+const REPLAY_TIME_RANGE_FILTER = dashboardTimeRangeFilter(
+  REPLAY_RECORDING_DATE_SQL,
+);
+const REPLAY_RECORDING_FILTER = `chunk_count > 0 AND ${REPLAY_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}`;
+const REPLAY_SESSIONS_SQL = `SELECT COUNT(*) AS count FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER}`;
+const REPLAY_CHUNKS_OVER_TIME_SQL = `SELECT ${REPLAY_RECORDING_DATE_SQL} AS date, SUM(chunk_count) AS count FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER} GROUP BY ${REPLAY_RECORDING_DATE_SQL} ORDER BY date`;
+const RECENT_REPLAY_SESSIONS_SQL = `SELECT id AS recording_id, session_id, COALESCE(NULLIF(app, ''), NULLIF(template, ''), 'unknown') AS app, COALESCE(NULLIF(user_id, ''), NULLIF(user_key, ''), NULLIF(anonymous_id, ''), 'anonymous') AS visitor, chunk_count AS chunks, event_count AS events, started_at, COALESCE(ended_at, last_ingested_at, started_at) AS last_seen, '/sessions/' || id AS href FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER} ORDER BY last_seen DESC LIMIT 25`;
 export const FIRST_PARTY_DASHBOARD_FILTERS: FirstPartyDashboardFilter[] = [
   {
     id: "timeRange",
@@ -199,9 +211,9 @@ export function usesFirstPartyDashboardFilters(sql: string): boolean {
 
 const TOTAL_SIGNUPS_SQL = `SELECT COUNT(*) AS signups FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}`;
 const SIGNUPS_OVER_TIME_SQL = `WITH offsets AS (SELECT (ROW_NUMBER() OVER (ORDER BY ${EVENT_DATE_SQL}) - 1)::int AS n FROM analytics_events LIMIT 800), signup_events AS (SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), bounds AS (SELECT MIN(date::date) AS start_date, MAX(date::date) AS end_date FROM signup_events), dates AS (SELECT to_char(bounds.start_date + offsets.n, 'YYYY-MM-DD') AS date FROM bounds CROSS JOIN offsets WHERE bounds.start_date IS NOT NULL AND bounds.start_date + offsets.n <= bounds.end_date), templates AS (SELECT DISTINCT template FROM signup_events), daily AS (SELECT date, template, COUNT(*) AS count FROM signup_events GROUP BY date, template) SELECT dates.date, templates.template, COALESCE(daily.count, 0) AS count FROM dates CROSS JOIN templates LEFT JOIN daily ON daily.date = dates.date AND daily.template = templates.template ORDER BY dates.date, templates.template`;
-const RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key), anchor_dates AS (SELECT DISTINCT cohort_date AS date FROM first_seen WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_windows AS (SELECT a.date, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date), periods AS (SELECT '1d retention' AS period UNION ALL SELECT '7d retention' AS period), retained AS (SELECT cw.date, '1d retention' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date = to_char(cw.cohort_date::date + INTERVAL '1 day', 'YYYY-MM-DD') GROUP BY cw.date UNION ALL SELECT cw.date, '7d retention' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date = to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY cw.date) SELECT cs.date, p.period, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs CROSS JOIN periods p LEFT JOIN retained r ON r.date = cs.date AND r.period = p.period WHERE cs.users >= ${RETENTION_MIN_COHORT_SIZE} ORDER BY cs.date, p.period`;
-const ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), anchor_dates AS (SELECT DISTINCT cohort_date AS date, template FROM first_seen WHERE cohort_date <= ${daysAgoSql(1)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_windows AS (SELECT a.date, a.template, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.template = a.template AND f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, template, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date, template), retained AS (SELECT cw.date, cw.template, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.template = cw.template AND b.event_date = to_char(cw.cohort_date::date + INTERVAL '1 day', 'YYYY-MM-DD') GROUP BY cw.date, cw.template) SELECT cs.date, cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.date = cs.date AND r.template = cs.template WHERE cs.users >= ${RETENTION_MIN_COHORT_SIZE} ORDER BY cs.date, cs.template`;
-const SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), first_seen AS (SELECT user_key, template, MIN(event_date) AS cohort_date FROM base GROUP BY user_key, template), anchor_dates AS (SELECT DISTINCT cohort_date AS date, template FROM first_seen WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_windows AS (SELECT a.date, a.template, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.template = a.template AND f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, template, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date, template), retained AS (SELECT cw.date, cw.template, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.template = cw.template AND b.event_date = to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY cw.date, cw.template) SELECT cs.date, cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.date = cs.date AND r.template = cs.template WHERE cs.users >= ${RETENTION_MIN_COHORT_SIZE} ORDER BY cs.date, cs.template`;
+const RETENTION_OVER_TIME_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_PRODUCT_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER}), first_seen AS (SELECT user_key, MIN(event_date) AS cohort_date FROM base GROUP BY user_key), anchor_dates AS (SELECT DISTINCT cohort_date AS date FROM first_seen WHERE cohort_date <= ${daysAgoSql(14)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_windows AS (SELECT a.date, f.user_key, f.cohort_date FROM anchor_dates a JOIN first_seen f ON f.cohort_date >= ${rollingWindowStartSql()} AND f.cohort_date <= a.date), cohort_sizes AS (SELECT date, COUNT(DISTINCT user_key) AS users FROM cohort_windows GROUP BY date), periods AS (SELECT '1-7d return' AS period UNION ALL SELECT '7-14d return' AS period), retained AS (SELECT cw.date, '1-7d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date > cw.cohort_date AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY cw.date UNION ALL SELECT cw.date, '7-14d return' AS period, COUNT(DISTINCT cw.user_key) AS retained FROM cohort_windows cw JOIN base b ON b.user_key = cw.user_key AND b.event_date >= to_char(cw.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(cw.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY cw.date) SELECT cs.date, p.period, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs CROSS JOIN periods p LEFT JOIN retained r ON r.date = cs.date AND r.period = p.period WHERE cs.users >= ${RETENTION_MIN_COHORT_SIZE} ORDER BY cs.date, p.period`;
+const ONE_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen AS (SELECT user_key, template, event_date AS cohort_date, ROW_NUMBER() OVER (PARTITION BY user_key ORDER BY event_date, template) AS rn FROM base), first_seen AS (SELECT user_key, template, cohort_date FROM ranked_first_seen WHERE rn = 1), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(7)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_sizes AS (SELECT template, COUNT(DISTINCT user_key) AS users FROM cohorts GROUP BY template), retained AS (SELECT c.template, COUNT(DISTINCT c.user_key) AS retained FROM cohorts c JOIN base b ON b.user_key = c.user_key AND b.event_date > c.cohort_date AND b.event_date <= to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') GROUP BY c.template) SELECT cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.template = cs.template WHERE cs.users >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cs.users DESC, cs.template`;
+const SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS user_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER}), ranked_first_seen AS (SELECT user_key, template, event_date AS cohort_date, ROW_NUMBER() OVER (PARTITION BY user_key ORDER BY event_date, template) AS rn FROM base), first_seen AS (SELECT user_key, template, cohort_date FROM ranked_first_seen WHERE rn = 1), cohorts AS (SELECT user_key, template, cohort_date FROM first_seen WHERE cohort_date <= ${daysAgoSql(14)} AND ${dashboardTimeRangeFilter("cohort_date")}), cohort_sizes AS (SELECT template, COUNT(DISTINCT user_key) AS users FROM cohorts GROUP BY template), retained AS (SELECT c.template, COUNT(DISTINCT c.user_key) AS retained FROM cohorts c JOIN base b ON b.user_key = c.user_key AND b.event_date >= to_char(c.cohort_date::date + INTERVAL '7 days', 'YYYY-MM-DD') AND b.event_date <= to_char(c.cohort_date::date + INTERVAL '14 days', 'YYYY-MM-DD') GROUP BY c.template) SELECT cs.template, COALESCE(r.retained, 0) AS retained_users, cs.users AS cohort_users, COALESCE(r.retained::float / NULLIF(cs.users, 0), 0) AS rate FROM cohort_sizes cs LEFT JOIN retained r ON r.template = cs.template WHERE cs.users >= ${PER_TEMPLATE_RETENTION_MIN_COHORT_SIZE} ORDER BY rate DESC, cs.users DESC, cs.template`;
 const SIGNUPS_BY_TEMPLATE_SQL = `SELECT ${TEMPLATE_EXPR} AS template, COUNT(*) AS count FROM analytics_events WHERE event_name = 'signup' AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} GROUP BY ${TEMPLATE_EXPR} ORDER BY count DESC`;
 const DAU_BY_TEMPLATE_SQL = `SELECT ${EVENT_DATE_SQL} AS date, ${TEMPLATE_EXPR} AS template, COUNT(DISTINCT ${SIGNED_IN_ACTIVITY_KEY_SQL}) AS visitors FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} GROUP BY ${EVENT_DATE_SQL}, ${TEMPLATE_EXPR} ORDER BY date, template`;
 const WAU_BY_TEMPLATE_SQL = `WITH base AS (SELECT ${SIGNED_IN_ACTIVITY_KEY_SQL} AS visitor_key, ${TEMPLATE_EXPR} AS template, ${EVENT_DATE_SQL} AS event_date, user_id FROM analytics_events WHERE ${SIGNED_IN_ACTIVITY_FILTER} AND ${DASHBOARD_EMAIL_FILTER} AND ${KNOWN_PRODUCT_ACTIVITY_TEMPLATE_FILTER} AND ${DASHBOARD_WAU_BASE_RANGE_FILTER}), days AS (SELECT DISTINCT event_date AS date FROM base WHERE ${DASHBOARD_EVENT_DATE_RANGE_FILTER}) SELECT d.date, b.template, COUNT(DISTINCT b.visitor_key) AS visitors FROM days d JOIN base b ON b.event_date >= to_char(d.date::date - INTERVAL '6 days', 'YYYY-MM-DD') AND b.event_date <= d.date GROUP BY d.date, b.template ORDER BY d.date, b.template`;
@@ -294,6 +306,64 @@ const ENTRIES: FirstPartyMetric[] = [
       `SELECT ${EVENT_DATE_SQL} AS date, COUNT(*) AS count FROM analytics_events WHERE event_name = 'session status' GROUP BY ${EVENT_DATE_SQL} ORDER BY date`,
     ),
     config: { xKey: "date", yKey: "count", color: "#10b981" },
+  },
+  {
+    key: "replay-sessions",
+    title: "Replay Sessions",
+    chartType: "metric",
+    source: "first-party",
+    width: 1,
+    windowed: false,
+    buildSql: fixed(REPLAY_SESSIONS_SQL),
+    config: {
+      yKey: "count",
+      yFormatter: "number",
+      description: "Distinct sessions with recorded replay chunks.",
+    },
+  },
+  {
+    key: "replay-chunks-over-time",
+    title: "Replay Chunks Over Time",
+    chartType: "area",
+    source: "first-party",
+    width: 1,
+    windowed: false,
+    buildSql: fixed(REPLAY_CHUNKS_OVER_TIME_SQL),
+    config: {
+      xKey: "date",
+      yKey: "count",
+      yFormatter: "number",
+      color: "#6366f1",
+      description: "Replay chunk events captured per day.",
+    },
+  },
+  {
+    key: "recent-replay-sessions",
+    title: "Recent Replay Sessions",
+    chartType: "table",
+    source: "first-party",
+    width: 2,
+    windowed: false,
+    buildSql: fixed(RECENT_REPLAY_SESSIONS_SQL),
+    config: {
+      description:
+        "Recent first-party sessions with replay chunks. Session links open the local replay viewer.",
+      sortable: true,
+      limit: 25,
+      columns: [
+        {
+          key: "session_id",
+          label: "Session",
+          format: "link",
+          linkKey: "href",
+        },
+        { key: "app", label: "App" },
+        { key: "visitor", label: "Visitor" },
+        { key: "chunks", label: "Chunks", format: "number" },
+        { key: "last_seen", label: "Last seen", format: "date" },
+        { key: "href", hidden: true },
+      ],
+    },
   },
   {
     key: "signed-in-vs-anon",
@@ -588,7 +658,7 @@ const ENTRIES: FirstPartyMetric[] = [
   },
   {
     key: "retention-over-time",
-    title: "7d Rolling Signed-In Retention",
+    title: "7d Rolling Signed-In Return Rate",
     chartType: "line",
     source: "first-party",
     width: 3,
@@ -605,49 +675,51 @@ const ENTRIES: FirstPartyMetric[] = [
       },
       colors: ["#10b981", "#8b5cf6"],
       description:
-        "Trailing 7-day first-seen signed-in app session cohorts, keyed by browser identity. Docs traffic is excluded; windows under 5 identities are hidden.",
+        "Trailing 7-day first-seen signed-in app session cohorts, keyed by browser identity. Counts returns within 1-7d and 7-14d windows. Docs traffic is excluded; windows under 5 identities are hidden.",
     },
   },
   {
     key: "one-day-retention-by-template",
-    title: "7d Rolling 1d Signed-In Retention by Template",
-    chartType: "line",
+    title: "1-7d Signed-In Return by Starting Template",
+    chartType: "bar",
     source: "first-party",
     width: 2,
     windowed: false,
     buildSql: fixed(ONE_DAY_RETENTION_BY_TEMPLATE_SQL),
     config: {
-      xKey: "date",
+      xKey: "template",
       yKey: "rate",
       yFormatter: "percent",
-      pivot: {
-        xKey: "date",
-        seriesKey: "template",
-        valueKey: "rate",
-      },
+      columns: [
+        { key: "template", label: "Starting template" },
+        { key: "rate", label: "Return rate", format: "percent" },
+        { key: "retained_users", label: "Returned", format: "number" },
+        { key: "cohort_users", label: "Cohort", format: "number" },
+      ],
       description:
-        "Trailing 7-day per-template signed-in app session cohorts. Docs traffic is excluded; a browser identity is retained when it returns signed in to the same template the next day. Windows under 5 identities are hidden.",
+        "Selected-range signed-in cohorts by the browser identity's first non-docs app/template. Counts returns to any non-docs app within 1-7 days. Templates with fewer than 20 mature cohort identities are hidden.",
     },
   },
   {
     key: "seven-day-retention-by-template",
-    title: "7d Rolling 7d Signed-In Retention by Template",
-    chartType: "line",
+    title: "7-14d Signed-In Return by Starting Template",
+    chartType: "bar",
     source: "first-party",
     width: 2,
     windowed: false,
     buildSql: fixed(SEVEN_DAY_RETENTION_BY_TEMPLATE_SQL),
     config: {
-      xKey: "date",
+      xKey: "template",
       yKey: "rate",
       yFormatter: "percent",
-      pivot: {
-        xKey: "date",
-        seriesKey: "template",
-        valueKey: "rate",
-      },
+      columns: [
+        { key: "template", label: "Starting template" },
+        { key: "rate", label: "Return rate", format: "percent" },
+        { key: "retained_users", label: "Returned", format: "number" },
+        { key: "cohort_users", label: "Cohort", format: "number" },
+      ],
       description:
-        "Trailing 7-day per-template signed-in app session cohorts. Docs traffic is excluded; a browser identity is retained when it returns signed in to the same template seven days later. Windows under 5 identities are hidden.",
+        "Selected-range signed-in cohorts by the browser identity's first non-docs app/template. Counts returns to any non-docs app within 7-14 days. Templates with fewer than 20 mature cohort identities are hidden.",
     },
   },
   {

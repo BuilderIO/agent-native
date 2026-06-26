@@ -398,6 +398,7 @@ export {
   sendEmail,
   isEmailConfigured,
   getEmailProvider,
+  type EmailAttachment,
   type EmailProvider,
   type SendEmailArgs,
 } from "./email.js";

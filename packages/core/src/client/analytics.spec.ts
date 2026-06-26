@@ -180,6 +180,26 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("accepts the first-party public key and endpoint at configure time", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+    });
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(1);
+    const [url, init] = analyticsCalls[0];
+    expect(url).toBe("https://analytics.example.test/api/analytics/track");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      publicKey: "anpk_configured",
+      event: "pageview",
+    });
+  });
+
   it("tracks client-side URL changes once per URL", async () => {
     const { history } = installBrowser();
     const { analyticsCalls } = installFetch();

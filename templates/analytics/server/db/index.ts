@@ -25,3 +25,15 @@ registerShareableResource({
   getResourcePath: (analysis) => `/analyses/${analysis.id}`,
   getDb,
 });
+
+registerShareableResource({
+  type: "session-recording",
+  resourceTable: schema.sessionRecordings,
+  sharesTable: schema.sessionRecordingShares,
+  displayName: "Session recording",
+  titleColumn: "sessionId",
+  getResourcePath: (recording) => `/sessions/${recording.id}`,
+  allowPublic: false,
+  requireOrgMemberForUserShares: true,
+  getDb,
+});
