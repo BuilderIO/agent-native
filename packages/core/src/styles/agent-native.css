@@ -107,6 +107,13 @@
   border-inline-end-color: transparent !important;
 }
 
+.agent-layout-shell
+  .agent-layout-left-drawer
+  > :where(.border-e, .border-r):first-child {
+  border-inline-end-color: transparent !important;
+  border-right-color: transparent !important;
+}
+
 .agent-sidebar-panel > .agent-sidebar-panel-inner {
   background: inherit;
 }
@@ -122,6 +129,7 @@
   background: hsl(var(--background));
   transition:
     border-radius 260ms cubic-bezier(0.32, 0.72, 0, 1),
+    border-color 260ms cubic-bezier(0.32, 0.72, 0, 1),
     box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
