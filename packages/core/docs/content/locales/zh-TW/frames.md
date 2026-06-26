@@ -5,20 +5,20 @@ description: "本機開發框架、嵌入式代理面板和雲端框架 - AI 代
 
 # 框架
 
-每個代理本機應用程式都與應用程式 UI 旁邊的 AI 代理一起執行。 **框架**是
+每個 Agent-Native 應用程式都與應用程式 UI 旁邊的 AI 代理一起執行。 **框架**是
 承載兩者的包裝器：它顯示您的應用程式並為代理提供一個地方
 聊天、執行和（在開發中）編輯程式碼。一共有三個框架，共用一個執行時：
 
-- **嵌入式代理面板** - 內置於 `@agent-native/core` 的每個應用程式中。
+- **嵌入式代理面板** - 內建於 `@agent-native/core` 的每個應用程式中。
   這是您的應用在開發和正式環境過程中自行呈現的側邊欄。
 - **本機開發框架** - 在 iframe 中載入正在執行的應用程式的薄包裝器
   並新增相同的代理面板以及旁邊的整合 CLI 終端。使用過
   用於此儲存庫中範本的本機開發。
 - **Builder.io 雲端框架** — 具有協作功能的託管託管框架，
-  可視化編輯，並行代理執行。
+  視覺化編輯，並行代理執行。
 
 無論託管哪個框架，您的應用程式碼都是相同的。代理說話
-在每種情況下都通過相同的 actions 和應用程式狀態連線到您的應用程式。
+在每種情況下都透過相同的 actions 和應用程式狀態連線到您的應用程式。
 
 ```an-diagram title="三幀，一個執行時間" summary="您的應用程式和代理面板在每一幀中都是相同的；只有它們週圍的包裝發生變化。"
 {
@@ -30,7 +30,7 @@ description: "本機開發框架、嵌入式代理面板和雲端框架 - AI 代
 ## 嵌入式代理面板 {#embedded-agent}
 
 嵌入式面板是您的應用程式呈現的代理側邊欄。它附帶
-`@agent-native/core` - 沒有單獨的軟件包需要安裝 - 並且是相同的
+`@agent-native/core` - 沒有單獨的套件需要安裝 - 並且是相同的
 開發和正式環境中的元件。
 
 - 從 `@agent-native/core/client` 匯出為 `AgentPanel`，帶有
@@ -45,19 +45,19 @@ description: "本機開發框架、嵌入式代理面板和雲端框架 - AI 代
 面板以兩種工具模式之一執行：
 
 - **應用程式模式** - 代理只有您的應用程式自己的工具：您的 actions
-  使用 `defineAction` 定義，加上導覽和上下文。沒有檔案系統或
+  使用 `defineAction` 定義，加上導覽和脈絡。沒有檔案系統或
   外殼存取。這就是最終使用者得到的。
 - **程式碼模式** — 新增共用編碼工具（`bash`、`read`、`edit`、`write`）
   以及應用程式工具之上的資料庫存取，因此代理可以更改應用程式的
   自己的來源。程式碼請求被門控：當訊息需要程式碼時
-  (`type: "code"`)並且沒有連線支持程式碼的框架，面板顯示
+  (`type: "code"`)並且沒有連線支援程式碼的框架，面板顯示
   解釋程式碼更改需要 Agent Native Desktop 或 Builder 的對話框；
   當連線框架時，請求將路由到它和程式碼代理
   工作時指示燈顯示 (`useSendToAgentChat`)。對於規範
-  編碼工具列表和共用UI合約，參見
+  編碼工具清單和共用 UI 合約，參見
   [Agent-Native Code UI](/docs/code-agents-ui).
 
-```an-diagram title="程式碼請求門控" summary="程式碼型別訊息需要支持程式碼的幀。一旦連線，請求就會路由到那裡；如果沒有，面板會解釋程式碼更改需要 Desktop 或 Builder。"
+```an-diagram title="程式碼請求門控" summary="程式碼型別訊息需要支援程式碼的幀。一旦連線，請求就會路由到那裡；如果沒有，面板會解釋程式碼更改需要 Desktop 或 Builder。"
 {
   "html": "<div class=\"diagram-gate\"><div class=\"diagram-node\" data-rough>message<br><small class=\"diagram-muted\">type: \\\"code\\\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>code-capable frame connected?</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">yes &rarr; route to frame, show code-agent indicator</div><div class=\"diagram-pill warn\">no &rarr; dialog: needs Desktop or Builder</div></div></div>",
   "css": ".diagram-gate{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-gate .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-gate .diagram-arrow{font-size:22px;line-height:1}.diagram-gate .center{text-align:center}"
@@ -66,44 +66,44 @@ description: "本機開發框架、嵌入式代理面板和雲端框架 - AI 代
 
 “程式碼模式”是代理功能切換 - 與環境開發模式不同
 （`NODE_ENV` / Vite）。用戶端鉤子是`useCodeMode()`。 （參見
-[Compatibility notes](#compatibility) 用於向後兼容別名。）
+[Compatibility notes](#compatibility) 用於向後相容別名。）
 
 在本機開發框架中，設定齒輪在這些模式之間切換。切換
 關閉程式碼模式隱藏框架自己的側邊欄並顯示應用程式的應用內代理
 側邊欄位於 iframe 內，因此您可以準確預覽最終使用者所看到的內容。
 
-## 整合終端和CLI切換 {#cli-terminal}
+## 整合終端和 CLI 切換 {#cli-terminal}
 
 正在開發中，面板包括一個嵌入式終端（`AgentTerminal`，也
-來自 `@agent-native/core/client`），由 PTY 伺服器支持。你可以執行一個真正的
+來自 `@agent-native/core/client`），由 PTY 伺服器支援。你可以執行一個真正的
 在應用程式旁邊編碼 CLI 並在它們之間切換；終端重新啟動
 與選定的 CLI。
 
-支持的 CLI 來自核心 CLI 註冊表
+支援的 CLI 來自核心 CLI 註冊表
 (`packages/core/src/terminal/cli-registry.ts`)。僅允許這些指令
 生成 - PTY 伺服器根據註冊表驗證請求的指令
-允許列表以防止注入：
+允許清單以防止注入：
 
-| CLI          | 指令       | 安裝包                      |
-| ------------ | ---------- | --------------------------- |
-| Claude程式碼 | `claude`   | `@anthropic-ai/claude-code` |
-| Builder.io   | `builder`  | （內置）                    |
-| Codex        | `codex`    | `@openai/codex`             |
-| 雙子座CLI    | `gemini`   | `@google/gemini-cli`        |
-| 開放程式碼   | `opencode` | `opencode-ai`               |
+| CLI           | 指令       | 安裝包                      |
+| ------------- | ---------- | --------------------------- |
+| Claude 程式碼 | `claude`   | `@anthropic-ai/claude-code` |
+| Builder.io    | `builder`  | （內建）                    |
+| Codex         | `codex`    | `@openai/codex`             |
+| 雙子座 CLI    | `gemini`   | `@google/gemini-cli`        |
+| 開放程式碼    | `opencode` | `opencode-ai`               |
 
 如果在 `PATH` 上找不到所選的 CLI，終端將回退到執行它
-通過 `npx --yes <install-package>@latest`（存在安裝包的地方）。
+透過 `npx --yes <install-package>@latest`（存在安裝包的地方）。
 預設指令是`claude`。隨時從代理面板設定切換 CLI
 時間。
 
-## Builder.io雲端框 {#cloud-frame}
+## Builder.io 雲端框 {#cloud-frame}
 
 [Builder.io](https://www.builder.io) 提供託管框架
 相同的應用程式和相同的代理面板，在雲端端：
 
-- 實時協作 - 多個使用者可以同時觀看和互動。
-- 可視化編輯、角色和權限。
+- 即時協作 - 多個使用者可以同時觀看和互動。
+- 視覺化編輯、角色和權限。
 - 並行代理執行以加快迭代速度。
 - 適合團隊使用，每個人共用一個託管環境。
 
@@ -116,17 +116,17 @@ description: "本機開發框架、嵌入式代理面板和雲端框架 - AI 代
 這些隨 `@agent-native/core` 一起提供，是您的應用用來與
 代理，無論哪個框架託管它：
 
-1. **發送訊息** — `sendToAgentChat()` 向代理發送訊息。
+1. **傳送訊息** — `sendToAgentChat()` 向代理傳送訊息。
    `useSendToAgentChat()` 鉤子用描述的程式碼請求門控包裝它
    並返回一個 `codeRequiredDialog` 元素進行渲染。參見
    [Drop-in Agent](/docs/drop-in-agent) 的完整用法和選項。
 2. **生成狀態** - `useAgentChatGenerating()` 跟蹤代理何時
    正在執行，因此 UI 可以顯示進度，而無需直接輪詢代理。
-3. **輪詢同步** - 資料庫支持的同步在代理時保持 UI 快取最新
+3. **輪詢同步** - 資料庫支援的同步在代理時保持 UI 快取最新
    更改資料或應用程式狀態。
-4. **操作系統** - `pnpm action <name>` 分派到相同的可調用
-   actions 代理作為工具調用，因此代理能做的任何事情，您都可以
-   腳本。
+4. **操作系統** - `pnpm action <name>` 分派到相同的可呼叫
+   actions 代理作為工具呼叫，因此代理能做的任何事情，您都可以
+   指令碼。
 
 ## 執行它 {#running}
 
@@ -139,11 +139,11 @@ cd my-app
 pnpm dev
 ```
 
-本機開發框架（框架儲存庫中的私人 `@agent-native/frame` 包）是未發布到 npm 的內部工具包。它將活動應用程式的開發伺服器載入到 iframe 中，並在其旁邊安裝嵌入式面板，通過 `app` 查詢參數選取應用程式。整合CLI終端需要Agent Native Desktop，提供終端所需的本機程式碼和PTY存取；如果沒有它，面板將顯示聊天介面並提示您開啟桌面以使用 CLI。
+本機開發框架（框架儲存庫中的私人 `@agent-native/frame` 包）是未發布到 npm 的內部工具包。它將活動應用程式的開發伺服器載入到 iframe 中，並在其旁邊安裝嵌入式面板，透過 `app` 查詢參數選取應用程式。整合 CLI 終端需要 Agent Native Desktop，提供終端所需的本機程式碼和PTY存取；如果沒有它，面板將顯示聊天介面並提示您開啟桌面以使用 CLI。
 
-## 兼容性說明 {#compatibility}
+## 相容性說明 {#compatibility}
 
-“程式碼模式”概念以前被稱為“開發模式”，因此有一些向後兼容
+“程式碼模式”概念以前被稱為“開發模式”，因此有一些向後相容
 名稱仍然存在。您可以忽略這些，除非您正在維護舊的整合
 程式碼：
 

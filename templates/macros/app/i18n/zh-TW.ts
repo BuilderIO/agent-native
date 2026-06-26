@@ -59,11 +59,11 @@ const messages = {
     saving: "正在儲存...",
   },
   seo: {
-    homeTitle: "Agent-Native Macros - 開來源 AI 卡路裡和宏量營養追蹤器",
+    homeTitle: "Agent-Native Macros - 開放原始碼 AI 卡路裡和宏量營養追蹤器",
     homeDescription:
-      "開來源 AI 宏量營養追蹤器，可通過文本或語音紀錄餐食、運動、體重、卡路裡和營養。",
+      "開放原始碼 AI 宏量營養追蹤器，可透過文字或語音紀錄餐食、運動、體重、卡路裡和營養。",
     analyticsDescription:
-      "開來源 AI 宏量營養追蹤器，用於檢視卡路裡、宏量營養、運動和體重趨勢。",
+      "開放原始碼 AI 宏量營養追蹤器，用於檢視卡路裡、宏量營養、運動和體重趨勢。",
   },
   routeTitles: {
     analytics: "宏量營養分析 - Open Source Agent-Native Macros",
@@ -186,7 +186,7 @@ const messages = {
     unsupported: "你的瀏覽器不支援語音聽寫",
     microphoneDenied: "麥克風存取被拒絕",
     allowMicrophone: "請允許存取麥克風",
-    noSpeech: "未檢測到語音",
+    noSpeech: "未偵測到語音",
     tryAgain: "請重試",
     captureFailed: "無法捕獲音訊",
     startFailed: "無法啟動語音識別",
@@ -213,7 +213,7 @@ const messages = {
     noData: "暫無資料",
     current: "目前",
     change: "變化",
-    trendView: "趨勢視圖",
+    trendView: "趨勢檢視",
     actualWeight: "實際體重",
     trendDescription: "藍色趨勢線會平滑每日波動，展示你的整體進展。",
     noWeightData: "暫無體重資料",

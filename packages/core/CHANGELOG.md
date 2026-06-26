@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.79.13
+
+### Patch Changes
+
+- d47bfcb: Document the Clips embedded bug-report workflow.
+- d47bfcb: Avoid pulling Node-only server exports and edge-incompatible optional packages into Cloudflare Pages worker bundles.
+
 ## 0.79.12
 
 ### Patch Changes
