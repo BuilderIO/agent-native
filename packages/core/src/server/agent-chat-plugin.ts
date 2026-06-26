@@ -7911,9 +7911,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // request body, which the HMAC does not cover and a caller could forge —
           // and pre-seed the owner context the handler reads (resolveOwnerContext
           // returns it before attempting any session lookup).
+          let backgroundOwner: string | null = null;
           try {
             const { getRunOwnerEmail } = await import("../agent/run-store.js");
-            const backgroundOwner = await getRunOwnerEmail(prepared.runId);
+            backgroundOwner = await getRunOwnerEmail(prepared.runId);
             if (backgroundOwner) {
               (event as any).context[OWNER_CONTEXT_KEY] = {
                 owner: backgroundOwner,
@@ -7926,7 +7927,20 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
 
           try {
-            return await invokeAgentChatHandler(event);
+            // Run the worker INSIDE the owner's AsyncLocalStorage request context.
+            // Seeding OWNER_CONTEXT_KEY (above) only feeds getOwnerFromEvent; the
+            // engine-resolution path (detectEngineFromUserSecrets) and other
+            // owner-scoped reads use getRequestUserEmail()/getRequestOrgId(),
+            // which a cookieless background worker otherwise leaves empty. Without
+            // this, resolveEngine can't see the owner's Builder credential, falls
+            // back to the anthropic default, and — when the owner has no stored
+            // anthropic key and deploy-credential fallback is blocked — bails at
+            // the API-key check BEFORE claiming its run (the analytics durable
+            // worker's "stalls at post_model, never claims" bug).
+            const invoke = () => invokeAgentChatHandler(event);
+            return await (backgroundOwner
+              ? runWithRequestContext({ userEmail: backgroundOwner }, invoke)
+              : invoke());
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
             // DIAGNOSTIC: the worker invocation threw at the route boundary —
