@@ -124,7 +124,7 @@ export function pgliteDataDirFromUrl(url: string): string {
 }
 
 async function importOptionalModule(specifier: string): Promise<any> {
-  return import(specifier);
+  return import(/* @vite-ignore */ specifier);
 }
 
 function isMissingPackageError(err: unknown, packageName: string): boolean {

@@ -3,7 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, rmSync, cpSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FUNCTIONS_DIR = path.join(ROOT, ".netlify", "functions-internal");
@@ -116,16 +116,30 @@ export const config = {
   writeFileSync(path.join(dest, `${WORKER_NAME}.mjs`), source);
 }
 
-if (!existsSync(path.join(SERVER_DIR, "main.mjs"))) {
-  console.log(
-    "[dashboard-report-cron] Skipped Netlify cron emit: Nitro Netlify server output not found.",
+function isDirectRun(): boolean {
+  const entrypoint = process.argv[1];
+  return Boolean(
+    entrypoint &&
+    import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
   );
-  process.exit(0);
 }
 
-const token = randomBytes(32).toString("hex");
-emitScheduledTrigger(token);
-emitBackgroundWorker(token);
-console.log(
-  `[dashboard-report-cron] Emitted Netlify scheduled trigger "${SCHEDULED_NAME}" (${SCHEDULE}) and background worker "${WORKER_NAME}".`,
-);
+function main(): void {
+  if (!existsSync(path.join(SERVER_DIR, "main.mjs"))) {
+    console.log(
+      "[dashboard-report-cron] Skipped Netlify cron emit: Nitro Netlify server output not found.",
+    );
+    return;
+  }
+
+  const token = randomBytes(32).toString("hex");
+  emitScheduledTrigger(token);
+  emitBackgroundWorker(token);
+  console.log(
+    `[dashboard-report-cron] Emitted Netlify scheduled trigger "${SCHEDULED_NAME}" (${SCHEDULE}) and background worker "${WORKER_NAME}".`,
+  );
+}
+
+if (isDirectRun()) {
+  main();
+}
