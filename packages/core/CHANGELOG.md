@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.79.15
+
+### Patch Changes
+
+- 4a73032: Make shared agent and default navigation drawers feel recessed behind rounded app content.
+
+## 0.79.14
+
+### Patch Changes
+
+- 6598a72: Polish Traditional Chinese localization wording for Taiwan users.
+
 ## 0.79.13
 
 ### Patch Changes

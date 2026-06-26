@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.13.1
+
+### Patch Changes
+
+- 4a73032: Make shared agent and default navigation drawers feel recessed behind rounded app content.
+
 ## 0.13.0
 
 ### Minor Changes
