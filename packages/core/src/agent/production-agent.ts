@@ -4184,6 +4184,28 @@ export function createProductionAgentHandler(
     // hang right after model resolution (DB connection); if it's
     // `engine_resolved`/`systemprompt_enter`, the stall is in the named step.
     workerStep("engine_resolved");
+    // DIAGNOSTIC-ONLY: AWAITED probe (bg worker only). worker_stage stalls at
+    // `model_done` even though the code right after is trivial sync — this
+    // distinguishes the two causes: if `post_model_awaited` lands, DB writes
+    // still work after model_done and the stall is later in the main flow; if it
+    // never lands (stays `model_done`), the bg-fn DB connection itself is hung
+    // right after model resolution. `recordRunDiagnostic` is `withDbTimeout`-
+    // bounded, so a hung write rejects (caught) rather than blocking forever.
+    if (isBackgroundWorker && bgRunId) {
+      const probeStart = Date.now();
+      try {
+        await recordRunDiagnostic(
+          bgRunId,
+          RUN_DIAG_STAGE.workerSetupStep,
+          "post_model_awaited",
+        );
+        workerStep(`post_model_ok=${Date.now() - probeStart}ms`);
+      } catch (e) {
+        workerStep(
+          `post_model_threw=${Date.now() - probeStart}ms:${String((e as Error)?.message ?? e).slice(0, 80)}`,
+        );
+      }
+    }
 
     // One-line per-turn resolution log so it's obvious in dev which engine
     // is actually handling the request. `requestEngine` is what the client
@@ -5106,6 +5128,26 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: last stage before startRun fires. A worker that reaches
     // prestart but never workerStarted is hanging inside startRun itself.
     workerStep("prestart");
+    // DIAGNOSTIC-ONLY: AWAITED probe right before startRun (bg worker only). If
+    // worker_stage reaches `pre_claim_ok` but the run never flips to
+    // `worker_started`, the stall is inside startRun's claim itself; if it never
+    // reaches `pre_claim_*`, the stall is somewhere in the setup between
+    // post_model and here.
+    if (isBackgroundWorker && bgRunId) {
+      const claimProbeStart = Date.now();
+      try {
+        await recordRunDiagnostic(
+          bgRunId,
+          RUN_DIAG_STAGE.workerSetupStep,
+          "pre_claim",
+        );
+        workerStep(`pre_claim_ok=${Date.now() - claimProbeStart}ms`);
+      } catch (e) {
+        workerStep(
+          `pre_claim_threw=${Date.now() - claimProbeStart}ms:${String((e as Error)?.message ?? e).slice(0, 80)}`,
+        );
+      }
+    }
     // DIAGNOSTIC-ONLY: peak-ish RSS (MB) + assembled system-prompt size (KB) at
     // prestart. The analytics bg worker dies right after model_done; if the
     // FOREGROUND (identical build, writes land) is already near the ~1024MB
