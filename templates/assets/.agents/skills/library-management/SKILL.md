@@ -7,6 +7,14 @@ description: Schema, CRUD, sharing, and cascade-delete patterns for asset librar
 
 Use this skill before adding fields, changing access checks, or modifying delete behavior.
 
+## User surface
+
+The human Library workspace is canonical at `/library`. The root selects
+"All assets" and browses assets across every accessible brand kit; `/library/:id`
+opens one kit's management detail. Legacy `/brand-kits` URLs redirect here.
+Embedded picker hosts still load `/library` in an iframe and keep the existing
+bridge contract.
+
 ## Schema overview
 
 ```
@@ -24,6 +32,8 @@ image_libraries           — top-level library, has ownableColumns + shares
 Every action that touches an ownable resource must scope its queries:
 
 - **List queries**: `accessFilter(schema.assetLibraries, schema.assetLibraryShares)` in WHERE.
+  Cross-kit asset lists must first resolve the accessible library IDs, then
+  query `image_assets` by those IDs and include the parent kit title for UI chips.
 - **Read by id**: `await resolveAccess("asset-library", libraryId)`. The `requireLibrary(id)` helper in `_helpers.ts` wraps this.
 - **Write**: `await assertAccess("asset-library", libraryId, "editor")` for updates / inserts; `"admin"` for deletes.
 
@@ -52,6 +62,7 @@ Example: adding `image_libraries.icon`:
 ## Sharing
 
 Libraries follow the standard framework sharing model:
+
 - `visibility: "private" | "org" | "public"`
 - Per-user / per-org grants in `image_library_shares` with `viewer | editor | admin` roles.
 - Use the framework actions `share-resource`, `unshare-resource`, `set-resource-visibility` with `--resourceType=asset-library`. The legacy `image-library` alias remains registered for existing grants.
@@ -61,6 +72,7 @@ Generated assets and references inherit the parent library's visibility. v1 does
 ## Cascade delete
 
 `delete-library` deletes in order:
+
 1. `image_assets WHERE library_id = ?`
 2. `image_generation_runs WHERE library_id = ?`
 3. `image_collections WHERE library_id = ?`

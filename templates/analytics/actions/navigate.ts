@@ -4,13 +4,13 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or dashboard. For filter changes (dashboard filter query params like ?f_date=...), use the framework-level `set-search-params` tool instead of this action.",
+    "Navigate the UI to a specific view, dashboard, analysis, extension, or Analytics session recording. For filter changes (dashboard filter query params like ?f_date=... or session filters like ?range=30d&q=signup), use the framework-level `set-search-params` tool instead of this action.",
   schema: z.object({
     view: z
       .string()
       .optional()
       .describe(
-        "View to navigate to (overview, ask, adhoc, analyses, extensions, catalog, data-dictionary, data-sources, settings)",
+        "View to navigate to (ask, adhoc, analyses, extensions, sessions, catalog, data-dictionary, data-sources, settings)",
       ),
     dashboardId: z
       .string()
@@ -24,6 +24,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Extension ID to open (used with view=extensions)"),
+    recordingId: z
+      .string()
+      .optional()
+      .describe("Session recording id to open (used with view=sessions)"),
   }),
   http: false,
   run: async (args) => {
@@ -31,14 +35,15 @@ export default defineAction({
       !args.view &&
       !args.dashboardId &&
       !args.analysisId &&
-      !args.extensionId
+      !args.extensionId &&
+      !args.recordingId
     ) {
       throw new Error(
-        "At least --view, --dashboardId, --analysisId, or --extensionId is required.",
+        "At least --view, --dashboardId, --analysisId, --extensionId, or --recordingId is required.",
       );
     }
     const nav: Record<string, string> = {};
-    if (args.view) nav.view = args.view;
+    if (args.view) nav.view = args.view === "overview" ? "ask" : args.view;
     if (args.dashboardId) {
       nav.dashboardId = args.dashboardId;
       if (!args.view) nav.view = "adhoc";
@@ -51,6 +56,10 @@ export default defineAction({
       nav.extensionId = args.extensionId;
       if (!args.view) nav.view = "extensions";
     }
+    if (args.recordingId) {
+      nav.recordingId = args.recordingId;
+      if (!args.view) nav.view = "sessions";
+    }
     await writeAppState("navigate", nav);
 
     const parts: string[] = [];
@@ -58,6 +67,7 @@ export default defineAction({
     if (nav.dashboardId) parts.push(`dashboard:${nav.dashboardId}`);
     if (nav.analysisId) parts.push(`analysis:${nav.analysisId}`);
     if (nav.extensionId) parts.push(`extension:${nav.extensionId}`);
+    if (nav.recordingId) parts.push(`recording:${nav.recordingId}`);
     return `Navigating to ${parts.join(" ")}`;
   },
 });

@@ -13,6 +13,7 @@ import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { GenerationResults } from "@/components/generation/GenerationResults";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { ASSETS_CHAT_STORAGE_KEY } from "@/lib/chat";
 import { cn } from "@/lib/utils";
@@ -59,6 +60,7 @@ export function Layout({ children }: LayoutProps) {
   const isPicker = location.pathname === "/library";
   const hideHeader =
     location.pathname === "/library" ||
+    location.pathname.startsWith("/library/") ||
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
   const chromeless =
@@ -138,6 +140,9 @@ export function Layout({ children }: LayoutProps) {
           t("chat.suggestionProductVideo"),
           t("chat.suggestionReferenceStyle"),
         ]}
+        threadFooterSlot={({ threadId }) => (
+          <GenerationResults threadId={threadId} />
+        )}
       >
         {appFrame}
       </AgentSidebar>

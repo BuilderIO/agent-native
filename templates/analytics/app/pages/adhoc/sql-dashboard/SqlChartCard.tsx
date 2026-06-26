@@ -1,5 +1,5 @@
 import { useT } from "@agent-native/core/client";
-import { useSortable } from "@dnd-kit/sortable";
+import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import {
   IconGripVertical,
@@ -58,6 +58,7 @@ interface SqlChartCardProps {
    *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
+  eagerLoad?: boolean;
 }
 
 export function SqlChartCard({
@@ -67,23 +68,18 @@ export function SqlChartCard({
   onEdit,
   onSaveSql,
   editable = true,
+  eagerLoad = false,
 }: SqlChartCardProps) {
   const t = useT();
   const queryClient = useQueryClient();
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: panel.id, disabled: !editable });
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({ id: panel.id, disabled: !editable });
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
-    panel.chartType === "section",
+    eagerLoad || panel.chartType === "section",
   );
   const cardRef = useRef<HTMLDivElement | null>(null);
 
@@ -112,6 +108,10 @@ export function SqlChartCard({
   }, [panel.id, panel.source, panel.sql, queryClient, resolvedSql]);
 
   useEffect(() => {
+    if (eagerLoad) {
+      setShouldLoadData(true);
+      return;
+    }
     if (panel.chartType === "section") {
       setShouldLoadData(true);
       return;
@@ -138,7 +138,7 @@ export function SqlChartCard({
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [panel.chartType, panel.id]);
+  }, [eagerLoad, panel.chartType, panel.id]);
 
   useEffect(() => {
     setExportCsv(null);
@@ -146,7 +146,6 @@ export function SqlChartCard({
 
   const style = {
     transform: CSS.Transform.toString(transform),
-    transition,
     zIndex: isDragging ? 50 : undefined,
     opacity: isDragging ? 0.7 : 1,
   };

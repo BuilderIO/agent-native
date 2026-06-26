@@ -130,4 +130,81 @@ describe("dismiss-variant-slots", () => {
       cleared: false,
     });
   });
+
+  it("clears only the requested thread-scoped candidate state", async () => {
+    const db = createDb();
+    getDbMock.mockReturnValue(db);
+    const states: Record<string, any> = {
+      "asset-variants:thread-1": {
+        runId: "run-1",
+        libraryId: "lib-1",
+        threadId: "thread-1",
+        prompt: "Thread one",
+        slots: [{ slotId: "slot-1", status: "ready", assetId: "asset-1" }],
+        updatedAt: "2026-05-28T00:00:00.000Z",
+      },
+      "asset-variants:thread-2": {
+        runId: "run-2",
+        libraryId: "lib-1",
+        threadId: "thread-2",
+        prompt: "Thread two",
+        slots: [{ slotId: "slot-2", status: "ready", assetId: "asset-2" }],
+        updatedAt: "2026-05-28T00:00:00.000Z",
+      },
+    };
+    states["asset-variants"] = states["asset-variants:thread-1"];
+    readAppStateMock.mockImplementation(async (key: string) =>
+      states[key] ? JSON.parse(JSON.stringify(states[key])) : null,
+    );
+    deleteAppStateMock.mockImplementation(async (key: string) => {
+      delete states[key];
+      return true;
+    });
+
+    const result = await action.run({ scope: "all", threadId: "thread-1" });
+
+    expect(result).toEqual({
+      dismissed: 1,
+      assetsDeleted: 1,
+      cleared: true,
+    });
+    expect(deleteAppStateMock).toHaveBeenCalledWith("asset-variants:thread-1");
+    expect(states["asset-variants:thread-2"]).toBeTruthy();
+  });
+
+  it("clears picker-scoped candidate state when invoked through the global mirror", async () => {
+    const db = createDb();
+    getDbMock.mockReturnValue(db);
+    const states: Record<string, any> = {
+      "asset-variants:picker:tab-1": {
+        runId: "run-1",
+        libraryId: "lib-1",
+        variantScopeId: "picker:tab-1",
+        prompt: "Embedded picker",
+        slots: [{ slotId: "slot-1", status: "ready", assetId: "asset-1" }],
+        updatedAt: "2026-05-28T00:00:00.000Z",
+      },
+    };
+    states["asset-variants"] = states["asset-variants:picker:tab-1"];
+    readAppStateMock.mockImplementation(async (key: string) =>
+      states[key] ? JSON.parse(JSON.stringify(states[key])) : null,
+    );
+    deleteAppStateMock.mockImplementation(async (key: string) => {
+      delete states[key];
+      return true;
+    });
+
+    const result = await action.run({ scope: "all" });
+
+    expect(result).toEqual({
+      dismissed: 1,
+      assetsDeleted: 1,
+      cleared: true,
+    });
+    expect(deleteAppStateMock).toHaveBeenCalledWith(
+      "asset-variants:picker:tab-1",
+    );
+    expect(states["asset-variants:picker:tab-1"]).toBeUndefined();
+    expect(states["asset-variants"]).toBeUndefined();
+  });
 });

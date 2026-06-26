@@ -35,7 +35,9 @@ function StaticTitle({ pathname }: { pathname: string }) {
 
 function ResolvedTitle() {
   const location = useLocation();
-  const libraryMatch = location.pathname.match(/^\/brand-kits\/([^/]+)/);
+  const libraryMatch = location.pathname.match(
+    /^\/(?:library|brand-kits)\/([^/]+)/,
+  );
   if (libraryMatch) {
     return <LibraryTitle id={libraryMatch[1]} />;
   }

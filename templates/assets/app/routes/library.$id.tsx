@@ -1,11 +1,13 @@
-import { redirect, type LoaderFunctionArgs } from "react-router";
+import { useParams } from "react-router";
 
-// Legacy redirect: a single brand container's detail page moved from
-// /library/:id to /brand-kits/:id.
-export function loader({ params, url }: LoaderFunctionArgs) {
-  return redirect(`/brand-kits/${params.id}${url.search}`);
+import { messagesByLocale } from "../i18n-data";
+import { LibraryWorkspace } from "./library";
+
+export function meta() {
+  return [{ title: messagesByLocale["en-US"].routeTitles.library }];
 }
 
-export default function LibraryDetailRedirect() {
-  return null;
+export default function LibraryDetailPage() {
+  const { id } = useParams();
+  return <LibraryWorkspace selectedLibraryId={id ?? null} />;
 }

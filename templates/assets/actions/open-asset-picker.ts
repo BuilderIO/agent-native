@@ -1,4 +1,7 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { getRequestRunContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
 import { IMAGE_QUALITY_TIERS, STYLE_STRENGTHS } from "../shared/api.js";
@@ -77,6 +80,7 @@ const schema = z.object({
 });
 
 type OpenAssetPickerArgs = z.infer<typeof schema>;
+const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 
 type ActionWithToolParameters = {
   tool: { parameters?: { properties?: Record<string, any> } };
@@ -109,6 +113,7 @@ const FALLBACK_INSTRUCTIONS =
 
 function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   const params = new URLSearchParams();
+  params.set("__an_picker", "1");
   params.set("mediaType", args.mediaType ?? "image");
   if (args.prompt?.trim()) params.set("prompt", args.prompt.trim());
   if (args.query?.trim()) params.set("q", args.query.trim());
@@ -132,6 +137,21 @@ function pickerPath(args: Partial<OpenAssetPickerArgs>): string {
   }
   if (args.autoGenerate) params.set("autoGenerate", "1");
   return `/library?${params.toString()}`;
+}
+
+function navigateCommandKey(): string | null {
+  const browserTabId = getRequestRunContext()?.browserTabId?.trim();
+  if (browserTabId && SAFE_BROWSER_TAB_ID_RE.test(browserTabId)) {
+    return `navigate:${browserTabId}`;
+  }
+  return null;
+}
+
+function shouldWriteNavigateCommand(
+  context: ActionRunContext | undefined,
+  commandKey: string | null,
+): commandKey is string {
+  return Boolean(commandKey) && context?.caller !== "mcp";
 }
 
 const action = defineAction({
@@ -173,8 +193,25 @@ const action = defineAction({
       view: "picker",
     };
   },
-  run: async (args) => {
+  run: async (args, context) => {
     const path = pickerPath(args);
+    const commandKey = navigateCommandKey();
+    if (shouldWriteNavigateCommand(context, commandKey)) {
+      const command = {
+        view: "picker" as const,
+        mediaType: args.mediaType,
+        path,
+        libraryId: args.libraryId ?? null,
+        query: args.query ?? null,
+        prompt: args.prompt ?? null,
+        aspectRatio: args.aspectRatio ?? null,
+        presetId: args.presetId ?? null,
+        _writeId: `open-asset-picker-${Date.now()}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}`,
+      };
+      await writeAppState(commandKey, command);
+    }
     return {
       app: "assets",
       view: "picker",

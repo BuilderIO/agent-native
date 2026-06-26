@@ -63,6 +63,49 @@ function mockBuilderFailure(status: number, body: unknown) {
   return fetchMock;
 }
 
+function builderGenerationSuccess() {
+  return new Response(
+    JSON.stringify({
+      id: "generation-1",
+      status: "completed",
+      model: {
+        publicId: "builder-image",
+        provider: "builder",
+        providerModel: "provider-image",
+      },
+      outputs: [
+        {
+          id: "output-1",
+          url: "https://cdn.builder.test/output.png",
+          mimeType: "image/png",
+        },
+      ],
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function builderImageBytes() {
+  return new Response(new Uint8Array([1, 2, 3]), {
+    status: 200,
+    headers: { "Content-Type": "image/png" },
+  });
+}
+
+function requestIdempotencyKeys(
+  fetchMock: ReturnType<typeof vi.fn>,
+): (string | undefined)[] {
+  return fetchMock.mock.calls
+    .filter(([url]) => String(url).endsWith("/generations"))
+    .map(([, init]) => {
+      const body = (init as RequestInit | undefined)?.body;
+      return body
+        ? (JSON.parse(String(body)) as { idempotencyKey?: string })
+            .idempotencyKey
+        : undefined;
+    });
+}
+
 describe("generateWithManagedImageProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -311,6 +354,87 @@ describe("generateWithManagedImageProvider", () => {
       String((fetchMock.mock.calls[2][1] as RequestInit).body),
     ) as Record<string, unknown>;
     expect(requestBody.model).toBe("gemini-3.1-flash-image-preview");
+  });
+
+  it("polls the same idempotency key while the service reports the request in progress", async () => {
+    let generationCalls = 0;
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/generations")) {
+        generationCalls += 1;
+        if (generationCalls <= 2) {
+          return new Response(
+            JSON.stringify({
+              code: "request_in_progress",
+              message:
+                "An image generation request with this idempotency key is already in progress.",
+            }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return builderGenerationSuccess();
+      }
+      return builderImageBytes();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateWithManagedImageProvider({ ...baseInput, runId: "run-poll-1" }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        provider: "builder",
+        providerGenerationId: "generation-1",
+      }),
+    );
+    expect(generationCalls).toBe(3);
+    // Every poll re-POSTs the same key so the service replays the stored result
+    // instead of starting a second, double-charged generation.
+    expect(requestIdempotencyKeys(fetchMock)).toEqual([
+      "run-poll-1",
+      "run-poll-1",
+      "run-poll-1",
+    ]);
+  });
+
+  it("polls after a client-side abort instead of regenerating", async () => {
+    let generationCalls = 0;
+    const fetchMock = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).endsWith("/generations")) {
+        generationCalls += 1;
+        if (generationCalls === 1) {
+          const abort = new Error("The operation was aborted.");
+          abort.name = "AbortError";
+          throw abort;
+        }
+        return builderGenerationSuccess();
+      }
+      return builderImageBytes();
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      generateWithManagedImageProvider({ ...baseInput, runId: "run-poll-2" }),
+    ).resolves.toEqual(expect.objectContaining({ provider: "builder" }));
+    expect(generationCalls).toBe(2);
+    expect(requestIdempotencyKeys(fetchMock)).toEqual([
+      "run-poll-2",
+      "run-poll-2",
+    ]);
+  });
+
+  it("gives up after exhausting the in-flight poll budget", async () => {
+    const fetchMock = mockBuilderFailure(409, {
+      code: "request_in_progress",
+      message:
+        "An image generation request with this idempotency key is already in progress.",
+    });
+
+    await expect(
+      generateWithManagedImageProvider({ ...baseInput, runId: "run-poll-3" }),
+    ).rejects.toEqual(
+      expect.objectContaining({ name: "BuilderImageGenerationError" }),
+    );
+    // initial attempt + MANAGED_PROVIDER_INFLIGHT_MAX_POLLS (6 under test).
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 });
 

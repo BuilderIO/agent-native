@@ -126,6 +126,8 @@ describe("refresh-generation-run", () => {
           metadata: JSON.stringify({
             slotId: "agent-workflow-final",
             variantBatchId: "batch-1",
+            threadId: "thread-1",
+            variantScopeId: "thread-1",
           }),
           createdAt: "2026-05-28T11:57:00.000Z",
         },
@@ -149,6 +151,8 @@ describe("refresh-generation-run", () => {
         runId: "run-1",
         batchId: "batch-1",
         libraryId: "library-1",
+        threadId: "thread-1",
+        variantScopeId: "thread-1",
         slotId: "agent-workflow-final",
         status: "failed",
       }),

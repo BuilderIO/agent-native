@@ -3,14 +3,18 @@ import {
   appBasePath,
   agentNativePath,
   getBrowserTabId,
+  readClientAppState,
   sendToAgentChat,
   useT,
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
 import {
+  IconCheck,
+  IconClipboard,
   IconCopy,
   IconDotsVertical,
+  IconArrowUpRight,
   IconArchive,
   IconFolder,
   IconFolderPlus,
@@ -38,10 +42,19 @@ import {
   type ReactNode,
   type SetStateAction,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import { createPortal } from "react-dom";
+import {
+  Link,
+  LoaderFunctionArgs,
+  redirect,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
@@ -79,11 +92,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -114,26 +122,13 @@ import {
 import {
   IMAGE_CATEGORIES,
   ASPECT_RATIOS,
-  IMAGE_MODELS,
-  IMAGE_SIZES,
-  VIDEO_ASPECT_RATIOS,
-  VIDEO_DURATIONS,
-  VIDEO_MODELS,
-  VIDEO_RESOLUTIONS,
+  type AssetVariantState,
   type AspectRatio,
   type ImageCategory,
   type ImageRole,
 } from "../../shared/api";
 
-function candidateSaveKey(slot: any): string {
-  if (typeof slot?.assetId === "string" && slot.assetId) {
-    return `asset:${slot.assetId}`;
-  }
-  if (typeof slot?.slotId === "string" && slot.slotId) {
-    return `slot:${slot.slotId}`;
-  }
-  return "";
-}
+export type VariantSlot = AssetVariantState["slots"][number];
 
 function referencePromotionKey(asset: any, slot?: any): string {
   if (typeof slot?.slotId === "string" && slot.slotId) {
@@ -293,27 +288,6 @@ function removeVariantSlotsByScopeFromCache(
   );
 }
 
-function variantSlotTime(slot: any): number {
-  const raw = slot?.createdAt ?? slot?.updatedAt ?? "";
-  const time = Date.parse(String(raw));
-  return Number.isNaN(time) ? 0 : time;
-}
-
-function compareVariantSlotsNewestFirst(left: any, right: any): number {
-  return (
-    variantSlotTime(right) - variantSlotTime(left) ||
-    String(right?.slotId ?? "").localeCompare(String(left?.slotId ?? ""))
-  );
-}
-
-function stalePendingVariantRunId(slot: any): string | null {
-  if (slot?.status !== "pending") return null;
-  if (typeof slot?.runId !== "string" || !slot.runId) return null;
-  const timestamp = variantSlotTime(slot);
-  if (!timestamp) return null;
-  return Date.now() - timestamp >= 2 * 60 * 1000 ? slot.runId : null;
-}
-
 function paletteDraftFromColors(colors: unknown): string {
   return Array.isArray(colors)
     ? colors.filter((color) => typeof color === "string").join(", ")
@@ -329,6 +303,18 @@ function referenceRoleForAsset(asset: any): ImageRole {
   if (category === "product") return "product_reference";
   if (category === "diagram") return "diagram_reference";
   return "style_reference";
+}
+
+function variantSlotTime(slot: VariantSlot): number {
+  const raw = slot.createdAt ?? slot.updatedAt ?? "";
+  const time = Date.parse(raw);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function assetUpdatedTime(asset: any): number {
+  const raw = asset?.updatedAt ?? asset?.createdAt ?? "";
+  const time = Date.parse(String(raw));
+  return Number.isNaN(time) ? 0 : time;
 }
 
 function parsePaletteDraft(value: string): string[] {
@@ -347,6 +333,15 @@ function parsePaletteDraft(value: string): string[] {
   return colors;
 }
 
+export function loader({ params, request }: LoaderFunctionArgs) {
+  const url = new URL(request.url);
+  return redirect(`/library/${params.id}${url.search}`);
+}
+
+export default function BrandKitDetailRedirect() {
+  return null;
+}
+
 function libraryTabFromValue(value: unknown): LibraryTab | null {
   return value === "references" ||
     value === "generated" ||
@@ -356,26 +351,31 @@ function libraryTabFromValue(value: unknown): LibraryTab | null {
     : null;
 }
 
-export default function LibraryPage() {
+export function BrandKitDetailRoute({
+  libraryId: explicitLibraryId = null,
+  headerMode = "full",
+}: {
+  libraryId?: string | null;
+  headerMode?: "full" | "actions";
+} = {}) {
   const t = useT();
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const urlTab = libraryTabFromValue(searchParams.get("tab"));
-  const libraryId = id!;
+  const libraryId = explicitLibraryId ?? id!;
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
   const updateLibrary = useActionMutation("update-library");
   const archiveLibrary = useActionMutation("archive-library");
   const duplicateLibrary = useActionMutation("duplicate-library");
-  const saveGenerated = useActionMutation("save-generated-image");
   const updateAsset = useActionMutation("update-asset");
+  const saveGenerated = useActionMutation("save-generated-image");
   const rerunGeneration = useActionMutation("rerun-generation-run");
   const refreshGeneration = useActionMutation("refresh-generation-run");
   const createSession = useActionMutation("create-generation-session");
   const prepareSessionContinuation = useActionMutation(
     "prepare-generation-session-continuation",
   );
-  const { data: variants } = useVariantState();
   const { data: presetData } = useActionQuery("list-generation-presets", {
     libraryId,
   }) as any;
@@ -383,17 +383,20 @@ export default function LibraryPage() {
     libraryId,
   }) as any;
   const queryClient = useQueryClient();
-  const [generateOpen, setGenerateOpen] = useState(false);
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [headerPrimaryActionsTarget, setHeaderPrimaryActionsTarget] =
+    useState<HTMLElement | null>(null);
+  const [headerMoreActionsTarget, setHeaderMoreActionsTarget] =
+    useState<HTMLElement | null>(null);
   const [activeFolderId, setActiveFolderId] = useState<string | null>("all");
   const [activeTab, setActiveTab] = useState<LibraryTab>(
     () => urlTab ?? "references",
   );
-  const [assetViewMode, setAssetViewMode] = useState<AssetViewMode>("lanes");
+  const [assetViewMode, setAssetViewMode] = useState<AssetViewMode>("cards");
   const [assetScope, setAssetScope] = useState<AssetLibraryScope>("all");
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
@@ -402,12 +405,12 @@ export default function LibraryPage() {
     useState<Set<string>>(() => new Set());
   const [optimisticallySavedAssetIds, setOptimisticallySavedAssetIds] =
     useState<Set<string>>(() => new Set());
-  const [savingCandidateKeys, setSavingCandidateKeys] = useState<Set<string>>(
-    () => new Set(),
-  );
   const [promotingReferenceKeys, setPromotingReferenceKeys] = useState<
     Set<string>
   >(() => new Set());
+  const [savingCandidateSlotId, setSavingCandidateSlotId] = useState<
+    string | null
+  >(null);
   const [mediaFilter, setMediaFilter] = useState<"all" | "image" | "video">(
     "all",
   );
@@ -416,30 +419,43 @@ export default function LibraryPage() {
   const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
   const [paletteDraft, setPaletteDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const refreshingVariantRunIdsRef = useRef<Set<string>>(new Set());
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
   const createFolder = useActionMutation("create-folder");
+  const { data: liveVariants } = useQuery({
+    queryKey: ["app-state", "asset-variants"],
+    queryFn: ({ signal }) => {
+      return readClientAppState<AssetVariantState>("asset-variants", {
+        signal,
+      });
+    },
+    refetchInterval: 1000,
+  });
 
   useEffect(() => {
     if (!urlTab) return;
     setActiveTab((current) => (current === urlTab ? current : urlTab));
   }, [urlTab]);
 
+  useEffect(() => {
+    if (headerMode !== "actions" || typeof document === "undefined") {
+      setHeaderPrimaryActionsTarget(null);
+      setHeaderMoreActionsTarget(null);
+      return;
+    }
+    setHeaderPrimaryActionsTarget(
+      document.getElementById("assets-library-detail-primary-actions"),
+    );
+    setHeaderMoreActionsTarget(
+      document.getElementById("assets-library-detail-more-actions"),
+    );
+  }, [headerMode, libraryId]);
+
   const library = data?.library;
   const folders = (data?.folders ?? []) as any[];
   const generationPresets = ((presetData as any)?.presets ?? []) as any[];
   const generationSessions = ((sessionData as any)?.sessions ?? []) as any[];
   const serverAssets = (data?.assets ?? []) as any[];
-  const finishedVariantAssetIds = new Set(
-    serverAssets
-      .filter(
-        (asset) =>
-          asset.status !== "candidate" ||
-          optimisticallySavedAssetIds.has(asset.id),
-      )
-      .map((asset) => asset.id),
-  );
   const assets = serverAssets
     .map((asset) =>
       optimisticallySavedAssetIds.has(asset.id)
@@ -447,9 +463,6 @@ export default function LibraryPage() {
         : asset,
     )
     .filter((asset) => !optimisticallyDeletedAssetIds.has(asset.id));
-  const candidateAssets = assets.filter(
-    (asset) => asset.role === "generated" && asset.status === "candidate",
-  );
   const libraryAssets = assets.filter((asset) => asset.status !== "candidate");
   const visibleAssets = libraryAssets.filter((asset) => {
     if (activeFolderId !== "all") {
@@ -495,6 +508,45 @@ export default function LibraryPage() {
   const libraryPaletteDraft = paletteDraftFromColors(
     library?.styleBrief?.palette,
   );
+  const liveVariantsForLibrary =
+    liveVariants?.libraryId === libraryId ? liveVariants : null;
+  const liveCandidateSlots = useMemo(
+    () =>
+      (liveVariantsForLibrary?.slots ?? [])
+        .filter(
+          (slot) =>
+            slot.status === "pending" ||
+            slot.status === "ready" ||
+            slot.status === "failed",
+        )
+        .slice()
+        .sort(
+          (left, right) =>
+            variantSlotTime(right) - variantSlotTime(left) ||
+            right.slotId.localeCompare(left.slotId),
+        ),
+    [liveVariantsForLibrary?.slots],
+  );
+  const draftCandidateAssets = useMemo(() => {
+    const liveAssetIds = new Set(
+      liveCandidateSlots
+        .map((slot) => slot.assetId)
+        .filter((assetId): assetId is string => typeof assetId === "string"),
+    );
+    return assets
+      .filter(
+        (asset) =>
+          asset.status === "candidate" &&
+          asset.role === "generated" &&
+          !liveAssetIds.has(asset.id),
+      )
+      .slice()
+      .sort(
+        (left, right) =>
+          assetUpdatedTime(right) - assetUpdatedTime(left) ||
+          String(right.id).localeCompare(String(left.id)),
+      );
+  }, [assets, liveCandidateSlots]);
 
   useEffect(() => {
     setStyleDescriptionDraft(libraryStyleDescription);
@@ -513,41 +565,6 @@ export default function LibraryPage() {
     if (activeFolderId === null) return !upload.folderId;
     return upload.folderId === activeFolderId;
   });
-
-  const pendingVariants =
-    variants?.libraryId === libraryId
-      ? (variants.slots ?? [])
-          .filter(
-            (slot: any) =>
-              !slot.assetId || !finishedVariantAssetIds.has(slot.assetId),
-          )
-          .sort(compareVariantSlotsNewestFirst)
-      : [];
-
-  useEffect(() => {
-    if (refreshGeneration.isPending) return;
-    const runId = pendingVariants
-      .map(stalePendingVariantRunId)
-      .find((id: string | null): id is string =>
-        Boolean(id && !refreshingVariantRunIdsRef.current.has(id)),
-      );
-    if (!runId) return;
-    refreshingVariantRunIdsRef.current.add(runId);
-    refreshGeneration.mutate(
-      { runId },
-      {
-        onSettled: () => {
-          window.setTimeout(() => {
-            refreshingVariantRunIdsRef.current.delete(runId);
-          }, 30_000);
-          void queryClient.invalidateQueries({
-            queryKey: ["app-state", "asset-variants"],
-            refetchType: "active",
-          });
-        },
-      },
-    );
-  }, [pendingVariants, queryClient, refreshGeneration]);
 
   function markAssetsOptimisticallyDeleted(ids: string[]) {
     setOptimisticallyDeletedAssetIds((current) => {
@@ -591,18 +608,6 @@ export default function LibraryPage() {
     });
   }, [serverAssets]);
 
-  function setCandidateSaving(key: string, saving: boolean) {
-    setSavingCandidateKeys((current) => {
-      const next = new Set(current);
-      if (saving) {
-        next.add(key);
-      } else {
-        next.delete(key);
-      }
-      return next.size === current.size ? current : next;
-    });
-  }
-
   function setReferencePromoting(key: string, promoting: boolean) {
     setPromotingReferenceKeys((current) => {
       const next = new Set(current);
@@ -615,50 +620,101 @@ export default function LibraryPage() {
     });
   }
 
-  async function handleSaveCandidate(slot: any) {
-    const key = candidateSaveKey(slot);
-    if (!key || savingCandidateKeys.has(key)) return;
-
-    setCandidateSaving(key, true);
+  async function handleSaveLiveCandidate(
+    slot: VariantSlot,
+    folderId?: string | null,
+  ) {
+    if (savingCandidateSlotId || (!slot.assetId && !slot.slotId)) return;
+    setSavingCandidateSlotId(slot.slotId);
     try {
       const savedAsset = await saveGenerated.mutateAsync({
-        ...(slot.assetId ? { assetId: slot.assetId } : {}),
-        ...(slot.slotId ? { slotId: slot.slotId } : {}),
-        ...(slot.folderId !== undefined ? { folderId: slot.folderId } : {}),
+        assetId: slot.assetId,
+        slotId: slot.slotId,
+        folderId,
       });
-      const savedAssetId =
-        typeof (savedAsset as any)?.id === "string"
-          ? (savedAsset as any).id
-          : slot.assetId;
-
-      if (savedAssetId) {
+      if (slot.assetId) {
         setOptimisticallySavedAssetIds((current) => {
           const next = new Set(current);
-          next.add(savedAssetId);
+          next.add(slot.assetId!);
           return next;
         });
         markLibraryAssetSavedInCache(
           queryClient,
           libraryId,
-          savedAssetId,
+          slot.assetId,
           savedAsset,
         );
       }
       removeVariantSlotFromCache(queryClient, slot);
       void queryClient.invalidateQueries({
-        queryKey: ["app-state", "asset-variants"],
+        queryKey: ["action", "get-library", { id: libraryId }],
         refetchType: "active",
       });
-      toast.success(t("brandKitDetail.savedToGenerated"));
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state"],
+        refetchType: "active",
+      });
+      toast.success(t("library.savedToLibrary"));
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : t("brandKitDetail.couldNotSaveCandidate"),
+          : t("library.couldNotSaveCandidate"),
       );
     } finally {
-      setCandidateSaving(key, false);
+      setSavingCandidateSlotId(null);
     }
+  }
+
+  async function handleSaveDraftCandidate(
+    asset: any,
+    folderId?: string | null,
+  ) {
+    if (!asset?.id || savingCandidateSlotId) return;
+    const key = `draft:${asset.id}`;
+    setSavingCandidateSlotId(key);
+    try {
+      const savedAsset = await saveGenerated.mutateAsync({
+        assetId: asset.id,
+        folderId,
+      });
+      setOptimisticallySavedAssetIds((current) => {
+        const next = new Set(current);
+        next.add(asset.id);
+        return next;
+      });
+      markLibraryAssetSavedInCache(
+        queryClient,
+        libraryId,
+        asset.id,
+        savedAsset,
+      );
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state"],
+        refetchType: "active",
+      });
+      toast.success(t("library.savedToLibrary"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t("library.couldNotSaveDraft"),
+      );
+    } finally {
+      setSavingCandidateSlotId(null);
+    }
+  }
+
+  function handleMoveLiveCandidateToReferences(slot: VariantSlot) {
+    if (!slot.assetId) return;
+    const asset = assetById.get(slot.assetId) ?? {
+      id: slot.assetId,
+      mediaType: "image",
+      status: "candidate",
+    };
+    void handleMoveToReferences(asset, slot);
   }
 
   async function handleMoveToReferences(asset: any, slot?: any) {
@@ -684,7 +740,7 @@ export default function LibraryPage() {
         refetchType: "active",
       });
       void queryClient.invalidateQueries({
-        queryKey: ["app-state", "asset-variants"],
+        queryKey: ["app-state"],
         refetchType: "active",
       });
       toast.success(t("brandKitDetail.addedToReferences"));
@@ -889,50 +945,41 @@ export default function LibraryPage() {
       }
       if (failedCount > 0) {
         toast.warning(
-          t("brandKitDetail.uploadedSomeFailed", {
-            uploaded: uploadedCount,
-            uploadedPlural: uploadedCount === 1 ? "" : "s",
-            failed: failedCount,
+          t("library.uploadedWithFailures", {
+            uploadedCount,
+            failedCount,
           }),
           {
             id: toastId,
             description:
               skippedCount > 0
-                ? t("brandKitDetail.skippedDuplicates", {
-                    count: skippedCount,
-                    plural: skippedCount === 1 ? "" : "s",
-                  })
+                ? t("library.skippedDuplicates", { count: skippedCount })
                 : null,
           },
         );
       } else if (uploadedCount > 0 && skippedCount > 0) {
         toast.success(
-          t("brandKitDetail.uploadedSkipped", {
-            uploaded: uploadedCount,
-            uploadedPlural: uploadedCount === 1 ? "" : "s",
-            skipped: skippedCount,
-            skippedPlural: skippedCount === 1 ? "" : "s",
+          t("library.uploadedAndSkippedDuplicates", {
+            uploadedCount,
+            skippedCount,
           }),
           { id: toastId, description: null },
         );
       } else if (uploadedCount > 0) {
-        toast.success(
-          t("brandKitDetail.uploadedCount", { count: uploadedCount }),
-          {
-            id: toastId,
-            description: null,
-          },
-        );
+        toast.success(t("library.uploadedAssets", { count: uploadedCount }), {
+          id: toastId,
+          description: null,
+        });
       } else if (skippedCount > 0) {
         toast.warning(
-          t("brandKitDetail.skippedDuplicateAssets", { count: skippedCount }),
+          t("library.skippedDuplicateAssets", { count: skippedCount }),
           {
             id: toastId,
-            description: t("brandKitDetail.alreadyInBrandKit"),
+            description: t("library.alreadyInThisBrandKit"),
           },
         );
       } else {
-        toast.warning(t("brandKitDetail.noNewAssetsUploaded"), {
+        toast.warning(t("library.noNewAssetsUploaded"), {
           id: toastId,
           description: null,
         });
@@ -940,7 +987,7 @@ export default function LibraryPage() {
       await refreshLibrary();
     } catch (e) {
       const message =
-        e instanceof Error ? e.message : t("brandKitDetail.uploadFailed");
+        e instanceof Error ? e.message : t("library.uploadFailed");
       const indeterminate =
         /(?:\b408\b|\b504\b|timeout|timed out|network|failed to fetch|load failed)/i.test(
           message,
@@ -950,9 +997,9 @@ export default function LibraryPage() {
         setPendingUploads(
           pending.map((upload) => ({ ...upload, status: "checking" })),
         );
-        toast.warning(t("brandKitDetail.uploadTakingLonger"), {
+        toast.warning(t("library.uploadTakingLonger"), {
           id: toastId,
-          description: t("brandKitDetail.uploadMayFinish"),
+          description: t("library.uploadTakingLongerDescription"),
         });
         void refreshLibrary();
         window.setTimeout(() => void refreshLibrary(), 4_000);
@@ -974,8 +1021,8 @@ export default function LibraryPage() {
     if (!library || archiveLibrary.isPending) return;
     try {
       await archiveLibrary.mutateAsync({ id: library.id });
-      toast.success(t("brandKitDetail.brandKitArchived"));
-      navigate("/brand-kits");
+      toast.success(t("library.brandKitArchived"));
+      navigate("/library");
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -991,8 +1038,8 @@ export default function LibraryPage() {
       const copy = (await duplicateLibrary.mutateAsync({
         id: library.id,
       })) as any;
-      toast.success(t("brandKitDetail.privateCopyCreated"));
-      navigate(`/brand-kits/${copy.id}`);
+      toast.success(t("library.privateBrandKitCopyCreated"));
+      navigate(`/library/${copy.id}`);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -1000,61 +1047,6 @@ export default function LibraryPage() {
           : t("brandKitDetail.couldNotDuplicateBrandKit"),
       );
     }
-  }
-
-  function generate(prompt: string, options: GenerateOptions) {
-    const selectedPreset = options.presetId
-      ? generationPresets.find((preset) => preset.id === options.presetId)
-      : null;
-    const trimmedPrompt = prompt.trim();
-    const chatMessage =
-      trimmedPrompt ||
-      (options.mediaType === "video"
-        ? "Generate a video for this library."
-        : "Generate images for this library.");
-    const context = [
-      "## Assets library context",
-      options.mediaType === "video"
-        ? "Requested output: 1 video candidate for this library"
-        : `Requested output: ${options.count} image candidate${options.count === 1 ? "" : "s"} for this library`,
-      `User prompt: ${trimmedPrompt || "(no text prompt provided)"}`,
-      options.presetId ? `Preset ID: ${options.presetId}` : "Preset ID: none",
-      `Aspect ratio: ${options.aspectRatio}`,
-      options.mediaType === "video"
-        ? `Duration: ${options.durationSeconds}s\nResolution: ${options.resolution}`
-        : `Image size: ${options.imageSize}`,
-      `Model: ${options.model}`,
-      activeFolderId && activeFolderId !== "all"
-        ? `Folder ID: ${activeFolderId}`
-        : "Folder ID: none",
-      `Reference categories: ${options.category}`,
-      `Include canonical logo: ${options.includeLogo ? "yes" : "no"}`,
-      "",
-      "## Selected library",
-      `Library: ${library.title} (${library.id})`,
-      `Description: ${library.description || ""}`,
-      `Folder: ${activeFolderId && activeFolderId !== "all" ? folders.find((folder) => folder.id === activeFolderId)?.title : "All assets"}`, // i18n-ignore: agent prompt context, not UI
-      `References: ${references.length}`,
-      `Saved assets: ${saved.length}`,
-      `Style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
-      customInstructions
-        ? `Custom instructions: ${customInstructions}`
-        : "Custom instructions: none",
-      selectedPreset
-        ? `Generation preset: ${selectedPreset.title} (${selectedPreset.id}); ${selectedPreset.aspectRatio}; text policy: ${selectedPreset.textPolicy || "none"}`
-        : "Generation preset: none",
-      "",
-      options.mediaType === "video"
-        ? "Use generate-video, then call refresh-generation-run until the run completes and returns a video asset. Use save-generated-asset when the user approves it."
-        : "Use the asset generation actions. If a generation preset ID is present, pass presetId to generate-image or generate-image-batch. Generate candidates, show previews, ask for feedback, and refine by assetId until the user is happy.",
-    ].join("\n");
-    sendToAgentChat({
-      message: chatMessage,
-      context,
-      submit: true,
-      newTab: true,
-    });
-    setGenerateOpen(false);
   }
 
   function continueSession(sessionId: string) {
@@ -1070,9 +1062,7 @@ export default function LibraryPage() {
           });
         },
         onError: (error: Error) => {
-          toast.error(
-            error.message || t("brandKitDetail.couldNotPrepareHandoff"),
-          );
+          toast.error(error.message || t("library.couldNotPrepareHandoff"));
         },
       },
     );
@@ -1081,11 +1071,11 @@ export default function LibraryPage() {
   function createHandoffFromRun(run: any) {
     const outputIds = outputAssetIds(run);
     if (!outputIds.length) {
-      toast.error(t("brandKitDetail.runNoGeneratedAssets"));
+      toast.error(t("library.runHasNoGeneratedAssets"));
       return;
     }
     const prompt =
-      run.originalPrompt || run.prompt || t("brandKitDetail.generatedAsset");
+      run.originalPrompt || run.prompt || t("library.generatedAsset");
     createSession.mutate(
       {
         libraryId,
@@ -1113,7 +1103,7 @@ export default function LibraryPage() {
   if (!library) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        {t("brandKitDetail.loadingBrandKit")}
+        {t("library.loadingBrandKit")}
       </div>
     );
   }
@@ -1122,121 +1112,123 @@ export default function LibraryPage() {
     activeTab === "runs" || activeTab === "settings" ? activeTab : "assets";
   const hideEmptyLanes =
     activeFolderId !== "all" || mediaFilter !== "all" || search.trim() !== "";
+  const uploadAction = (
+    <Button
+      variant="outline"
+      className="gap-2"
+      onClick={() => fileInputRef.current?.click()}
+      disabled={uploading}
+    >
+      {uploading ? (
+        <Spinner className="h-4 w-4" />
+      ) : (
+        <IconUpload className="h-4 w-4" />
+      )}
+      {uploading
+        ? t("library.uploadingCount", { count: pendingUploads.length })
+        : t("library.upload")}
+    </Button>
+  );
+  const moreActions = (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          aria-label={t("library.kitActions")}
+          disabled={archiveLibrary.isPending || duplicateLibrary.isPending}
+        >
+          <IconDotsVertical className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            setFolderOpen(true);
+          }}
+        >
+          <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
+          {t("library.newFolder")}
+        </DropdownMenuItem>
+        <ShareButton
+          resourceType="asset-library"
+          resourceId={library.id}
+          resourceTitle={library.title}
+          triggerClassName="w-full justify-start border-0 bg-transparent px-2 py-1.5 text-sm font-normal shadow-none hover:bg-accent hover:text-accent-foreground"
+        />
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          disabled={duplicateLibrary.isPending}
+          onSelect={(event) => {
+            event.preventDefault();
+            void duplicateCurrentLibrary();
+          }}
+        >
+          <IconCopy className="mr-2 h-4 w-4 shrink-0" />
+          {duplicateLibrary.isPending
+            ? t("library.duplicating")
+            : t("library.duplicate")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onSelect={(event) => {
+            event.preventDefault();
+            setArchiveOpen(true);
+          }}
+        >
+          <IconArchive className="mr-2 h-4 w-4 shrink-0" />
+          {t("library.archiveBrandKit")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap lg:shrink-0">
+      {uploadAction}
+      {moreActions}
+    </div>
+  );
+  const headerPrimaryActionsPortal =
+    headerMode === "actions" && headerPrimaryActionsTarget
+      ? createPortal(uploadAction, headerPrimaryActionsTarget)
+      : null;
+  const headerMoreActionsPortal =
+    headerMode === "actions" && headerMoreActionsTarget
+      ? createPortal(moreActions, headerMoreActionsTarget)
+      : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="border-b border-border px-6 py-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="truncate text-2xl font-semibold tracking-tight">
-                {library.title}
-              </h2>
-              <Badge variant="outline">{library.visibility}</Badge>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                onClick={() => setEditOpen(true)}
-                aria-label={t("brandKitDetail.editBrandKit")}
-              >
-                <IconPencil className="h-4 w-4" />
-              </Button>
-            </div>
-            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              {library.description || t("brandKitDetail.defaultDescription")}
-            </p>
-          </div>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap lg:shrink-0">
-            <ShareButton
-              resourceType="asset-library"
-              resourceId={library.id}
-              resourceTitle={library.title}
-            />
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <Spinner className="h-4 w-4" />
-              ) : (
-                <IconUpload className="h-4 w-4" />
-              )}
-              {uploading
-                ? t("brandKitDetail.uploadingCount", {
-                    count: pendingUploads.length,
-                  })
-                : t("brandKitDetail.upload")}
-            </Button>
-            <Button
-              variant="outline"
-              className="hidden gap-2 xl:inline-flex"
-              onClick={() => setFolderOpen(true)}
-            >
-              <IconFolderPlus className="h-4 w-4" />
-              {t("brandKitDetail.folder")}
-            </Button>
-            <GeneratePopover
-              open={generateOpen}
-              onOpenChange={setGenerateOpen}
-              onSubmit={generate}
-              hasLogo={!!library.canonicalLogoAssetId}
-              presets={generationPresets}
-            />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+    <div className="flex min-w-0 flex-col">
+      {headerPrimaryActionsPortal}
+      {headerMoreActionsPortal}
+      {headerMode === "full" ? (
+        <div className="border-b border-border px-6 py-4">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h2 className="truncate text-2xl font-semibold tracking-tight">
+                  {library.title}
+                </h2>
+                <Badge variant="outline">{library.visibility}</Badge>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                   size="icon"
-                  aria-label={t("brandKitDetail.brandKitActions")}
-                  disabled={
-                    archiveLibrary.isPending || duplicateLibrary.isPending
-                  }
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={() => setEditOpen(true)}
+                  aria-label={t("library.editBrandKit")}
                 >
-                  <IconDotsVertical className="h-4 w-4" />
+                  <IconPencil className="h-4 w-4" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  className="xl:hidden"
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setFolderOpen(true);
-                  }}
-                >
-                  <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
-                  {t("brandKitDetail.newFolder")}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="xl:hidden" />
-                <DropdownMenuItem
-                  disabled={duplicateLibrary.isPending}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    void duplicateCurrentLibrary();
-                  }}
-                >
-                  <IconCopy className="mr-2 h-4 w-4 shrink-0" />
-                  {duplicateLibrary.isPending
-                    ? t("brandKitDetail.duplicating")
-                    : t("brandKitDetail.duplicate")}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    setArchiveOpen(true);
-                  }}
-                >
-                  <IconArchive className="mr-2 h-4 w-4 shrink-0" />
-                  {t("brandKitDetail.archiveBrandKit")}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              </div>
+              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+                {library.description || t("library.defaultKitDescription")}
+              </p>
+            </div>
+            {headerActions}
           </div>
         </div>
-      </div>
+      ) : null}
 
       <input
         ref={fileInputRef}
@@ -1255,15 +1247,13 @@ export default function LibraryPage() {
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("brandKitDetail.archiveThisBrandKit")}
-            </AlertDialogTitle>
+            <AlertDialogTitle>{t("library.archiveKitTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("brandKitDetail.archiveDescription")}
+              {t("library.archiveKitDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("brandKitDetail.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel>{t("library.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               disabled={archiveLibrary.isPending}
               onClick={() => {
@@ -1271,8 +1261,8 @@ export default function LibraryPage() {
               }}
             >
               {archiveLibrary.isPending
-                ? t("brandKitDetail.archiving")
-                : t("brandKitDetail.archive")}
+                ? t("library.archiving")
+                : t("library.archive")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -1298,7 +1288,7 @@ export default function LibraryPage() {
       ) : null}
 
       <div
-        className="relative flex-1 overflow-y-auto px-6 py-5"
+        className="relative px-6 py-5"
         onDragEnter={(e: DragEvent<HTMLDivElement>) => {
           if (!e.dataTransfer.types.includes("Files")) return;
           e.preventDefault();
@@ -1338,38 +1328,24 @@ export default function LibraryPage() {
           className="space-y-4"
         >
           <TabsList>
-            <TabsTrigger value="assets">
-              {t("brandKitDetail.assets")}
-            </TabsTrigger>
-            <TabsTrigger value="runs">{t("brandKitDetail.runs")}</TabsTrigger>
-            <TabsTrigger value="settings">
-              {t("brandKitDetail.settings")}
-            </TabsTrigger>
+            <TabsTrigger value="assets">{t("library.assetsTab")}</TabsTrigger>
+            <TabsTrigger value="runs">{t("library.runs")}</TabsTrigger>
+            <TabsTrigger value="settings">{t("library.settings")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="assets" className="space-y-5">
-            <CandidateStage
-              candidates={candidateAssets}
-              pendingVariants={pendingVariants}
-              libraryId={libraryId}
-              folders={folders}
-              savingCandidateKeys={savingCandidateKeys}
-              onSaveCandidate={(slot) => {
-                void handleSaveCandidate(slot);
-              }}
-            />
             <section className="space-y-3">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <FolderChip
                     active={activeFolderId === "all"}
-                    label={t("brandKitDetail.allAssets")}
+                    label={t("library.allAssets")}
                     count={libraryAssets.length}
                     onClick={() => setActiveFolderId("all")}
                   />
                   <FolderChip
                     active={activeFolderId === null}
-                    label={t("brandKitDetail.unfiled")}
+                    label={t("library.unfiled")}
                     count={unfiledCount}
                     onClick={() => setActiveFolderId(null)}
                   />
@@ -1393,13 +1369,13 @@ export default function LibraryPage() {
                     <Input
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
-                      placeholder={t("brandKitDetail.searchAssets")}
+                      placeholder={t("library.searchAssets")}
                       className="h-9 w-full pl-8 pr-8 sm:w-64"
                     />
                     {search && (
                       <button
                         type="button"
-                        aria-label={t("brandKitDetail.clearSearch")}
+                        aria-label={t("library.clearSearch")}
                         className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
                         onClick={() => setSearch("")}
                       >
@@ -1624,19 +1600,6 @@ export default function LibraryPage() {
   );
 }
 
-type GenerateOptions = {
-  mediaType: "image" | "video";
-  presetId?: string;
-  count: number;
-  aspectRatio: string;
-  imageSize: string;
-  durationSeconds: number;
-  resolution: string;
-  model: string;
-  category: string;
-  includeLogo: boolean;
-};
-
 type PendingUpload = {
   id: string;
   name: string;
@@ -1655,10 +1618,12 @@ type LaneGalleryItem = {
   subtitle?: string | null;
   metadata?: string | null;
   status?: string | null;
+  asset?: any;
   mediaType?: "image" | "video";
   href?: string;
   selected?: boolean;
   busy?: boolean;
+  showBusyOverlay?: boolean;
   deleting?: boolean;
   preview: ReactNode;
   thumbnail: ReactNode; // i18n-ignore structural preview slot name
@@ -1912,6 +1877,63 @@ function assetLineageSourceText(asset: any): string | null {
     : null;
 }
 
+function detailAssetPayload(asset: any) {
+  const mediaType =
+    asset?.mediaType === "video" || asset?.mimeType?.startsWith("video/")
+      ? "video"
+      : "image";
+  const title = assetDisplayTitle(asset);
+  const url = assetMediaUrl(
+    asset?.previewUrl ?? asset?.downloadUrl ?? asset?.url,
+  );
+  const width = Number(asset?.width);
+  const height = Number(asset?.height);
+  return {
+    assetId: asset?.id,
+    title,
+    mediaType,
+    url,
+    previewUrl: assetMediaUrl(asset?.previewUrl),
+    downloadUrl: assetMediaUrl(asset?.downloadUrl),
+    ...(Number.isFinite(width) && Number.isFinite(height) && width && height
+      ? { width, height }
+      : {}),
+  };
+}
+
+function detailAssetClipboardText(asset: any) {
+  const payload = detailAssetPayload(asset);
+  const url = payload.url ?? payload.downloadUrl ?? payload.previewUrl;
+  const previewTip =
+    payload.mediaType === "image" && url
+      ? [
+          `Markdown preview: ![Selected asset](${url})`,
+          "If this remote preview does not render in Codex or Claude Code, download the image locally and embed the absolute local file path.",
+        ]
+      : [];
+  return [
+    `Use this selected ${payload.mediaType} in the current work: ${payload.title}`,
+    url ? `URL: ${url}` : null,
+    ...previewTip,
+    "",
+    JSON.stringify(
+      {
+        assetId: payload.assetId,
+        title: payload.title,
+        mediaType: payload.mediaType,
+        url,
+        ...(payload.width && payload.height
+          ? { width: payload.width, height: payload.height }
+          : {}),
+      },
+      null,
+      2,
+    ),
+  ]
+    .filter((line): line is string => line !== null)
+    .join("\n");
+}
+
 function shortId(id: string) {
   return id.length > 12 ? `${id.slice(0, 6)}...${id.slice(-4)}` : id;
 }
@@ -1997,261 +2019,6 @@ function SessionCard({
   );
 }
 
-function GeneratePopover({
-  open,
-  onOpenChange,
-  onSubmit,
-  hasLogo,
-  presets,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onSubmit: (prompt: string, options: GenerateOptions) => void;
-  hasLogo: boolean;
-  presets: any[];
-}) {
-  const t = useT();
-  const [prompt, setPrompt] = useState("");
-  const [mediaType, setMediaType] = useState<"image" | "video">("image");
-  const [presetId, setPresetId] = useState("none");
-  const [count, setCount] = useState(3);
-  const [aspectRatio, setAspectRatio] = useState("16:9");
-  const [imageSize, setImageSize] = useState("2K");
-  const [durationSeconds, setDurationSeconds] = useState(8);
-  const [resolution, setResolution] = useState("720p");
-  const [model, setModel] = useState("gemini-3.1-flash-image");
-  const [category, setCategory] = useState("hero");
-  const [includeLogo, setIncludeLogo] = useState(false);
-  const selectedPreset = presets.find((preset) => preset.id === presetId);
-
-  return (
-    <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>
-        <Button className="gap-2">
-          <IconMessageCircle className="h-4 w-4" />
-          {t("brandKitDetail.generate")}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="w-[420px] max-w-[calc(100vw-2rem)]"
-      >
-        <div className="space-y-4">
-          <div>
-            <div className="text-sm font-semibold">
-              {t("brandKitDetail.generateWithChat")}
-            </div>
-          </div>
-          {presets.length ? (
-            <Select
-              value={presetId}
-              onValueChange={(value) => {
-                setPresetId(value);
-                const preset = presets.find((item) => item.id === value);
-                if (!preset) return;
-                setMediaType(preset.mediaType === "video" ? "video" : "image");
-                setAspectRatio(preset.aspectRatio || "16:9");
-                setImageSize(preset.imageSize || "2K");
-                setModel(preset.model || "gemini-3.1-flash-image");
-                setCategory(preset.category || "hero");
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={t("brandKitDetail.preset")} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">
-                  {t("brandKitDetail.noPreset")}
-                </SelectItem>
-                {presets.map((preset) => (
-                  <SelectItem key={preset.id} value={preset.id}>
-                    {preset.title}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null}
-          {selectedPreset?.textPolicy ? (
-            <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
-              {selectedPreset.textPolicy}
-            </p>
-          ) : null}
-          <Select
-            value={mediaType}
-            onValueChange={(value) => {
-              const next = value as "image" | "video";
-              setMediaType(next);
-              setModel(
-                next === "video"
-                  ? "veo-3.1-generate-preview"
-                  : "gemini-3.1-flash-image",
-              );
-              setCategory(next === "video" ? "video" : "hero");
-              setAspectRatio(next === "video" ? "16:9" : aspectRatio);
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="image">
-                {t("brandKitDetail.imageCandidates")}
-              </SelectItem>
-              <SelectItem value="video">
-                {t("brandKitDetail.videoCandidate")}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <Textarea
-            autoGrow
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder={
-              mediaType === "video"
-                ? t("brandKitDetail.videoPromptPlaceholder")
-                : t("brandKitDetail.imagePromptPlaceholder")
-            }
-            className="min-h-28 max-h-48 resize-none overflow-y-auto"
-          />
-          <div className="grid grid-cols-2 gap-3">
-            {mediaType === "image" ? (
-              <Select
-                value={String(count)}
-                onValueChange={(v) => setCount(Number(v))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {[1, 2, 3, 4].map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {t("brandKitDetail.variants", { count: n })}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Select
-                value={String(durationSeconds)}
-                onValueChange={(v) => setDurationSeconds(Number(v))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {VIDEO_DURATIONS.map((n) => (
-                    <SelectItem key={n} value={String(n)}>
-                      {n}s
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Select value={aspectRatio} onValueChange={setAspectRatio}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(mediaType === "video"
-                  ? VIDEO_ASPECT_RATIOS
-                  : ASPECT_RATIOS
-                ).map((ratio) => (
-                  <SelectItem key={ratio} value={ratio}>
-                    {ratio}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {mediaType === "image" ? (
-              <Select value={imageSize} onValueChange={setImageSize}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {IMAGE_SIZES.map((size) => (
-                    <SelectItem key={size} value={size}>
-                      {size}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Select value={resolution} onValueChange={setResolution}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {VIDEO_RESOLUTIONS.map((item) => (
-                    <SelectItem key={item} value={item}>
-                      {item}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {IMAGE_CATEGORIES.map((item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Select value={model} onValueChange={setModel}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(mediaType === "video" ? VIDEO_MODELS : IMAGE_MODELS).map(
-                (item) => (
-                  <SelectItem key={item} value={item}>
-                    {item}
-                  </SelectItem>
-                ),
-              )}
-            </SelectContent>
-          </Select>
-          {mediaType === "image" && (
-            <label className="flex items-center gap-2 text-sm">
-              <Checkbox
-                checked={includeLogo}
-                disabled={!hasLogo}
-                onCheckedChange={(checked) => setIncludeLogo(checked === true)}
-              />
-              {t("brandKitDetail.compositeCanonicalLogo")}
-            </label>
-          )}
-          <Button
-            className="w-full"
-            disabled={!prompt.trim()}
-            onClick={() =>
-              onSubmit(prompt, {
-                mediaType,
-                presetId: presetId === "none" ? undefined : presetId,
-                count,
-                aspectRatio,
-                imageSize,
-                durationSeconds,
-                resolution,
-                model,
-                category,
-                includeLogo,
-              })
-            }
-          >
-            {t("brandKitDetail.openChat")}
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 function GenerationPresetsPanel({
   libraryId,
   presets,
@@ -2268,16 +2035,14 @@ function GenerationPresetsPanel({
   const [category, setCategory] = useState<ImageCategory>("social");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
   const [promptTemplate, setPromptTemplate] = useState("");
-  const [textPolicy, setTextPolicy] = useState(
-    t("brandKitDetail.defaultTextPolicy"),
-  );
+  const [textPolicy, setTextPolicy] = useState(t("library.defaultTextPolicy"));
 
   function reset() {
     setTitle("");
     setCategory("social");
     setAspectRatio("1:1");
     setPromptTemplate("");
-    setTextPolicy(t("brandKitDetail.defaultTextPolicy"));
+    setTextPolicy(t("library.defaultTextPolicy"));
   }
 
   function submit() {
@@ -2401,7 +2166,7 @@ function GenerationPresetsPanel({
                 );
               }}
             >
-              {t("brandKitDetail.delete")}
+              {t("assetDetail.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2473,9 +2238,7 @@ function GenerationPresetsPanel({
                 id="preset-template"
                 value={promptTemplate}
                 onChange={(event) => setPromptTemplate(event.target.value)}
-                placeholder={t("brandKitDetail.promptTemplatePlaceholder", {
-                  prompt: "{{prompt}}",
-                })}
+                placeholder={t("library.promptTemplatePlaceholder")}
               />
             </div>
             <div className="grid gap-2">
@@ -2600,655 +2363,6 @@ function AssetPreview({
         }
       }}
     />
-  );
-}
-
-function CandidateStage({
-  candidates,
-  pendingVariants,
-  libraryId,
-  folders,
-  savingCandidateKeys,
-  onSaveCandidate,
-}: {
-  candidates: any[];
-  pendingVariants: any[];
-  libraryId: string;
-  folders: any[];
-  savingCandidateKeys: Set<string>;
-  onSaveCandidate: (slot: any) => void;
-}) {
-  const t = useT();
-  const dismissSlot = useActionMutation("dismiss-variant-slots");
-  const deleteAsset = useActionMutation("delete-asset");
-  const queryClient = useQueryClient();
-  const [dismissTarget, setDismissTarget] = useState<{
-    kind: "slot" | "asset";
-    title: string;
-    slot?: any;
-    asset?: any;
-  } | null>(null);
-  const dismissing = dismissSlot.isPending || deleteAsset.isPending;
-
-  async function handleDismissCandidate() {
-    if (!dismissTarget || dismissing) return;
-    try {
-      if (dismissTarget.kind === "slot" && dismissTarget.slot) {
-        await dismissSlot.mutateAsync({ slotId: dismissTarget.slot.slotId });
-        removeVariantSlotFromCache(queryClient, dismissTarget.slot);
-        removeAssetsFromLibraryCache(queryClient, libraryId, [
-          dismissTarget.slot.assetId,
-        ]);
-        void queryClient.invalidateQueries({
-          queryKey: ["app-state", "asset-variants"],
-          refetchType: "active",
-        });
-      } else if (dismissTarget.kind === "asset" && dismissTarget.asset?.id) {
-        await deleteAsset.mutateAsync({ id: dismissTarget.asset.id });
-        removeAssetsFromLibraryCache(queryClient, libraryId, [
-          dismissTarget.asset.id,
-        ]);
-      }
-      setDismissTarget(null);
-      toast.success(t("brandKitDetail.dismissedCandidate"));
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("brandKitDetail.couldNotDismissCandidate"),
-      );
-    }
-  }
-
-  function slotItem(slot: any): LaneGalleryItem {
-    const isFailed = slot.status === "failed";
-    const saving = savingCandidateKeys.has(candidateSaveKey(slot));
-    const busy = saving;
-    return {
-      id: `slot:${slot.slotId}`,
-      title: isFailed
-        ? t("brandKitDetail.failedCandidate")
-        : slot.status === "ready"
-          ? t("brandKitDetail.readyCandidate")
-          : t("brandKitDetail.generatingCandidate"),
-      subtitle: slot.slotId
-        ? shortId(String(slot.slotId))
-        : t("brandKitDetail.liveSlot"),
-      metadata: t("brandKitDetail.candidate"),
-      status: slot.status,
-      mediaType: "image",
-      href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
-      busy,
-      preview: <VariantPreview slot={slot} fit="contain" />, // i18n-ignore structural preview slot name
-      thumbnail: <VariantPreview slot={slot} />, // i18n-ignore structural preview slot name
-      menu: (
-        <VariantActionsMenu slot={slot} libraryId={libraryId} busy={busy} />
-      ),
-      primaryActions:
-        slot.status === "ready" ? (
-          <div className="grid grid-cols-2 gap-2">
-            <CandidateSaveMenu
-              libraryId={libraryId}
-              folders={folders}
-              saving={saving}
-              disabled={busy}
-              onSave={(folderId) => onSaveCandidate({ ...slot, folderId })}
-            />
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={() =>
-                setDismissTarget({
-                  kind: "slot",
-                  title: isFailed
-                    ? t("brandKitDetail.failedCandidate")
-                    : t("brandKitDetail.readyCandidate"),
-                  slot,
-                })
-              }
-              disabled={busy || dismissing}
-            >
-              {t("brandKitDetail.dismiss")}
-            </Button>
-          </div>
-        ) : (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 w-full px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() =>
-              setDismissTarget({
-                kind: "slot",
-                title: isFailed
-                  ? t("brandKitDetail.failedCandidate")
-                  : t("brandKitDetail.generatingCandidate"),
-                slot,
-              })
-            }
-            disabled={busy || dismissing}
-          >
-            {t("brandKitDetail.dismiss")}
-          </Button>
-        ),
-    };
-  }
-
-  function candidateItem(asset: any): LaneGalleryItem {
-    const saving = savingCandidateKeys.has(`asset:${asset.id}`);
-    const busy = saving;
-    return {
-      id: `candidate:${asset.id}`,
-      title: assetDisplayTitle(asset),
-      subtitle: assetLineageSourceText(asset) || assetCategoryLabel(asset),
-      metadata:
-        asset.mediaType === "video"
-          ? t("brandKitDetail.video")
-          : asset.mimeType?.startsWith("image/")
-            ? t("brandKitDetail.image")
-            : t("brandKitDetail.candidate"),
-      status: "candidate",
-      mediaType: asset.mediaType === "video" ? "video" : "image",
-      href: `/asset/${asset.id}`,
-      busy,
-      preview: <AssetPreview asset={asset} fit="contain" />, // i18n-ignore structural preview slot name
-      thumbnail: <AssetPreview asset={asset} />, // i18n-ignore structural preview slot name
-      primaryActions: (
-        <div className="grid grid-cols-2 gap-2">
-          <CandidateSaveMenu
-            libraryId={libraryId}
-            folders={folders}
-            saving={saving}
-            disabled={busy}
-            onSave={(folderId) =>
-              onSaveCandidate({ assetId: asset.id, folderId })
-            }
-          />
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-            onClick={() =>
-              setDismissTarget({
-                kind: "asset",
-                title: assetDisplayTitle(asset),
-                asset,
-              })
-            }
-            disabled={busy || dismissing}
-          >
-            {t("brandKitDetail.dismiss")}
-          </Button>
-        </div>
-      ),
-    };
-  }
-
-  const pendingVariantAssetIds = new Set(
-    pendingVariants
-      .map((slot: any) => slot.assetId)
-      .filter(
-        (assetId: unknown): assetId is string => typeof assetId === "string",
-      ),
-  );
-  const detachedCandidates = candidates.filter(
-    (asset) => !pendingVariantAssetIds.has(asset.id),
-  );
-  const items = [
-    ...pendingVariants.map(slotItem),
-    ...detachedCandidates.map(candidateItem),
-  ];
-  const [activeItemId, setActiveItemId] = useState<string | null>(null);
-  const itemIds = items.map((item) => item.id).join("\n");
-  const activeItem =
-    items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
-
-  useEffect(() => {
-    if (!items.length) {
-      setActiveItemId(null);
-      return;
-    }
-    setActiveItemId((current) =>
-      current && items.some((item) => item.id === current)
-        ? current
-        : items[0].id,
-    );
-  }, [itemIds, items]);
-
-  if (!items.length) return null;
-
-  return (
-    <>
-      <AlertDialog
-        open={dismissTarget !== null}
-        onOpenChange={(open) => {
-          if (!open && !dismissing) setDismissTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("brandKitDetail.dismissThisCandidate")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("brandKitDetail.dismissCandidateDescription", {
-                title:
-                  dismissTarget?.title ?? t("brandKitDetail.thisCandidate"),
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={dismissing}>
-              {t("brandKitDetail.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={dismissing}
-              onClick={(event) => {
-                event.preventDefault();
-                void handleDismissCandidate();
-              }}
-            >
-              {dismissing ? (
-                <>
-                  <Spinner className="h-4 w-4" />
-                  {t("brandKitDetail.dismissing")}
-                </>
-              ) : (
-                t("brandKitDetail.dismiss")
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <section className="overflow-hidden rounded-lg border border-border bg-background">
-        <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate text-sm font-semibold">
-                {t("brandKitDetail.candidates")}
-              </h3>
-              <Badge variant="outline">{items.length}</Badge>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {t("brandKitDetail.generationQueue")}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <CandidateStageActions
-              slots={pendingVariants}
-              detachedCandidates={detachedCandidates}
-              libraryId={libraryId}
-            />
-          </div>
-        </div>
-        <div className="grid lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="min-w-0 bg-muted/10 p-3">
-            <div
-              className={[
-                "group relative overflow-hidden rounded-lg border border-border bg-background",
-                activeItem?.busy ? "opacity-80" : "",
-              ].join(" ")}
-              aria-busy={activeItem?.busy}
-            >
-              <div className="aspect-[16/9] bg-muted/30">
-                {activeItem?.href ? (
-                  <Link to={activeItem.href} className="block h-full w-full">
-                    {activeItem.preview}
-                  </Link>
-                ) : (
-                  activeItem?.preview
-                )}
-              </div>
-              {activeItem?.menu ? (
-                <div className="absolute right-3 top-3 z-10">
-                  {activeItem.menu}
-                </div>
-              ) : null}
-              {activeItem?.busy ? (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
-                  <Spinner className="h-5 w-5" />
-                </div>
-              ) : null}
-            </div>
-            <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-              {items.map((item) => {
-                const active = item.id === activeItem?.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveItemId(item.id)}
-                    className={[
-                      "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
-                      active
-                        ? "border-primary ring-2 ring-primary/25"
-                        : "border-border/80 hover:border-foreground/30",
-                    ].join(" ")}
-                    aria-label={t("brandKitDetail.showItem", {
-                      title: item.title,
-                    })}
-                    aria-pressed={active}
-                  >
-                    {item.thumbnail}
-                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
-                    {item.busy ? (
-                      <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
-                        <Spinner className="h-3 w-3" />
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <aside className="flex min-h-56 flex-col justify-between gap-4 border-t border-border bg-background p-4 lg:border-l lg:border-t-0">
-            <div className="min-w-0 space-y-4">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium">
-                  {activeItem?.title}
-                </div>
-                {activeItem?.subtitle ? (
-                  <div className="mt-1 truncate text-xs text-muted-foreground">
-                    {activeItem.subtitle}
-                  </div>
-                ) : null}
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {activeItem?.status ? (
-                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
-                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                      {t("brandKitDetail.status")}
-                    </div>
-                    <div className="mt-0.5 truncate">{activeItem.status}</div>
-                  </div>
-                ) : null}
-                {activeItem?.metadata ? (
-                  <div className="rounded-md border border-border bg-muted/20 px-2 py-1.5">
-                    <div className="text-[10px] font-medium uppercase text-muted-foreground">
-                      {t("brandKitDetail.type")}
-                    </div>
-                    <div className="mt-0.5 truncate">{activeItem.metadata}</div>
-                  </div>
-                ) : null}
-              </div>
-              {activeItem?.primaryActions ? (
-                <div>{activeItem.primaryActions}</div>
-              ) : null}
-            </div>
-            {activeItem?.href ? (
-              <Button asChild variant="outline" size="sm">
-                <Link to={activeItem.href}>{t("brandKitDetail.open")}</Link>
-              </Button>
-            ) : null}
-          </aside>
-        </div>
-      </section>
-    </>
-  );
-}
-
-function CandidateSaveMenu({
-  libraryId,
-  folders,
-  saving,
-  disabled,
-  onSave,
-}: {
-  libraryId: string;
-  folders: any[];
-  saving?: boolean;
-  disabled?: boolean;
-  onSave: (folderId: string | null) => void;
-}) {
-  const t = useT();
-  const createFolder = useActionMutation("create-folder");
-  const queryClient = useQueryClient();
-  const [createOpen, setCreateOpen] = useState(false);
-  const pending = saving || createFolder.isPending;
-
-  return (
-    <>
-      <CreateFolderDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onSubmit={async (title) => {
-          const folder = (await createFolder.mutateAsync({
-            libraryId,
-            title,
-            parentId: null,
-          })) as any;
-          void queryClient.invalidateQueries({
-            queryKey: ["action", "get-library", { id: libraryId }],
-            refetchType: "active",
-          });
-          setCreateOpen(false);
-          if (folder?.id) onSave(folder.id);
-        }}
-        pending={createFolder.isPending}
-      />
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button size="sm" className="h-8 px-2 text-xs" disabled={disabled}>
-            {pending ? (
-              <Spinner className="h-3.5 w-3.5" />
-            ) : (
-              t("brandKitDetail.saveTo")
-            )}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          <DropdownMenuItem onSelect={() => onSave(null)}>
-            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            {t("brandKitDetail.unfiled")}
-          </DropdownMenuItem>
-          {folders.map((folder) => (
-            <DropdownMenuItem
-              key={folder.id}
-              onSelect={() => onSave(folder.id)}
-            >
-              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-              {t("brandKitDetail.folderLabel", { title: folder.title })}
-            </DropdownMenuItem>
-          ))}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              setCreateOpen(true);
-            }}
-          >
-            <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
-            {t("brandKitDetail.newFolderEllipsis")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
-  );
-}
-
-function CandidateStageActions({
-  slots,
-  detachedCandidates,
-  libraryId,
-}: {
-  slots: any[];
-  detachedCandidates: any[];
-  libraryId: string;
-}) {
-  const t = useT();
-  const dismissSlots = useActionMutation("dismiss-variant-slots");
-  const deleteAssets = useActionMutation("delete-assets");
-  const queryClient = useQueryClient();
-  const [pending, setPending] = useState<"failed" | "all" | null>(null);
-  const failedSlots = slots.filter((slot) => slot.status === "failed");
-  const failedCount = failedSlots.length;
-  const detachedCount = detachedCandidates.length;
-  const totalCount = slots.length + detachedCount;
-  const isClearing = dismissSlots.isPending || deleteAssets.isPending;
-  const actionLabel =
-    pending === "failed"
-      ? t("brandKitDetail.dismissFailed")
-      : t("brandKitDetail.clearAll");
-  const busyLabel =
-    pending === "failed"
-      ? t("brandKitDetail.dismissing")
-      : t("brandKitDetail.clearing");
-
-  async function handleClear(scope: "failed" | "all") {
-    const slotAssetIds = slots
-      .filter((slot) => scope === "all" || slot.status === "failed")
-      .map((slot) => slot.assetId)
-      .filter(
-        (assetId: unknown): assetId is string => typeof assetId === "string",
-      );
-    const detachedAssetIds =
-      scope === "all" ? detachedCandidates.map((asset) => asset.id) : [];
-    const removedAssetIds = [
-      ...new Set([...slotAssetIds, ...detachedAssetIds]),
-    ];
-
-    if (
-      scope === "all" &&
-      slots.length === 0 &&
-      detachedAssetIds.length === 0
-    ) {
-      setPending(null);
-      return;
-    }
-    if (scope === "failed" && failedCount === 0) {
-      setPending(null);
-      return;
-    }
-
-    try {
-      if (slots.length > 0 && (scope === "all" || failedCount > 0)) {
-        await dismissSlots.mutateAsync({ scope });
-        removeVariantSlotsByScopeFromCache(queryClient, scope);
-      }
-      if (detachedAssetIds.length > 0) {
-        await deleteAssets.mutateAsync({ ids: detachedAssetIds });
-      }
-      if (removedAssetIds.length > 0) {
-        removeAssetsFromLibraryCache(queryClient, libraryId, removedAssetIds);
-      }
-      setPending(null);
-      void queryClient.invalidateQueries({
-        queryKey: ["app-state", "asset-variants"],
-        refetchType: "active",
-      });
-      if (scope === "failed") {
-        toast.success(
-          t("brandKitDetail.dismissedFailedCandidates", {
-            count: failedCount,
-          }),
-        );
-      } else {
-        toast.success(
-          t("brandKitDetail.clearedCandidates", { count: totalCount }),
-        );
-      }
-    } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("brandKitDetail.couldNotClearCandidates"),
-      );
-    }
-  }
-
-  if (totalCount === 0) return null;
-
-  return (
-    <>
-      <AlertDialog
-        open={pending !== null}
-        onOpenChange={(open) => {
-          if (!open && !isClearing) setPending(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {pending === "failed"
-                ? t("brandKitDetail.dismissFailedCandidatesTitle", {
-                    count: failedCount,
-                  })
-                : t("brandKitDetail.clearCandidatesTitle", {
-                    count: totalCount,
-                  })}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {pending === "failed"
-                ? t("brandKitDetail.dismissFailedDescription")
-                : t("brandKitDetail.clearCandidatesDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isClearing}>
-              {t("brandKitDetail.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={isClearing || pending === null}
-              onClick={(event) => {
-                event.preventDefault();
-                if (pending) void handleClear(pending);
-              }}
-            >
-              {isClearing ? (
-                <>
-                  <Spinner className="h-4 w-4" />
-                  {busyLabel}
-                </>
-              ) : (
-                actionLabel
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            aria-label={t("brandKitDetail.candidateActions")}
-            disabled={isClearing}
-          >
-            <IconDotsVertical className="h-4 w-4" />
-            {t("brandKitDetail.clear")}
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem
-            disabled={failedCount === 0 || isClearing}
-            onSelect={(event) => {
-              event.preventDefault();
-              setPending("failed");
-            }}
-          >
-            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {t("brandKitDetail.dismissFailed")} ({failedCount})
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            disabled={isClearing}
-            onSelect={(event) => {
-              event.preventDefault();
-              setPending("all");
-            }}
-          >
-            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {t("brandKitDetail.clearAll")}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </>
   );
 }
 
@@ -3395,13 +2509,11 @@ function AssetSwimlaneBoard({
         {
           onSuccess: () => {
             finishDeleting(ids);
-            toast.success(t("brandKitDetail.deletedAsset"));
+            toast.success(t("library.deletedAsset"));
           },
           onError: (error) => {
             restoreAfterDeleteError(ids);
-            toast.error(
-              error.message || t("brandKitDetail.couldNotDeleteAsset"),
-            );
+            toast.error(error.message || t("library.couldNotDeleteAsset"));
           },
         },
       );
@@ -3416,12 +2528,12 @@ function AssetSwimlaneBoard({
         onSuccess: (result: any) => {
           finishDeleting(ids);
           const count = Number(result?.deletedCount ?? ids.length);
-          toast.success(t("brandKitDetail.deletedAssets", { count }));
+          toast.success(t("library.deletedAssets", { count }));
         },
         onError: (error) => {
           restoreAfterDeleteError(ids);
           toast.error(
-            error.message || t("brandKitDetail.couldNotDeleteSelectedAssets"),
+            error.message || t("library.couldNotDeleteSelectedAssets"),
           );
         },
       },
@@ -3477,10 +2589,10 @@ function AssetSwimlaneBoard({
       }
       toast.success(
         enabled
-          ? t("brandKitDetail.addedAssetsToReferences", {
+          ? t("library.addedAssetsToReferences", {
               count: assetList.length,
             })
-          : t("brandKitDetail.removedAssetsFromReferences", {
+          : t("library.removedAssetsFromReferences", {
               count: assetList.length,
             }),
       );
@@ -3489,8 +2601,8 @@ function AssetSwimlaneBoard({
         error instanceof Error
           ? error.message
           : enabled
-            ? t("brandKitDetail.couldNotAddSelectedToReferences")
-            : t("brandKitDetail.couldNotRemoveSelectedFromReferences"),
+            ? t("library.couldNotAddSelectedToReferences")
+            : t("library.couldNotRemoveSelectedFromReferences"),
       );
       return;
     } finally {
@@ -3504,15 +2616,14 @@ function AssetSwimlaneBoard({
       id: `upload:${upload.id}`,
       title: upload.name,
       subtitle: isChecking
-        ? t("brandKitDetail.checkingUpload")
-        : t("brandKitDetail.uploading"),
-      status: isChecking
-        ? t("brandKitDetail.checking")
-        : t("brandKitDetail.uploading"),
+        ? t("library.checkingUpload")
+        : t("library.uploading"),
+      status: isChecking ? t("library.checking") : t("library.uploading"),
       mediaType: upload.mediaType,
       busy: true,
+      showBusyOverlay: false,
       preview: <PendingUploadPreview upload={upload} fit="contain" />, // i18n-ignore structural preview slot name
-      thumbnail: <PendingUploadPreview upload={upload} />, // i18n-ignore structural preview slot name
+      thumbnail: <PendingUploadPreview upload={upload} />,
     };
   }
 
@@ -3547,15 +2658,14 @@ function AssetSwimlaneBoard({
       id: `asset:${asset.id}`,
       title: displayTitle,
       subtitle: sourceText || categoryLabel || asset.status,
+      asset,
       metadata:
         asset.mediaType === "video"
-          ? t("brandKitDetail.video")
+          ? t("library.video")
           : asset.mimeType?.startsWith("image/")
-            ? t("brandKitDetail.image")
-            : asset.mimeType || t("brandKitDetail.asset"),
-      status: isReference
-        ? t("brandKitDetail.reference")
-        : t("brandKitDetail.saved"),
+            ? t("library.image")
+            : asset.mimeType || t("library.asset"),
+      status: isReference ? t("library.reference") : t("library.saved"),
       mediaType: asset.mediaType === "video" ? "video" : "image",
       href: `/asset/${asset.id}`,
       selected: selectedIds.has(asset.id),
@@ -3594,7 +2704,7 @@ function AssetSwimlaneBoard({
                 {saving ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  t("brandKitDetail.save")
+                  t("library.save")
                 )}
               </Button>
             ) : null}
@@ -3607,12 +2717,12 @@ function AssetSwimlaneBoard({
                 }
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title={t("brandKitDetail.addToReferences")}
+                title={t("library.addToReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  t("brandKitDetail.addToReferences")
+                  t("library.addToReferences")
                 )}
               </Button>
             ) : null}
@@ -3625,12 +2735,12 @@ function AssetSwimlaneBoard({
                 }
                 onClick={onRemoveFromReferences}
                 disabled={busy}
-                title={t("brandKitDetail.removeFromReferences")}
+                title={t("library.removeFromReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  t("brandKitDetail.removeFromReferences")
+                  t("library.removeFromReferences")
                 )}
               </Button>
             ) : null}
@@ -3665,10 +2775,10 @@ function AssetSwimlaneBoard({
         <div className="flex min-h-[280px] w-full flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center">
           <IconSearch className="h-9 w-9 text-muted-foreground" />
           <span className="mt-4 text-base font-semibold">
-            {t("brandKitDetail.noAssetsMatch")}
+            {t("library.noAssetsMatchView")}
           </span>
           <span className="mt-2 max-w-md text-sm text-muted-foreground">
-            {t("brandKitDetail.noAssetsMatchDescription")}
+            {t("library.noAssetsMatchViewBody")}
           </span>
         </div>
       );
@@ -3688,10 +2798,10 @@ function AssetSwimlaneBoard({
       >
         <IconPhotoPlus className="h-10 w-10 text-muted-foreground" />
         <span className="mt-4 text-base font-semibold">
-          {t("brandKitDetail.addAssets")}
+          {t("library.addAssets")}
         </span>
         <span className="mt-2 max-w-md text-sm text-muted-foreground">
-          {t("brandKitDetail.addAssetsDescription")}
+          {t("library.addAssetsDescription")}
         </span>
       </button>
     );
@@ -3709,19 +2819,19 @@ function AssetSwimlaneBoard({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {confirmDeleteIds.length > 1
-                ? t("brandKitDetail.deleteAssetsTitle", {
+                ? t("library.deleteAssetsTitle", {
                     count: confirmDeleteIds.length,
                   })
-                : t("brandKitDetail.deleteAssetsTitle", { count: 1 })}
+                : t("library.deleteAssetTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirmDeleteIds.length > 1
-                ? t("brandKitDetail.deleteManyDescription")
-                : t("brandKitDetail.deleteOneDescription")}
+                ? t("library.deleteAssetsDescription")
+                : t("library.deleteAssetDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>{t("brandKitDetail.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel>{t("library.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               disabled={!confirmDeleteIds.length || deleting}
@@ -3743,18 +2853,14 @@ function AssetSwimlaneBoard({
               checked={allSelected}
               disabled={!boardAssets.length || deleting}
               onCheckedChange={(checked) => toggleAll(checked === true)}
-              aria-label={t("brandKitDetail.selectAllVisibleAssets")}
+              aria-label={t("library.selectAllVisibleAssets")}
             />
-            {allSelected
-              ? t("brandKitDetail.deselectAll")
-              : t("brandKitDetail.selectAll")}
+            {allSelected ? t("library.deselectAll") : t("library.selectAll")}
           </label>
           <span className="text-xs text-muted-foreground">
-            {t("brandKitDetail.visibleAssets", {
-              count: boardAssets.length,
-            })}
+            {t("library.visibleAssetsCount", { count: boardAssets.length })}
             {referenceAssets.length > 0
-              ? ` · ${t("brandKitDetail.referenceCount", {
+              ? ` · ${t("library.referencesCount", {
                   count: referenceAssets.length,
                 })}`
               : ""}
@@ -3766,7 +2872,7 @@ function AssetSwimlaneBoard({
               size="sm"
               onClick={() => onSelectedIdsChange(new Set())}
             >
-              {t("brandKitDetail.clear")}
+              {t("library.clear")}
             </Button>
           ) : null}
         </div>
@@ -3787,9 +2893,7 @@ function AssetSwimlaneBoard({
             <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
               <Spinner className="h-4 w-4" />
               <span className="truncate">
-                {t("brandKitDetail.deletingAssets", {
-                  count: pendingDeleteCount,
-                })}
+                {t("library.deletingAssets", { count: pendingDeleteCount })}
               </span>
             </div>
           ) : (
@@ -3797,19 +2901,17 @@ function AssetSwimlaneBoard({
               <Checkbox
                 checked={allSelected}
                 onCheckedChange={(checked) => toggleAll(checked === true)}
-                aria-label={t("brandKitDetail.selectAllAssetsBoard")}
+                aria-label={t("library.selectAllAssetsInBoard")}
               />
               <span className="truncate">
                 {selectedCount > 0
-                  ? t("brandKitDetail.selectedCount", { count: selectedCount })
-                  : t("brandKitDetail.boardAssetCount", {
-                      count: boardAssets.length,
-                    })}
+                  ? t("library.selectedCount", { count: selectedCount })
+                  : t("library.assetCount", { count: boardAssets.length })}
               </span>
               <span className="hidden text-xs text-muted-foreground sm:inline">
-                {t("brandKitDetail.referencesSavedCounts", {
-                  references: referenceAssets.length,
-                  saved: savedAssets.length,
+                {t("library.referencesAndSavedCount", {
+                  referenceCount: referenceAssets.length,
+                  savedCount: savedAssets.length,
                 })}
               </span>
             </div>
@@ -3874,7 +2976,7 @@ function AssetSwimlaneBoard({
                 ) : (
                   <IconTrash className="h-4 w-4" />
                 )}
-                {t("brandKitDetail.delete")}
+                {t("assetDetail.delete")}
               </Button>
             </div>
           ) : null}
@@ -3887,39 +2989,39 @@ function AssetSwimlaneBoard({
         <SwimLane
           title={
             scope === "references"
-              ? t("brandKitDetail.references")
-              : t("brandKitDetail.library")
+              ? t("library.references")
+              : t("library.library")
           }
           eyebrow={
             scope === "references"
-              ? t("brandKitDetail.referencesEyebrow")
-              : t("brandKitDetail.libraryEyebrow")
+              ? t("library.referencesEyebrow")
+              : t("library.libraryEyebrow")
           }
           items={visibleGalleryItems}
           action={
             <Button variant="outline" size="sm" onClick={onUploadClick}>
-              {t("brandKitDetail.add")}
+              {t("library.add")}
             </Button>
           }
           empty={
             scope === "references" && assets.length > 0 ? (
               <LaneActionEmpty
-                title={t("brandKitDetail.noReferencesTitle")}
-                body={t("brandKitDetail.noReferencesBody")}
+                title={t("library.noReferencesInView")}
+                body={t("library.noReferencesInViewBody")}
                 onClick={() => onScopeChange("all")}
-                action={t("brandKitDetail.showAll")}
+                action={t("library.showAll")}
               />
             ) : hideEmptyLanes ? (
               <LaneActionEmpty
-                title={t("brandKitDetail.noAssetsMatch")}
-                body={t("brandKitDetail.noAssetsMatchDescription")}
+                title={t("library.noAssetsMatchView")}
+                body={t("library.noAssetsMatchViewBody")}
                 onClick={() => onScopeChange("all")}
-                action={t("brandKitDetail.showAll")}
+                action={t("library.showAll")}
               />
             ) : (
               <LaneDropTarget
-                title={t("brandKitDetail.dropAssetsHere")}
-                body={t("brandKitDetail.dropAssetsBody")}
+                title={t("library.dropAssetsHere")}
+                body={t("library.dropAssetsHereBody")}
                 onClick={onUploadClick}
                 onDrop={onDrop}
               />
@@ -3946,12 +3048,12 @@ function AssetViewModeToggle({
   }> = [
     {
       value: "lanes",
-      label: t("brandKitDetail.lanes"),
+      label: t("library.lanes"),
       icon: <IconLayoutBottombar className="h-4 w-4" />,
     },
     {
       value: "cards",
-      label: t("brandKitDetail.cards"),
+      label: t("library.cards"),
       icon: <IconLayoutGrid className="h-4 w-4" />,
     },
   ];
@@ -3960,7 +3062,7 @@ function AssetViewModeToggle({
     <TooltipProvider delayDuration={150}>
       <div
         role="group"
-        aria-label={t("brandKitDetail.assetView")}
+        aria-label={t("library.assetView")}
         className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
       >
         {options.map((option) => {
@@ -3977,19 +3079,17 @@ function AssetViewModeToggle({
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:bg-background/60 hover:text-foreground",
                   ].join(" ")}
-                  aria-label={t("brandKitDetail.viewModeLabel", {
-                    label: option.label,
+                  aria-label={t("library.assetViewMode", {
+                    mode: option.label,
                   })}
                   aria-pressed={active}
-                  title={t("brandKitDetail.viewModeLabel", {
-                    label: option.label,
-                  })}
+                  title={t("library.assetViewMode", { mode: option.label })}
                 >
                   {option.icon}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                {t("brandKitDetail.viewModeLabel", { label: option.label })}
+                {t("library.assetViewMode", { mode: option.label })}
               </TooltipContent>
             </Tooltip>
           );
@@ -4016,10 +3116,10 @@ function AssetScopeToggle({
     label: string;
     count: number;
   }> = [
-    { value: "all", label: t("brandKitDetail.all"), count: allCount },
+    { value: "all", label: t("library.tabsAll"), count: allCount },
     {
       value: "references",
-      label: t("brandKitDetail.references"),
+      label: t("library.references"),
       count: referenceCount,
     },
   ];
@@ -4027,7 +3127,7 @@ function AssetScopeToggle({
   return (
     <div
       role="group"
-      aria-label={t("brandKitDetail.assetScope")}
+      aria-label={t("library.assetScope")}
       className="inline-flex shrink-0 gap-1 rounded-md border border-border bg-muted/20 p-1"
     >
       {options.map((option) => {
@@ -4065,78 +3165,141 @@ function AssetScopeToggle({
 
 function AssetCardsView({ items }: { items: LaneGalleryItem[] }) {
   const t = useT();
+  const [copiedItemId, setCopiedItemId] = useState<string | null>(null);
+
+  async function copyItem(item: LaneGalleryItem) {
+    if (!item.asset) return;
+    try {
+      await navigator.clipboard.writeText(detailAssetClipboardText(item.asset));
+      setCopiedItemId(item.id);
+      toast.success(t("library.selectionCopied"));
+      window.setTimeout(() => {
+        setCopiedItemId((current) => (current === item.id ? null : current));
+      }, 1400);
+    } catch {
+      toast.info(t("library.selectionReady"));
+    }
+  }
+
   if (!items.length) {
     return (
       <div className="flex min-h-[220px] items-center justify-center rounded-lg border border-dashed border-border bg-muted/15 p-8 text-center text-sm text-muted-foreground">
-        {t("brandKitDetail.noAssetsToShow")}
+        {t("library.noAssetsToShow")}
       </div>
     );
   }
 
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-      {items.map((item) => (
-        <article
-          key={item.id}
-          className={[
-            "group overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25",
-            item.selected ? "border-primary ring-2 ring-primary/25" : "",
-            item.deleting ? "opacity-60" : "",
-          ].join(" ")}
-          aria-busy={item.busy}
-        >
-          <div className="relative aspect-[4/3] bg-muted/30">
-            {item.href ? (
-              <Link to={item.href} className="block h-full w-full">
-                {item.thumbnail}
-              </Link>
-            ) : (
-              item.thumbnail
-            )}
-            <div className="absolute left-2 top-2 z-10">
-              {item.onToggle ? (
-                <Checkbox
-                  checked={item.selected}
-                  onCheckedChange={(checked) =>
-                    item.onToggle?.(checked === true)
-                  }
-                  aria-label={t("brandKitDetail.selectItem", {
-                    title: item.title,
-                  })}
-                  className="border-background bg-background/90 shadow-sm"
-                />
-              ) : null}
-            </div>
-            {item.menu ? (
-              <div className="absolute right-2 top-2 z-10">{item.menu}</div>
-            ) : null}
-            {item.busy ? (
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
-                <Spinner className="h-5 w-5" />
+      {items.map((item) => {
+        const copied = copiedItemId === item.id;
+        const secondary =
+          item.subtitle &&
+          item.subtitle.toLowerCase() !== item.status?.toLowerCase()
+            ? item.subtitle
+            : null;
+        return (
+          <article
+            key={item.id}
+            className={[
+              "group overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25",
+              item.selected ? "border-primary ring-2 ring-primary/25" : "",
+              item.deleting ? "opacity-60" : "",
+            ].join(" ")}
+            aria-busy={item.busy}
+          >
+            <div className="relative aspect-[4/3] bg-muted/30">
+              {item.href ? (
+                <Link to={item.href} className="block h-full w-full">
+                  {item.thumbnail}
+                </Link>
+              ) : (
+                item.thumbnail
+              )}
+              <div className="absolute left-2 top-2 z-10">
+                {item.onToggle ? (
+                  <Checkbox
+                    checked={item.selected}
+                    onCheckedChange={(checked) =>
+                      item.onToggle?.(checked === true)
+                    }
+                    aria-label={t("library.selectAsset", {
+                      title: item.title,
+                    })}
+                    className="border-background bg-background/90 shadow-sm"
+                  />
+                ) : null}
               </div>
-            ) : null}
-          </div>
-          <div className="space-y-3 p-3">
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium">{item.title}</div>
-              {item.subtitle ? (
-                <div className="mt-1 truncate text-xs text-muted-foreground">
-                  {item.subtitle}
+              <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5 opacity-100 transition md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                {item.asset ? (
+                  <TooltipProvider delayDuration={200}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="secondary"
+                          className="size-8 border border-border/80 bg-background/90 shadow-sm backdrop-blur hover:bg-background"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void copyItem(item);
+                          }}
+                          aria-label={t("library.copyAsset", {
+                            title: item.title,
+                          })}
+                        >
+                          {copied ? (
+                            <IconCheck className="h-4 w-4" />
+                          ) : (
+                            <IconClipboard className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {copied
+                          ? t("library.copied")
+                          : t("library.copyToClipboard")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                ) : null}
+                {item.menu}
+              </div>
+              {item.busy && item.showBusyOverlay !== false ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                  <Spinner className="h-5 w-5" />
                 </div>
               ) : null}
             </div>
-            <div className="flex min-h-5 flex-wrap items-center gap-1.5">
-              {item.status ? (
-                <Badge variant="secondary">{item.status}</Badge>
-              ) : null}
-              {item.metadata ? (
-                <Badge variant="outline">{item.metadata}</Badge>
-              ) : null}
+            <div className="p-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{item.title}</div>
+                <div className="mt-2 flex min-h-5 min-w-0 flex-wrap items-center gap-1.5">
+                  {item.status ? (
+                    <Badge
+                      variant="secondary"
+                      className="h-5 rounded-full px-2"
+                    >
+                      {item.status}
+                    </Badge>
+                  ) : null}
+                  {item.metadata ? (
+                    <Badge variant="outline" className="h-5 rounded-full px-2">
+                      {item.metadata}
+                    </Badge>
+                  ) : null}
+                  {secondary ? (
+                    <span className="min-w-0 truncate text-xs text-muted-foreground">
+                      {secondary}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
             </div>
-            {item.primaryActions ? <div>{item.primaryActions}</div> : null}
-          </div>
-        </article>
-      ))}
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -4233,7 +3396,7 @@ function SwimLane({
                     >
                       {item.thumbnail}
                       <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
-                      {item.busy ? (
+                      {item.busy && item.showBusyOverlay !== false ? (
                         <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
                           <Spinner className="h-3 w-3" />
                         </span>
@@ -4401,9 +3564,7 @@ function PendingUploadPreview({
       <div className="flex flex-col items-center gap-2 text-muted-foreground">
         <Spinner className={fit === "contain" ? "h-6 w-6" : "h-4 w-4"} />
         <span className="text-xs font-medium">
-          {isChecking
-            ? t("brandKitDetail.checking")
-            : t("brandKitDetail.uploading")}
+          {isChecking ? t("library.checking") : t("library.uploading")}
         </span>
       </div>
     </div>
@@ -4436,7 +3597,7 @@ function AssetActionsMenu({
           variant="secondary"
           size="icon"
           className="h-8 w-8 shadow-sm"
-          aria-label={t("brandKitDetail.assetActions")}
+          aria-label={t("library.assetActions")}
           disabled={busy}
         >
           <IconDotsVertical className="h-4 w-4" />
@@ -4445,7 +3606,8 @@ function AssetActionsMenu({
       <DropdownMenuContent align="end">
         <DropdownMenuItem asChild>
           <Link to={`/asset/${asset.id}`}>
-            {t("brandKitDetail.viewDetails")}
+            <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
+            {t("library.viewDetails")}
           </Link>
         </DropdownMenuItem>
         {onMoveToReferences ? (
@@ -4456,7 +3618,7 @@ function AssetActionsMenu({
             }}
           >
             <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-            {t("brandKitDetail.addToReferences")}
+            {t("library.addToReferences")}
           </DropdownMenuItem>
         ) : null}
         {onRemoveFromReferences ? (
@@ -4467,13 +3629,13 @@ function AssetActionsMenu({
             }}
           >
             <IconX className="mr-2 h-4 w-4 shrink-0" />
-            {t("brandKitDetail.removeFromReferences")}
+            {t("library.removeFromReferences")}
           </DropdownMenuItem>
         ) : null}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            {t("brandKitDetail.moveTo")}
+            {t("library.moveTo")}
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent>
             <DropdownMenuItem
@@ -4484,7 +3646,7 @@ function AssetActionsMenu({
                 })
               }
             >
-              {t("brandKitDetail.unfiled")}
+              {t("library.unfiled")}
             </DropdownMenuItem>
             {folders.map((folder) => (
               <DropdownMenuItem
@@ -4507,193 +3669,10 @@ function AssetActionsMenu({
           onSelect={onDelete}
         >
           <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-          {t("brandKitDetail.delete")}
+          {t("assetDetail.delete")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-function VariantPreview({
-  slot,
-  fit = "cover",
-}: {
-  slot: any;
-  fit?: "cover" | "contain";
-}) {
-  const t = useT();
-  const [sourceIndex, setSourceIndex] = useState(0);
-  const [previewUnavailable, setPreviewUnavailable] = useState(false);
-  const previewSources = assetPreviewSources(slot, "thumbnail");
-  const previewSourcesKey = previewSources.join("\n");
-  const isFailed = slot.status === "failed";
-  const previewSrc = previewSources[sourceIndex];
-
-  useEffect(() => {
-    setSourceIndex(0);
-    setPreviewUnavailable(false);
-  }, [previewSourcesKey]);
-
-  return (
-    <div className="flex h-full w-full items-center justify-center bg-muted">
-      {previewSrc && !previewUnavailable ? (
-        <img
-          src={previewSrc}
-          alt=""
-          className={[
-            "h-full w-full",
-            fit === "contain" ? "object-contain" : "object-cover",
-          ].join(" ")}
-          onError={() => {
-            const nextIndex = sourceIndex + 1;
-            if (nextIndex < previewSources.length) {
-              setSourceIndex(nextIndex);
-            } else {
-              setPreviewUnavailable(true);
-            }
-          }}
-        />
-      ) : isFailed ? (
-        <div className="p-4 text-center text-xs text-destructive">
-          {slot.error}
-        </div>
-      ) : previewUnavailable ? (
-        <div className="p-4 text-center text-xs text-muted-foreground">
-          {t("brandKitDetail.previewUnavailable")}
-        </div>
-      ) : (
-        <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
-      )}
-    </div>
-  );
-}
-
-function VariantActionsMenu({
-  slot,
-  libraryId,
-  busy,
-  onMoveToReferences,
-}: {
-  slot: any;
-  libraryId: string;
-  busy?: boolean;
-  onMoveToReferences?: () => void;
-}) {
-  const t = useT();
-  const dismissSlot = useActionMutation("dismiss-variant-slots");
-  const queryClient = useQueryClient();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const isFailed = slot.status === "failed";
-  const label = isFailed
-    ? t("brandKitDetail.dismiss")
-    : t("brandKitDetail.delete");
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="secondary"
-            size="icon"
-            className="h-8 w-8 shadow-sm"
-            aria-label={t("brandKitDetail.candidateActions")}
-            disabled={busy || dismissSlot.isPending}
-          >
-            <IconDotsVertical className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {onMoveToReferences && !isFailed ? (
-            <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                onMoveToReferences();
-              }}
-            >
-              <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-              {t("brandKitDetail.addToReferences")}
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem
-            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-            onSelect={(event) => {
-              event.preventDefault();
-              setConfirmOpen(true);
-            }}
-          >
-            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {label}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <AlertDialog
-        open={confirmOpen}
-        onOpenChange={(open) => {
-          if (!dismissSlot.isPending) setConfirmOpen(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {isFailed
-                ? t("brandKitDetail.dismissThisSlot")
-                : t("brandKitDetail.deleteCandidate")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {isFailed
-                ? t("brandKitDetail.dismissSlotDescription")
-                : t("brandKitDetail.deleteCandidateDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={dismissSlot.isPending}>
-              {t("brandKitDetail.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={dismissSlot.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                dismissSlot.mutate(
-                  { slotId: slot.slotId },
-                  {
-                    onSuccess: () => {
-                      removeVariantSlotFromCache(queryClient, slot);
-                      removeAssetsFromLibraryCache(queryClient, libraryId, [
-                        slot.assetId,
-                      ]);
-                      setConfirmOpen(false);
-                      void queryClient.invalidateQueries({
-                        queryKey: ["app-state", "asset-variants"],
-                        refetchType: "active",
-                      });
-                    },
-                    onError: (error) =>
-                      toast.error(
-                        error.message ||
-                          t("brandKitDetail.couldNotClearCandidate"),
-                      ),
-                  },
-                );
-              }}
-            >
-              {dismissSlot.isPending ? (
-                <>
-                  <Spinner className="h-4 w-4" />
-                  {isFailed
-                    ? t("brandKitDetail.dismissing")
-                    : t("brandKitDetail.deleting")}
-                </>
-              ) : (
-                label
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
   );
 }
 
@@ -4706,9 +3685,7 @@ function PendingUploadLaneTile({ upload }: { upload: PendingUpload }) {
         <div className="flex flex-col items-center gap-2 text-muted-foreground">
           <Spinner className="h-5 w-5" />
           <span className="text-xs font-medium">
-            {isChecking
-              ? t("brandKitDetail.checking")
-              : t("brandKitDetail.uploading")}
+            {isChecking ? t("library.checking") : t("library.uploading")}
           </span>
         </div>
       </div>
@@ -4774,7 +3751,7 @@ function AssetLaneTile({
         <Checkbox
           checked={selected}
           onCheckedChange={(checked) => onToggle(checked === true)}
-          aria-label={t("brandKitDetail.selectItem", { title: displayTitle })}
+          aria-label={t("library.selectAsset", { title: displayTitle })}
           className={[
             "border-background bg-background/90 shadow-sm opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100",
             selected ? "sm:opacity-100" : "",
@@ -4789,7 +3766,7 @@ function AssetLaneTile({
               variant="secondary"
               size="icon"
               className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-              aria-label={t("brandKitDetail.assetActions")}
+              aria-label={t("library.assetActions")}
               disabled={busy}
             >
               <IconDotsVertical className="h-4 w-4" />
@@ -4798,7 +3775,8 @@ function AssetLaneTile({
           <DropdownMenuContent align="end">
             <DropdownMenuItem asChild>
               <Link to={`/asset/${asset.id}`}>
-                {t("brandKitDetail.viewDetails")}
+                <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
+                {t("library.viewDetails")}
               </Link>
             </DropdownMenuItem>
             {canMoveToReferences ? (
@@ -4809,13 +3787,13 @@ function AssetLaneTile({
                 }}
               >
                 <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-                {t("brandKitDetail.addToReferences")}
+                {t("library.addToReferences")}
               </DropdownMenuItem>
             ) : null}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
                 <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-                {t("brandKitDetail.moveTo")}
+                {t("library.moveTo")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
                 <DropdownMenuItem
@@ -4826,7 +3804,7 @@ function AssetLaneTile({
                     })
                   }
                 >
-                  {t("brandKitDetail.unfiled")}
+                  {t("library.unfiled")}
                 </DropdownMenuItem>
                 {folders.map((folder) => (
                   <DropdownMenuItem
@@ -4849,7 +3827,7 @@ function AssetLaneTile({
               onSelect={onDelete}
             >
               <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-              {t("brandKitDetail.delete")}
+              {t("assetDetail.delete")}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -4905,7 +3883,7 @@ function AssetLaneTile({
                 {saving ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  t("brandKitDetail.save")
+                  t("library.save")
                 )}
               </Button>
             ) : null}
@@ -4918,12 +3896,12 @@ function AssetLaneTile({
                 }
                 onClick={onMoveToReferences}
                 disabled={busy}
-                title={t("brandKitDetail.addToReferences")}
+                title={t("library.addToReferences")}
               >
                 {promoting ? (
                   <Spinner className="h-3.5 w-3.5" />
                 ) : (
-                  t("brandKitDetail.addToReferences")
+                  t("library.addToReferences")
                 )}
               </Button>
             ) : null}
@@ -4934,34 +3912,504 @@ function AssetLaneTile({
   );
 }
 
-function VariantLaneTile({
-  slot,
+export function LiveCandidatesStage({
+  slots,
+  draftAssets,
   libraryId,
+  folders,
+  foldersByLibraryId = {},
+  allowCreateFolder = true,
+  savingSlotId,
+  promotingReferenceKeys,
   onSave,
+  onSaveDraft,
   onMoveToReferences,
-  saving = false,
-  promoting = false,
+  onMoveDraftToReferences,
+  onUse,
+  onUseDraft,
 }: {
-  slot: any;
+  slots: VariantSlot[];
+  draftAssets: any[];
   libraryId: string;
-  onSave: () => void;
-  onMoveToReferences?: () => void;
-  saving?: boolean;
-  promoting?: boolean;
+  folders: any[];
+  foldersByLibraryId?: Record<string, any[]>;
+  allowCreateFolder?: boolean;
+  savingSlotId: string | null;
+  promotingReferenceKeys: Set<string>;
+  onSave: (slot: VariantSlot, folderId: string | null) => void;
+  onSaveDraft: (asset: any, folderId: string | null) => void;
+  onMoveToReferences: (slot: VariantSlot) => void;
+  onMoveDraftToReferences: (asset: any) => void;
+  onUse?: (slot: VariantSlot) => void;
+  onUseDraft?: (asset: any) => void;
 }) {
   const t = useT();
   const dismissSlot = useActionMutation("dismiss-variant-slots");
+  const deleteAsset = useActionMutation("delete-asset");
   const queryClient = useQueryClient();
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [dismissTarget, setDismissTarget] = useState<{
+    kind: "slot" | "asset";
+    title: string;
+    slot?: VariantSlot;
+    asset?: any;
+  } | null>(null);
+  const dismissing = dismissSlot.isPending || deleteAsset.isPending;
+  const totalCount = slots.length + draftAssets.length;
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+
+  async function handleDismissCandidate() {
+    if (!dismissTarget || dismissing) return;
+    try {
+      if (dismissTarget.kind === "slot" && dismissTarget.slot) {
+        await dismissSlot.mutateAsync({ slotId: dismissTarget.slot.slotId });
+        removeVariantSlotFromCache(queryClient, dismissTarget.slot);
+        removeAssetsFromLibraryCache(queryClient, libraryId, [
+          dismissTarget.slot.assetId,
+        ]);
+        void queryClient.invalidateQueries({
+          queryKey: ["app-state"],
+          refetchType: "active",
+        });
+      } else if (dismissTarget.kind === "asset" && dismissTarget.asset?.id) {
+        await deleteAsset.mutateAsync({ id: dismissTarget.asset.id });
+        removeAssetsFromLibraryCache(queryClient, libraryId, [
+          dismissTarget.asset.id,
+        ]);
+      }
+      setDismissTarget(null);
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library"],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-assets"],
+        refetchType: "active",
+      });
+      toast.success(t("library.dismissedCandidate"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("library.couldNotDismissCandidate"),
+      );
+    }
+  }
+
+  function candidateActions({
+    canUseCandidate,
+    saving,
+    promoting,
+    candidateLibraryId,
+    onSaveCandidate,
+    onAddToReferences,
+    onUseCandidate,
+    onDismiss,
+  }: {
+    canUseCandidate: boolean;
+    saving?: boolean;
+    promoting?: boolean;
+    candidateLibraryId?: string | null;
+    onSaveCandidate?: (folderId: string | null) => void;
+    onAddToReferences?: () => void;
+    onUseCandidate?: () => void;
+    onDismiss: () => void;
+  }) {
+    const busy = saving || promoting || dismissing;
+    const actionLibraryId = candidateLibraryId || libraryId;
+    const candidateFolders =
+      foldersByLibraryId[actionLibraryId] ??
+      (actionLibraryId === libraryId ? folders : []);
+    if (!canUseCandidate) {
+      return (
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 w-full justify-center px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDismiss}
+          disabled={busy}
+        >
+          {t("library.dismiss")}
+        </Button>
+      );
+    }
+    return (
+      <div className="grid min-w-0 gap-2">
+        {onUseCandidate ? (
+          <Button
+            size="sm"
+            className="h-8 min-w-0 justify-center px-2 text-xs"
+            onClick={onUseCandidate}
+            disabled={busy}
+          >
+            {t("library.useCandidate")}
+          </Button>
+        ) : null}
+        <div className="grid min-w-0 grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+          <CandidateSaveMenu
+            libraryId={actionLibraryId}
+            folders={candidateFolders}
+            allowCreateFolder={allowCreateFolder}
+            saving={saving}
+            disabled={busy}
+            onSave={(folderId) => onSaveCandidate?.(folderId)}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 min-w-0 px-2 text-xs"
+            onClick={onAddToReferences}
+            disabled={busy}
+          >
+            {promoting ? (
+              <Spinner className="h-3.5 w-3.5" />
+            ) : (
+              t("library.addToReferences")
+            )}
+          </Button>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 min-w-0 justify-center px-2 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDismiss}
+          disabled={busy}
+        >
+          {t("library.dismiss")}
+        </Button>
+      </div>
+    );
+  }
+
+  function slotItem(slot: VariantSlot): LaneGalleryItem {
+    const isFailed = slot.status === "failed";
+    const canUseCandidate = slot.status === "ready" && Boolean(slot.assetId);
+    const promotingKey = referencePromotionKey(
+      slot.assetId ? { id: slot.assetId } : null,
+      slot,
+    );
+    const saving = savingSlotId === slot.slotId;
+    const promoting =
+      Boolean(promotingKey) && promotingReferenceKeys.has(promotingKey);
+    const busy = saving || promoting || dismissing;
+    const title = isFailed
+      ? t("library.failedCandidate")
+      : slot.status === "ready"
+        ? t("library.readyCandidate")
+        : t("library.generatingCandidate");
+    return {
+      id: `slot:${slot.slotId}`,
+      title,
+      subtitle: slot.slotId
+        ? shortId(String(slot.slotId))
+        : t("library.liveSlot"),
+      metadata: t("library.live"),
+      status: slot.status,
+      mediaType: "image",
+      href: slot.assetId ? `/asset/${slot.assetId}` : undefined,
+      busy,
+      preview: <VariantPreview slot={slot} fit="contain" />, // i18n-ignore structural preview slot name
+      thumbnail: <VariantPreview slot={slot} />,
+      primaryActions: candidateActions({
+        canUseCandidate,
+        saving,
+        promoting,
+        candidateLibraryId: libraryId,
+        onSaveCandidate: (folderId) => onSave(slot, folderId),
+        onAddToReferences: () => onMoveToReferences(slot),
+        onUseCandidate: onUse ? () => onUse(slot) : undefined,
+        onDismiss: () =>
+          setDismissTarget({
+            kind: "slot",
+            title,
+            slot,
+          }),
+      }),
+    };
+  }
+
+  function draftItem(asset: any): LaneGalleryItem {
+    const promotingKey = referencePromotionKey(asset);
+    const saving = savingSlotId === `draft:${asset.id}`;
+    const promoting =
+      Boolean(promotingKey) && promotingReferenceKeys.has(promotingKey);
+    const busy = saving || promoting || dismissing;
+    return {
+      id: `draft:${asset.id}`,
+      title: assetDisplayTitle(asset),
+      subtitle:
+        [asset.libraryTitle, assetLineageSourceText(asset)]
+          .filter(Boolean)
+          .join(" / ") || assetCategoryLabel(asset),
+      metadata:
+        asset.mediaType === "video"
+          ? t("library.video")
+          : asset.mimeType?.startsWith("image/")
+            ? t("library.image")
+            : t("library.draft"),
+      status: "draft",
+      mediaType: asset.mediaType === "video" ? "video" : "image",
+      href: `/asset/${asset.id}`,
+      busy,
+      preview: <AssetPreview asset={asset} fit="contain" />, // i18n-ignore structural preview slot name
+      thumbnail: <AssetPreview asset={asset} />,
+      primaryActions: candidateActions({
+        canUseCandidate: true,
+        saving,
+        promoting,
+        candidateLibraryId: asset.libraryId,
+        onSaveCandidate: (folderId) => onSaveDraft(asset, folderId),
+        onAddToReferences: () => onMoveDraftToReferences(asset),
+        onUseCandidate: onUseDraft ? () => onUseDraft(asset) : undefined,
+        onDismiss: () =>
+          setDismissTarget({
+            kind: "asset",
+            title: assetDisplayTitle(asset),
+            asset,
+          }),
+      }),
+    };
+  }
+
+  const items = [...slots.map(slotItem), ...draftAssets.map(draftItem)];
+  const itemIds = items.map((item) => item.id).join("\n");
+  const activeItem =
+    items.find((item) => item.id === activeItemId) ?? items[0] ?? null;
+
+  useEffect(() => {
+    if (!items.length) {
+      setActiveItemId(null);
+      return;
+    }
+    setActiveItemId((current) =>
+      current && items.some((item) => item.id === current)
+        ? current
+        : items[0].id,
+    );
+  }, [itemIds, items]);
+
+  return (
+    <>
+      <AlertDialog
+        open={dismissTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !dismissing) setDismissTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("library.dismissCandidateTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("library.dismissCandidateDescription", {
+                title: dismissTarget?.title ?? t("library.thisCandidate"),
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={dismissing}>
+              {t("library.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={dismissing}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDismissCandidate();
+              }}
+            >
+              {dismissing ? (
+                <>
+                  <Spinner className="h-4 w-4" />
+                  {t("library.dismissing")}
+                </>
+              ) : (
+                t("library.dismiss")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <section className="min-w-0 overflow-hidden rounded-lg border border-border bg-background">
+        <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border px-3 py-2.5 sm:px-4">
+          <div className="flex min-w-0 flex-1 items-center">
+            <h3 className="shrink-0 text-sm font-semibold">
+              {t("library.candidates")}
+            </h3>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <LiveCandidatesActions
+              slots={slots}
+              draftAssets={draftAssets}
+              libraryId={libraryId}
+            />
+          </div>
+        </div>
+        <div className="grid min-w-0 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]">
+          <div className="min-w-0 bg-muted/10 p-2.5 sm:p-3">
+            <div
+              className={[
+                "group relative overflow-hidden rounded-lg border border-border bg-background shadow-sm",
+                activeItem?.busy ? "opacity-80" : "",
+              ].join(" ")}
+              aria-busy={activeItem?.busy}
+            >
+              <div className="h-36 bg-muted/30 sm:h-44 lg:h-56 2xl:h-64">
+                {activeItem?.href ? (
+                  <Link to={activeItem.href} className="block h-full w-full">
+                    {activeItem.preview}
+                  </Link>
+                ) : (
+                  activeItem?.preview
+                )}
+              </div>
+              {activeItem?.busy ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/20">
+                  <Spinner className="h-5 w-5" />
+                </div>
+              ) : null}
+              {activeItem?.href ? (
+                <Button
+                  asChild
+                  variant="secondary"
+                  size="sm"
+                  className="absolute right-2 top-2 h-8 gap-1.5 bg-background/85 px-2.5 text-xs opacity-0 shadow-sm backdrop-blur transition group-hover:opacity-100 focus-within:opacity-100"
+                >
+                  <Link to={activeItem.href}>
+                    <IconArrowUpRight className="h-3.5 w-3.5" />
+                    {t("library.details")}
+                  </Link>
+                </Button>
+              ) : null}
+            </div>
+            <div className="mt-2.5 flex gap-2 overflow-x-auto pb-1">
+              {items.map((item) => {
+                const active = item.id === activeItem?.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveItemId(item.id)}
+                    className={[
+                      "group relative h-16 w-24 shrink-0 overflow-hidden rounded-md border bg-background transition",
+                      active
+                        ? "border-primary ring-2 ring-primary/25"
+                        : "border-border/80 hover:border-foreground/30",
+                    ].join(" ")}
+                    aria-label={t("library.showCandidate", {
+                      title: item.title,
+                    })}
+                    aria-pressed={active}
+                  >
+                    {item.thumbnail}
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-background/90 to-transparent" />
+                    {item.busy && item.showBusyOverlay !== false ? (
+                      <span className="absolute right-1.5 top-1.5 rounded-full bg-background/90 p-1 shadow-sm">
+                        <Spinner className="h-3 w-3" />
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <aside className="flex min-w-0 flex-col justify-between gap-3 border-t border-border bg-background p-3 lg:border-l lg:border-t-0 lg:p-4">
+            <div className="min-w-0 space-y-3">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  {activeItem?.status ? (
+                    <CandidateStatusPill status={activeItem.status} />
+                  ) : null}
+                  {activeItem?.metadata ? (
+                    <Badge
+                      variant="outline"
+                      className="h-6 max-w-full rounded-full px-2 text-[11px]"
+                    >
+                      {activeItem.metadata}
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="mt-2 truncate text-sm font-semibold">
+                  {activeItem?.title}
+                </div>
+                {activeItem?.subtitle ? (
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {activeItem.subtitle}
+                  </div>
+                ) : null}
+              </div>
+              {activeItem?.primaryActions ? (
+                <div>{activeItem.primaryActions}</div>
+              ) : null}
+            </div>
+            {activeItem?.href ? (
+              <Button asChild variant="ghost" size="sm" className="gap-1.5">
+                <Link to={activeItem.href}>
+                  <IconArrowUpRight className="h-3.5 w-3.5" />
+                  {t("library.openDetails")}
+                </Link>
+              </Button>
+            ) : null}
+          </aside>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function CandidateStatusPill({ status }: { status: string }) {
+  const t = useT();
+  const normalized = status.toLowerCase();
+  const label =
+    normalized === "pending"
+      ? t("library.generating")
+      : normalized === "ready"
+        ? t("library.ready")
+        : normalized === "failed"
+          ? t("library.failed")
+          : normalized === "draft"
+            ? t("library.draft")
+            : status;
+  const className =
+    normalized === "ready"
+      ? "border-primary/30 bg-primary/10 text-primary"
+      : normalized === "failed"
+        ? "border-destructive/30 bg-destructive/10 text-destructive"
+        : normalized === "pending"
+          ? "border-border bg-muted/70 text-muted-foreground"
+          : "border-border bg-background text-muted-foreground";
+
+  return (
+    <span
+      className={[
+        "inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium",
+        className,
+      ].join(" ")}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
+
+function VariantPreview({
+  slot,
+  fit = "cover",
+}: {
+  slot: VariantSlot;
+  fit?: "cover" | "contain";
+}) {
+  const t = useT();
   const [sourceIndex, setSourceIndex] = useState(0);
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const previewSources = assetPreviewSources(slot, "thumbnail");
   const previewSourcesKey = previewSources.join("\n");
   const isFailed = slot.status === "failed";
-  const label = isFailed
-    ? t("brandKitDetail.dismiss")
-    : t("brandKitDetail.delete");
-  const busy = saving || promoting || dismissSlot.isPending;
   const previewSrc = previewSources[sourceIndex];
 
   useEffect(() => {
@@ -4970,198 +4418,138 @@ function VariantLaneTile({
   }, [previewSourcesKey]);
 
   return (
-    <div
-      className="group relative w-[144px] shrink-0 overflow-hidden rounded-md border border-border/80 bg-background transition hover:border-foreground/20 sm:w-[156px]"
-      aria-busy={busy}
-    >
-      <div className="absolute right-2 top-2 z-10">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="secondary"
-              size="icon"
-              className="h-8 w-8 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100 data-[state=open]:opacity-100"
-              aria-label={t("brandKitDetail.candidateActions")}
-              disabled={busy}
+    <div className="flex h-full w-full items-center justify-center bg-muted">
+      {previewSrc && !previewUnavailable ? (
+        <img
+          src={previewSrc}
+          alt=""
+          className={[
+            "h-full w-full",
+            fit === "contain" ? "object-contain" : "object-cover",
+          ].join(" ")}
+          onError={() => {
+            const nextIndex = sourceIndex + 1;
+            if (nextIndex < previewSources.length) {
+              setSourceIndex(nextIndex);
+            } else {
+              setPreviewUnavailable(true);
+            }
+          }}
+        />
+      ) : isFailed ? (
+        <div className="p-4 text-center text-xs text-destructive">
+          {slot.error}
+        </div>
+      ) : previewUnavailable ? (
+        <div className="p-4 text-center text-xs text-muted-foreground">
+          {t("assetDetail.previewUnavailable")}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+          <IconPhoto className="h-8 w-8 animate-pulse" />
+          {fit === "contain" ? (
+            <span className="text-xs font-medium">
+              {t("library.rendering")}
+            </span>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CandidateSaveMenu({
+  libraryId,
+  folders,
+  allowCreateFolder = true,
+  saving,
+  disabled,
+  onSave,
+}: {
+  libraryId: string;
+  folders: any[];
+  allowCreateFolder?: boolean;
+  saving?: boolean;
+  disabled?: boolean;
+  onSave: (folderId: string | null) => void;
+}) {
+  const t = useT();
+  const createFolder = useActionMutation("create-folder");
+  const queryClient = useQueryClient();
+  const [createOpen, setCreateOpen] = useState(false);
+  const pending = saving || createFolder.isPending;
+
+  return (
+    <>
+      {allowCreateFolder ? (
+        <CreateFolderDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onSubmit={async (title) => {
+            const folder = (await createFolder.mutateAsync({
+              libraryId,
+              title,
+              parentId: null,
+            })) as any;
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "get-library", { id: libraryId }],
+              refetchType: "active",
+            });
+            void queryClient.invalidateQueries({
+              queryKey: ["action", "list-libraries"],
+              refetchType: "active",
+            });
+            setCreateOpen(false);
+            if (folder?.id) onSave(folder.id);
+          }}
+          pending={createFolder.isPending}
+        />
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="sm"
+            className="h-8 min-w-0 px-2 text-xs"
+            disabled={disabled}
+          >
+            {pending ? (
+              <Spinner className="h-3.5 w-3.5" />
+            ) : (
+              t("library.saveTo")
+            )}
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onSelect={() => onSave(null)}>
+            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+            {t("library.unfiled")}
+          </DropdownMenuItem>
+          {folders.map((folder) => (
+            <DropdownMenuItem
+              key={folder.id}
+              onSelect={() => onSave(folder.id)}
             >
-              <IconDotsVertical className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {onMoveToReferences && !isFailed ? (
+              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.folderLabel", { title: folder.title })}
+            </DropdownMenuItem>
+          ))}
+          {allowCreateFolder ? (
+            <>
+              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onSelect={(event) => {
                   event.preventDefault();
-                  onMoveToReferences?.();
+                  setCreateOpen(true);
                 }}
               >
-                <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-                {t("brandKitDetail.addToReferences")}
+                <IconFolderPlus className="mr-2 h-4 w-4 shrink-0" />
+                {t("library.newFolderEllipsis")}
               </DropdownMenuItem>
-            ) : null}
-            <DropdownMenuItem
-              className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-              onSelect={(event) => {
-                event.preventDefault();
-                setConfirmOpen(true);
-              }}
-            >
-              <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-              {label}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      <AlertDialog
-        open={confirmOpen}
-        onOpenChange={(open) => {
-          if (!dismissSlot.isPending) setConfirmOpen(open);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {isFailed
-                ? t("brandKitDetail.dismissThisSlot")
-                : t("brandKitDetail.deleteCandidate")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {isFailed
-                ? t("brandKitDetail.dismissSlotDescription")
-                : t("brandKitDetail.deleteCandidateDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={dismissSlot.isPending}>
-              {t("brandKitDetail.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={dismissSlot.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                dismissSlot.mutate(
-                  { slotId: slot.slotId },
-                  {
-                    onSuccess: () => {
-                      removeVariantSlotFromCache(queryClient, slot);
-                      removeAssetsFromLibraryCache(queryClient, libraryId, [
-                        slot.assetId,
-                      ]);
-                      setConfirmOpen(false);
-                      void queryClient.invalidateQueries({
-                        queryKey: ["app-state", "asset-variants"],
-                        refetchType: "active",
-                      });
-                    },
-                    onError: (error) =>
-                      toast.error(
-                        error.message ||
-                          t("brandKitDetail.couldNotClearCandidate"),
-                      ),
-                  },
-                );
-              }}
-            >
-              {dismissSlot.isPending ? (
-                <>
-                  <Spinner className="h-4 w-4" />
-                  {isFailed
-                    ? t("brandKitDetail.dismissing")
-                    : t("brandKitDetail.deleting")}
-                </>
-              ) : (
-                label
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <div className="relative flex aspect-[4/3] items-center justify-center bg-muted">
-        {previewSrc && !previewUnavailable ? (
-          <img
-            src={previewSrc}
-            alt=""
-            className="h-full w-full object-cover"
-            onError={() => {
-              const nextIndex = sourceIndex + 1;
-              if (nextIndex < previewSources.length) {
-                setSourceIndex(nextIndex);
-              } else {
-                setPreviewUnavailable(true);
-              }
-            }}
-          />
-        ) : isFailed ? (
-          <div className="p-4 text-center text-xs text-destructive">
-            {slot.error}
-          </div>
-        ) : previewUnavailable ? (
-          <div className="p-4 text-center text-xs text-muted-foreground">
-            {t("brandKitDetail.previewUnavailable")}
-          </div>
-        ) : (
-          <IconPhoto className="h-8 w-8 animate-pulse text-muted-foreground" />
-        )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background via-background/90 to-transparent px-2 pb-2 pt-8">
-          <div className="flex items-center justify-between gap-2">
-            <span className="truncate text-xs font-medium">
-              {slot.status === "ready"
-                ? t("brandKitDetail.readyCandidate")
-                : t("brandKitDetail.generating")}
-            </span>
-            <span className="shrink-0 text-[10px] text-muted-foreground">
-              {slot.slotId
-                ? shortId(String(slot.slotId))
-                : t("brandKitDetail.slot")}
-            </span>
-          </div>
-        </div>
-      </div>
-      {slot.status === "ready" ? (
-        <div className="border-t border-border/70 p-2">
-          <div
-            className={
-              onMoveToReferences
-                ? "grid grid-cols-1 gap-2"
-                : "grid grid-cols-2 gap-2"
-            }
-          >
-            <Button
-              size="sm"
-              className="h-8 px-2 text-xs"
-              onClick={onSave}
-              disabled={busy}
-            >
-              {saving ? (
-                <Spinner className="h-3.5 w-3.5" />
-              ) : (
-                t("brandKitDetail.save")
-              )}
-            </Button>
-            {onMoveToReferences ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 px-2 text-xs"
-                onClick={onMoveToReferences}
-                disabled={busy}
-                title={t("brandKitDetail.addToReferences")}
-              >
-                {promoting ? (
-                  <Spinner className="h-3.5 w-3.5" />
-                ) : (
-                  t("brandKitDetail.addToReferences")
-                )}
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      ) : null}
-    </div>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
   );
 }
 
@@ -5188,7 +4576,7 @@ function CreateFolderDialog({
       toast.error(
         error instanceof Error
           ? error.message
-          : t("brandKitDetail.couldNotCreateFolder"),
+          : t("library.couldNotCreateFolder"),
       );
     }
   }
@@ -5196,13 +4584,13 @@ function CreateFolderDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t("brandKitDetail.newFolder")}</DialogTitle>
+          <DialogTitle>{t("library.newFolder")}</DialogTitle>
           <DialogDescription>
-            {t("brandKitDetail.newFolderDescription")}
+            {t("library.newFolderDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="folder-title">{t("brandKitDetail.name")}</Label>
+          <Label htmlFor="folder-title">{t("library.name")}</Label>
           <Input
             id="folder-title"
             value={title}
@@ -5213,13 +4601,13 @@ function CreateFolderDialog({
                 void submit();
               }
             }}
-            placeholder={t("brandKitDetail.campaignLaunch")}
+            placeholder={t("library.folderNamePlaceholder")}
             autoFocus
           />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            {t("brandKitDetail.cancel")}
+            {t("library.cancel")}
           </Button>
           <Button
             disabled={!title.trim() || pending}
@@ -5227,7 +4615,7 @@ function CreateFolderDialog({
               void submit();
             }}
           >
-            {t("brandKitDetail.create")}
+            {t("library.create")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -5237,26 +4625,72 @@ function CreateFolderDialog({
 
 function LiveCandidatesActions({
   slots,
+  draftAssets,
   libraryId,
 }: {
   slots: any[];
+  draftAssets: any[];
   libraryId: string;
 }) {
   const t = useT();
   const dismissSlots = useActionMutation("dismiss-variant-slots");
+  const deleteAssets = useActionMutation("delete-assets");
   const queryClient = useQueryClient();
   const [pending, setPending] = useState<"failed" | "all" | null>(null);
   const failedCount = slots.filter((s) => s.status === "failed").length;
+  const draftCount = draftAssets.length;
+  const totalCount = slots.length + draftCount;
   const hasFailed = failedCount > 0;
-  const isClearing = dismissSlots.isPending;
+  const isClearing = dismissSlots.isPending || deleteAssets.isPending;
   const actionLabel =
-    pending === "failed"
-      ? t("brandKitDetail.dismissFailed")
-      : t("brandKitDetail.clearAll");
+    pending === "failed" ? t("library.dismissFailed") : t("library.clearAll");
   const busyLabel =
-    pending === "failed"
-      ? t("brandKitDetail.dismissing")
-      : t("brandKitDetail.clearing");
+    pending === "failed" ? t("library.dismissing") : t("library.clearing");
+
+  async function handleClear(scope: "failed" | "all") {
+    const slotAssetIds = slots
+      .filter((slot) => scope === "all" || slot.status === "failed")
+      .map((slot) => slot.assetId)
+      .filter((assetId): assetId is string => typeof assetId === "string");
+    const draftAssetIds =
+      scope === "all" ? draftAssets.map((asset) => asset.id) : [];
+    const removedAssetIds = [...new Set([...slotAssetIds, ...draftAssetIds])];
+    try {
+      if (slots.length > 0 && (scope === "all" || failedCount > 0)) {
+        await dismissSlots.mutateAsync({ scope });
+        removeVariantSlotsByScopeFromCache(queryClient, scope);
+      }
+      if (draftAssetIds.length > 0) {
+        await deleteAssets.mutateAsync({ ids: draftAssetIds });
+      }
+      if (removedAssetIds.length > 0) {
+        removeAssetsFromLibraryCache(queryClient, libraryId, removedAssetIds);
+      }
+      setPending(null);
+      void queryClient.invalidateQueries({
+        queryKey: ["app-state"],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library", { id: libraryId }],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "get-library"],
+        refetchType: "active",
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["action", "list-assets"],
+        refetchType: "active",
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("library.couldNotClearCandidates"),
+      );
+    }
+  }
 
   return (
     <>
@@ -5270,20 +4704,18 @@ function LiveCandidatesActions({
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pending === "failed"
-                ? t("brandKitDetail.dismissFailedSlotsTitle", {
-                    count: failedCount,
-                  })
-                : t("brandKitDetail.clearLiveCandidates")}
+                ? t("library.dismissFailedSlotsTitle", { count: failedCount })
+                : t("library.clearCandidatesTitle", { count: totalCount })}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {pending === "failed"
-                ? t("brandKitDetail.dismissFailedSlotsDescription")
-                : t("brandKitDetail.clearLiveCandidatesDescription")}
+                ? t("library.dismissFailedSlotsDescription")
+                : t("library.clearCandidatesDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isClearing}>
-              {t("brandKitDetail.cancel")}
+              {t("library.cancel")}
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -5292,32 +4724,7 @@ function LiveCandidatesActions({
                 event.preventDefault();
                 const scope = pending;
                 if (!scope) return;
-                const removedAssetIds = slots
-                  .filter((slot) => scope === "all" || slot.status === "failed")
-                  .map((slot) => slot.assetId);
-                dismissSlots.mutate(
-                  { scope },
-                  {
-                    onSuccess: () => {
-                      removeVariantSlotsByScopeFromCache(queryClient, scope);
-                      removeAssetsFromLibraryCache(
-                        queryClient,
-                        libraryId,
-                        removedAssetIds,
-                      );
-                      setPending(null);
-                      void queryClient.invalidateQueries({
-                        queryKey: ["app-state", "asset-variants"],
-                        refetchType: "active",
-                      });
-                    },
-                    onError: (error) =>
-                      toast.error(
-                        error.message ||
-                          t("brandKitDetail.couldNotClearLiveCandidates"),
-                      ),
-                  },
-                );
+                void handleClear(scope);
               }}
             >
               {isClearing ? (
@@ -5337,14 +4744,14 @@ function LiveCandidatesActions({
         <DropdownMenuTrigger asChild>
           <Button
             type="button"
-            variant="outline"
-            size="sm"
-            className="gap-2"
-            aria-label={t("brandKitDetail.liveCandidatesActions")}
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label={t("library.candidateActions")}
+            title={t("library.candidateActions")}
             disabled={isClearing}
           >
             <IconDotsVertical className="h-4 w-4" />
-            {t("brandKitDetail.clear")}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
@@ -5356,7 +4763,7 @@ function LiveCandidatesActions({
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {t("brandKitDetail.dismissFailed")} ({failedCount})
+            {t("library.dismissFailedWithCount", { count: failedCount })}
           </DropdownMenuItem>
           <DropdownMenuItem
             className="text-destructive focus:bg-destructive/10 focus:text-destructive"
@@ -5367,24 +4774,10 @@ function LiveCandidatesActions({
             }}
           >
             <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-            {t("brandKitDetail.clearAll")}
+            {t("library.clearAll")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </>
   );
-}
-
-function useVariantState() {
-  return useQuery({
-    queryKey: ["app-state", "asset-variants"],
-    queryFn: async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/application-state/asset-variants"),
-      );
-      if (!res.ok) return null;
-      return res.json();
-    },
-    refetchInterval: 1000,
-  }) as any;
 }
