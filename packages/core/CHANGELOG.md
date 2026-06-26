@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.78.7
+
+### Patch Changes
+
+- 61b078a: Preserve resolved user and org context when agent tool calls run actions.
+
 ## 0.78.6
 
 ### Patch Changes
