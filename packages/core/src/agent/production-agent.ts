@@ -3972,6 +3972,25 @@ export function createProductionAgentHandler(
           `${s}=${Date.now() - setupT0}ms`,
         ).catch(() => {});
     };
+    // DIAGNOSTIC-ONLY: AWAITED worker mark. Fire-and-forget workerStep marks
+    // after `post_model_ok` stopped landing even though writes still work
+    // there — so the worker's MAIN FLOW stalls between post_model and pre_claim
+    // (not a write hang). Awaited marks block until they land (or withDbTimeout-
+    // reject), so `worker_stage` reliably advances to the last phase the main
+    // flow actually reached — pinpointing the stall. Bg worker only.
+    const awaitedWorkerMark = async (s: string) => {
+      if (!isBackgroundWorker || !bgRunId) return;
+      try {
+        await recordRunDiagnostic(
+          bgRunId,
+          RUN_DIAG_STAGE.workerSetupStep,
+          `${s}=${Date.now() - setupT0}ms`,
+        );
+      } catch {
+        // bounded by withDbTimeout; ignore — the absence of the next mark is
+        // itself the signal.
+      }
+    };
     // Whether this worker is REALLY executing inside a 15-min Netlify
     // `-background` function (proven by the runtime function name), not merely a
     // `_process-run` re-entry that may have landed on the ~60s synchronous
@@ -4262,6 +4281,7 @@ export function createProductionAgentHandler(
     // reached db_request_ctx but not env_config hung in attachment upload or
     // engine/model resolution.
     workerStep("env_config");
+    await awaitedWorkerMark("aw_env");
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
     // single biggest contributor to pre-LLM latency.
@@ -4586,6 +4606,7 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
     // files, loop settings, enriched message) resolved.
     workerStep("context_all");
+    await awaitedWorkerMark("aw_presend");
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4616,6 +4637,7 @@ export function createProductionAgentHandler(
     setupMark("actions");
     // DIAGNOSTIC-ONLY: action/tool resolution + engine-tool filtering finished.
     workerStep("action_tool_setup");
+    await awaitedWorkerMark("aw_actions");
     const requestSystemPrompt =
       requestMode === "plan"
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
@@ -4730,6 +4752,7 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: owner/thread resolution + runId/effectiveThreadId +
     // chained-continuation thread fetch finished.
     workerStep("owner_thread");
+    await awaitedWorkerMark("aw_owner");
 
     // Persist the user's turn exactly once. The foreground POST does this
     // before dispatching; the background worker must NOT repeat it (it re-enters
