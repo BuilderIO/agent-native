@@ -165,10 +165,11 @@ describe("document database layout", () => {
 
     // The manual "Refresh source" block is gone; sync is automatic.
     expect(source).not.toContain("Refresh source");
-    // Auto-sync runs on panel open and whenever the window regains focus.
+    // Auto-sync runs on panel open and whenever the window regains focus, and
+    // targets the source whose leaf is open (the primary at the root).
     expect(source).toContain("const autoSyncEnabled");
     expect(source).toContain('window.addEventListener("focus"');
-    expect(source).toContain("refreshSourceRef.current()");
+    expect(source).toContain("refreshSourceRef.current(autoSyncSourceId)");
   });
 
   it("reduces the connected source panel to read-only status plus a diff slot", () => {

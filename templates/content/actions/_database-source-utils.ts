@@ -681,7 +681,10 @@ export async function getContentDatabaseSourceSnapshot(
     .select()
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.databaseId, database.id))
-    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+    .orderBy(
+      asc(schema.contentDatabaseSources.createdAt),
+      asc(schema.contentDatabaseSources.id),
+    );
   if (!source) return null;
   return loadSourceSnapshot(source, database);
 }
@@ -737,7 +740,10 @@ export async function getAllContentDatabaseSourceSnapshots(
     .select()
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.databaseId, database.id))
-    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+    .orderBy(
+      asc(schema.contentDatabaseSources.createdAt),
+      asc(schema.contentDatabaseSources.id),
+    );
   const snapshots: ContentDatabaseSource[] = [];
   for (const source of sources) {
     snapshots.push(await loadSourceSnapshot(source, database));
@@ -916,7 +922,14 @@ async function loadSourceSnapshot(
       })
       .from(schema.contentDatabaseSources)
       .where(eq(schema.contentDatabaseSources.databaseId, database.id))
-      .orderBy(asc(schema.contentDatabaseSources.createdAt));
+      // Same (createdAt, id) ordering as getExistingSource /
+      // getContentDatabaseSourceSnapshot, so "primary" here is definitionally
+      // the same source the write path treats as primary — never a different
+      // pick on a createdAt tie.
+      .orderBy(
+        asc(schema.contentDatabaseSources.createdAt),
+        asc(schema.contentDatabaseSources.id),
+      );
     isPrimarySource = dbSources[0]?.id === source.id;
     const otherSourceIds = dbSources
       .map((row) => row.id)
@@ -1265,9 +1278,20 @@ export async function seedMockSourceFields(args: {
     // collection a row belongs to). It must NEVER become a writable Builder
     // source field — otherwise its local option-id value diffs against an
     // absent baseline and every row shows a phantom pending change, and a push
-    // would try to write the internal tag to Builder.
+    // would try to write the internal tag to Builder. Match the SAME shape
+    // ensureDatabaseSourceProperty uses to identify it (a `select` named
+    // "Source") and only for Builder sources, so a user's own field happening
+    // to be named "Source" — or any non-Builder/local-table source — is left
+    // untouched.
     ...args.properties
-      .filter((property) => property.definition.name !== SOURCE_PROPERTY_NAME)
+      .filter(
+        (property) =>
+          !(
+            isBuilder &&
+            property.definition.name === SOURCE_PROPERTY_NAME &&
+            property.definition.type === "select"
+          ),
+      )
       .map((property) => ({
         id: crypto.randomUUID(),
         ownerEmail: args.ownerEmail,
@@ -2358,8 +2382,13 @@ export async function getExistingSource(databaseId: string) {
     .where(eq(schema.contentDatabaseSources.databaseId, databaseId))
     // Oldest-first so "the source" is deterministically the primary, matching
     // getContentDatabaseSourceSnapshot. Without this, a multi-source database
-    // could resolve a non-primary source when a caller omits sourceId.
-    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+    // could resolve a non-primary source when a caller omits sourceId. The `id`
+    // tie-break keeps the choice stable when two sources share a createdAt
+    // timestamp (no uniqueness guarantee on created_at).
+    .orderBy(
+      asc(schema.contentDatabaseSources.createdAt),
+      asc(schema.contentDatabaseSources.id),
+    );
   return source ?? null;
 }
 

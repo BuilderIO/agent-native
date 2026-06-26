@@ -581,9 +581,9 @@ function DatabaseTable({
   // explicit target is set (single-source behavior).
   const activeReviewSource = useMemo(
     () =>
-      (builderReviewSourceId
+      builderReviewSourceId
         ? (sources.find((item) => item.id === builderReviewSourceId) ?? source)
-        : source),
+        : source,
     [builderReviewSourceId, sources, source],
   );
   const builderReviewChangeSets = useMemo(
@@ -914,10 +914,17 @@ function DatabaseTable({
     setBuilderReviewResult(null);
     setBuilderBatchResult(null);
     setBuilderReviewCheckedAt(null);
+    // Target the SAME source the dialog renders. activeReviewSource falls back
+    // to the primary if the selected source was disconnected/refetched out, so
+    // the backend never receives a stale id that the UI no longer reflects.
+    const targetSourceId =
+      activeReviewSource && activeReviewSource.id !== source?.id
+        ? activeReviewSource.id
+        : undefined;
     try {
       const prepared = await prepareBuilderReview.mutateAsync({
         documentId: document.id,
-        sourceId: builderReviewSourceId ?? undefined,
+        sourceId: targetSourceId,
       });
       let nextReview = prepared.review;
       let batchResult: ExecuteBuilderSourceBatchResponse | null = null;
@@ -936,7 +943,7 @@ function DatabaseTable({
         );
         batchResult = await executeBuilderBatch.mutateAsync({
           documentId: document.id,
-          sourceId: builderReviewSourceId ?? undefined,
+          sourceId: targetSourceId,
           changeSetIds,
           transitions:
             Object.keys(scopedTransitions).length > 0
@@ -3550,6 +3557,7 @@ function DatabaseSettingsPanelSheet({
           <DatabaseSettingsMainPanel
             activeView={activeView}
             source={source}
+            sources={sources}
             sourceCount={sources.length || (source ? 1 : 0)}
             propertyCount={properties.length}
             hiddenCount={hiddenCount}
@@ -3624,6 +3632,7 @@ function databaseSettingsPanelTitle(panel: DatabaseSettingsPanel) {
 function DatabaseSettingsMainPanel({
   activeView,
   source,
+  sources,
   sourceCount,
   propertyCount,
   hiddenCount,
@@ -3631,13 +3640,21 @@ function DatabaseSettingsMainPanel({
 }: {
   activeView: ContentDatabaseView;
   source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
   sourceCount: number;
   propertyCount: number;
   hiddenCount: number;
   onPanelChange: (panel: DatabaseSettingsPanel) => void;
 }) {
   const groupLabel = activeView.groupByPropertyId ? "On" : "";
-  const sourceBadgeCount = builderReviewableChangeSets(source).length;
+  // Sum reviewable changes across EVERY source (row-union) so the collapsed
+  // Sources row badges pending pushes even when they're only on a secondary.
+  const sourceBadgeCount = (
+    sources.length > 0 ? sources : source ? [source] : []
+  ).reduce(
+    (total, item) => total + builderReviewableChangeSets(item).length,
+    0,
+  );
   return (
     <div className="grid gap-3">
       <div className="flex h-9 items-center gap-2 rounded-md border border-border bg-background px-2">
@@ -3990,23 +4007,36 @@ function DatabaseSettingsSourcePanel({
   // mutation is silent (no toast), so this stays quiet in the background.
   const refreshSourceRef = useRef(onRefreshSource);
   refreshSourceRef.current = onRefreshSource;
-  const lastAutoSyncRef = useRef(0);
+  const lastAutoSyncRef = useRef<{ at: number; sourceId?: string }>({ at: 0 });
   const autoSyncEnabled = Boolean(source) && isBuilderSource && canEdit;
+  const top = nav[nav.length - 1];
+  // When a non-primary Builder source's leaf is open, auto-sync should refresh
+  // THAT source, not the primary. At the root/list (no model leaf) we fall back
+  // to the primary (undefined ⇒ primary in the refresh action).
+  const autoSyncSourceId =
+    top?.kind === "model"
+      ? sources.find(
+          (item) =>
+            item.sourceType === "builder-cms" &&
+            item.sourceTable === top.model.name,
+        )?.id
+      : undefined;
   useEffect(() => {
     if (!autoSyncEnabled) return;
     const maybeSync = () => {
       const now = Date.now();
-      if (now - lastAutoSyncRef.current < 15_000) return;
-      lastAutoSyncRef.current = now;
-      refreshSourceRef.current();
+      const last = lastAutoSyncRef.current;
+      // Throttle repeated syncs of the SAME source, but always sync when the
+      // viewed source changes (so opening a secondary leaf refreshes it).
+      if (last.sourceId === autoSyncSourceId && now - last.at < 15_000) return;
+      lastAutoSyncRef.current = { at: now, sourceId: autoSyncSourceId };
+      refreshSourceRef.current(autoSyncSourceId);
     };
     maybeSync();
     const onFocus = () => maybeSync();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [autoSyncEnabled]);
-
-  const top = nav[nav.length - 1];
+  }, [autoSyncEnabled, autoSyncSourceId]);
 
   // ── Sources list (root) ───────────────────────────────────────────────
   if (!top) {
@@ -4240,7 +4270,10 @@ function DatabaseSettingsSourcePanel({
       <>
         <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="truncate font-medium" title={leafSource.sourceName}>
+            <span
+              className="truncate font-medium"
+              title={leafSource.sourceName}
+            >
               {leafSource.sourceName}
             </span>
             {!liveWriteControl.safeTarget ? (
