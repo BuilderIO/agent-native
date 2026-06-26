@@ -425,6 +425,19 @@ export function buildExtensionHtml(
 	      return res.body;
 	    }
 
+	    function sendToChat(message, options) {
+	      options = options || {};
+	      var text = typeof message === 'string' ? message : JSON.stringify(message);
+	      window.parent.postMessage({
+	        type: 'agent-native-send-to-chat',
+	        message: text,
+	        context: options.context,
+	        submit: options.submit !== false,
+	        openSidebar: options.openSidebar !== false,
+	      }, '*');
+	      return { ok: true };
+	    }
+
     async function dbQuery(sql, args) {
       var body = { sql: sql };
       if (args) body.args = args;
@@ -519,6 +532,22 @@ export function buildExtensionHtml(
 	    var toolFetch = extensionFetch;
 	    var toolData = extensionData;
 	    var _toolId = _extensionId;
+	    window.agentNative = Object.assign(window.agentNative || {}, {
+	      extensionId: _extensionId,
+	      extensionBinding: _extensionBinding,
+	      appAction: appAction,
+	      appFetch: appFetch,
+	      dbQuery: dbQuery,
+	      dbExec: dbExec,
+	      extensionFetch: extensionFetch,
+	      extensionData: extensionData,
+	      data: extensionData,
+	      sendToChat: sendToChat,
+	      chat: Object.assign({}, (window.agentNative && window.agentNative.chat) || {}, {
+	        send: sendToChat,
+	      }),
+	    });
+	    window.sendToAgentChat = sendToChat;
 	  </script>
 	  <style>
 	    #__extension-error-toast {

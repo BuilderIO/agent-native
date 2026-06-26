@@ -193,6 +193,48 @@
   box-shadow: none;
 }
 
+.an-replay-stage-root iframe {
+  display: block;
+  border: 0;
+}
+
+.an-replay-stage-root .replayer-wrapper {
+  transform-origin: top left;
+}
+
+.an-replay-scrub {
+  height: 0.25rem;
+  appearance: none;
+  border-radius: 9999px;
+  outline: none;
+  background: hsl(var(--muted));
+  cursor: pointer;
+}
+
+.an-replay-scrub:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.an-replay-scrub::-webkit-slider-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  appearance: none;
+  border: 2px solid hsl(var(--background));
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 0 1px hsl(var(--border));
+}
+
+.an-replay-scrub::-moz-range-thumb {
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid hsl(var(--background));
+  border-radius: 9999px;
+  background: hsl(var(--primary));
+  box-shadow: 0 0 0 1px hsl(var(--border));
+}
+
 .dark
   .analytics-chat-panel
   [data-agent-empty-state="centered"]

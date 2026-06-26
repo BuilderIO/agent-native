@@ -8,7 +8,7 @@ import {
   IconSearch,
 } from "@tabler/icons-react";
 import { useMemo } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,6 +74,7 @@ const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
 
 export default function SessionsPage() {
   const t = useT();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
@@ -213,72 +214,75 @@ export default function SessionsPage() {
                       {t("sessions.events")}
                     </TableHead>
                     <TableHead className="text-end">
-                      {t("sessions.chunks")}
-                    </TableHead>
-                    <TableHead className="text-end">
                       {t("sessions.pages")}
                     </TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {recordings.map((recording) => (
-                    <TableRow key={recording.id}>
-                      <TableCell className="min-w-[240px]">
-                        <Link
-                          to={`/sessions/${encodeURIComponent(recording.id)}`}
-                          className="font-mono text-xs font-medium text-primary hover:underline"
-                        >
-                          {shortId(recording.sessionId)}
-                        </Link>
-                        <div className="mt-1 flex flex-wrap gap-1.5">
-                          <Badge className="bg-emerald-500/15 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300">
-                            {t("sessions.replayReady")}
-                          </Badge>
-                          {recording.errorCount > 0 ? (
-                            <Badge variant="destructive">
-                              {t("sessions.errorCount", {
-                                count: String(recording.errorCount),
-                              })}
-                            </Badge>
-                          ) : null}
-                          {recording.rageClickCount > 0 ? (
-                            <Badge variant="secondary">
-                              {t("sessions.rageClicks", {
-                                count: String(recording.rageClickCount),
-                              })}
-                            </Badge>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="min-w-[130px]">
-                        {recording.app || recording.template || "-"}
-                      </TableCell>
-                      <TableCell className="min-w-[160px]">
-                        <div className="truncate">
-                          {visitorLabel(recording, t)}
-                        </div>
-                      </TableCell>
-                      <TableCell className="min-w-[140px]">
-                        {formatDateTime(
-                          recording.endedAt ??
-                            recording.lastIngestedAt ??
-                            recording.startedAt,
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {formatDuration(recording.durationMs)}
-                      </TableCell>
-                      <TableCell className="text-end">
-                        {formatNumber(recording.eventCount)}
-                      </TableCell>
-                      <TableCell className="text-end">
-                        {formatNumber(recording.chunkCount)}
-                      </TableCell>
-                      <TableCell className="text-end">
-                        {formatNumber(recording.pageCount)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {recordings.map((recording) => {
+                    const href = `/sessions/${encodeURIComponent(recording.id)}`;
+                    return (
+                      <TableRow
+                        key={recording.id}
+                        role="link"
+                        tabIndex={0}
+                        className="cursor-pointer transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                        onClick={() => navigate(href)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            navigate(href);
+                          }
+                        }}
+                      >
+                        <TableCell className="min-w-[240px]">
+                          <div className="font-mono text-xs font-medium text-primary">
+                            {shortId(recording.sessionId)}
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1.5">
+                            {recording.errorCount > 0 ? (
+                              <Badge variant="destructive">
+                                {t("sessions.errorCount", {
+                                  count: String(recording.errorCount),
+                                })}
+                              </Badge>
+                            ) : null}
+                            {recording.rageClickCount > 0 ? (
+                              <Badge variant="secondary">
+                                {t("sessions.rageClicks", {
+                                  count: String(recording.rageClickCount),
+                                })}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="min-w-[130px]">
+                          {recording.app || recording.template || "-"}
+                        </TableCell>
+                        <TableCell className="min-w-[160px]">
+                          <div className="truncate">
+                            {visitorLabel(recording, t)}
+                          </div>
+                        </TableCell>
+                        <TableCell className="min-w-[140px]">
+                          {formatDateTime(
+                            recording.endedAt ??
+                              recording.lastIngestedAt ??
+                              recording.startedAt,
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {formatDuration(recording.durationMs)}
+                        </TableCell>
+                        <TableCell className="text-end">
+                          {formatNumber(recording.eventCount)}
+                        </TableCell>
+                        <TableCell className="text-end">
+                          {formatNumber(recording.pageCount)}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
