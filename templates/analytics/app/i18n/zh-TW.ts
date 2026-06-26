@@ -322,7 +322,6 @@ const messages = {
     chartTypePie: "餡餅",
     chartTypeMetric: "公制",
     chartTypeTable: "桌子",
-    chartTypeCards: "Cards",
     failedToSavePanel: "儲存面板失敗",
     failedToFormatSql: "格式化 SQL 失敗",
     title: "標題",

@@ -3,7 +3,6 @@ export type DataSourceType =
   | "ga4"
   | "amplitude"
   | "first-party"
-  | "app"
   | "demo"
   | "prometheus";
 
@@ -13,7 +12,6 @@ export type ChartType =
   | "bar"
   | "metric"
   | "table"
-  | "cards"
   | "pie"
   | "section"
   | "heatmap"
@@ -144,12 +142,6 @@ export interface SqlDashboardConfig {
    * not only at narrow viewports). Defaults to 2.
    */
   columns?: number;
-  /**
-   * When set, the dashboard route renders this extension (by id) inline instead
-   * of the SQL panels — used to surface a rich extension UI at a dashboard URL.
-   * The id is stored in the dashboard config (data), never hardcoded in source.
-   */
-  embedExtensionId?: string;
   panels: SqlPanel[];
 }
 

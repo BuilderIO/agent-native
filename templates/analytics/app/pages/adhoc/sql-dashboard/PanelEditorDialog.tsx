@@ -50,7 +50,6 @@ const CHART_TYPES: { value: ChartType; labelKey: string }[] = [
   { value: "pie", labelKey: "panelEditor.chartTypePie" },
   { value: "metric", labelKey: "panelEditor.chartTypeMetric" },
   { value: "table", labelKey: "panelEditor.chartTypeTable" },
-  { value: "cards", labelKey: "panelEditor.chartTypeCards" },
 ];
 
 const SOURCES: { value: DataSourceType; label: string }[] = [
@@ -58,7 +57,6 @@ const SOURCES: { value: DataSourceType; label: string }[] = [
   { value: "ga4", label: "Google Analytics" }, // i18n-ignore stable provider label
   { value: "amplitude", label: "Amplitude" },
   { value: "first-party", label: "First-party Analytics" }, // i18n-ignore stable source label
-  { value: "app", label: "App Tables" }, // i18n-ignore stable source label
   { value: "demo", label: "Demo Prometheus" }, // i18n-ignore stable source label
   { value: "prometheus", label: "Prometheus" },
 ];

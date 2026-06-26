@@ -12,7 +12,6 @@ import {
 } from "@tabler/icons-react";
 import {
   createContext,
-  Fragment,
   useCallback,
   useContext,
   useEffect,
@@ -990,10 +989,6 @@ export function SqlChart({
     );
   }
 
-  if (chartType === "cards") {
-    return withConfigWarning(<CardsRenderer rows={rows} panel={panel} />);
-  }
-
   if (chartType === "pie") {
     return withConfigWarning(
       <PieRenderer
@@ -1158,78 +1153,6 @@ function renderDeltaCell(value: unknown): ReactNode {
       <span>{text}</span>
       {critical && <IconAlertTriangle className="h-3.5 w-3.5" />}
     </span>
-  );
-}
-
-function CardsRenderer({
-  rows,
-  panel,
-}: {
-  rows: Record<string, unknown>[];
-  panel: SqlPanel;
-}) {
-  const config = panel.config;
-
-  const columns = useMemo<TableColumnConfig[]>(() => {
-    const rowKeys = new Set(Object.keys(rows[0] ?? {}));
-    if (config?.columns?.length) {
-      const configured = config.columns.filter(
-        (c) => !c.hidden && rowKeys.has(c.key),
-      );
-      if (configured.length > 0) return configured;
-    }
-    return Object.keys(rows[0] ?? {}).map((key) => ({ key }));
-  }, [config?.columns, rows]);
-
-  const titleKey = config?.titleKey ?? columns[0]?.key;
-  const badgeKey = config?.badgeKey;
-  const limit = config?.limit;
-  const displayRows = useMemo(
-    () => (limit != null && rows.length > limit ? rows.slice(0, limit) : rows),
-    [rows, limit],
-  );
-
-  const detailColumns = columns.filter(
-    (c) => c.key !== titleKey && c.key !== badgeKey,
-  );
-
-  return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {displayRows.map((row, i) => {
-        const titleCol = columns.find((c) => c.key === titleKey);
-        const badge =
-          badgeKey != null ? formatCell(row[badgeKey], undefined) : "";
-        return (
-          <div
-            key={i}
-            className="rounded-lg border border-border bg-card p-4 shadow-sm"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 truncate font-medium text-foreground">
-                {formatCell(row[titleKey], titleCol?.format)}
-              </div>
-              {badge && (
-                <span className="shrink-0 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                  {badge}
-                </span>
-              )}
-            </div>
-            <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-sm">
-              {detailColumns.map((col) => (
-                <Fragment key={col.key}>
-                  <dt className="text-muted-foreground">
-                    {col.label ?? col.key}
-                  </dt>
-                  <dd className="text-right text-foreground">
-                    {formatCell(row[col.key], col.format)}
-                  </dd>
-                </Fragment>
-              ))}
-            </dl>
-          </div>
-        );
-      })}
-    </div>
   );
 }
 

@@ -3,7 +3,6 @@ import { resolveCredential } from "@agent-native/core/credentials";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
 import { getUserSegmentation, queryEvents } from "./amplitude";
-import { queryAppTables } from "./app-sql";
 import { runQuery } from "./bigquery";
 import { runDemoPanel, serializeDemoDescriptorInput } from "./demo-source";
 import { queryFirstPartyAnalytics } from "./first-party-analytics";
@@ -18,7 +17,6 @@ export const DASHBOARD_PANEL_SOURCES = [
   "ga4",
   "amplitude",
   "first-party",
-  "app",
   "demo",
   "prometheus",
 ] as const;
@@ -344,13 +342,6 @@ export async function runDashboardPanelQuery(args: {
 
   if (source === "first-party") {
     return await queryFirstPartyAnalytics(query, {
-      userEmail: ctx.userEmail,
-      orgId: ctx.orgId ?? null,
-    });
-  }
-
-  if (source === "app") {
-    return await queryAppTables(query, {
       userEmail: ctx.userEmail,
       orgId: ctx.orgId ?? null,
     });
