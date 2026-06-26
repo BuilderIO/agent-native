@@ -460,6 +460,13 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     sourceFieldKey: string;
     sourceFieldLabel: string;
   }>;
+  // Row-union scoping (multi-source). Documents owned by ANOTHER source must
+  // never be create candidates for this one — each row belongs to exactly one
+  // collection. And a truly unsourced ("Local") row creates only against the
+  // primary, not every attached collection. Both default to the single-source
+  // behavior when omitted (no other owners; creates allowed).
+  otherSourceDocumentIds?: Set<string>;
+  allowUnsourcedCreates?: boolean;
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
 
@@ -583,8 +590,14 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         )
         .map((changeSet) => changeSet.documentId),
     );
+    const allowUnsourcedCreates = args.allowUnsourcedCreates ?? true;
     for (const item of args.databaseItems) {
       if (linkedDocumentIds.has(item.documentId)) continue;
+      // Owned by another collection in a row-union — not this source's to create.
+      if (args.otherSourceDocumentIds?.has(item.documentId)) continue;
+      // Unsourced "Local" row: only the primary adopts it as a create; other
+      // collections leave it alone until it's explicitly assigned to them.
+      if (!allowUnsourcedCreates) continue;
       if (documentIdsWithStoredChange.has(item.documentId)) continue;
       const title = args.documentTitleById.get(item.documentId)?.trim() ?? "";
       if (!title) continue;
@@ -889,6 +902,35 @@ async function loadSourceSnapshot(
       sourceFieldKey: row.sourceFieldKey,
       sourceFieldLabel: row.sourceFieldLabel,
     }));
+  // Row-union ownership scoping (Builder only). Determine which documents belong
+  // to OTHER sources and whether this source is the primary (oldest), so the
+  // create-candidate logic never claims another collection's rows and unsourced
+  // "Local" rows only create against the primary. Single-source: no other
+  // sources ⇒ empty set, isPrimary ⇒ identical to the old behavior.
+  let otherSourceDocumentIds = new Set<string>();
+  let isPrimarySource = true;
+  if (isBuilderSource) {
+    const dbSources = await db
+      .select({
+        id: schema.contentDatabaseSources.id,
+      })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id))
+      .orderBy(asc(schema.contentDatabaseSources.createdAt));
+    isPrimarySource = dbSources[0]?.id === source.id;
+    const otherSourceIds = dbSources
+      .map((row) => row.id)
+      .filter((id) => id !== source.id);
+    if (otherSourceIds.length > 0) {
+      const ownedRows = await db
+        .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          inArray(schema.contentDatabaseSourceRows.sourceId, otherSourceIds),
+        );
+      otherSourceDocumentIds = new Set(ownedRows.map((row) => row.documentId));
+    }
+  }
   const localOutboundChangeSets = buildBuilderLocalOutboundChangeSets({
     source,
     rowRows,
@@ -900,6 +942,8 @@ async function loadSourceSnapshot(
     })),
     localValuesByDocument,
     writableFields,
+    otherSourceDocumentIds,
+    allowUnsourcedCreates: isPrimarySource,
   });
   const rowByDocumentId = new Map(rowRows.map((row) => [row.documentId, row]));
   const changeSets = [...storedChangeSets, ...localOutboundChangeSets].map(
@@ -1217,47 +1261,54 @@ export async function seedMockSourceFields(args: {
       createdAt: args.now,
       updatedAt: args.now,
     },
-    ...args.properties.map((property) => ({
-      id: crypto.randomUUID(),
-      ownerEmail: args.ownerEmail,
-      sourceId: args.sourceId,
-      propertyId: property.definition.id,
-      localFieldKey: property.definition.id,
-      sourceFieldKey: isBuilder
-        ? builderCmsSourceFieldKey(
-            property.definition.id,
-            property.definition.name,
-          )
-        : `fields.${slugifySourceField(property.definition.name)}`,
-      sourceFieldLabel: property.definition.name,
-      sourceFieldType: property.definition.type,
-      mappingType: "property",
-      writeOwner:
-        property.definition.type === "created_time" ||
-        property.definition.type === "created_by" ||
-        property.definition.type === "last_edited_time" ||
-        property.definition.type === "last_edited_by"
-          ? "derived"
-          : isBuilder
-            ? "source"
-            : "local",
-      readOnly:
-        property.definition.type === "created_time" ||
-        property.definition.type === "created_by" ||
-        property.definition.type === "last_edited_time" ||
-        property.definition.type === "last_edited_by"
-          ? 1
-          : 0,
-      provenance:
-        property.definition.type === "formula" ||
-        property.definition.type === "rollup"
-          ? "derived"
-          : "source field",
-      freshness: "fresh",
-      lastSyncedAt: args.now,
-      createdAt: args.now,
-      updatedAt: args.now,
-    })),
+    // The auto-created "Source" property is internal row-tagging (which
+    // collection a row belongs to). It must NEVER become a writable Builder
+    // source field — otherwise its local option-id value diffs against an
+    // absent baseline and every row shows a phantom pending change, and a push
+    // would try to write the internal tag to Builder.
+    ...args.properties
+      .filter((property) => property.definition.name !== SOURCE_PROPERTY_NAME)
+      .map((property) => ({
+        id: crypto.randomUUID(),
+        ownerEmail: args.ownerEmail,
+        sourceId: args.sourceId,
+        propertyId: property.definition.id,
+        localFieldKey: property.definition.id,
+        sourceFieldKey: isBuilder
+          ? builderCmsSourceFieldKey(
+              property.definition.id,
+              property.definition.name,
+            )
+          : `fields.${slugifySourceField(property.definition.name)}`,
+        sourceFieldLabel: property.definition.name,
+        sourceFieldType: property.definition.type,
+        mappingType: "property",
+        writeOwner:
+          property.definition.type === "created_time" ||
+          property.definition.type === "created_by" ||
+          property.definition.type === "last_edited_time" ||
+          property.definition.type === "last_edited_by"
+            ? "derived"
+            : isBuilder
+              ? "source"
+              : "local",
+        readOnly:
+          property.definition.type === "created_time" ||
+          property.definition.type === "created_by" ||
+          property.definition.type === "last_edited_time" ||
+          property.definition.type === "last_edited_by"
+            ? 1
+            : 0,
+        provenance:
+          property.definition.type === "formula" ||
+          property.definition.type === "rollup"
+            ? "derived"
+            : "source field",
+        freshness: "fresh",
+        lastSyncedAt: args.now,
+        createdAt: args.now,
+        updatedAt: args.now,
+      })),
   ];
   if (isBuilder) {
     const existingSourceFieldKeys = new Set(
