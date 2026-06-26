@@ -11,6 +11,7 @@ import {
 } from "../shared/social-meta.js";
 import {
   addImmutableAssetRouteRulesForClientBuild,
+  CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   copyDir,
   emitSingleTemplateNetlifyBackgroundFunction,
   findInstalledFfmpegStaticPackage,
@@ -626,6 +627,17 @@ export default {
       {},
     );
     expect(byName.status).toBe(404);
+  });
+});
+
+describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
+  it("externalizes browser screenshot packages with native dependencies", () => {
+    expect(CLOUDFLARE_WORKER_ESBUILD_EXTERNALS).toContain("playwright-core");
+    expect(CLOUDFLARE_WORKER_ESBUILD_EXTERNALS).toContain("chromium-bidi/*");
+    expect(CLOUDFLARE_WORKER_ESBUILD_EXTERNALS).toContain(
+      "@sparticuz/chromium-min",
+    );
+    expect(CLOUDFLARE_WORKER_ESBUILD_EXTERNALS).toContain("fsevents");
   });
 });
 
