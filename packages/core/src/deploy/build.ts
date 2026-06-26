@@ -1318,6 +1318,16 @@ const SERVERLESS_FFMPEG_STATIC_ARCHES = new Set<NodeJS.Architecture>([
   "arm64",
   "x64",
 ]);
+const SERVERLESS_FUNCTION_PACKAGE_DENYLIST = new Set([
+  "@vscode/test-electron",
+  "electron",
+  "electron-builder",
+  "electron-updater",
+  "electron-vite",
+  "fsevents",
+  "node-pty",
+  "playwright",
+]);
 type ServerlessFfmpegStaticArch = "arm64" | "x64";
 
 function serverlessFfmpegStaticTargetArchFromEnv(): ServerlessFfmpegStaticArch | null {
@@ -1749,6 +1759,70 @@ function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
 }
 
 /**
+ * Nitro's file tracer can over-include optional desktop/dev packages that are
+ * present in a monorepo install but cannot run in serverless. Netlify installs
+ * the generated per-function package.json before upload; if `electron` remains
+ * there, the function can exceed Netlify's 250 MB unzipped size limit even
+ * though the server bundle never imports Electron at runtime.
+ */
+export function sanitizeServerlessFunctionPackageManifest(
+  functionDir: string | undefined,
+): void {
+  if (!functionDir || !fs.existsSync(functionDir)) return;
+
+  const packageJsonPath = path.join(functionDir, "package.json");
+  if (!fs.existsSync(packageJsonPath)) return;
+
+  let packageJson: Record<string, unknown>;
+  try {
+    packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  } catch {
+    return;
+  }
+
+  let removed = 0;
+  const depFields = [
+    "dependencies",
+    "optionalDependencies",
+    "devDependencies",
+    "peerDependencies",
+  ];
+  for (const field of depFields) {
+    const deps = packageJson[field];
+    if (!deps || typeof deps !== "object" || Array.isArray(deps)) continue;
+    const depRecord = deps as Record<string, unknown>;
+    for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+      if (Object.prototype.hasOwnProperty.call(depRecord, packageName)) {
+        delete depRecord[packageName];
+        removed++;
+      }
+    }
+    if (Object.keys(depRecord).length === 0) {
+      delete packageJson[field];
+    }
+  }
+
+  const nodeModulesDir = path.join(functionDir, "node_modules");
+  for (const packageName of SERVERLESS_FUNCTION_PACKAGE_DENYLIST) {
+    const packageDir = path.join(nodeModulesDir, ...packageName.split("/"));
+    if (fs.existsSync(packageDir)) {
+      fs.rmSync(packageDir, { recursive: true, force: true });
+      removed++;
+    }
+  }
+
+  if (removed > 0) {
+    fs.writeFileSync(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    );
+    console.log(
+      `[deploy] Removed ${removed} desktop-only package reference(s) from ${path.relative(cwd, functionDir)}.`,
+    );
+  }
+}
+
+/**
  * Create stub directories for dangling platform-specific optional dependency
  * symlinks in the pnpm store.
  *
@@ -2139,6 +2213,7 @@ export default bundle;
     copyInstalledLibsqlNativePackages(nitro.options.output.serverDir);
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
+    sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
   }
 
   // Durable background agent runs (default-OFF / opt-in; enable with a truthy
