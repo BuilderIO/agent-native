@@ -77,7 +77,7 @@ const hiIN = {
       secondaryCta: "दस्तावेज़ देखें",
     },
     code: {
-      quickStartComment: "पूरे app template से शुरू करें",
+      quickStartComment: "एक command से app बनाएं",
       skillInstallComment:
         "जिस coding agent का आप पहले से उपयोग करते हैं उसमें Agent-Native planning जोड़ें",
       frameworkComment:
@@ -188,12 +188,12 @@ const hiIN = {
       },
     },
     quickStart: {
-      title: "Chat से शुरू करें",
-      body: "एक command actions, durable threads और SQLite पर backed स्थानीय Chat app बनाता है। जब अभी browser UI नहीं चाहिए, तो इसके बजाय `--headless` इस्तेमाल करें।",
+      title: "एक command से शुरू करें",
+      body: "एक command actions, durable threads और SQLite पर backed स्थानीय app बनाता है। जब अभी browser UI नहीं चाहिए, तो इसके बजाय `--headless` इस्तेमाल करें।",
     },
     finalCta: {
       title: "आपका अपना software, agentic era के लिए बना",
-      body: "Chat या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Forkable। आपका।",
+      body: "एक command या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Forkable। आपका।",
       primaryCta: "Action से शुरू करें",
       secondaryCta: "दस्तावेज़ पढ़ें",
       githubCta: "GitHub पर देखें",

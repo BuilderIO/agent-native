@@ -11,19 +11,41 @@ import {
 } from "./use-db-sync.js";
 
 class QueryClientProbe {
-  calls: Array<{ queryKey?: string[] } | undefined> = [];
+  queries = [
+    { queryKey: ["sql-chart", "panel-1"] },
+    { queryKey: ["sql-dashboards-sidebar"] },
+  ];
+  calls: Array<
+    | {
+        queryKey?: string[];
+        predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+      }
+    | undefined
+  > = [];
 
-  invalidateQueries(opts?: { queryKey?: string[] }) {
+  invalidateQueries(opts?: {
+    queryKey?: string[];
+    predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+  }) {
     this.calls.push(opts);
   }
 }
 
-function SyncProbe({ queryClient }: { queryClient: QueryClientProbe }) {
+function SyncProbe({
+  queryClient,
+  actionInvalidatePredicate,
+}: {
+  queryClient: QueryClientProbe;
+  actionInvalidatePredicate?: (query: {
+    queryKey: readonly unknown[];
+  }) => boolean;
+}) {
   useDbSync({
     queryClient,
     sseUrl: false,
     interval: 50,
     pauseWhenHidden: false,
+    actionInvalidatePredicate,
   });
   return null;
 }
@@ -99,6 +121,44 @@ describe("useDbSync", () => {
     expect(result.fetchMock).toHaveBeenCalled();
     expect(result.queryClient.calls).toContainEqual(undefined);
     expect(result.queryClient.calls).toContainEqual({ queryKey: ["action"] });
+  });
+
+  it("can scope the broad action invalidate away from expensive query keys", async () => {
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            version: 1,
+            events: [{ version: 1, source: "action", type: "change" }],
+          }),
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(
+        <SyncProbe
+          queryClient={queryClient}
+          actionInvalidatePredicate={(query) =>
+            query.queryKey[0] !== "sql-chart"
+          }
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const broadCall = queryClient.calls.find((call) => call?.predicate);
+    expect(broadCall?.predicate?.(queryClient.queries[0])).toBe(false);
+    expect(broadCall?.predicate?.(queryClient.queries[1])).toBe(true);
+    expect(queryClient.calls).toContainEqual({ queryKey: ["action"] });
   });
 
   it("keeps non-action events on targeted framework invalidations", async () => {

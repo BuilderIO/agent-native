@@ -1254,6 +1254,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
         }
       : undefined;
   const runLocalCommand = marketing?.runLocalCommand?.trim();
+  const signupLocalModeNote =
+    isAgentNativeHostedHost(opts.requestHost) &&
+    marketing?.signupLocalModeNote?.command.trim()
+      ? {
+          text: marketing.signupLocalModeNote.text.trim(),
+          command: marketing.signupLocalModeNote.command.trim(),
+        }
+      : undefined;
   const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
@@ -1335,6 +1343,13 @@ ${localeMenuItemsHtml}
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
   const signupLegalNoteHtml = signupLegalNotice
     ? `      <p class="legal-note">${localizedValue(signupLegalNotice.prefix, "legalPrefix")} <a href="${esc(signupLegalNotice.termsUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.termsLabel, "legalTerms")}</a> ${localizedValue(signupLegalNotice.connector, "legalConnector")} <a href="${esc(signupLegalNotice.privacyUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.privacyLabel, "legalPrivacy")}</a>${localizedValue(signupLegalNotice.suffix, "legalSuffix")}</p>`
+    : "";
+  const signupLocalModeNoteHtml = signupLocalModeNote
+    ? `      <div class="signup-local-mode-note" id="signup-local-mode-note" data-command="${esc(signupLocalModeNote.command)}">
+        <p>${esc(signupLocalModeNote.text)}</p>
+        <code>${esc(signupLocalModeNote.command)}</code>
+        <button type="button" class="copy-run-local" id="copy-signup-local-mode" onclick="__anCopySignupLocalModeCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
+      </div>`
     : "";
   const googleSignInNotice = opts.googleSignInNotice;
   const googleNoticeBodyParts = googleSignInNotice
@@ -2025,6 +2040,33 @@ ${
     text-underline-offset: 2px;
   }
   .legal-note a:hover { color: #aaa; }
+  .signup-local-mode-note {
+    margin-top: 0.75rem;
+    padding: 0.625rem;
+    color: #777;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    text-align: left;
+  }
+  .signup-local-mode-note p {
+    margin: 0 0 0.5rem;
+  }
+  .signup-local-mode-note code {
+    display: block;
+    overflow-x: auto;
+    padding-bottom: 0.125rem;
+    color: #b8b8b8;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .signup-local-mode-note .copy-run-local {
+    margin-top: 0.5rem;
+  }
   .msg { margin-top: 0.75rem; font-size: 0.8125rem; display: none; }
   .msg.error { color: #f87171; }
   .msg.success { color: #33C4FF; }
@@ -2376,6 +2418,7 @@ ${
     <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="8" />
       <button type="submit"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
 ${signupLegalNoteHtml}
+${signupLocalModeNoteHtml}
       <p class="msg" id="s-msg"></p>
     </form>
 
@@ -3705,7 +3748,7 @@ ${
 }
 ${starfieldScript}
 ${
-  runLocalCommand
+  runLocalCommand || signupLocalModeNote
     ? `
   function __anSetRunLocalCommandOpen(open) {
     var panel = document.getElementById('run-local-panel');
@@ -3739,6 +3782,9 @@ ${
   }
   function __anCopyRunLocalCommand() {
     __anCopyCommandFromPanel('run-local-panel', 'copy-run-local');
+  }
+  function __anCopySignupLocalModeCommand() {
+    __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');
   }
   function __anCopyGoogleNoticeRunLocalCommand() {
     __anCopyCommandFromPanel('google-preflight-run-local-panel', 'copy-google-preflight-run-local');
