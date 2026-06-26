@@ -312,6 +312,7 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
     "copyFile",
     "cp",
     "lstat",
+    "mkdtemp",
     "mkdir",
     "readFile",
     "readdir",
@@ -362,12 +363,26 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
       "export const createRequire = () => globalThis.require ?? ((specifier) => { throw new Error('Cannot require: ' + specifier); });",
     ],
   ),
-  net: cloudflareNodeBuiltinStubSource("net", [
-    "Socket",
-    "connect",
-    "createConnection",
-    "createServer",
-  ]),
+  net: cloudflareNodeBuiltinStubSource(
+    "net",
+    ["Socket", "connect", "createConnection", "createServer", "isIP"],
+    [
+      `export const isIP = (value) => {
+  const input = String(value ?? "");
+  const ipv4Parts = input.split(".");
+  if (
+    ipv4Parts.length === 4 &&
+    ipv4Parts.every((part) => /^\\d{1,3}$/.test(part) && Number(part) >= 0 && Number(part) <= 255)
+  ) {
+    return 4;
+  }
+  if (input.includes(":") && /^[0-9A-Fa-f:.]+$/.test(input)) {
+    return 6;
+  }
+  return 0;
+};`,
+    ],
+  ),
   os: cloudflareNodeBuiltinStubSource(
     "os",
     [
