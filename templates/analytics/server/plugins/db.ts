@@ -219,6 +219,45 @@ export default runMigrations(
       version: 38,
       sql: `SELECT 1`,
     },
+    // --- v39+: Strategic Accounts curated roster (migrated from
+    //   fusion-analytics). Org-scoped source of truth for the overview
+    //   dashboard + extension. Account names live only here, never in source.
+    {
+      version: 39,
+      sql: `CREATE TABLE IF NOT EXISTS strategic_accounts (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      company_id TEXT,
+      deployment_status TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+    },
+    {
+      version: 40,
+      sql: `CREATE TABLE IF NOT EXISTS strategic_account_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 41,
+      sql: `CREATE INDEX IF NOT EXISTS strategic_accounts_owner_org_idx ON strategic_accounts (owner_email, org_id, sort_order)`,
+    },
+    {
+      version: 42,
+      sql: `CREATE INDEX IF NOT EXISTS strategic_account_shares_resource_idx ON strategic_account_shares (resource_id)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

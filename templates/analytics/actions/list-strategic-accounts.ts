@@ -32,8 +32,14 @@ export default defineAction({
     return {
       count: accounts.length,
       accounts,
-      /** Comma-separated names, ready to feed the dashboard `accounts` variable. */
+      /** Comma-separated names (display only — names may contain commas). */
       accountsCsv: accounts.map((a) => a.companyName).join(","),
+      /**
+       * Pipe-separated names — the value to feed the dashboard `accounts`
+       * variable. Pipe avoids collisions with commas inside company names
+       * (e.g. "Orgill, Inc."); panels expand it with SPLIT('{{accounts}}', '|').
+       */
+      accountsPipe: accounts.map((a) => a.companyName).join("|"),
     };
   },
 });

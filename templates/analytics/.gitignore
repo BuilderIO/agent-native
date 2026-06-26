@@ -53,3 +53,6 @@ build
 /local.db
 
 .vercel/
+
+# Local scratch (never commit)
+scratch/
