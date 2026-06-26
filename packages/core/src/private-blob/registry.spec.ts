@@ -27,6 +27,7 @@ describe("private blob registry", () => {
 
   afterEach(async () => {
     const registry = await import("./registry.js");
+    registry.setPrivateBlobPublicUploadFallbackEnabled(true);
     for (const provider of registry.listPrivateBlobProviders()) {
       registry.unregisterPrivateBlobProvider(provider.id);
     }
@@ -115,8 +116,8 @@ describe("private blob registry", () => {
   });
 
   it("can disable the encrypted public-upload fallback for local SQL storage", async () => {
-    process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
     const registry = await freshRegistry();
+    registry.setPrivateBlobPublicUploadFallbackEnabled(false);
 
     await expect(
       registry.putPrivateBlob({ data: new TextEncoder().encode("hello") }),

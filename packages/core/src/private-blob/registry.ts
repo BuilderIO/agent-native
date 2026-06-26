@@ -16,6 +16,7 @@ import type {
 
 interface PrivateBlobGlobals {
   __agentNativePrivateBlobProviders?: Map<string, PrivateBlobProvider>;
+  __agentNativePrivateBlobPublicUploadFallback?: { enabled: boolean };
 }
 
 interface EncryptedPayload {
@@ -46,6 +47,10 @@ const PUBLIC_UPLOAD_HANDLE_PREFIX = "public-upload:v1:";
 const globals = globalThis as typeof globalThis & PrivateBlobGlobals;
 const providers: Map<string, PrivateBlobProvider> =
   (globals.__agentNativePrivateBlobProviders ??= new Map());
+const publicUploadFallbackRef: { enabled: boolean } =
+  (globals.__agentNativePrivateBlobPublicUploadFallback ??= {
+    enabled: true,
+  });
 
 function toBytes(data: Uint8Array | Buffer): Uint8Array {
   return data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -190,11 +195,18 @@ export function getActivePrivateBlobProvider(): PrivateBlobProvider | null {
   return null;
 }
 
+export function setPrivateBlobPublicUploadFallbackEnabled(
+  enabled: boolean,
+): void {
+  publicUploadFallbackRef.enabled = enabled;
+}
+
 export async function putPrivateBlob(
   input: PrivateBlobPutInput,
 ): Promise<PrivateBlobHandle | null> {
   const provider = getActivePrivateBlobProvider();
   if (provider) return provider.put(input);
+  if (!publicUploadFallbackRef.enabled) return null;
   if (process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK === "0") {
     return null;
   }

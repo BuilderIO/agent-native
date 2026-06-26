@@ -786,6 +786,7 @@ async function assertReplayKeyBudget(
   const sinceDay = isoBefore(now, 24 * 60 * 60_000);
   const sinceMinute = isoBefore(now, 60_000);
   const db = getDb() as any;
+  // guard:allow-unscoped — ingest quotas are scoped by the resolved analytics public key; rows are used only for aggregate byte/request limits.
   const recentRows = await db
     .select({
       totalBytes: schema.sessionRecordings.totalBytes,
@@ -1453,6 +1454,7 @@ export async function finalizeAbandonedSessionRecordings(
 ): Promise<{ finalized: number }> {
   const cutoff = isoBefore(now, abandonedReplayMinutes() * 60_000);
   const db = getDb() as any;
+  // guard:allow-unscoped — retention finalizes abandoned replay rows across owners and never returns row data to a caller.
   const rows = await db
     .select()
     .from(schema.sessionRecordings)
@@ -1500,6 +1502,7 @@ export async function expireOldSessionRecordings(
 ): Promise<{ expired: number; chunks: number; blobDeleteFailures: number }> {
   const cutoff = isoBefore(now, replayRetentionDays() * 24 * 60 * 60_000);
   const db = getDb() as any;
+  // guard:allow-unscoped — retention expiration intentionally sweeps old replay rows across owners.
   const recordings = await db
     .select({ id: schema.sessionRecordings.id })
     .from(schema.sessionRecordings)

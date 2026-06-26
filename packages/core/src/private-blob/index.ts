@@ -13,5 +13,6 @@ export {
   putPrivateBlob,
   readPrivateBlob,
   registerPrivateBlobProvider,
+  setPrivateBlobPublicUploadFallbackEnabled,
   unregisterPrivateBlobProvider,
 } from "./registry.js";

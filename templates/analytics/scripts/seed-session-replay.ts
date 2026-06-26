@@ -1,5 +1,10 @@
 #!/usr/bin/env tsx
 
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
+import { setPrivateBlobPublicUploadFallbackEnabled } from "@agent-native/core/private-blob";
+
 import { createAnalyticsPublicKey } from "../server/lib/first-party-analytics";
 import {
   parseSessionReplayIngestPayload,
@@ -16,12 +21,9 @@ type ReplaySeed = {
 };
 
 const ownerEmail =
-  process.env.AGENT_NATIVE_SEED_OWNER_EMAIL ||
-  process.env.AGENT_USER_EMAIL ||
-  "local@localhost";
+  process.env.AGENT_NATIVE_SEED_OWNER_EMAIL || process.env.AGENT_USER_EMAIL;
 const orgId =
   process.env.AGENT_NATIVE_SEED_ORG_ID || process.env.AGENT_ORG_ID || null;
-const scope = { userEmail: ownerEmail, orgId };
 
 function nowPlus(base: number, offsetMs: number): string {
   return new Date(base + offsetMs).toISOString();
@@ -101,9 +103,15 @@ function createReplayEvents(seed: ReplaySeed, base: number) {
 }
 
 async function main() {
-  if (process.env.ANALYTICS_SESSION_REPLAY_SEED_BLOBS !== "1") {
-    process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
+  if (!ownerEmail) {
+    throw new Error(
+      "Set AGENT_NATIVE_SEED_OWNER_EMAIL to the local user that should own seeded replay rows.",
+    );
   }
+  if (process.env.ANALYTICS_SESSION_REPLAY_SEED_BLOBS !== "1") {
+    setPrivateBlobPublicUploadFallbackEnabled(false);
+  }
+  const scope = { userEmail: ownerEmail, orgId };
   await migrations({});
   const key = await createAnalyticsPublicKey(
     scope,
@@ -174,7 +182,17 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+function isDirectRun(): boolean {
+  const entrypoint = process.argv[1];
+  return Boolean(
+    entrypoint &&
+    import.meta.url === pathToFileURL(path.resolve(entrypoint)).href,
+  );
+}
+
+if (isDirectRun()) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
