@@ -3934,6 +3934,81 @@ export function createProductionAgentHandler(
         ? body[AGENT_CHAT_BACKGROUND_RUN_FIELD]!
         : null;
     const isBackgroundWorker = backgroundRunMarker !== null;
+    // DIAGNOSTIC-ONLY: progressive per-stage hang localizer for the bg worker.
+    // The worker's runId is available EARLY on the marker (the general `runId`
+    // var resolves much later), so capture it now and emit the LAST setup stage
+    // reached as the run's `diag_stage`. Best-effort, gated on the worker, never
+    // blocks or alters control flow.
+    const bgRunId = isBackgroundWorker
+      ? (backgroundRunMarker?.runId as string)
+      : null;
+    const workerStep = (s: string) => {
+      if (bgRunId)
+        void recordRunDiagnostic(
+          bgRunId,
+          RUN_DIAG_STAGE.workerSetupStep,
+          `${s}=${Date.now() - setupT0}ms`,
+        ).catch(() => {});
+    };
+    // DIAGNOSTIC-ONLY: non-DB breadcrumb to the function log drain. `workerStep`
+    // writes to the DB, which is exactly what stalls after `model_done` in the bg
+    // worker (no diag write lands), so this logs to stdout (Netlify function
+    // logs) instead — used to name the exact post-model_done / pre-claim async
+    // branch that hangs. Gated on the worker so foreground logs stay clean.
+    const bgLog = (label: string) => {
+      if (!isBackgroundWorker) return;
+      try {
+        console.log(
+          `[bg-presend] +${Date.now() - setupT0}ms run=${(bgRunId ?? "").slice(-6)} ${label}`,
+        );
+      } catch {}
+    };
+    // DIAGNOSTIC: pre-send branches that hit their timeout/error fallback,
+    // recorded in memory so the FINAL run diag (setupDetail) can name them even
+    // when the Netlify function-log drain is unreadable. Readable via
+    // /runs/active once the worker claims past the stuck branch.
+    const bgTimedOut: string[] = [];
+    // DIAGNOSTIC + DEFENSIVE: race a pre-send read against a short timeout and
+    // fall back to a safe default, logging start/done/error/timeout. A single
+    // stuck read can no longer block the worker from reaching claim, and the
+    // recorded `bgTimedOut` set names the culprit in the run diag.
+    const withBgFallback = <T>(
+      label: string,
+      ms: number,
+      fallback: T,
+      fn: () => Promise<T>,
+    ): Promise<T> => {
+      bgLog(`${label}:start`);
+      return new Promise<T>((resolve) => {
+        let done = false;
+        const timer = setTimeout(() => {
+          if (done) return;
+          done = true;
+          bgLog(`${label}:TIMEOUT@${ms}ms`);
+          bgTimedOut.push(`${label}:timeout`);
+          resolve(fallback);
+        }, ms);
+        fn().then(
+          (v) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            bgLog(`${label}:done`);
+            resolve(v);
+          },
+          (e) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            bgLog(
+              `${label}:error ${(e as { message?: string })?.message ?? e}`,
+            );
+            bgTimedOut.push(`${label}:error`);
+            resolve(fallback);
+          },
+        );
+      });
+    };
     // Whether this worker is REALLY executing inside a 15-min Netlify
     // `-background` function (proven by the runtime function name), not merely a
     // `_process-run` re-entry that may have landed on the ~60s synchronous
@@ -4002,7 +4077,13 @@ export function createProductionAgentHandler(
         requestAttachments = preparedRequest.attachments;
       }
     }
+    // DIAGNOSTIC-ONLY: owner/request context prep (resolveAgentOwnerEmail +
+    // prepareRequest) finished. A worker stuck before this points at the
+    // owner/request-context awaits.
+    workerStep("db_request_ctx");
 
+    // DIAGNOSTIC-ONLY: bracket attachment upload + text-attachment persistence.
+    workerStep("attach_start");
     // Pre-upload chat attachments (images AND files/PDFs) through the framework
     // file-upload provider (Builder.io by default). The model still sees the
     // base64 multimodal content for the current turn; each uploaded attachment
@@ -4065,9 +4146,13 @@ export function createProductionAgentHandler(
         );
       }
     }
+    // DIAGNOSTIC-ONLY: attachment upload + persistence finished.
+    workerStep("attach_done");
 
     // When a per-request engine override is specified, resolve the API key
     // for that provider instead of the global active engine's provider.
+    // DIAGNOSTIC-ONLY: bracket per-owner API-key resolution (settings/app_secrets reads).
+    workerStep("apikey_start");
     let userApiKey: string | undefined;
     if (requestEngine) {
       const provider = engineToProvider(requestEngine);
@@ -4083,6 +4168,8 @@ export function createProductionAgentHandler(
     } else {
       userApiKey = await getOwnerActiveApiKey(ownerEmail);
     }
+    // DIAGNOSTIC-ONLY: API-key resolution finished.
+    workerStep("apikey_done");
 
     // `options.apiKey` is the value the template constructed the plugin with
     // (e.g. wired from a deployment env var). On a shared hosted deploy this
@@ -4097,6 +4184,9 @@ export function createProductionAgentHandler(
         readDeployCredentialEnv("ANTHROPIC_API_KEY"));
 
     // Resolve engine — per-request engine override takes priority
+    // DIAGNOSTIC-ONLY: bracket engine resolution (Builder credential / app-default
+    // settings reads inside resolveEngine).
+    workerStep("engine_start");
     let engine: AgentEngine;
     try {
       engine = await resolveEngine({
@@ -4111,17 +4201,25 @@ export function createProductionAgentHandler(
         appId: options.appId,
       });
     }
+    // DIAGNOSTIC-ONLY: engine resolution finished.
+    workerStep("engine_done");
 
     // Honor the model the user picked in the settings UI (written via
     // `manage-agent-engine` action="set"), but only when the caller hasn't overridden it for
     // this request or at plugin construction time. Read per-request so a
     // dropdown change in the UI takes effect without a server restart. Skip
     // the DB read entirely when a higher-precedence value is set.
+    // DIAGNOSTIC-ONLY: bracket stored-model resolution (getStoredModelForEngine
+    // settings read).
+    workerStep("model_start");
     const modelCandidate =
       requestModel ??
       configuredModel ??
       (await getStoredModelForEngine(engine, { appId: options.appId })) ??
       engine.defaultModel;
+    // DIAGNOSTIC-ONLY: stored-model resolution finished.
+    workerStep("model_done");
+    bgLog("model_done");
     const model = normalizeModelForEngine(engine, modelCandidate);
     const reasoningEffort = normalizeReasoningEffortForModel(
       model,
@@ -4130,7 +4228,9 @@ export function createProductionAgentHandler(
         : options.reasoningEffort,
     );
 
+    bgLog("onEngineResolved:before");
     options.onEngineResolved?.(engine, model);
+    bgLog("onEngineResolved:after");
 
     // One-line per-turn resolution log so it's obvious in dev which engine
     // is actually handling the request. `requestEngine` is what the client
@@ -4164,242 +4264,326 @@ export function createProductionAgentHandler(
     }
 
     setupMark("prepDone");
+    // DIAGNOSTIC-ONLY: engine/model/api-key resolution finished. A worker that
+    // reached db_request_ctx but not env_config hung in attachment upload or
+    // engine/model resolution.
+    workerStep("env_config");
+    bgLog("env_config");
+    bgLog("presend:creating");
     // Run all independent pre-send steps in parallel. Each of these hits
     // the DB or invokes an action; running them sequentially was the
-    // single biggest contributor to pre-LLM latency.
-    const enrichedMessagePromise = enrichMessage(requestMessage, references);
+    // single biggest contributor to pre-LLM latency. Each branch is bracketed
+    // with a log-drain breadcrumb (bgLog) so the function logs name any branch
+    // that starts but never finishes; the OPTIONAL context reads additionally
+    // race a short timeout + "" fallback (withBgFallback) so one stuck read
+    // cannot block the worker from reaching claim.
+    const enrichedMessagePromise = withBgFallback(
+      "enrich",
+      5000,
+      requestMessage,
+      () => Promise.resolve(enrichMessage(requestMessage, references)),
+    );
+    bgLog("loop:start");
     const loopSettingsPromise = readAgentLoopSettings({
       userEmail: ownerEmail ?? getRequestUserEmail() ?? null,
       orgId: getRequestOrgId() ?? null,
-    }).catch(() => readAgentLoopSettings({}));
+    })
+      .catch(() => readAgentLoopSettings({}))
+      .then((v) => {
+        bgLog("loop:done");
+        return v;
+      });
 
     let systemPromptError: any = null;
-    const systemPromptPromise = (async (): Promise<string> => {
-      const sysPromptStart = Date.now();
-      try {
-        return typeof options.systemPrompt === "function"
-          ? await options.systemPrompt(event)
-          : options.systemPrompt;
-      } catch (error) {
-        systemPromptError = error;
-        return "";
-      } finally {
-        setupMarks.sysPromptMs = Date.now() - sysPromptStart;
-      }
-    })();
-
-    const screenContextPromise = (async (): Promise<string> => {
-      const screenStart = Date.now();
-      try {
-        const viewScreenAction = resolvedActions["view-screen"];
-        if (viewScreenAction) {
-          const result = await viewScreenAction.run(
-            {},
-            {
-              userEmail: getRequestUserEmail(),
-              orgId: getRequestOrgId() ?? null,
-              caller: "tool",
-            },
+    const systemPromptPromise = withBgFallback(
+      "sysprompt",
+      5000,
+      "",
+      async (): Promise<string> => {
+        const sysPromptStart = Date.now();
+        bgLog("sysprompt:start");
+        try {
+          const sp =
+            typeof options.systemPrompt === "function"
+              ? await options.systemPrompt(event)
+              : options.systemPrompt;
+          bgLog("sysprompt:done");
+          return sp;
+        } catch (error) {
+          systemPromptError = error;
+          bgLog(
+            "sysprompt:error " +
+              ((error as { message?: string })?.message ?? error),
           );
-          if (result && result !== "(no output)") {
-            const screenText =
-              typeof result === "string"
-                ? result
-                : JSON.stringify(result, null, 2);
-            return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
-          }
-        } else {
-          const navigation = await readAppStateForBrowserTab(
-            "navigation",
-            requestBrowserTabId,
-          );
-          if (navigation) {
-            return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
-          }
+          return "";
+        } finally {
+          setupMarks.sysPromptMs = Date.now() - sysPromptStart;
         }
-      } catch {
-        // DB not ready or no navigation state — skip silently
-      } finally {
-        setupMarks.screenMs = Date.now() - screenStart;
-      }
-      return "";
-    })();
+      },
+    );
 
-    const urlContextPromise = (async (): Promise<string> => {
-      try {
-        const url = (await readAppStateForBrowserTab(
-          "__url__",
-          requestBrowserTabId,
-        )) as {
-          pathname?: string;
-          search?: string;
-          hash?: string;
-          searchParams?: Record<string, string>;
-        } | null;
-        if (url && (url.pathname || url.search || url.hash)) {
-          const lines: string[] = [];
-          if (url.pathname) lines.push(`pathname: ${url.pathname}`);
-          const extensionId = url.pathname
-            ? extensionIdFromPathname(url.pathname)
-            : null;
-          if (extensionId) lines.push(`extensionId: ${extensionId}`);
-          if (url.search) lines.push(`search: ${url.search}`);
-          if (url.hash) lines.push(`hash: ${url.hash}`);
-          if (url.searchParams && Object.keys(url.searchParams).length > 0) {
-            lines.push("searchParams:");
-            for (const [k, v] of Object.entries(url.searchParams)) {
-              lines.push(`  ${k}: ${v}`);
+    const screenContextPromise = withBgFallback(
+      "screen",
+      6000,
+      "",
+      async (): Promise<string> => {
+        const screenStart = Date.now();
+        try {
+          const viewScreenAction = resolvedActions["view-screen"];
+          if (viewScreenAction) {
+            const result = await viewScreenAction.run(
+              {},
+              {
+                userEmail: getRequestUserEmail(),
+                orgId: getRequestOrgId() ?? null,
+                caller: "tool",
+              },
+            );
+            if (result && result !== "(no output)") {
+              const screenText =
+                typeof result === "string"
+                  ? result
+                  : JSON.stringify(result, null, 2);
+              return `\n\n<current-screen>\n${capScreenContext(screenText)}\n</current-screen>`;
+            }
+          } else {
+            const navigation = await readAppStateForBrowserTab(
+              "navigation",
+              requestBrowserTabId,
+            );
+            if (navigation) {
+              return `\n\n<current-screen>\n${capScreenContext(JSON.stringify(navigation, null, 2))}\n</current-screen>`;
             }
           }
-          return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
+        } catch {
+          // DB not ready or no navigation state — skip silently
+        } finally {
+          setupMarks.screenMs = Date.now() - screenStart;
         }
-      } catch {
-        // DB not ready — skip silently
-      }
-      return "";
-    })();
+        return "";
+      },
+    );
+
+    const urlContextPromise = withBgFallback(
+      "url",
+      6000,
+      "",
+      async (): Promise<string> => {
+        try {
+          const url = (await readAppStateForBrowserTab(
+            "__url__",
+            requestBrowserTabId,
+          )) as {
+            pathname?: string;
+            search?: string;
+            hash?: string;
+            searchParams?: Record<string, string>;
+          } | null;
+          if (url && (url.pathname || url.search || url.hash)) {
+            const lines: string[] = [];
+            if (url.pathname) lines.push(`pathname: ${url.pathname}`);
+            const extensionId = url.pathname
+              ? extensionIdFromPathname(url.pathname)
+              : null;
+            if (extensionId) lines.push(`extensionId: ${extensionId}`);
+            if (url.search) lines.push(`search: ${url.search}`);
+            if (url.hash) lines.push(`hash: ${url.hash}`);
+            if (url.searchParams && Object.keys(url.searchParams).length > 0) {
+              lines.push("searchParams:");
+              for (const [k, v] of Object.entries(url.searchParams)) {
+                lines.push(`  ${k}: ${v}`);
+              }
+            }
+            return `\n\n<current-url>\n${lines.join("\n")}\n</current-url>`;
+          }
+        } catch {
+          // DB not ready — skip silently
+        }
+        return "";
+      },
+    );
 
     // Selection context: written by the client when the user presses Cmd+I
     // with text selected on the page. Treat anything older than 5 minutes
     // as stale and ignore it.
     const SELECTION_TTL_MS = 5 * 60 * 1000;
-    const selectionContextPromise = (async (): Promise<string> => {
-      try {
-        const sel = (await readAppState("pending-selection-context")) as {
-          text?: string;
-          capturedAt?: number;
-        } | null;
-        if (!sel?.text) return "";
-        const capturedAt =
-          typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
-        if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
-        return (
-          `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
-          `Treat this as the immediate context to act on:\n` +
-          `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
-        );
-      } catch {
-        // DB not ready — skip silently
-      }
-      return "";
-    })();
+    const selectionContextPromise = withBgFallback(
+      "selection",
+      6000,
+      "",
+      async (): Promise<string> => {
+        try {
+          const sel = (await readAppState("pending-selection-context")) as {
+            text?: string;
+            capturedAt?: number;
+          } | null;
+          if (!sel?.text) return "";
+          const capturedAt =
+            typeof sel.capturedAt === "number" ? sel.capturedAt : 0;
+          if (Date.now() - capturedAt > SELECTION_TTL_MS) return "";
+          return (
+            `\n\nThe user has selected the following text and pressed Cmd+I to focus the agent. ` +
+            `Treat this as the immediate context to act on:\n` +
+            `<selection>\n${capSelectionContext(sel.text)}\n</selection>`
+          );
+        } catch {
+          // DB not ready — skip silently
+        }
+        return "";
+      },
+    );
 
     // On the first message of a conversation, inject workspace inventory
     // so the agent knows what files, skills, jobs, and custom agents exist.
     // Templates can opt out via `skipFilesContext: true` when the inventory
     // is unrelated to the app's job (e.g. a voice-first macro tracker).
-    const filesContextPromise = (async (): Promise<string> => {
-      let filesContext = "";
-      if (options.skipFilesContext) return filesContext;
-      if (history.length === 0) {
-        try {
-          const {
-            resourceListAccessible,
-            SHARED_OWNER,
-            WORKSPACE_OWNER,
-            resourceGet,
-          } = await import("../resources/store.js");
-          const {
-            getResourceKind,
-            parseCustomAgentProfile,
-            parseRemoteAgentManifest,
-            parseSkillMetadata,
-          } = await import("../resources/metadata.js");
-          const ownerEmail = getRequestUserEmail();
-          const orgId = getRequestOrgId();
-          if (!ownerEmail) throw new Error("no authenticated user");
-          const allResources = await resourceListAccessible(
-            ownerEmail,
-            undefined,
-            { userEmail: ownerEmail, orgId },
-          );
+    const filesContextPromise = withBgFallback(
+      "files",
+      8000,
+      "",
+      async (): Promise<string> => {
+        let filesContext = "";
+        if (options.skipFilesContext) return filesContext;
+        if (history.length === 0) {
+          try {
+            const {
+              resourceListAccessible,
+              SHARED_OWNER,
+              WORKSPACE_OWNER,
+              resourceGet,
+            } = await import("../resources/store.js");
+            const {
+              getResourceKind,
+              parseCustomAgentProfile,
+              parseRemoteAgentManifest,
+              parseSkillMetadata,
+            } = await import("../resources/metadata.js");
+            const ownerEmail = getRequestUserEmail();
+            const orgId = getRequestOrgId();
+            if (!ownerEmail) throw new Error("no authenticated user");
+            const allResources = await resourceListAccessible(
+              ownerEmail,
+              undefined,
+              { userEmail: ownerEmail, orgId },
+            );
 
-          if (allResources.length > 0) {
-            const fileLines: string[] = [];
-            const skillLines: string[] = [];
-            const agentLines: string[] = [];
-            const jobLines: string[] = [];
-            for (const r of allResources) {
-              const scope =
-                r.owner === WORKSPACE_OWNER
-                  ? "workspace"
-                  : r.owner === SHARED_OWNER
-                    ? "shared"
-                    : "personal";
-              const kind = getResourceKind(r.path);
-              if (kind === "file") {
-                fileLines.push(`  ${r.path} (${scope})`);
-                continue;
-              }
+            if (allResources.length > 0) {
+              const fileLines: string[] = [];
+              const skillLines: string[] = [];
+              const agentLines: string[] = [];
+              const jobLines: string[] = [];
+              for (const r of allResources) {
+                const scope =
+                  r.owner === WORKSPACE_OWNER
+                    ? "workspace"
+                    : r.owner === SHARED_OWNER
+                      ? "shared"
+                      : "personal";
+                const kind = getResourceKind(r.path);
+                if (kind === "file") {
+                  fileLines.push(`  ${r.path} (${scope})`);
+                  continue;
+                }
 
-              if (kind === "job") {
-                jobLines.push(`  ${r.path} (${scope})`);
-                continue;
-              }
+                if (kind === "job") {
+                  jobLines.push(`  ${r.path} (${scope})`);
+                  continue;
+                }
 
-              if (
-                kind === "skill" ||
-                kind === "agent" ||
-                kind === "remote-agent"
-              ) {
-                const full = await resourceGet(r.id, {
-                  userEmail: ownerEmail,
-                  orgId,
-                });
-                if (!full) continue;
-                if (kind === "skill") {
-                  const skill = parseSkillMetadata(full.content, r.path);
-                  skillLines.push(
-                    `  ${skill?.name || r.path} — ${compactInventoryDescription(skill?.description || r.path)} (${scope}, ${r.path})`,
-                  );
-                } else if (kind === "agent") {
-                  const agent = parseCustomAgentProfile(full.content, r.path);
-                  agentLines.push(
-                    `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Custom workspace agent")} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
-                  );
-                } else {
-                  const agent = parseRemoteAgentManifest(full.content, r.path);
-                  agentLines.push(
-                    `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Connected A2A agent")} (${scope}, remote via ${r.path})`,
-                  );
+                if (
+                  kind === "skill" ||
+                  kind === "agent" ||
+                  kind === "remote-agent"
+                ) {
+                  const full = await resourceGet(r.id, {
+                    userEmail: ownerEmail,
+                    orgId,
+                  });
+                  if (!full) continue;
+                  if (kind === "skill") {
+                    const skill = parseSkillMetadata(full.content, r.path);
+                    skillLines.push(
+                      `  ${skill?.name || r.path} — ${compactInventoryDescription(skill?.description || r.path)} (${scope}, ${r.path})`,
+                    );
+                  } else if (kind === "agent") {
+                    const agent = parseCustomAgentProfile(full.content, r.path);
+                    agentLines.push(
+                      `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Custom workspace agent")} (${scope}, ${r.path}${agent?.model ? `, model: ${agent.model}` : ""})`,
+                    );
+                  } else {
+                    const agent = parseRemoteAgentManifest(
+                      full.content,
+                      r.path,
+                    );
+                    agentLines.push(
+                      `  ${agent?.name || r.path} — ${compactInventoryDescription(agent?.description || "Connected A2A agent")} (${scope}, remote via ${r.path})`,
+                    );
+                  }
                 }
               }
+              const blocks: string[] = [];
+              if (fileLines.length > 0) {
+                const lines = limitInventoryLines(fileLines, "files");
+                blocks.push(
+                  `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a resource file's contents, use the resources tool with action "read" and the file path.\n</available-files>`,
+                );
+              }
+              if (skillLines.length > 0) {
+                const lines = limitInventoryLines(skillLines, "skills");
+                blocks.push(
+                  `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n\nBefore using a matching workspace skill, read its path with the resources tool using action "read"; slash-selected skills are inlined automatically when available.\n</available-skills>`,
+                );
+              }
+              if (agentLines.length > 0) {
+                const lines = limitInventoryLines(agentLines, "agents");
+                blocks.push(
+                  `<available-agents>\nCustom and connected agents in the workspace:\n${lines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
+                );
+              }
+              if (jobLines.length > 0) {
+                const lines = limitInventoryLines(jobLines, "jobs");
+                blocks.push(
+                  `<available-jobs>\nScheduled tasks in the workspace:\n${lines.join("\n")}\n</available-jobs>`,
+                );
+              }
+              filesContext =
+                blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
             }
-            const blocks: string[] = [];
-            if (fileLines.length > 0) {
-              const lines = limitInventoryLines(fileLines, "files");
-              blocks.push(
-                `<available-files>\nFiles in the workspace:\n${lines.join("\n")}\n\nTo read a resource file's contents, use the resources tool with action "read" and the file path.\n</available-files>`,
-              );
-            }
-            if (skillLines.length > 0) {
-              const lines = limitInventoryLines(skillLines, "skills");
-              blocks.push(
-                `<available-skills>\nSkills in the workspace:\n${lines.join("\n")}\n\nBefore using a matching workspace skill, read its path with the resources tool using action "read"; slash-selected skills are inlined automatically when available.\n</available-skills>`,
-              );
-            }
-            if (agentLines.length > 0) {
-              const lines = limitInventoryLines(agentLines, "agents");
-              blocks.push(
-                `<available-agents>\nCustom and connected agents in the workspace:\n${lines.join("\n")}\n\nCustom agents under agents/*.md can be mentioned or used via agent-teams (action: "spawn") with the agent parameter.\n</available-agents>`,
-              );
-            }
-            if (jobLines.length > 0) {
-              const lines = limitInventoryLines(jobLines, "jobs");
-              blocks.push(
-                `<available-jobs>\nScheduled tasks in the workspace:\n${lines.join("\n")}\n</available-jobs>`,
-              );
-            }
-            filesContext =
-              blocks.length > 0 ? `\n\n${blocks.join("\n\n")}` : "";
+          } catch {
+            // Resources not available — skip silently
           }
-        } catch {
-          // Resources not available — skip silently
         }
-      }
-      return filesContext;
-    })();
+        return filesContext;
+      },
+    );
 
+    // DIAGNOSTIC-ONLY: the background worker freezes between `env_config` and
+    // `context_all` when one of the parallel pre-send promises hangs (observed
+    // analytics-only; forms/others claim fine). A single diag field holds only
+    // the latest value, so accumulate the SETTLED set and re-emit it on each
+    // settle — the name MISSING from the last `presend:` breadcrumb is the
+    // hanging step. Each `.finally` runs when its promise settles (freeing its
+    // DB connection), so these persist even under connection-pool pressure.
+    const __psSettled = new Set<string>();
+    const __psMark = (name: string) => {
+      __psSettled.add(name);
+      workerStep("presend:" + [...__psSettled].sort().join("+"));
+    };
+    void systemPromptPromise
+      .finally(() => __psMark("sysprompt"))
+      .catch(() => {});
+    void screenContextPromise.finally(() => __psMark("screen")).catch(() => {});
+    void urlContextPromise.finally(() => __psMark("url")).catch(() => {});
+    void selectionContextPromise
+      .finally(() => __psMark("selection"))
+      .catch(() => {});
+    void filesContextPromise.finally(() => __psMark("files")).catch(() => {});
+    void loopSettingsPromise.finally(() => __psMark("loop")).catch(() => {});
+    void enrichedMessagePromise
+      .finally(() => __psMark("enrich"))
+      .catch(() => {});
+
+    bgLog("presend:awaiting Promise.all");
     const [
       systemPrompt,
       screenBlock,
@@ -4418,6 +4602,10 @@ export function createProductionAgentHandler(
       enrichedMessagePromise,
     ]);
     setupMark("ctxAll");
+    // DIAGNOSTIC-ONLY: all parallel context gathering (system prompt, screen,
+    // files, loop settings, enriched message) resolved.
+    workerStep("context_all");
+    bgLog("context_all");
 
     if (systemPromptError) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
@@ -4446,6 +4634,9 @@ export function createProductionAgentHandler(
       options.initialToolNames,
     );
     setupMark("actions");
+    // DIAGNOSTIC-ONLY: action/tool resolution + engine-tool filtering finished.
+    workerStep("action_tool_setup");
+    bgLog("action_tool_setup");
     const requestSystemPrompt =
       requestMode === "plan"
         ? `${systemPrompt}\n\n${PLAN_MODE_SYSTEM_PROMPT}`
@@ -4557,6 +4748,10 @@ export function createProductionAgentHandler(
       }
     }
     setupMark("depsThread");
+    // DIAGNOSTIC-ONLY: owner/thread resolution + runId/effectiveThreadId +
+    // chained-continuation thread fetch finished.
+    workerStep("owner_thread");
+    bgLog("owner_thread");
 
     // Persist the user's turn exactly once. The foreground POST does this
     // before dispatching; the background worker must NOT repeat it (it re-enters
@@ -4949,7 +5144,9 @@ export function createProductionAgentHandler(
           dispatchMode: "background",
         }).catch(() => {});
       }
+      bgLog("claim:before");
       const won = await claimBackgroundRun(runId);
+      bgLog("claim:after won=" + won);
       if (!won) {
         // Already claimed by an earlier delivery — return a benign ack so
         // Netlify doesn't retry a successful handoff.
@@ -4971,11 +5168,18 @@ export function createProductionAgentHandler(
     // startRun's callback below — the run row does not exist until startRun
     // inserts it, so a pre-startRun write would no-op on the inline path.
     setupMark("preStart");
+    // DIAGNOSTIC-ONLY: last stage before startRun fires. A worker that reaches
+    // prestart but never workerStarted is hanging inside startRun itself.
+    workerStep("prestart");
+    bgLog("prestart");
     const setupDetail =
       Object.entries(setupMarks)
         .map(([k, v]) => `${k}=${v}`)
-        .join(" ") + ` total=${Date.now() - setupT0}`;
+        .join(" ") +
+      ` total=${Date.now() - setupT0}` +
+      ` to=${bgTimedOut.join(",") || "none"}`;
 
+    bgLog("startRun:invoked");
     startRun(
       runId,
       effectiveThreadId,

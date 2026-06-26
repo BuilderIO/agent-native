@@ -1,5 +1,110 @@
 # @agent-native/skills
 
+## 0.2.109
+
+### Patch Changes
+
+- Updated dependencies [02af11c]
+  - @agent-native/core@0.77.16
+
+## 0.2.108
+
+### Patch Changes
+
+- Updated dependencies [d5ec2d0]
+  - @agent-native/core@0.77.15
+
+## 0.2.107
+
+### Patch Changes
+
+- Updated dependencies [b83184b]
+  - @agent-native/core@0.77.14
+
+## 0.2.106
+
+### Patch Changes
+
+- Updated dependencies [c90f02a]
+  - @agent-native/core@0.77.13
+
+## 0.2.105
+
+### Patch Changes
+
+- Updated dependencies [67dba9b]
+  - @agent-native/core@0.77.12
+
+## 0.2.104
+
+### Patch Changes
+
+- Updated dependencies [7560a7c]
+  - @agent-native/core@0.77.11
+
+## 0.2.103
+
+### Patch Changes
+
+- d6588ff: Print early interactive startup feedback before delegating skills installs to the shared core flow.
+
+## 0.2.102
+
+### Patch Changes
+
+- Updated dependencies [12545bc]
+  - @agent-native/core@0.77.10
+
+## 0.2.101
+
+### Patch Changes
+
+- Updated dependencies [3eeec7f]
+  - @agent-native/core@0.77.9
+
+## 0.2.100
+
+### Patch Changes
+
+- Updated dependencies [7dc2828]
+  - @agent-native/core@0.77.8
+
+## 0.2.99
+
+### Patch Changes
+
+- Updated dependencies [e5bdcb3]
+- Updated dependencies [e5bdcb3]
+- Updated dependencies [e5bdcb3]
+- Updated dependencies [e5bdcb3]
+- Updated dependencies [e5bdcb3]
+- Updated dependencies [e5bdcb3]
+- Updated dependencies [e5bdcb3]
+  - @agent-native/core@0.77.7
+
+## 0.2.98
+
+### Patch Changes
+
+- Updated dependencies [1fab043]
+  - @agent-native/core@0.77.6
+
+## 0.2.97
+
+### Patch Changes
+
+- Updated dependencies [355be37]
+  - @agent-native/core@0.77.5
+
+## 0.2.96
+
+### Patch Changes
+
+- Updated dependencies [71db1e0]
+- Updated dependencies [71db1e0]
+- Updated dependencies [71db1e0]
+  - @agent-native/core@0.77.4
+
 ## 0.2.95
 
 ### Patch Changes

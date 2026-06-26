@@ -14,7 +14,13 @@
  * for UI/status; this table only drives dispatch, idempotent claiming, and
  * cross-invocation continuation.
  */
-import { getDbExec, intType, retryOnDdlRace } from "../db/client.js";
+import {
+  getDbExec,
+  intType,
+  isPostgres,
+  retryOnDdlRace,
+} from "../db/client.js";
+import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 /** Max cross-invocation continuations for one sub-agent run. Each continuation
  * is one ~40s soft-timeout chunk, so ~60 ≈ ~40 minutes of wall-clock work. Two
@@ -77,8 +83,7 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
+      const createSql = `
           CREATE TABLE IF NOT EXISTS agent_team_run_queue (
             task_id TEXT PRIMARY KEY,
             thread_id TEXT NOT NULL,
@@ -92,13 +97,20 @@ async function ensureTable(): Promise<void> {
             created_at ${intType()} NOT NULL,
             updated_at ${intType()} NOT NULL
           )
-        `),
-      );
-      await retryOnDdlRace(() =>
-        client.execute(
-          `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_status ON agent_team_run_queue (status, updated_at)`,
-        ),
-      );
+        `;
+      const indexSql = `CREATE INDEX IF NOT EXISTS idx_agent_team_run_queue_status ON agent_team_run_queue (status, updated_at)`;
+
+      // PG guard: probe information_schema / pg_indexes first (no lock), run
+      // DDL only when missing, bounded by a transaction-scoped lock_timeout.
+      if (isPostgres()) {
+        await ensureTableExists("agent_team_run_queue", createSql);
+        await ensureIndexExists("idx_agent_team_run_queue_status", indexSql);
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await retryOnDdlRace(() => client.execute(createSql));
+      await retryOnDdlRace(() => client.execute(indexSql));
     })().catch((err) => {
       _initPromise = undefined;
       throw err;

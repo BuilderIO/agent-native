@@ -486,8 +486,10 @@
   padding-inline-start: 0.75rem;
 }
 
-/* Narrow-width stand-in for the contents rail; swapped in/out by the queries below. */
+/* Hidden below the rail breakpoint: the document should use the full reading
+ * width instead of replacing the rail with an inline contents widget. */
 .plan-document-toc-inline {
+  display: none;
   margin-top: 1.25rem;
   border: 1px solid var(--plan-line);
   border-radius: 0.75rem;
@@ -548,23 +550,16 @@
   list-style: none;
 }
 
-/* Hide the accordion once its rail shows, and in screenshot capture. */
+/* Hide the accordion in screenshot capture too. */
 .plan-content-surface[data-recap-screenshot-theme] .plan-document-toc-inline {
   display: none;
-}
-@container plan-doc (min-width: 48rem) {
-  .plan-content-surface:not([data-recap-screenshot-theme])
-    .plan-document-body[data-has-toc]
-    > .plan-document-toc-inline {
-    display: none;
-  }
 }
 
 /* Wide layout: the contents rail is a real grid column. A matching empty left
  * column balances the rail so the document itself remains visually centered. */
 
 /* Shared cell placement. Inert until the parent is a grid. */
-@container plan-doc (min-width: 48rem) {
+@container plan-doc (min-width: 1200px) {
   .plan-content-surface:not([data-recap-screenshot-theme])
     .plan-document-body
     > header {
@@ -588,7 +583,7 @@
 }
 
 /* Document + contents rail. The empty first column balances the right rail. */
-@container plan-doc (min-width: 48rem) {
+@container plan-doc (min-width: 1200px) {
   .plan-content-surface:not([data-recap-screenshot-theme])
     .plan-document-body[data-has-toc] {
     display: grid;

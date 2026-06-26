@@ -103,6 +103,7 @@ interface PendingNativeUpload {
   lastAttemptAt?: string | null;
   lastError?: string | null;
   retryCount: number;
+  corrupt?: boolean;
 }
 
 type PendingDesktopUpload = PendingNativeUpload | PendingBrowserRecordingUpload;
@@ -2474,25 +2475,40 @@ function PendingUploadBanner({
             <IconDownload size={14} stroke={2} />
           </button>
         ) : null}
-        <button
-          type="button"
-          className="pending-upload-retry"
-          disabled={actionsDisabled}
-          onClick={() => onRetry(latest)}
-        >
-          <IconRefresh size={14} stroke={2} />
-          {retrying ? "Retrying" : "Retry"}
-        </button>
-        <button
-          type="button"
-          className="pending-upload-discard"
-          disabled={actionsDisabled}
-          onClick={() => onDiscard(latest)}
-          aria-label="Discard saved local clip"
-          title="Discard saved local clip"
-        >
-          <IconTrash size={14} stroke={2} />
-        </button>
+        {latest.kind === "native" && latest.corrupt ? (
+          <button
+            type="button"
+            className="pending-upload-discard"
+            disabled={actionsDisabled}
+            onClick={() => onDiscard(latest)}
+            aria-label="Discard corrupted clip"
+            title="This clip is corrupted and cannot be recovered. Discard it and record again."
+          >
+            <IconTrash size={14} stroke={2} />
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="pending-upload-retry"
+              disabled={actionsDisabled}
+              onClick={() => onRetry(latest)}
+            >
+              <IconRefresh size={14} stroke={2} />
+              {retrying ? "Retrying" : "Retry"}
+            </button>
+            <button
+              type="button"
+              className="pending-upload-discard"
+              disabled={actionsDisabled}
+              onClick={() => onDiscard(latest)}
+              aria-label="Discard saved local clip"
+              title="Discard saved local clip"
+            >
+              <IconTrash size={14} stroke={2} />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
