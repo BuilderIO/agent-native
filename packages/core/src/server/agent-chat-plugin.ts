@@ -165,6 +165,7 @@ import {
   getBuilderBrowserConnectUrlForOwner,
   resolveBuilderBranchProjectId,
 } from "./builder-browser.js";
+import { captureError } from "./capture-error.js";
 import { captureCliOutput } from "./cli-capture.js";
 import {
   getH3App,
@@ -7859,6 +7860,18 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return await invokeAgentChatHandler(event);
           } catch (err: any) {
             console.error("[agent-chat] _process-run failed:", err);
+            captureError(err, {
+              route: AGENT_CHAT_PROCESS_RUN_PATH,
+              method: getMethod(event),
+              userAgent: getHeader(event, "user-agent"),
+              tags: {
+                source: "agent-chat-bg-worker",
+                phase: "process-run",
+              },
+              extra: {
+                runId: prepared.runId,
+              },
+            });
             // DIAGNOSTIC: the worker invocation threw at the route boundary —
             // record the message so the failure cause is readable client-side.
             if (diag) {
