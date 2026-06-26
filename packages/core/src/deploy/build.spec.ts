@@ -12,6 +12,8 @@ import {
 import {
   addImmutableAssetRouteRulesForClientBuild,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
+  CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
+  CLOUDFLARE_WORKER_STUB_MODULES,
   copyDir,
   emitSingleTemplateNetlifyBackgroundFunction,
   findInstalledFfmpegStaticPackage,
@@ -140,7 +142,7 @@ describe("generateWorkerEntry", () => {
     );
 
     expect(source).toContain(
-      'import { markDefaultPluginProvided as markGeneratedPluginProvided } from "@agent-native/core/server";',
+      'import { markDefaultPluginProvided as markGeneratedPluginProvided } from "@agent-native/core/server/edge";',
     );
     expect(source).toContain(
       'markGeneratedPluginProvided(nitroApp, "core-routes");',
@@ -156,6 +158,9 @@ describe("generateWorkerEntry", () => {
   it("pre-marks slots before generated default plugin calls", () => {
     const source = generateWorkerEntry([], [], ["core-routes"]);
 
+    expect(source).toContain(
+      'import { defaultCoreRoutesPlugin as defaultPlugin_0 } from "@agent-native/core/server/edge";',
+    );
     expect(source).toContain(
       'markGeneratedPluginProvided(nitroApp, "core-routes");',
     );
@@ -752,6 +757,28 @@ describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
     );
     expect(CLOUDFLARE_WORKER_ESBUILD_EXTERNALS).toContain("fsevents");
   });
+
+  it("stubs edge-incompatible optional packages before externalizing", () => {
+    expect(CLOUDFLARE_WORKER_STUB_MODULES["@sentry/node"]).toContain("init");
+    expect(CLOUDFLARE_WORKER_STUB_MODULES["@resvg/resvg-js"]).toContain(
+      "Resvg",
+    );
+    expect(CLOUDFLARE_WORKER_STUB_MODULES["playwright-core"]).toContain(
+      "chromium",
+    );
+  });
+
+  it("stubs node builtins that Cloudflare Pages rejects at upload time", () => {
+    expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.child_process).toContain(
+      "execFileSync",
+    );
+    expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.fs).toContain(
+      "existsSync",
+    );
+    expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.module).toContain(
+      "createRequire",
+    );
+  });
 });
 
 describe("Nitro runtime scan ignores", () => {
@@ -776,7 +803,7 @@ describe("generateProvidedPluginsNitroPluginSource", () => {
     ]);
 
     expect(source).toContain(
-      'import { markDefaultPluginProvided } from "@agent-native/core/server";',
+      'import { markDefaultPluginProvided } from "@agent-native/core/server/edge";',
     );
     expect(source).toContain(
       'const pluginStems = ["agent-chat","core-routes"]',

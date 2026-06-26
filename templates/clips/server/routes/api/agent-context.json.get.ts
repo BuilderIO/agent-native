@@ -16,6 +16,7 @@ import {
 import {
   applyAgentJsonHeaders,
   buildPublicAgentContext,
+  loadAgentBugReport,
   loadAgentBrowserDiagnostics,
   loadAgentCtas,
   loadAgentTranscript,
@@ -40,11 +41,12 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const recording = accessResult.access.recording;
-  const [{ transcript, agentSegments }, ctas, browserDiagnostics] =
+  const [{ transcript, agentSegments }, ctas, browserDiagnostics, bugReport] =
     await Promise.all([
       loadAgentTranscript(recording.id, recording.durationMs),
       loadAgentCtas(recording.id),
       loadAgentBrowserDiagnostics(recording.id),
+      loadAgentBugReport(recording.id),
     ]);
   const chapters = parseAgentChapters(recording);
 
@@ -56,5 +58,6 @@ export default defineEventHandler(async (event: H3Event) => {
     chapters,
     ctas,
     browserDiagnostics,
+    bugReport,
   });
 });

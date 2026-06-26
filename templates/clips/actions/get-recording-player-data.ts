@@ -33,6 +33,39 @@ import {
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
 
+function safeJsonObject(raw: string | null | undefined) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function mapBugReport(row: typeof schema.recordingBugReports._.inferSelect) {
+  return {
+    recordingId: row.recordingId,
+    projectId: row.projectId,
+    title: row.title,
+    description: row.description,
+    severity: row.severity,
+    sourceUrl: row.sourceUrl,
+    pageTitle: row.pageTitle,
+    appVersion: row.appVersion,
+    environment: row.environment,
+    reporterEmail: row.reporterEmail,
+    reporterName: row.reporterName,
+    reporterId: row.reporterId,
+    metadata: safeJsonObject(row.metadataJson),
+    submittedAt: row.submittedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
 function recordingDeepLink(recordingId: string): string {
   return buildDeepLink({
     app: "clips",
@@ -112,10 +145,15 @@ export default defineAction({
     const browserDiagnostics = parseBrowserDiagnosticsRow(
       browserDiagnosticsRow,
     );
-    const canInspectBrowserDiagnostics =
+    const canInspectSensitiveContext =
       access.role === "owner" ||
       access.role === "admin" ||
       access.role === "editor";
+    const [bugReportRow] = await db
+      .select()
+      .from(schema.recordingBugReports)
+      .where(eq(schema.recordingBugReports.recordingId, args.recordingId))
+      .limit(1);
 
     // Reverse-lookup: if a meeting captured this recording, surface it so the
     // player can show a "From meeting: <title>" badge linking back to the
@@ -289,10 +327,14 @@ export default defineAction({
         placement: c.placement,
       })),
       browserDiagnostics: browserDiagnostics
-        ? canInspectBrowserDiagnostics
+        ? canInspectSensitiveContext
           ? browserDiagnostics
           : { summary: browserDiagnostics.summary }
         : null,
+      bugReport:
+        bugReportRow && canInspectSensitiveContext
+          ? mapBugReport(bugReportRow)
+          : null,
       meeting,
     };
   },

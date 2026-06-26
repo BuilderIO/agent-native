@@ -24,14 +24,10 @@ const BORDER = "#1f1f1f";
 const FG = "#ededed";
 const MUTED = "#a0a0a0";
 const FONT_FAMILY = "Liberation Sans, Arial, system-ui, sans-serif";
-const FONT_FILES = [
-  fileURLToPath(
-    new URL("../../assets/fonts/LiberationSans-Regular.ttf", import.meta.url),
-  ),
-  fileURLToPath(
-    new URL("../../assets/fonts/LiberationSans-Bold.ttf", import.meta.url),
-  ),
-].filter((fontFile) => existsSync(fontFile));
+const FONT_SOURCE_PATHS = [
+  "../../assets/fonts/LiberationSans-Regular.ttf",
+  "../../assets/fonts/LiberationSans-Bold.ttf",
+] as const;
 const AVATAR_CX = 996;
 const AVATAR_CY = 170;
 const AVATAR_SIZE = 172;
@@ -298,11 +294,23 @@ interface BookingOgRenderOptions {
   fontFiles?: string[];
 }
 
+function resolveSourceFontFiles(): string[] {
+  try {
+    const metaUrl = import.meta.url;
+    if (!metaUrl.startsWith("file:")) return [];
+    return FONT_SOURCE_PATHS.map((sourcePath) =>
+      fileURLToPath(new URL(sourcePath, metaUrl)),
+    ).filter((fontFile) => existsSync(fontFile));
+  } catch {
+    return [];
+  }
+}
+
 function bookingOgResvgOptions(
   options: BookingOgRenderOptions = {},
 ): ResvgRenderOptions {
   const fontFiles = (
-    options.fontFiles?.length ? options.fontFiles : FONT_FILES
+    options.fontFiles?.length ? options.fontFiles : resolveSourceFontFiles()
   ).filter((fontFile) => existsSync(fontFile));
   const hasBundledFonts = fontFiles.length > 0;
   return {

@@ -204,8 +204,20 @@ function serverUrlForPendingUpload(
   return normalizedCurrent || normalizeServerUrl(upload.serverUrl || "");
 }
 
-async function hasConfiguredVideoStorage(serverUrl: string): Promise<boolean> {
+// "configured"/"missing" are definitive answers from the server; "unknown"
+// means the check could not be completed (network error, unreachable server, or
+// an unparseable/non-OK response). An "unknown" result must never downgrade an
+// already-connected user to the setup flow.
+type VideoStorageProbe = "configured" | "missing" | "unknown";
+
+async function hasConfiguredVideoStorage(
+  serverUrl: string,
+): Promise<VideoStorageProbe> {
   const base = serverUrl.replace(/\/+$/, "");
+
+  // Track whether any endpoint gave a definitive answer. If both checks throw
+  // or return non-OK/unparseable responses, we can't tell and return "unknown".
+  let sawDefinitiveAnswer = false;
 
   try {
     const uploadStatus = await fetch(
@@ -215,12 +227,15 @@ async function hasConfiguredVideoStorage(serverUrl: string): Promise<boolean> {
         cache: "no-store",
       },
     );
-    const body = uploadStatus.ok
-      ? ((await uploadStatus.json().catch(() => null)) as {
-          configured?: boolean;
-        } | null)
-      : null;
-    if (body?.configured) return true;
+    if (uploadStatus.ok) {
+      const body = (await uploadStatus.json().catch(() => null)) as {
+        configured?: boolean;
+      } | null;
+      if (body) {
+        sawDefinitiveAnswer = true;
+        if (body.configured) return "configured";
+      }
+    }
   } catch {
     // Fall through to the Builder status endpoint.
   }
@@ -230,15 +245,20 @@ async function hasConfiguredVideoStorage(serverUrl: string): Promise<boolean> {
       credentials: "include",
       cache: "no-store",
     });
-    const body = builderStatus.ok
-      ? ((await builderStatus.json().catch(() => null)) as {
-          configured?: boolean;
-        } | null)
-      : null;
-    return !!body?.configured;
+    if (builderStatus.ok) {
+      const body = (await builderStatus.json().catch(() => null)) as {
+        configured?: boolean;
+      } | null;
+      if (body) {
+        sawDefinitiveAnswer = true;
+        if (body.configured) return "configured";
+      }
+    }
   } catch {
-    return false;
+    // Network error or unreachable server — treat as indeterminate below.
   }
+
+  return sawDefinitiveAnswer ? "missing" : "unknown";
 }
 
 function authTokenStorageKey(serverUrl: string): string {
@@ -658,10 +678,21 @@ export function App() {
       return true;
     }
 
-    setVideoStorageStatus("checking");
-    const configured = await hasConfiguredVideoStorage(serverUrl);
-    setVideoStorageStatus(configured ? "configured" : "missing");
-    return configured;
+    setVideoStorageStatus((prev) => (prev === "missing" ? prev : "checking"));
+    const probe = await hasConfiguredVideoStorage(serverUrl);
+    if (probe === "unknown") {
+      // The check couldn't be completed (offline/unreachable). Never downgrade
+      // an already-connected user to "missing" on an indeterminate result;
+      // preserve the last known status and let the poll retry. If we never
+      // determined a status, fall back to "checking" so the poll keeps trying
+      // rather than hard-blocking the record button.
+      setVideoStorageStatus((prev) =>
+        prev === "configured" || prev === "missing" ? prev : "checking",
+      );
+      return false;
+    }
+    setVideoStorageStatus(probe);
+    return probe === "configured";
   }, [authStatus, localRecordingMode, serverUrl]);
 
   useEffect(() => {
@@ -672,7 +703,10 @@ export function App() {
     if (
       authStatus !== "authed" ||
       localRecordingMode !== "off" ||
-      videoStorageStatus !== "missing"
+      // Re-poll while storage is "missing" (server may become configured) and
+      // while still "checking" (an indeterminate/unreachable first probe should
+      // keep retrying instead of hard-blocking the record button).
+      (videoStorageStatus !== "missing" && videoStorageStatus !== "checking")
     ) {
       return;
     }

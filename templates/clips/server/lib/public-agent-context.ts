@@ -33,6 +33,9 @@ export type PublicAgentRecording = typeof schema.recordings._.inferSelect;
 export type PublicAgentTranscript =
   | typeof schema.recordingTranscripts._.inferSelect
   | null;
+export type PublicAgentBugReport =
+  | typeof schema.recordingBugReports._.inferSelect
+  | null;
 
 export interface PublicAgentAccess {
   recording: PublicAgentRecording;
@@ -337,6 +340,17 @@ export async function loadAgentBrowserDiagnostics(recordingId: string) {
   return parseBrowserDiagnosticsRow(row);
 }
 
+export async function loadAgentBugReport(
+  recordingId: string,
+): Promise<PublicAgentBugReport> {
+  const [row] = await getDb()
+    .select()
+    .from(schema.recordingBugReports)
+    .where(eq(schema.recordingBugReports.recordingId, recordingId))
+    .limit(1);
+  return row ?? null;
+}
+
 // Most-recent console logs / network requests surfaced in the public agent
 // context. Bounded to keep the agent payload small; the summary still reports
 // the true total counts.
@@ -412,6 +426,35 @@ function compactBrowserDiagnostics(diagnostics: BrowserDiagnosticsData | null) {
   };
 }
 
+function safeMetadataObject(raw: string | null | undefined) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function compactBugReport(report: PublicAgentBugReport) {
+  if (!report) return null;
+  return {
+    projectId: report.projectId,
+    title: report.title,
+    description: report.description,
+    severity: report.severity,
+    sourceUrl: report.sourceUrl,
+    pageTitle: report.pageTitle,
+    appVersion: report.appVersion,
+    environment: report.environment,
+    metadata: safeMetadataObject(report.metadataJson),
+    submittedAt: report.submittedAt,
+    note: "Reporter identity fields are omitted from public agent context. Host metadata is redacted and bounded at capture time.",
+  };
+}
+
 export function buildPublicAgentContext({
   event,
   access,
@@ -420,6 +463,7 @@ export function buildPublicAgentContext({
   chapters,
   ctas,
   browserDiagnostics,
+  bugReport,
 }: {
   event: H3Event;
   access: PublicAgentAccess;
@@ -428,6 +472,7 @@ export function buildPublicAgentContext({
   chapters: ReturnType<typeof parseAgentChapters>;
   ctas: Awaited<ReturnType<typeof loadAgentCtas>>;
   browserDiagnostics?: BrowserDiagnosticsData | null;
+  bugReport?: PublicAgentBugReport;
 }) {
   const recording = access.recording;
   const requestUrl = getRequestURL(event);
@@ -451,6 +496,11 @@ export function buildPublicAgentContext({
       }));
   const instructions = [
     "Use transcript.segments for timestamped spoken context.",
+    ...(bugReport
+      ? [
+          "Use bugReport for the submitted product context: source URL, page title, app version, environment, severity, and redacted host metadata.",
+        ]
+      : []),
     ...(browserDiagnostics
       ? [
           "Use browserDiagnostics.consoleLogs for the redacted console stream (all levels: debug/log/info/warn/error) and browserDiagnostics.networkRequests for the fetch/XHR requests (method, sanitized URL, status, duration) captured during the recording. browserDiagnostics.consoleIssues highlights just the warnings/errors, and browserDiagnostics.failedNetworkRequests highlights failed requests.",
@@ -515,6 +565,7 @@ export function buildPublicAgentContext({
     },
     chapters,
     recommendedFrames: suggestedFrames,
+    bugReport: compactBugReport(bugReport ?? null),
     browserDiagnostics: compactBrowserDiagnostics(browserDiagnostics ?? null),
     ctas: ctas.map((cta) => ({
       label: cta.label,

@@ -45,6 +45,8 @@ type NativeRecording = {
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
+  savedToDisk?: boolean;
+  savedFilename?: string;
 };
 
 type PopupStatusResponse = {
@@ -719,22 +721,31 @@ function renderActiveRecording(recording: NativeRecording | null): void {
     titleKey && hostKey && (titleKey === hostKey || hostKey.includes(titleKey));
   recordingUrl.textContent = duplicate ? "" : host;
   recordingUrl.hidden = !host || Boolean(duplicate);
+  const storageFailure = isStorageSetupFailureMessage(recording.error);
+  let errorText = storageFailure
+    ? STORAGE_SETUP_REQUIRED_MESSAGE
+    : recording.error || "Recording needs attention";
+  // If the upload failed but we saved the recording to disk, lead with the
+  // reassurance (it's not lost) and the re-upload action.
+  if (recording.status === "error" && recording.savedToDisk) {
+    const named = recording.savedFilename
+      ? ` (${recording.savedFilename})`
+      : "";
+    errorText = storageFailure
+      ? `Couldn't upload — storage isn't connected. Your clip is saved to your downloads${named}. Connect storage, then re-upload it with "Upload video".`
+      : `Couldn't upload your clip. It's saved to your downloads${named} — try re-uploading it with "Upload video".`;
+  }
   recordingStatus.textContent =
     recording.status === "uploading"
       ? "Saving..."
       : recording.status === "stopping"
         ? "Stopping..."
         : recording.status === "error"
-          ? isStorageSetupFailureMessage(recording.error)
-            ? STORAGE_SETUP_REQUIRED_MESSAGE
-            : recording.error || "Recording needs attention"
+          ? errorText
           : `Recording ${formatDuration(recording.startedAtMs)}`;
   recordingStatus.dataset.kind =
     recording.status === "error" ? "error" : "info";
-  setStorageHelp(
-    recording.status === "error" &&
-      isStorageSetupFailureMessage(recording.error),
-  );
+  setStorageHelp(recording.status === "error" && storageFailure);
 }
 
 async function init(): Promise<void> {

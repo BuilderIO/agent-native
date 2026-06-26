@@ -146,6 +146,10 @@ type NativeRecording = {
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
+  // When an upload fails, the recording is saved to the user's Downloads as a
+  // fallback so it is never lost; these describe that saved file.
+  savedToDisk?: boolean;
+  savedFilename?: string;
 };
 
 type OffscreenStatusMessage = {
@@ -156,6 +160,8 @@ type OffscreenStatusMessage = {
   result?: Record<string, unknown>;
   error?: string;
   storageSetupRequired?: boolean;
+  savedToDisk?: boolean;
+  savedFilename?: string;
 };
 
 type ExtensionErrorMessage = {
@@ -2032,6 +2038,36 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
     return { ok: true };
   }
 
+  // The offscreen recorder asks us to save a recording to disk when its upload
+  // fails (storage not connected, network drop, size cap), so the recording is
+  // never lost. The offscreen document holds the blob URL alive until its next
+  // acquire(); we only need the download to be accepted, not fully written.
+  if (type === "CLIPS_SAVE_RECORDING_TO_DISK") {
+    const { url, filename } = message as { url?: string; filename?: string };
+    if (typeof url !== "string" || !url) {
+      return { ok: false, error: "Missing recording URL." };
+    }
+    try {
+      const options: chrome.downloads.DownloadOptions = {
+        url,
+        saveAs: false,
+        conflictAction: "uniquify",
+      };
+      if (typeof filename === "string" && filename) options.filename = filename;
+      const downloadId = await chrome.downloads.download(options);
+      return { ok: typeof downloadId === "number" && downloadId >= 0 };
+    } catch (err) {
+      console.error("[clips-bg] save-to-disk download failed", err);
+      captureExtensionError(err, {
+        tags: { surface: "background", messageType: type },
+      });
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Download failed.",
+      };
+    }
+  }
+
   // Status updates streamed from the offscreen recorder.
   if (type === "CLIPS_NATIVE_STATUS") {
     const status = message as OffscreenStatusMessage;
@@ -2059,6 +2095,13 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
         activeNativeRecording.recordingUrl = recordingUrl(
           activeNativeRecording,
         );
+      }
+      if (status.status === "error") {
+        activeNativeRecording.savedToDisk = status.savedToDisk === true;
+        activeNativeRecording.savedFilename =
+          typeof status.savedFilename === "string"
+            ? status.savedFilename
+            : undefined;
       }
       await saveActiveNativeRecording();
       // The offscreen recorder finished its pre-roll and actually started —
