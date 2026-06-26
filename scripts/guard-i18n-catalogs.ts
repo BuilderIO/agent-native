@@ -348,7 +348,7 @@ async function checkCatalogScriptContamination(
 function disallowedScriptsForLocale(locale: LocaleCode, value: string) {
   const scripts: string[] = [];
   if (
-    !["zh-CN", "ja-JP", "ko-KR"].includes(locale) &&
+    !["zh-CN", "zh-TW", "ja-JP", "ko-KR"].includes(locale) &&
     /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u.test(
       value,
     )

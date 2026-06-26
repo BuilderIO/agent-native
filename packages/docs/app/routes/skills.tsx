@@ -19,6 +19,7 @@ import jaJP from "../i18n/ja-JP";
 import koKR from "../i18n/ko-KR";
 import ptBR from "../i18n/pt-BR";
 import zhCN from "../i18n/zh-CN";
+import zhTW from "../i18n/zh-TW";
 import { withDefaultSocialImage } from "../seo";
 
 const SKILLS_PAGE_META = {
@@ -32,6 +33,7 @@ const SKILLS_PAGE_META = {
   "ko-KR": koKR.skillsPage,
   "pt-BR": ptBR.skillsPage,
   "zh-CN": zhCN.skillsPage,
+  "zh-TW": zhTW.skillsPage,
 };
 
 export const meta = ({ params }: { params?: { locale?: string } } = {}) => {
