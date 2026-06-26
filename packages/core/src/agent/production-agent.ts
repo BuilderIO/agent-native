@@ -5066,6 +5066,13 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: last stage before startRun fires. A worker that reaches
     // prestart but never workerStarted is hanging inside startRun itself.
     workerStep("prestart");
+    // DIAGNOSTIC-ONLY: peak-ish RSS (MB) + assembled system-prompt size (KB) at
+    // prestart. The analytics bg worker dies right after model_done; if the
+    // FOREGROUND (identical build, writes land) is already near the ~1024MB
+    // Netlify function limit, an OOM kill in the heavier worker explains the
+    // freeze. Both numbers ride along in the existing setup-timings detail.
+    setupMarks.rssMB = Math.round(process.memoryUsage().rss / 1048576);
+    setupMarks.promptKB = Math.round((systemPrompt?.length ?? 0) / 1024);
     const setupDetail =
       Object.entries(setupMarks)
         .map(([k, v]) => `${k}=${v}`)
