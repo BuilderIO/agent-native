@@ -77,7 +77,7 @@ function pathForView(view?: string): string {
     case "observability":
       return "/observability";
     case "team":
-      return "/team";
+      return "/settings#team";
     default:
       return "/";
   }

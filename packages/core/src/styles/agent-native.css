@@ -55,6 +55,8 @@
   --agent-native-lower-surface: hsl(
     var(--sidebar-background, var(--background))
   );
+  --agent-native-raised-surface: hsl(var(--background));
+  --agent-native-card-surface: hsl(var(--card));
   --agent-native-raised-border: hsl(var(--border));
   --agent-native-raised-radius: 8px;
   --agent-native-raised-shadow-left: -1px 0 3px rgb(0 0 0 / 0.018);
@@ -85,6 +87,16 @@
       in srgb,
       hsl(var(--sidebar-background, var(--background))) 94%,
       black
+    );
+    --agent-native-raised-surface: color-mix(
+      in srgb,
+      hsl(var(--background)) 78%,
+      hsl(var(--muted)) 22%
+    );
+    --agent-native-card-surface: color-mix(
+      in srgb,
+      var(--agent-native-raised-surface) 88%,
+      hsl(var(--muted)) 12%
     );
   }
 }
@@ -126,7 +138,7 @@
 .agent-sidebar-main-surface {
   position: relative;
   z-index: 1;
-  background: hsl(var(--background));
+  background: var(--agent-native-raised-surface);
   transition:
     border-radius 260ms cubic-bezier(0.32, 0.72, 0, 1),
     border-color 260ms cubic-bezier(0.32, 0.72, 0, 1),
@@ -136,15 +148,47 @@
 .agent-layout-shell
   :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
   > :first-child
-  > :where(header, div).border-b:first-child,
+  > :where(header, div).border-b,
 .agent-layout-shell
   :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
-  > :where(header, div).border-b:first-child,
+  > :where(header, div).border-b,
 .agent-layout-shell
   .agent-layout-left-drawer
   > :where(header, div).border-b:first-child,
+.agent-layout-shell
+  .agent-layout-left-drawer
+  > :first-child
+  > :where(header, div).border-b,
 .agent-layout-shell .agent-native-shell-topbar {
   border-bottom-color: transparent !important;
+}
+
+.agent-layout-shell
+  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+  > :first-child
+  > :where(header, div).border-b,
+.agent-layout-shell
+  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+  > :where(header, div).border-b {
+  background-color: var(--agent-native-raised-surface) !important;
+}
+
+.agent-layout-shell
+  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+  > :first-child
+  > :where(header, div).border-b.h-12,
+.agent-layout-shell
+  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+  > :where(header, div).border-b.h-12 {
+  min-height: 4rem;
+  height: 4rem;
+}
+
+.dark
+  .agent-layout-shell
+  :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
+  :where(.bg-card) {
+  background-color: var(--agent-native-card-surface) !important;
 }
 
 @media (min-width: 768px) {

@@ -8,6 +8,9 @@ import {
 } from "./error-format.js";
 
 describe("formatChatErrorText", () => {
+  const agentNativeUpgradeUrl =
+    "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native";
+
   it("adds a Builder space settings CTA for disabled gateway errors", () => {
     expect(
       formatChatErrorText(
@@ -32,11 +35,11 @@ describe("formatChatErrorText", () => {
     expect(
       formatChatErrorText(
         "Monthly credits limit reached.",
-        "https://builder.io/account/billing",
+        agentNativeUpgradeUrl,
         "credits-limit-monthly",
       ),
     ).toBe(
-      "Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](https://builder.io/account/billing)",
+      `Error: Monthly credits limit reached.\n\n[Upgrade at builder.io](${agentNativeUpgradeUrl})`,
     );
   });
 

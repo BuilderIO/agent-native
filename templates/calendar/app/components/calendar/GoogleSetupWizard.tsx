@@ -127,7 +127,7 @@ export function GoogleSetupWizard() {
 
       setSaved(true);
       await fetchStatus();
-      // Reload after a short delay to let Vite restart with new env vars
+      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setError(
@@ -165,7 +165,7 @@ export function GoogleSetupWizard() {
       setClientId("");
       setClientSecret("");
       await fetchStatus();
-      // Reload after a short delay to let Vite restart with new env vars
+      // Reload after the server has persisted the scoped credentials.
       setTimeout(() => window.location.reload(), 1500);
     } catch (err) {
       setError(

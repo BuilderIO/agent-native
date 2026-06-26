@@ -54,22 +54,28 @@ Register a custom provider in a server plugin to use any storage backend (S3, Cl
 ```ts
 // server/plugins/file-upload.ts
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { resolveSecret } from "@agent-native/core/server";
 
 export default defineNitroPlugin(() => {
+  const readBucket = () => resolveSecret("S3_BUCKET");
+
   registerFileUploadProvider({
     id: "s3",
     name: "Amazon S3",
-    isConfigured: () => !!process.env.S3_BUCKET,
+    isConfigured: () => false,
+    isConfiguredForRequest: async () => !!(await readBucket()),
     upload: async ({ data, filename, mimeType }) => {
+      const bucket = await readBucket();
+      if (!bucket) throw new Error("S3 storage is not configured");
       const key = `uploads/${Date.now()}-${filename}`;
       await s3Client.putObject({
-        Bucket: process.env.S3_BUCKET!,
+        Bucket: bucket,
         Key: key,
         Body: data,
         ContentType: mimeType,
       });
       return {
-        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
+        url: `https://${bucket}.s3.amazonaws.com/${key}`,
         provider: "s3",
       };
     },
@@ -85,7 +91,8 @@ The `FileUploadProvider` interface:
 interface FileUploadProvider {
   id: string; // Unique id, e.g. "s3"
   name: string; // Human-readable name
-  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
 }
 

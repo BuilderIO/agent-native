@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { resolveSecret } from "@agent-native/core/server";
 import type { GeneratedSlide } from "@shared/api";
 import { z } from "zod";
 
@@ -21,9 +22,10 @@ export default defineAction({
       .describe("Whether to include image prompts (default: true)"),
   }),
   run: async (args) => {
-    if (!process.env.GEMINI_API_KEY) {
+    const apiKey = await resolveSecret("GEMINI_API_KEY");
+    if (!apiKey) {
       throw new Error(
-        "Gemini API key not configured. Set GEMINI_API_KEY environment variable.",
+        "Gemini API key not configured. Save GEMINI_API_KEY in settings.",
       );
     }
 
@@ -37,7 +39,7 @@ export default defineAction({
     const includeImages = args.includeImages !== false;
 
     const { GoogleGenAI } = await import("@google/genai");
-    const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const client = new GoogleGenAI({ apiKey });
 
     const imageInstruction = includeImages
       ? `For slides where a visual would enhance the message, set the layout to "image" and provide an "imagePrompt" field with a detailed description of what image to generate. The imagePrompt should describe a professional, high-quality image that supports the slide content. Include imagePrompt for roughly 30-40% of slides (not the title slide).`

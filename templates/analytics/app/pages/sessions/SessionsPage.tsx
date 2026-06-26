@@ -95,17 +95,6 @@ export default function SessionsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5 md:px-6">
-      <div className="flex items-center">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <IconPlayerPlay className="h-5 w-5 text-primary" />
-            <h1 className="text-xl font-semibold tracking-normal">
-              {t("sessions.title")}
-            </h1>
-          </div>
-        </div>
-      </div>
-
       <Card>
         <CardContent className="p-3">
           <div className="grid gap-2 lg:grid-cols-[150px_minmax(260px,1fr)_160px_auto_auto] lg:items-center">

@@ -52,13 +52,6 @@ export function prewarmFormsRoutePath(path: string) {
     );
   }
 
-  if (pathname === "/team") {
-    jobs.push(
-      prewarm("layout", () => import("@/routes/_app")),
-      prewarm("team", () => import("@/routes/_app.team")),
-    );
-  }
-
   if (pathname.startsWith("/extensions")) {
     jobs.push(
       prewarm("layout", () => import("@/routes/_app")),

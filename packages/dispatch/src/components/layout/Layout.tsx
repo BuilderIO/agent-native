@@ -36,7 +36,6 @@ import {
   IconPuzzle,
   IconSettings,
   IconShieldCheck,
-  IconUsersGroup,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -213,13 +212,6 @@ const OPERATIONS_NAV_ITEMS = [
     to: "/settings",
     label: "Settings",
     icon: IconSettings,
-    section: "operations",
-  },
-  {
-    id: "team",
-    to: "/team",
-    label: "Team",
-    icon: IconUsersGroup,
     section: "operations",
   },
 ] as const satisfies readonly DispatchNavItem[];

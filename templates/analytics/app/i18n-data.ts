@@ -135,6 +135,10 @@ const enUS = {
     credentialsDescription:
       "API keys and credentials are managed on the Data Sources page.",
     manageDataSources: "Manage Data Sources",
+    dashboardTemplates: "Dashboard templates",
+    dashboardTemplatesDescription:
+      "Install a source-controlled dashboard when you need a starting point.",
+    openDashboardTemplates: "Open catalog",
     languageTitle: "Language",
     languageLabel: "Interface language",
     about: "About",
@@ -832,8 +836,7 @@ const enUS = {
     time: "Time",
   },
   catalog: {
-    description:
-      "Source-controlled dashboards ready to install into your workspace.",
+    description: "Install a dashboard template when you need a starting point.",
     noTemplatesFound: "No templates found",
     tryDifferentCategory: "Try a different catalog category.",
     templatesCount: "{{count}} templates",

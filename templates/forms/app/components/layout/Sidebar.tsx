@@ -10,13 +10,13 @@ import {
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
-  IconUsers,
   IconArrowUp,
   IconPlus,
   IconMenu2,
   IconX,
   IconMessageCircle,
   IconSettings,
+  IconForms,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -29,7 +29,6 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -38,22 +37,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAgentPromptRun } from "@/hooks/use-agent-prompt-run";
-import { useForms, useCreateForm } from "@/hooks/use-forms";
+import { useCreateForm } from "@/hooks/use-forms";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
-
-const statusDots: Record<string, string> = {
-  draft: "bg-amber-500",
-  published: "bg-emerald-500",
-  closed: "bg-muted-foreground/50",
-};
 
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
-  const { data: formsData, isLoading: formsLoading } = useForms();
-  const forms = Array.isArray(formsData) ? formsData : [];
   const createForm = useCreateForm();
   const { send } = useSendToAgentChat();
   const promptRun = useAgentPromptRun({
@@ -95,22 +86,31 @@ export function Sidebar() {
   }
 
   function navigateHomeChat(event: MouseEvent<HTMLAnchorElement>) {
+    if (
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey ||
+      event.button !== 0
+    ) {
+      return;
+    }
     event.preventDefault();
     if (isMobile) setMobileOpen(false);
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/ask");
   }
 
   function toggleLogoView() {
     if (isMobile) setMobileOpen(false);
     focusAgentChat();
-    navigateWithAgentChatViewTransition(navigate, "/");
+    navigateWithAgentChatViewTransition(navigate, "/ask");
   }
 
   const newFormButton = (
     <PopoverTrigger asChild>
-      <button className="cursor-pointer flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50 hover:text-foreground min-h-[44px]">
-        <IconPlus size={14} className="shrink-0" />
+      <button className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-all hover:bg-accent/50 hover:text-foreground">
+        <IconPlus className="h-4 w-4 shrink-0" />
         <span>{t("sidebar.newForm")}</span>
       </button>
     </PopoverTrigger>
@@ -223,69 +223,41 @@ export function Sidebar() {
       <ScrollArea className="min-h-0 min-w-0 flex-1">
         <div
           className={cn(
-            "min-w-0 max-w-full overflow-hidden py-2",
+            "grid min-w-0 max-w-full gap-1 overflow-hidden p-2",
             isMobile ? "w-full" : "w-60",
           )}
         >
           <Link
-            to="/"
+            to="/ask"
             onClick={navigateHomeChat}
             className={cn(
-              "flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm min-h-[44px]",
-              location.pathname === "/"
+              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-all hover:text-primary",
+              location.pathname === "/ask" || location.pathname === "/"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
             )}
           >
-            <IconMessageCircle size={14} className="shrink-0" />
+            <IconMessageCircle className="h-4 w-4 shrink-0" />
             <span className="min-w-0 flex-1 basis-0 truncate">
               {t("navigation.askForms")}
             </span>
           </Link>
 
-          {formsLoading && forms.length === 0
-            ? Array.from({ length: 5 }).map((_, i) => (
-                <div
-                  key={i}
-                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 min-h-[44px]"
-                >
-                  <Skeleton className="h-1.5 w-1.5 shrink-0 rounded-full" />
-                  <Skeleton
-                    className="h-3.5"
-                    style={{ width: `${50 + ((i * 17) % 40)}%` }}
-                  />
-                </div>
-              ))
-            : null}
-          {forms.map((form) => {
-            const isActive =
-              location.pathname === `/forms/${form.id}` ||
-              location.pathname === `/forms/${form.id}/responses`;
-            return (
-              <Link
-                key={form.id}
-                to={`/forms/${form.id}`}
-                onClick={() => isMobile && setMobileOpen(false)}
-                className={cn(
-                  "flex w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm min-h-[44px]",
-                  isActive
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-                title={form.title || t("sidebar.untitledForm")}
-              >
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 shrink-0 rounded-full",
-                    isActive ? "bg-accent-foreground" : statusDots[form.status],
-                  )}
-                />
-                <span className="min-w-0 flex-1 basis-0 truncate">
-                  {form.title || t("sidebar.untitledForm")}
-                </span>
-              </Link>
-            );
-          })}
+          <Link
+            to="/forms"
+            onClick={() => isMobile && setMobileOpen(false)}
+            className={cn(
+              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-all hover:text-primary",
+              location.pathname.startsWith("/forms")
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            )}
+          >
+            <IconForms className="h-4 w-4 shrink-0" />
+            <span className="min-w-0 flex-1 basis-0 truncate">
+              {t("navigation.allForms")}
+            </span>
+          </Link>
 
           <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
             {newFormButton}
@@ -308,19 +280,6 @@ export function Sidebar() {
         >
           <IconSettings size={14} className="shrink-0" />
           <span>{t("navigation.settings")}</span>
-        </Link>
-        <Link
-          to="/team"
-          onClick={() => isMobile && setMobileOpen(false)}
-          className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
-            location.pathname === "/team"
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-        >
-          <IconUsers size={14} className="shrink-0" />
-          <span>{t("navigation.team")}</span>
         </Link>
       </div>
 

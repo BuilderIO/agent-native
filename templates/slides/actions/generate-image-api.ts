@@ -43,7 +43,7 @@ export default defineAction({
     // Get the appropriate provider
     const { getProvider } =
       await import("../server/handlers/image-providers/index.js");
-    const provider = getProvider(args.model || "auto");
+    const provider = await getProvider(args.model || "auto");
 
     const refImages: ReferenceImage[] = [];
 

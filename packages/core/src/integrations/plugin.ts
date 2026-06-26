@@ -7,6 +7,7 @@ import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getSession } from "../server/auth.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
+import { resolveSecret } from "../server/credential-provider.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -517,8 +518,7 @@ export function createIntegrationsPlugin(
     // init can leave us with an empty string forever. The getter
     // re-resolves on every webhook so freshly-set secrets work without
     // a redeploy.
-    const getApiKey = () =>
-      options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
+    const getApiKey = () => options?.apiKey ?? "";
 
     // Build the system prompt
     const baseSystemPrompt = options?.systemPrompt ?? INTEGRATION_SYSTEM_PROMPT;
@@ -1582,10 +1582,12 @@ export function createIntegrationsPlugin(
           if (platform === "telegram") {
             const baseUrl = getBaseUrl(event);
             const webhookUrl = `${baseUrl}${P}/telegram/webhook`;
-            const token = process.env.TELEGRAM_BOT_TOKEN;
+            const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
             if (!token) {
               setResponseStatus(event, 400);
-              return { error: "TELEGRAM_BOT_TOKEN not configured" };
+              return {
+                error: "TELEGRAM_BOT_TOKEN not configured. Save it in settings.",
+              };
             }
             try {
               const res = await fetch(

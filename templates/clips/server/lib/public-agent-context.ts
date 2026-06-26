@@ -455,6 +455,34 @@ function compactBugReport(report: PublicAgentBugReport) {
   };
 }
 
+export function transcriptStatusInstructions(
+  transcript: PublicAgentTranscript,
+) {
+  const status = transcript?.status ?? "missing";
+  const failureReason = transcript?.failureReason ?? "";
+  const lowerReason = failureReason.toLowerCase();
+
+  if (status === "pending") {
+    return [
+      "The transcript is still pending. For long recordings this can take several minutes; wait 15-30 seconds and fetch apis.context.url or apis.transcript.url again a few times before falling back to frames or telling the user no transcript exists.",
+    ];
+  }
+
+  if (status === "failed" && lowerReason.includes("credits exhausted")) {
+    return [
+      "Transcription failed because Builder transcription credits are exhausted. Tell the user to upgrade or connect Builder.io credits, or configure a Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do not transcribe Clips recordings.",
+    ];
+  }
+
+  if (status === "failed" && failureReason) {
+    return [
+      `Transcription failed with reason: ${failureReason}. Explain this to the user and suggest retrying transcription or configuring the supported Builder.io/Groq transcription fallback.`,
+    ];
+  }
+
+  return [];
+}
+
 export function buildPublicAgentContext({
   event,
   access,
@@ -496,6 +524,7 @@ export function buildPublicAgentContext({
       }));
   const instructions = [
     "Use transcript.segments for timestamped spoken context.",
+    ...transcriptStatusInstructions(transcript),
     ...(bugReport
       ? [
           "Use bugReport for the submitted product context: source URL, page title, app version, environment, severity, and redacted host metadata.",
@@ -559,6 +588,8 @@ export function buildPublicAgentContext({
     transcript: {
       status: transcript?.status ?? "missing",
       language: transcript?.language ?? null,
+      failureReason: transcript?.failureReason ?? null,
+      retryAfterSeconds: transcript?.status === "pending" ? 15 : null,
       fullText: transcript?.fullText ?? "",
       segments: agentSegments,
       segmentCount: agentSegments.length,

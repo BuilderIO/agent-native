@@ -1008,7 +1008,7 @@ export default defineAction({
       } catch (err) {
         const reason = (err as Error).message;
         const details = serializeError(err);
-        if (reason.includes("credits exhausted")) {
+        if (reason.toLowerCase().includes("credits exhausted")) {
           const preserved = await preserveReadyTranscriptIfAvailable({
             db,
             recordingId: args.recordingId,

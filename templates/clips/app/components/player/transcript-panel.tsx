@@ -326,6 +326,7 @@ function isTranscriptionSetupNeeded(
     r.includes("no backup transcription provider") ||
     r.includes("no fallback provider") ||
     r.includes("quota") ||
+    r.includes("credits exhausted") ||
     r.includes("rate limit") ||
     r.includes("rejected the api key") ||
     r.includes("connect builder")
@@ -543,6 +544,7 @@ function TranscriptSetupCard({
 
   const isProviderError =
     failureReason?.toLowerCase().includes("quota") ||
+    failureReason?.toLowerCase().includes("credits exhausted") ||
     failureReason?.toLowerCase().includes("rate limit") ||
     failureReason?.toLowerCase().includes("rejected the api key");
   const isConnectedFallbackError =

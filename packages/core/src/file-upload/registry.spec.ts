@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { builderFileUploadProvider } from "./builder.js";
 import {
   getActiveFileUploadProvider,
+  getActiveFileUploadProviderForRequest,
   listFileUploadProviders,
   registerFileUploadProvider,
   unregisterFileUploadProvider,
@@ -101,6 +102,18 @@ describe("file-upload registry", () => {
       registerFileUploadProvider(s3);
       expect(getActiveFileUploadProvider()).toBe(s3);
     });
+
+    it("resolves request-scoped async provider configuration", async () => {
+      const s3 = {
+        ...makeProvider("s3", false),
+        isConfiguredForRequest: vi.fn(async () => true),
+      };
+      registerFileUploadProvider(s3);
+
+      expect(getActiveFileUploadProvider()).toBeNull();
+      await expect(getActiveFileUploadProviderForRequest()).resolves.toBe(s3);
+      expect(s3.isConfiguredForRequest).toHaveBeenCalled();
+    });
   });
 
   describe("uploadFile dispatch", () => {
@@ -117,6 +130,27 @@ describe("file-upload registry", () => {
       expect(result).toEqual({ url: "https://cdn/s3/x", provider: "s3" });
       expect(upload).toHaveBeenCalledWith(input);
       // The builder credential path must not be touched for user providers.
+      expect(resolveBuilderPrivateKeyMock).not.toHaveBeenCalled();
+    });
+
+    it("uses a request-scoped user provider before resolving builder creds", async () => {
+      const upload = vi.fn(async () => ({
+        url: "https://cdn/s3/scoped",
+        provider: "s3",
+      }));
+      registerFileUploadProvider({
+        ...makeProvider("s3", false, upload),
+        isConfiguredForRequest: vi.fn(async () => true),
+      });
+
+      const input = { data: new Uint8Array([1]), filename: "x.png" };
+      const result = await uploadFile(input);
+
+      expect(result).toEqual({
+        url: "https://cdn/s3/scoped",
+        provider: "s3",
+      });
+      expect(upload).toHaveBeenCalledWith(input);
       expect(resolveBuilderPrivateKeyMock).not.toHaveBeenCalled();
     });
 

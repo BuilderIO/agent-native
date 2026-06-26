@@ -610,7 +610,13 @@ export {
   type DataWidgetResultMetadata,
 } from "./chat/widgets/data-widget-types.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
-export { SettingsPanel, type SettingsPanelProps } from "./settings/index.js";
+export {
+  SettingsPanel,
+  SettingsTabsPage,
+  type SettingsPanelProps,
+  type SettingsTabItem,
+  type SettingsTabsPageProps,
+} from "./settings/index.js";
 export { useBuilderStatus } from "./settings/useBuilderStatus.js";
 export {
   openBuilderConnectPopup,
