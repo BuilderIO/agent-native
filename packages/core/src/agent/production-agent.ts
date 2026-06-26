@@ -33,8 +33,10 @@ import { readBody } from "../server/h3-helpers.js";
 import {
   getRequestRunContext,
   ensureRequestRunContext,
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
+  runWithRequestContext,
 } from "../server/request-context.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import {
@@ -3431,23 +3433,40 @@ export async function runAgentLoop(opts: {
         | undefined;
       try {
         const timeoutSignal = AbortSignal.timeout(toolTimeoutMs);
+        const actionUserEmail = opts.ownerEmail ?? getRequestUserEmail();
+        const actionOrgId = opts.orgId ?? getRequestOrgId() ?? null;
+        const actionContext = {
+          send,
+          userEmail: actionUserEmail ?? undefined,
+          orgId: actionOrgId,
+          caller: "tool" as const,
+          attachments: opts.attachments,
+          signal,
+          // Audit attribution: the action name + the agent thread/turn that
+          // triggered this call, so a mutation can be traced to its run.
+          actionName: toolCall.name,
+          ...(opts.threadId ? { threadId: opts.threadId } : {}),
+          ...(opts.turnId ? { turnId: opts.turnId } : {}),
+        };
+        const requestContext = getRequestContext();
+        const invokeAction = () =>
+          actionEntry.run(
+            toolCall.input as Record<string, string>,
+            actionContext,
+          );
         // Keep a reference to the action promise so we can attach a zombie-
         // detection continuation AFTER Promise.race abandons it on run abort.
         // The promise itself is not awaited here — Promise.race owns the await.
         const actionPromise = Promise.resolve(
-          actionEntry.run(toolCall.input as Record<string, string>, {
-            send,
-            userEmail: getRequestUserEmail(),
-            orgId: getRequestOrgId() ?? null,
-            caller: "tool",
-            attachments: opts.attachments,
-            signal,
-            // Audit attribution: the action name + the agent thread/turn that
-            // triggered this call, so a mutation can be traced to its run.
-            actionName: toolCall.name,
-            ...(opts.threadId ? { threadId: opts.threadId } : {}),
-            ...(opts.turnId ? { turnId: opts.turnId } : {}),
-          }),
+          runWithRequestContext(
+            {
+              ...(requestContext ?? {}),
+              ...(actionUserEmail ? { userEmail: actionUserEmail } : {}),
+              ...(actionOrgId ? { orgId: actionOrgId } : {}),
+              ...(requestContext?.run ? { run: requestContext.run } : {}),
+            },
+            invokeAction,
+          ),
         );
 
         // When the run is aborted (soft-timeout / user cancel) while this tool
