@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.78.3
+
+### Patch Changes
+
+- a396d62: Resolve MCP tool caller org scope from the verified user email when a token has no explicit org claim, so org-scoped actions return the same resources agents can see in the UI.
+
 ## 0.78.2
 
 ### Patch Changes
