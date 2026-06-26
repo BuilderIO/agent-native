@@ -638,9 +638,10 @@ export function buildExtensionHtml(
 	      });
 	    });
 
-	    // Auto-resize the iframe to its content when running in slot mode. The
-	    // host listens for agent-native-extension-resize and adjusts the iframe height.
-	    if (new URLSearchParams(location.search).get('slot')) {
+	    // Auto-resize iframe renders. Persisted extension slots include ?slot=;
+	    // transient inline chat UI uses srcdoc, so detect that by parent frame.
+	    // The host listens for agent-native-extension-resize and adjusts height.
+	    if (new URLSearchParams(location.search).get('slot') || window.parent !== window) {
 	      var _lastH = 0;
 	      var _reportHeight = function() {
 	        var h = Math.max(

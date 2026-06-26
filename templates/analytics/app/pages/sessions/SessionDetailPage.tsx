@@ -937,7 +937,7 @@ function useReplayEvents(
   );
 }
 
-function sanitizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
+export function sanitizeReplayEvents(events: unknown[]): AnyReplayEvent[] {
   return events
     .map((event) => sanitizeReplayEvent(event))
     .filter((event): event is AnyReplayEvent => Boolean(event))
@@ -1033,9 +1033,26 @@ function sanitizeAttributes(attributes: AnyRecord): AnyRecord {
     const normalized = key.toLowerCase();
     if (normalized.startsWith("on")) continue;
     if (normalized === "srcdoc") continue;
+    if (isReplayResourceAttribute(normalized)) continue;
+    if (normalized === "style" && /\burl\s*\(/i.test(String(value))) continue;
     next[key] = value;
   }
   return next;
+}
+
+function isReplayResourceAttribute(name: string): boolean {
+  return (
+    name === "src" ||
+    name === "srcset" ||
+    name === "href" ||
+    name === "xlink:href" ||
+    name === "poster" ||
+    name === "data" ||
+    name === "action" ||
+    name === "formaction" ||
+    name === "background" ||
+    name === "cite"
+  );
 }
 
 function isScriptLikeLink(attributes: unknown): boolean {

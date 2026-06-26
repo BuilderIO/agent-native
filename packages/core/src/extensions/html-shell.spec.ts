@@ -105,6 +105,15 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("output: outputToUi");
   });
 
+  it("auto-resizes transient srcdoc inline iframes", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "inline-1");
+
+    expect(html).toContain(
+      "new URLSearchParams(location.search).get('slot') || window.parent !== window",
+    );
+    expect(html).toContain("agent-native-extension-resize");
+  });
+
   it("serializes authenticated extension binding metadata", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1", {
       authorEmail: "owner+qa@example.test",
