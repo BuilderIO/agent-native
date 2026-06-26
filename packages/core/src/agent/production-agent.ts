@@ -3986,11 +3986,29 @@ export function createProductionAgentHandler(
     // branch that hangs. Gated on the worker so foreground logs stay clean.
     const bgLog = (label: string) => {
       if (!isBackgroundWorker) return;
+      const line = `+${Date.now() - setupT0}ms run=${(bgRunId ?? "").slice(-6)} ${label}`;
       try {
-        console.log(
-          `[bg-presend] +${Date.now() - setupT0}ms run=${(bgRunId ?? "").slice(-6)} ${label}`,
-        );
+        console.log(`[bg-presend] ${line}`);
       } catch {}
+      // Fire-and-forget POST to the foreground breadcrumb sink (non-DB channel):
+      // the worker's own DB writes stall past model_done and Netlify hides bg-fn
+      // logs, so this is the only way to read the worker's progress. If these
+      // POSTs land, the hang is DB-specific (event loop is fine); if they stop at
+      // model_done too, the event loop itself is blocked.
+      const sinkKey = process.env.AGENT_CHAT_BG_LOG_SINK_KEY;
+      const base = process.env.URL || process.env.DEPLOY_PRIME_URL;
+      if (sinkKey && base) {
+        try {
+          void fetch(
+            `${base}/_agent-native/agent-chat/bg-log-sink?key=${encodeURIComponent(sinkKey)}`,
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ msg: line }),
+            },
+          ).catch(() => {});
+        } catch {}
+      }
     };
     // DIAGNOSTIC: pre-send branches that hit their timeout/error fallback,
     // recorded in memory so the FINAL run diag (setupDetail) can name them even
