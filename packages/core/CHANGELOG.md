@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.9
+
+### Patch Changes
+
+- ca677a0: Reduce noisy error capture for expected provider connection failures and transient chat recovery probes.
+
 ## 0.79.8
 
 ### Patch Changes
