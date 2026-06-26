@@ -71,7 +71,7 @@ import { spawnTask } from "@agent-native/core/server";
 
 const task = await spawnTask({
   description: "Draft an outreach email to this lead",
-  instructions: "Match Steve's voice from memory/MEMORY.md.",
+  instructions: "Match the user's voice from memory/MEMORY.md.",
   ownerEmail: user.email,
   systemPrompt: mailAgentSystemPrompt,
   actions: mailActions,
