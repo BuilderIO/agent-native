@@ -351,6 +351,7 @@ const enUS = {
     panelOptions: "Panel options",
     fullScreen: "Full screen",
     refresh: "Refresh",
+    refreshing: "Refreshing...",
     downloadCsv: "Download CSV",
     viewSql: "View SQL",
     dragToReorder: "Drag to reorder",
