@@ -55,9 +55,9 @@
   --agent-native-lower-surface: hsl(
     var(--sidebar-background, var(--background))
   );
-  --agent-native-raised-radius: 18px;
-  --agent-native-raised-shadow-left: -12px 0 28px rgb(0 0 0 / 0.1);
-  --agent-native-raised-shadow-right: 12px 0 28px rgb(0 0 0 / 0.1);
+  --agent-native-raised-radius: 8px;
+  --agent-native-raised-shadow-left: -2px 0 8px rgb(0 0 0 / 0.035);
+  --agent-native-raised-shadow-right: 2px 0 8px rgb(0 0 0 / 0.035);
   background: var(--agent-native-lower-surface);
 }
 
@@ -69,19 +69,6 @@
       hsl(var(--sidebar-background, var(--background))) 94%,
       black
     );
-  }
-
-  .dark .agent-sidebar-shell,
-  .dark .agent-layout-shell,
-  .dark.agent-sidebar-shell,
-  .dark.agent-layout-shell {
-    --agent-native-lower-surface: color-mix(
-      in srgb,
-      hsl(var(--sidebar-background, var(--background))) 86%,
-      black
-    );
-    --agent-native-raised-shadow-left: -14px 0 32px rgb(0 0 0 / 0.22);
-    --agent-native-raised-shadow-right: 14px 0 32px rgb(0 0 0 / 0.22);
   }
 }
 
@@ -115,7 +102,7 @@
 
 @media (min-width: 768px) {
   .agent-layout-main-surface,
-  .agent-layout-shell > .agent-sidebar-shell {
+  .agent-layout-shell > .agent-sidebar-shell > .agent-sidebar-main-surface {
     border-start-start-radius: var(--agent-native-raised-radius);
     border-end-start-radius: var(--agent-native-raised-radius);
     box-shadow: var(--agent-native-raised-shadow-left);

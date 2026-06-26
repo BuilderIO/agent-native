@@ -70,8 +70,8 @@ body {
 
 .agent-frame-shell {
   --agent-native-lower-surface: hsl(var(--background));
-  --agent-native-raised-radius: 18px;
-  --agent-native-raised-shadow-right: 12px 0 28px rgb(0 0 0 / 0.18);
+  --agent-native-raised-radius: 8px;
+  --agent-native-raised-shadow-right: 2px 0 8px rgb(0 0 0 / 0.035);
   background: var(--agent-native-lower-surface);
 }
 
@@ -79,7 +79,7 @@ body {
   .agent-frame-shell {
     --agent-native-lower-surface: color-mix(
       in srgb,
-      hsl(var(--background)) 86%,
+      hsl(var(--background)) 94%,
       black
     );
   }
