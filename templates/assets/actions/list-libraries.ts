@@ -67,10 +67,11 @@ export default defineAction({
     "List asset libraries accessible to the current user, including counts and preview thumbnails.",
   schema: z.object({
     compact: z.coerce.boolean().optional(),
+    includeFolders: z.coerce.boolean().optional(),
   }),
   http: { method: "GET" },
   readOnly: true,
-  run: async ({ compact }) => {
+  run: async ({ compact, includeFolders }) => {
     const db = getDb();
     const rows = await db
       .select()
@@ -93,8 +94,23 @@ export default defineAction({
             ),
           )
       : [];
+    const folders =
+      includeFolders && rows.length
+        ? await db
+            .select()
+            .from(schema.assetFolders)
+            .where(
+              inArray(
+                schema.assetFolders.libraryId,
+                rows.map((row) => row.id),
+              ),
+            )
+        : [];
     const libraries = rows.map((row) => {
       const libAssets = assets.filter((asset) => asset.libraryId === row.id);
+      const libFolders = includeFolders
+        ? folders.filter((folder) => folder.libraryId === row.id)
+        : undefined;
       const visibleAssets = libAssets.filter((asset) =>
         shouldIncludeAssetInLibraryResults(asset),
       );
@@ -106,7 +122,12 @@ export default defineAction({
       const previewAssets = uniqueAssets([cover, ...imageAssets]).slice(0, 4);
       const base = serializeLibrary(row);
       return compact
-        ? { id: base.id, title: base.title, description: base.description }
+        ? {
+            id: base.id,
+            title: base.title,
+            description: base.description,
+            ...(includeFolders ? { folders: libFolders } : {}),
+          }
         : {
             ...base,
             referenceCount: visibleAssets.filter((asset) =>
@@ -122,6 +143,7 @@ export default defineAction({
             ).length,
             coverAsset: cover ? serializeAsset(cover) : null,
             previewAssets: previewAssets.map(serializeAsset),
+            ...(includeFolders ? { folders: libFolders } : {}),
           };
     });
     return { count: libraries.length, libraries };

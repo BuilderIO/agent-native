@@ -2338,6 +2338,10 @@ export interface AgentSidebarProps {
   suggestions?: string[];
   /** Context-aware suggestions merged with `suggestions`. Enabled by default. */
   dynamicSuggestions?: AssistantChatProps["dynamicSuggestions"];
+  /** Optional controls rendered in the chat composer toolbar. */
+  composerToolbarSlot?: AssistantChatProps["composerToolbarSlot"];
+  /** Optional content rendered at the bottom of the chat thread. */
+  threadFooterSlot?: AssistantChatProps["threadFooterSlot"];
   /** Initial sidebar width in pixels. Mount-only; user resize and a saved
    *  localStorage value override this. Default: 380 */
   defaultSidebarWidth?: number;
@@ -2384,6 +2388,8 @@ export function AgentSidebar({
   emptyStateText = "How can I help you?",
   suggestions,
   dynamicSuggestions,
+  composerToolbarSlot,
+  threadFooterSlot,
   defaultSidebarWidth,
   sidebarWidth,
   position = "right",
@@ -2905,6 +2911,8 @@ export function AgentSidebar({
             emptyStateText={emptyStateText}
             suggestions={suggestions}
             dynamicSuggestions={dynamicSuggestions}
+            composerToolbarSlot={composerToolbarSlot}
+            threadFooterSlot={threadFooterSlot}
             missingApiKeySetupLayout="sidebar"
             onCollapse={() => setOpenPersisted(false)}
             isFullscreen={effectiveFullscreen}

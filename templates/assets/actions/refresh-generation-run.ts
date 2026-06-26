@@ -36,6 +36,14 @@ async function syncImageVariantSlot(
     typeof metadata.variantBatchId === "string" && metadata.variantBatchId
       ? metadata.variantBatchId
       : null;
+  const threadId =
+    typeof metadata.threadId === "string" && metadata.threadId
+      ? metadata.threadId
+      : null;
+  const variantScopeId =
+    typeof metadata.variantScopeId === "string" && metadata.variantScopeId
+      ? metadata.variantScopeId
+      : null;
   const serialized = options.asset ? serializeAsset(options.asset) : null;
 
   await upsertVariantSlot({
@@ -45,6 +53,8 @@ async function syncImageVariantSlot(
     collectionId: run.collectionId ?? null,
     presetId: run.presetId ?? null,
     sessionId: run.sessionId ?? null,
+    threadId,
+    variantScopeId,
     prompt: run.prompt,
     slotId,
     status,

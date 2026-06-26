@@ -71,6 +71,15 @@ export default defineAction({
         });
       }
     }
+    if (nav?.view === "library" && nav?.selection === "all") {
+      screen.libraries = await listLibraries.run({ compact: false });
+      screen.assets = await listAssets.run({
+        query:
+          typeof nav.search === "string" && nav.search.trim()
+            ? nav.search
+            : undefined,
+      });
+    }
     if (nav?.view === "audit") {
       screen.audit = await listAuditRuns.run({ limit: 20 });
     }

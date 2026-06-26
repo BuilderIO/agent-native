@@ -11,7 +11,9 @@ export {
   appendAgentChatContextToMessage,
   clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
+  insertAgentComposerReference,
   listAgentChatContext,
+  normalizeAgentComposerReference,
   refreshAgentChatContext,
   removeAgentChatContextItem,
   sendToAgentChat,
@@ -27,6 +29,9 @@ export {
   type AgentChatContextSetOptions,
   type AgentChatContextState,
   type AgentChatMessage,
+  type AgentComposerReference,
+  type AgentComposerReferenceInsertOptions,
+  type AgentComposerReferenceInsertPayload,
 } from "./agent-chat.js";
 export {
   saveAgentEngineApiKey,
