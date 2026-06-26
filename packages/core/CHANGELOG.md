@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.10
+
+### Patch Changes
+
+- 7e19ed6: Return plain string action results with a JSON content type so browser action clients can parse successful responses.
+
 ## 0.79.9
 
 ### Patch Changes
