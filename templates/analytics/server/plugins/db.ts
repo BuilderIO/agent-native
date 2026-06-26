@@ -258,6 +258,85 @@ export default runMigrations(
       version: 42,
       sql: `CREATE INDEX IF NOT EXISTS strategic_account_shares_resource_idx ON strategic_account_shares (resource_id)`,
     },
+    // --- v43+: Strategic Account Coverage contacts + Implementation Blockers
+    //   (migrated from fusion-analytics children). Org-scoped curated tables;
+    //   sensitive contact/customer details live only here, never in source.
+    {
+      version: 43,
+      sql: `CREATE TABLE IF NOT EXISTS strategic_account_contacts (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'champion',
+      contact_name TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      confidence TEXT NOT NULL DEFAULT 'medium',
+      rationale TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+    },
+    {
+      version: 44,
+      sql: `CREATE TABLE IF NOT EXISTS strategic_account_contact_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 45,
+      sql: `CREATE INDEX IF NOT EXISTS strategic_account_contacts_owner_org_idx ON strategic_account_contacts (owner_email, org_id, sort_order)`,
+    },
+    {
+      version: 46,
+      sql: `CREATE INDEX IF NOT EXISTS strategic_account_contact_shares_resource_idx ON strategic_account_contact_shares (resource_id)`,
+    },
+    {
+      version: 47,
+      sql: `CREATE TABLE IF NOT EXISTS implementation_blockers (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      blocker_type TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      summary TEXT NOT NULL DEFAULT '',
+      details TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    )`,
+    },
+    {
+      version: 48,
+      sql: `CREATE TABLE IF NOT EXISTS implementation_blocker_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
+    },
+    {
+      version: 49,
+      sql: `CREATE INDEX IF NOT EXISTS implementation_blockers_owner_org_idx ON implementation_blockers (owner_email, org_id, sort_order)`,
+    },
+    {
+      version: 50,
+      sql: `CREATE INDEX IF NOT EXISTS implementation_blocker_shares_resource_idx ON implementation_blocker_shares (resource_id)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

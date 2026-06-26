@@ -112,6 +112,65 @@ export const strategicAccountShares = createSharesTable(
 );
 
 /**
+ * Curated "Strategic Account Coverage" contacts — the source of truth for the
+ * migrated fusion-analytics coverage child dashboard. Each row is one
+ * stakeholder for an account in a given role (champion / enabler / exec
+ * sponsor). Sensitive contact details (names, emails) live ONLY in this
+ * org-scoped table, never in source/git. The dashboard reads it via the `app`
+ * panel source.
+ */
+export const strategicAccountContacts = table("strategic_account_contacts", {
+  id: text("id").primaryKey(),
+  /** Company name — the join key against the curated roster. */
+  companyName: text("company_name").notNull(),
+  /** Coverage role: "champion" | "enabler" | "exec_sponsor". */
+  role: text("role").notNull().default("champion"),
+  contactName: text("contact_name").notNull().default(""),
+  title: text("title").notNull().default(""),
+  email: text("email").notNull().default(""),
+  /** Confidence in this assignment: "high" | "medium" | "low". */
+  confidence: text("confidence").notNull().default("medium"),
+  /** Why this person fits the role. */
+  rationale: text("rationale").notNull().default(""),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const strategicAccountContactShares = createSharesTable(
+  "strategic_account_contact_shares",
+);
+
+/**
+ * Curated "Implementation Blockers" — the source of truth for the migrated
+ * fusion-analytics blockers child dashboard. Each row is one blocker affecting
+ * an account. Customer-specific details live ONLY in this org-scoped table,
+ * never in source/git. The dashboard reads it via the `app` panel source.
+ */
+export const implementationBlockers = table("implementation_blockers", {
+  id: text("id").primaryKey(),
+  /** Company name affected by the blocker. */
+  companyName: text("company_name").notNull(),
+  /** Blocker category (e.g. "git-integration", "security-vpn-network"). */
+  blockerType: text("blocker_type").notNull().default(""),
+  /** Lifecycle status: "active" | "monitoring" | "resolved". */
+  status: text("status").notNull().default("active"),
+  /** Short headline for the blocker. */
+  summary: text("summary").notNull().default(""),
+  /** Longer free-text detail. */
+  details: text("details").notNull().default(""),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+  ...ownableColumns(),
+});
+
+export const implementationBlockerShares = createSharesTable(
+  "implementation_blocker_shares",
+);
+
+/**
  * BigQuery result cache (pre-existing — moved here from db plugin so a
  * single drizzle schema covers the template).
  */

@@ -1,0 +1,1 @@
+{"source":"app","query":"SELECT blocker_type AS type, COUNT(*) AS count FROM implementation_blockers GROUP BY blocker_type ORDER BY count DESC"}

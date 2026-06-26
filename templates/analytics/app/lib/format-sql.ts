@@ -10,6 +10,7 @@ const TEMPLATE_PARAM_REGEX = String.raw`\{\{[?/]?[A-Za-z_][A-Za-z0-9_]*\}\}`;
 function languageForSource(source: DataSourceType): SqlLanguage | null {
   if (source === "bigquery") return "bigquery";
   if (source === "first-party") return "postgresql";
+  if (source === "app") return "sqlite";
   return null;
 }
 

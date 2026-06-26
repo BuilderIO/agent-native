@@ -35,3 +35,23 @@ registerShareableResource({
   getResourcePath: () => `/dashboards/strategic-accounts`,
   getDb,
 });
+
+registerShareableResource({
+  type: "strategic-account-contact",
+  resourceTable: schema.strategicAccountContacts,
+  sharesTable: schema.strategicAccountContactShares,
+  displayName: "Strategic Account Contact",
+  titleColumn: "contactName",
+  getResourcePath: () => `/dashboards/strategic-account-coverage`,
+  getDb,
+});
+
+registerShareableResource({
+  type: "implementation-blocker",
+  resourceTable: schema.implementationBlockers,
+  sharesTable: schema.implementationBlockerShares,
+  displayName: "Implementation Blocker",
+  titleColumn: "summary",
+  getResourcePath: () => `/dashboards/implementation-blockers`,
+  getDb,
+});

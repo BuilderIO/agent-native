@@ -3,6 +3,7 @@ export type DataSourceType =
   | "ga4"
   | "amplitude"
   | "first-party"
+  | "app"
   | "demo"
   | "prometheus";
 

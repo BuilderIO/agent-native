@@ -1,0 +1,1 @@
+{"source":"app","query":"SELECT contact_name AS contact, confidence, company_name AS account, role, title, email, rationale FROM strategic_account_contacts ORDER BY company_name, role, sort_order"}

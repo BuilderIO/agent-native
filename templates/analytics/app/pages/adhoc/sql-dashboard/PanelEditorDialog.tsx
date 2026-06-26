@@ -58,6 +58,7 @@ const SOURCES: { value: DataSourceType; label: string }[] = [
   { value: "ga4", label: "Google Analytics" }, // i18n-ignore stable provider label
   { value: "amplitude", label: "Amplitude" },
   { value: "first-party", label: "First-party Analytics" }, // i18n-ignore stable source label
+  { value: "app", label: "App Tables" }, // i18n-ignore stable source label
   { value: "demo", label: "Demo Prometheus" }, // i18n-ignore stable source label
   { value: "prometheus", label: "Prometheus" },
 ];

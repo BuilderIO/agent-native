@@ -2,6 +2,7 @@ import { readBody } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
 
 import { getUserSegmentation, queryEvents } from "../lib/amplitude";
+import { queryAppTables } from "../lib/app-sql";
 import { runQuery } from "../lib/bigquery";
 import {
   requireCredential,
@@ -265,6 +266,7 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
         "ga4",
         "amplitude",
         "first-party",
+        "app",
         "demo",
         "prometheus",
       ].includes(source)
@@ -272,7 +274,7 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
       setResponseStatus(event, 400);
       return {
         error:
-          "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', or 'prometheus'",
+          "Invalid source. Must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'app', 'demo', or 'prometheus'",
       };
     }
 
@@ -345,6 +347,13 @@ export const handleSqlQuery = defineEventHandler(async (event) => {
 
       if (source === "first-party") {
         return await queryFirstPartyAnalytics(query, {
+          userEmail: ctx.userEmail,
+          orgId: ctx.orgId ?? null,
+        });
+      }
+
+      if (source === "app") {
+        return await queryAppTables(query, {
           userEmail: ctx.userEmail,
           orgId: ctx.orgId ?? null,
         });
