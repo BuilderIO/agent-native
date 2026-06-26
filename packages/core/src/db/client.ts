@@ -794,7 +794,47 @@ export function pgPoolOptions(url: string): Record<string, unknown> {
  * proceed when one connection is busy.
  */
 export function neonPoolMax(): number {
-  return isServerlessRuntime() ? 2 : 10;
+  if (!isServerlessRuntime()) return 10;
+  // The durable background-function worker is a SINGLE process per run (unlike
+  // the many warm request-instances the foreground serverless has), so it can
+  // safely hold a larger pool without risking Neon's connection cap. The agent's
+  // pre-send setup fires ~6 concurrent DB reads in parallel; with only 2
+  // connections that burst exhausts the pool and a single stalled connection
+  // freezes the worker before it can claim — observed on analytics' heavier
+  // action surface, where the worker froze right after `model_done` and never
+  // recorded `env_config`/`presend`, while the foreground (10-connection pool)
+  // ran the identical code in ~2s. Give the bg worker enough connections for the
+  // burst; keep the foreground serverless pool tiny to avoid "Max client
+  // connections reached" across many warm instances.
+  if (isBackgroundFunctionPoolContext()) return 8;
+  return 2;
+}
+
+/**
+ * Inline mirror of `isInBackgroundFunctionRuntime()`
+ * (agent/durable-background.ts), replicated here to avoid a `db` → `agent`
+ * import cycle. Keep the signals in sync with that function.
+ */
+function isBackgroundFunctionPoolContext(): boolean {
+  if (
+    (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_BACKGROUND_RUNTIME__ === true
+  ) {
+    return true;
+  }
+  const lambdaName = process.env.AWS_LAMBDA_FUNCTION_NAME;
+  if (
+    typeof lambdaName === "string" &&
+    lambdaName.toLowerCase().endsWith("-background")
+  ) {
+    return true;
+  }
+  const forced = process.env.AGENT_CHAT_FORCE_BACKGROUND_RUNTIME;
+  if (forced != null) {
+    const v = forced.trim().toLowerCase();
+    return v === "1" || v === "true" || v === "yes" || v === "on";
+  }
+  return false;
 }
 
 /**
