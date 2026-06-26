@@ -165,8 +165,11 @@ function main(): void {
     process.env.WORKSPACE_OWNER_EMAIL,
     current.WORKSPACE_OWNER_EMAIL,
   )?.toLowerCase();
-  const a2aSecret =
-    firstValue(opts.a2aSecret, process.env.A2A_SECRET, current.A2A_SECRET);
+  const a2aSecret = firstValue(
+    opts.a2aSecret,
+    process.env.A2A_SECRET,
+    current.A2A_SECRET,
+  );
 
   if (!name) fail("--name or WORKSPACE_ORG_NAME is required.");
   if (!rawDomain) fail("--domain or WORKSPACE_ORG_DOMAIN is required.");

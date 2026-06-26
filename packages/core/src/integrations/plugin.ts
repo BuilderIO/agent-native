@@ -1586,7 +1586,8 @@ export function createIntegrationsPlugin(
             if (!token) {
               setResponseStatus(event, 400);
               return {
-                error: "TELEGRAM_BOT_TOKEN not configured. Save it in settings.",
+                error:
+                  "TELEGRAM_BOT_TOKEN not configured. Save it in settings.",
               };
             }
             try {

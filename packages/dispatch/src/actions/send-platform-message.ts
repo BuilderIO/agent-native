@@ -24,10 +24,7 @@ async function assertOutboundConfigured(
   if (platform === "slack" && !(await resolveSecret("SLACK_BOT_TOKEN"))) {
     throw new Error("Slack outbound messaging is not configured");
   }
-  if (
-    platform === "telegram" &&
-    !(await resolveSecret("TELEGRAM_BOT_TOKEN"))
-  ) {
+  if (platform === "telegram" && !(await resolveSecret("TELEGRAM_BOT_TOKEN"))) {
     throw new Error("Telegram outbound messaging is not configured");
   }
   if (platform === "email") {

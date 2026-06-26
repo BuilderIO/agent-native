@@ -62,7 +62,9 @@ function optionalString(value: unknown): string | undefined {
 }
 
 async function getOAuth2Credentials(owner?: string) {
-  const credentials = (await resolveGoogleProviderCredentialCandidates(owner))[0];
+  const credentials = (
+    await resolveGoogleProviderCredentialCandidates(owner)
+  )[0];
   if (!credentials) {
     throw new Error(
       "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be saved in settings",
@@ -370,9 +372,10 @@ async function getValidAccessToken(
     }
     try {
       let lastRefreshError: any;
-      for (const { clientId, clientSecret } of await getOAuth2RefreshCredentials(
-        owner,
-      )) {
+      for (const {
+        clientId,
+        clientSecret,
+      } of await getOAuth2RefreshCredentials(owner)) {
         try {
           const oauth2 = createOAuth2Client(clientId, clientSecret, "");
           const newTokens = await oauth2.refreshToken(tokens.refresh_token);

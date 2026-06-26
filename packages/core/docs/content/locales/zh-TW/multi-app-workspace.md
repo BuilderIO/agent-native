@@ -168,7 +168,7 @@ pnpm dev
 
 ## 共用環境變數 {#shared-env}
 
-工作區根 `.env` 會自動載入到每個應用程式中。將共用金鑰放在根目錄中一次（`ANTHROPIC_API_KEY`、`A2A_SECRET`、`BETTER_AUTH_SECRET`、`DATABASE_URL`、`BUILDER_PRIVATE_KEY` 等），每個應用程式都會取得它們。每個應用程式覆蓋進入 `apps/<name>/.env` 並在衝突時獲勝。
+The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
 對於執行時應用程式憑證，與手動編輯 `.env` 檔案相比，更喜歡使用 DispatchVault。保管庫預設為所有應用程式存取，因此每個儲存的保管庫金鑰可供每個工作區應用程式使用，並且可以使用 `sync-vault-to-app` 推送。僅當應用程式需要顯式的每金鑰授權時，才將保管庫切換到手動模式。
 
@@ -182,8 +182,8 @@ my-company-platform/
 
 一些入門流程是開箱即用的工作區感知型：
 
-- **Builder `/cli-auth`**：從任何應用程式中點選“連線 Builder”會將 `BUILDER_PRIVATE_KEY` 和朋友寫入 **工作區根目錄** `.env`，因此每個應用程式都會立即獲得瀏覽器存取權限。
-- **環境變數設定路由** (`POST /_agent-native/env-vars`)：在工作空間內時，預設寫入工作空間根 `.env`。在內文中傳遞 `scope: "app"` 以覆蓋一個應用程式。
+- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## 共用憑證 {#shared-credentials}
 

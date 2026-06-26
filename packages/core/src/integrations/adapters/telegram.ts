@@ -279,9 +279,7 @@ export function telegramAdapter(): PlatformAdapter {
       let botName: string | undefined;
       if (hasToken) {
         try {
-          const res = await fetch(
-            `https://api.telegram.org/bot${token}/getMe`,
-          );
+          const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
           const data = (await res.json()) as {
             ok: boolean;
             result?: { username?: string };
@@ -301,9 +299,7 @@ export function telegramAdapter(): PlatformAdapter {
           hasToken,
           botUsername: botName,
         },
-        error: !hasToken
-          ? "Save TELEGRAM_BOT_TOKEN in settings"
-          : undefined,
+        error: !hasToken ? "Save TELEGRAM_BOT_TOKEN in settings" : undefined,
       };
     },
   };

@@ -168,7 +168,7 @@ Consulte [MCP Clients](/docs/mcp-clients) para conocer el esquema de configuraci
 
 ## Variables de entorno compartidas {#shared-env}
 
-La raíz del espacio de trabajo `.env` se carga automáticamente en cada aplicación. Coloque las claves compartidas una vez en la raíz (`ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `BUILDER_PRIVATE_KEY`, etc.) y cada aplicación las recogerá. Las anulaciones por aplicación van en `apps/<name>/.env` y ganan en caso de conflicto.
+The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
 Para las credenciales de la aplicación en tiempo de ejecución, prefiera la bóveda de Dispatch a la edición manual de archivos `.env`. La bóveda tiene de forma predeterminada acceso a todas las aplicaciones, por lo que cada clave de bóveda guardada está disponible para todas las aplicaciones del espacio de trabajo y se puede enviar con `sync-vault-to-app`. Cambie la bóveda al modo manual solo cuando las aplicaciones necesiten concesiones explícitas por clave.
 
@@ -182,8 +182,8 @@ my-company-platform/
 
 Algunos flujos de incorporación tienen en cuenta el espacio de trabajo desde el primer momento:
 
-- **Builder `/cli-auth`**: al hacer clic en "Conectar Builder" desde cualquier aplicación, `BUILDER_PRIVATE_KEY` y sus amigos se escriben en la **raíz del espacio de trabajo** `.env`, por lo que todas las aplicaciones obtienen acceso al navegador a la vez.
-- **Ruta de configuración de Env-vars** (`POST /_agent-native/env-vars`): cuando está dentro de un espacio de trabajo, de forma predeterminada se escribe la raíz del espacio de trabajo `.env`. Pase `scope: "app"` en el cuerpo para anular una aplicación.
+- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## Credenciales compartidas {#shared-credentials}
 

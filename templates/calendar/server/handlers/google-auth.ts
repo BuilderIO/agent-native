@@ -401,7 +401,12 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         app: OAUTH_STATE_APP_ID,
         flowId,
       });
-      const url = await getAuthUrl(undefined, redirectUri, state, session.email);
+      const url = await getAuthUrl(
+        undefined,
+        redirectUri,
+        state,
+        session.email,
+      );
       if (q.redirect === "1") {
         return oauthRedirectResponse(url);
       }

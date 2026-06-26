@@ -170,7 +170,8 @@ Use the workspace root `.env` for shared identity and cross-app trust settings:
 - `WORKSPACE_OWNER_EMAIL` — initial owner/admin email for repairs and
   integration defaults.
 - `A2A_SECRET` — shared secret for cross-app A2A signing. Generate with
-  `openssl rand -hex 32` or `pnpm repair:workspace-org -- --name ...`.
+  `openssl rand -hex 32` and configure through your deployment/scoped secret
+  manager.
 
 `DISPATCH_DEFAULT_OWNER_EMAIL` is optional. Set it only for trusted,
 single-workspace deployments where unlinked integration requests should run as
@@ -183,7 +184,7 @@ When asked to repair workspace org or A2A configuration:
 1. Read `.env` first. Do not infer the organization, domain, owner email, or
    secret from old examples.
 2. Run `pnpm repair:workspace-org -- --name "<org>" --domain example.com --owner-email owner@example.com`
-   to create or update generic workspace identity values.
+   to validate generic workspace identity values without writing `.env`.
 3. Prefer the app's organization settings UI or authenticated org routes for
    changing `allowed_domain` and `a2a_secret`.
 4. If direct SQL is unavoidable, inspect the live schema first and use only

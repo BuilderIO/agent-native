@@ -168,7 +168,7 @@ pnpm dev
 
 ## साझा पर्यावरण चर {#shared-env}
 
-वर्कस्पेस रूट `.env` स्वचालित रूप से प्रत्येक ऐप में लोड होता है। साझा कुंजियों को एक बार रूट पर रखें - `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `BUILDER_PRIVATE_KEY`, आदि - और हर ऐप उन्हें चुन लेता है। प्रति-ऐप ओवरराइड `apps/<name>/.env` में जाते हैं और संघर्ष पर जीत हासिल करते हैं।
+The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
 रनटाइम ऐप क्रेडेंशियल के लिए, `.env` फ़ाइलों को हाथ से संपादित करने के बजाय डिस्पैच वॉल्ट को प्राथमिकता दें। वॉल्ट डिफ़ॉल्ट रूप से सभी ऐप्स तक पहुंच प्रदान करता है, इसलिए प्रत्येक सहेजी गई वॉल्ट कुंजी प्रत्येक कार्यस्थान ऐप के लिए उपलब्ध है और इसे `sync-vault-to-app` के साथ पुश किया जा सकता है। वॉल्ट को मैन्युअल मोड में तभी स्विच करें जब ऐप्स को स्पष्ट प्रति-कुंजी अनुदान की आवश्यकता हो।
 
@@ -182,8 +182,8 @@ my-company-platform/
 
 कुछ ऑनबोर्डिंग प्रवाह बॉक्स से बाहर कार्यक्षेत्र-जागरूक हैं:
 
-- **Builder `/cli-auth`**: किसी भी ऐप से "कनेक्ट Builder" पर क्लिक करने से `BUILDER_PRIVATE_KEY` और मित्र **वर्कस्पेस रूट** `.env` पर लिखते हैं, इसलिए प्रत्येक ऐप एक ही बार में ब्राउज़र एक्सेस प्राप्त कर लेता है।
-- **Env-vars सेटिंग्स रूट** (`POST /_agent-native/env-vars`): जब किसी कार्यक्षेत्र के अंदर, डिफ़ॉल्ट रूप से कार्यक्षेत्र रूट `.env` लिखा जाता है। एक ऐप को ओवरराइड करने के लिए बॉडी में `scope: "app"` पास करें।
+- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## साझा क्रेडेंशियल {#shared-credentials}
 

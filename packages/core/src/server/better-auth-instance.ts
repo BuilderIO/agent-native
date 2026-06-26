@@ -180,7 +180,9 @@ function resolveAuthSecret(): string {
   // cross-purpose secrets and a public hardcoded literal as the cookie
   // HMAC. Dropped entirely — better to mint an ephemeral secret than to
   // re-use a Google client secret or a known string.
-  const existing = readEnvLocalSecret(path.resolve(process.cwd(), ".env.local"));
+  const existing = readEnvLocalSecret(
+    path.resolve(process.cwd(), ".env.local"),
+  );
   if (existing) return existing;
 
   if (!inMemoryDevAuthSecret) {

@@ -4,7 +4,10 @@ import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "@agent-native/core/oauth-tokens";
-import { resolveSecret, runWithRequestContext } from "@agent-native/core/server";
+import {
+  resolveSecret,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -73,7 +76,9 @@ async function getOAuthCredentials(owner?: string): Promise<{
   clientId: string;
   clientSecret: string;
 }> {
-  const credentials = (await resolveGoogleProviderCredentialCandidates(owner))[0];
+  const credentials = (
+    await resolveGoogleProviderCredentialCandidates(owner)
+  )[0];
   if (!credentials) {
     throw new Error(
       "Google OAuth is not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
@@ -153,9 +158,8 @@ async function refreshGoogleDocsToken(
     throw new Error("Google Docs connection expired. Please reconnect.");
   }
 
-  const credentialCandidates = await resolveGoogleProviderCredentialCandidates(
-    owner,
-  );
+  const credentialCandidates =
+    await resolveGoogleProviderCredentialCandidates(owner);
   let data: {
     access_token?: string;
     expires_in?: number;

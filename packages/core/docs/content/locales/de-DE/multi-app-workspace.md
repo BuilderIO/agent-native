@@ -168,7 +168,7 @@ Informationen zum Konfigurationsschema, zu den Prioritätsregeln und zur Hub-Ein
 
 ## Gemeinsame Umgebungsvariablen {#shared-env}
 
-Das Arbeitsbereichsstammverzeichnis `.env` wird automatisch in jede App geladen. Legen Sie gemeinsam genutzte Schlüssel einmal im Stammverzeichnis ab – `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `BUILDER_PRIVATE_KEY` usw. – und jede App übernimmt sie. Überschreibungen pro App erfolgen in `apps/<name>/.env` und gewinnen bei Konflikten.
+The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
 Für Laufzeit-App-Anmeldeinformationen bevorzugen Sie den Dispatch-Tresor gegenüber der manuellen Bearbeitung von `.env`-Dateien. Der Tresor ist standardmäßig auf den Zugriff aller Apps eingestellt, sodass jeder gespeicherte Tresorschlüssel für jede Workspace-App verfügbar ist und mit `sync-vault-to-app` übertragen werden kann. Schalten Sie den Tresor nur dann in den manuellen Modus, wenn Apps explizite Gewährung pro Schlüssel benötigen.
 
@@ -182,8 +182,8 @@ my-company-platform/
 
 Einige Onboarding-Abläufe sind standardmäßig arbeitsbereichsorientiert:
 
-- **Builder `/cli-auth`**: Wenn Sie in einer beliebigen App auf „Builder verbinden“ klicken, werden `BUILDER_PRIVATE_KEY` und Freunde in das **Arbeitsbereichsstammverzeichnis** `.env` geschrieben, sodass jede App sofort Browserzugriff erhält.
-- **Env-vars-Einstellungsroute** (`POST /_agent-native/env-vars`): Wenn innerhalb eines Arbeitsbereichs, wird standardmäßig das Arbeitsbereichsstammverzeichnis `.env` geschrieben. Übergeben Sie `scope: "app"` im Textkörper, um eine App zu überschreiben.
+- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## Gemeinsame Anmeldeinformationen {#shared-credentials}
 

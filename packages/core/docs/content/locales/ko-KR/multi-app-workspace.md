@@ -168,7 +168,7 @@ pnpm dev
 
 ## 공유 환경 변수 {#shared-env}
 
-작업공간 루트 `.env`는 모든 앱에 자동으로 로드됩니다. 공유 키(`ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `DATABASE_URL`, `BUILDER_PRIVATE_KEY` 등)를 루트에 한 번만 넣으면 모든 앱이 이를 선택합니다. 앱별 재정의는 `apps/<name>/.env`에 들어가 충돌 시 승리합니다.
+The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
 런타임 앱 자격 증명의 경우 `.env` 파일을 직접 편집하는 것보다 Dispatch Vault를 선호합니다. 볼트는 기본적으로 모든 앱 액세스로 설정되어 있으므로 저장된 모든 볼트 키는 모든 작업 공간 앱에서 사용할 수 있으며 `sync-vault-to-app`로 푸시할 수 있습니다. 앱에 명시적인 키별 부여가 필요한 경우에만 Vault를 수동 모드로 전환하세요.
 
@@ -182,8 +182,8 @@ my-company-platform/
 
 몇 가지 온보딩 흐름은 기본적으로 작업공간을 인식합니다.
 
-- **Builder `/cli-auth`**: 모든 앱에서 "Builder 연결"을 클릭하면 `BUILDER_PRIVATE_KEY`와 친구들이 **작업 공간 루트** `.env`에 기록되므로 모든 앱이 동시에 브라우저 액세스 권한을 얻게 됩니다.
-- **Env-vars 설정 경로** (`POST /_agent-native/env-vars`): 작업 공간 내부에 있을 때 기본적으로 작업 공간 루트 `.env`를 작성합니다. 하나의 앱을 재정의하려면 본문에 `scope: "app"`를 전달하세요.
+- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## 공유 자격 증명 {#shared-credentials}
 

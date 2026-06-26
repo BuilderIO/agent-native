@@ -6494,7 +6494,7 @@ function hasRuntimeNonCodexCodeAgentLlmProvider(): boolean {
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) return true;
   return Boolean(
     (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) ||
-      AppStore.getCodeAgentProviderSettingsStatus().configured,
+    AppStore.getCodeAgentProviderSettingsStatus().configured,
   );
 }
 
