@@ -1,5 +1,16 @@
 # @agent-native/core
 
+## 0.78.0
+
+### Minor Changes
+
+- 368e2a7: Add core session replay client primitives and private blob storage abstractions for Agent Native Analytics.
+
+### Patch Changes
+
+- 368e2a7: Support CID inline attachments in the core email transport.
+- 368e2a7: Keep agent sidebar contents at their full open width while desktop sidebars animate in and out, avoiding text reflow during the transition, and hide the page-level New chat action until a chat has actually started.
+
 ## 0.77.24
 
 ### Patch Changes
