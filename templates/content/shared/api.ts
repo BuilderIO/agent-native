@@ -714,6 +714,7 @@ export interface SuggestSourceJoinKeyResponse {
 export interface RefreshContentDatabaseSourceRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
 }
 
 export interface DisconnectContentDatabaseSourceRequest {
@@ -731,11 +732,13 @@ export interface AddContentDatabaseSourceFieldPropertyRequest {
 export interface StageBuilderRevisionRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
 }
 
 export interface ReviewContentDatabaseSourceChangeSetRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   changeSetId: string;
   decision: "approve" | "reject";
   note?: string;
@@ -744,6 +747,7 @@ export interface ReviewContentDatabaseSourceChangeSetRequest {
 export interface PrepareBuilderSourceExecutionRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   changeSetId: string;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
   publicationTransition?: BuilderCmsPublicationTransitionIntent;
@@ -753,6 +757,7 @@ export interface PrepareBuilderSourceExecutionRequest {
 export interface ValidateBuilderSourceExecutionRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   changeSetId: string;
   idempotencyKey?: string;
 }
@@ -760,6 +765,7 @@ export interface ValidateBuilderSourceExecutionRequest {
 export interface ExecuteBuilderSourceExecutionRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   changeSetId: string;
   idempotencyKey?: string;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
@@ -775,6 +781,7 @@ export interface ExecuteBuilderSourceBatchTransition {
 export interface ExecuteBuilderSourceBatchRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   changeSetIds?: string[];
   maxConcurrency?: number;
   transitions?: Record<string, ExecuteBuilderSourceBatchTransition>;
@@ -801,6 +808,7 @@ export interface ExecuteBuilderSourceBatchResponse {
 export interface SetContentDatabaseSourceWriteModeRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   liveWritesEnabled?: boolean;
   writeMode?: ContentDatabaseSourceWriteMode;
   allowPublicationTransitions?: boolean;
@@ -812,6 +820,7 @@ export interface SetContentDatabaseSourceWriteModeRequest {
 export interface PrepareBuilderSourceReviewRequest {
   databaseId?: string;
   documentId?: string;
+  sourceId?: string;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
   publicationTransition?: BuilderCmsPublicationTransitionIntent;
   confirmUnpublish?: boolean;

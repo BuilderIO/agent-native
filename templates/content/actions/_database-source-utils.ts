@@ -668,6 +668,44 @@ export async function getContentDatabaseSourceSnapshot(
 }
 
 /**
+ * Load one specific attached source by id (scoped to the database). Multi-source
+ * write paths use this so an action can target a non-primary source; single-source
+ * callers keep using {@link getContentDatabaseSourceSnapshot} (the primary).
+ */
+export async function getContentDatabaseSourceSnapshotById(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId: string,
+): Promise<ContentDatabaseSource | null> {
+  const db = getDb();
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, database.id),
+        eq(schema.contentDatabaseSources.id, sourceId),
+      ),
+    );
+  if (!source) return null;
+  return loadSourceSnapshot(source, database);
+}
+
+/**
+ * Resolve the source an action should operate on: the explicit `sourceId` when
+ * given (multi-source), otherwise the primary (back-compat single-source). The
+ * default path is byte-for-byte the old behavior, so existing callers that omit
+ * `sourceId` are unaffected.
+ */
+export async function getContentDatabaseSourceSnapshotForWrite(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId?: string | null,
+): Promise<ContentDatabaseSource | null> {
+  return sourceId
+    ? getContentDatabaseSourceSnapshotById(database, sourceId)
+    : getContentDatabaseSourceSnapshot(database);
+}
+
+/**
  * Load every source attached to a database (oldest first → `[0]` is the
  * primary). Federation joins read this; single-source callers keep using
  * `getContentDatabaseSourceSnapshot`, which returns the primary.
@@ -2257,6 +2295,34 @@ export async function getExistingSource(databaseId: string) {
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
   return source ?? null;
+}
+
+/** The source DB row for one attached source by id (scoped to the database). */
+export async function getExistingSourceById(
+  databaseId: string,
+  sourceId: string,
+) {
+  const db = getDb();
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, databaseId),
+        eq(schema.contentDatabaseSources.id, sourceId),
+      ),
+    );
+  return source ?? null;
+}
+
+/** The source DB row for an action: explicit `sourceId` when given, else primary. */
+export async function getExistingSourceForWrite(
+  databaseId: string,
+  sourceId?: string | null,
+) {
+  return sourceId
+    ? getExistingSourceById(databaseId, sourceId)
+    : getExistingSource(databaseId);
 }
 
 export async function getSourceRows(sourceId: string) {

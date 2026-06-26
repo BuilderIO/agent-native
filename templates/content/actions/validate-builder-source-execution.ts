@@ -13,7 +13,7 @@ import {
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter.js";
 import {
-  getContentDatabaseSourceSnapshot,
+  getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -35,6 +35,10 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
     changeSetId: z.string().describe("Approved source change-set ID"),
     idempotencyKey: z
       .string()
@@ -48,7 +52,10 @@ export default defineAction({
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
-    const source = await getContentDatabaseSourceSnapshot(database);
+    const source = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
     if (!source || source.sourceType !== "builder-cms") {
       throw new Error(
         "Attach a Builder CMS source before validating execution.",

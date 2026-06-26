@@ -10,7 +10,7 @@ import {
   type ExecuteBuilderSourceBatchTransition,
 } from "../shared/api.js";
 import {
-  getContentDatabaseSourceSnapshot,
+  getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import {
@@ -41,18 +41,23 @@ export interface ExecuteBuilderSourceBatchDeps {
 }
 
 function realBatchDeps(
-  args: Pick<ExecuteBuilderSourceBatchRequest, "databaseId" | "documentId">,
+  args: Pick<
+    ExecuteBuilderSourceBatchRequest,
+    "databaseId" | "documentId" | "sourceId"
+  >,
 ): ExecuteBuilderSourceBatchDeps {
   return {
     resolveDatabase: (request) => resolveDatabaseForSourceMutation(request),
     assertEditor: async (database) => {
       await assertAccess("document", database.documentId, "editor");
     },
-    getSourceSnapshot: (database) => getContentDatabaseSourceSnapshot(database),
+    getSourceSnapshot: (database) =>
+      getContentDatabaseSourceSnapshotForWrite(database, args.sourceId),
     runOne: async (changeSetId, transition) => {
       const executionArgs = {
         databaseId: args.databaseId,
         documentId: args.documentId,
+        sourceId: args.sourceId,
         changeSetId,
         publicationTransition: transition?.publicationTransition,
         confirmUnpublish: transition?.confirmUnpublish,
@@ -63,22 +68,16 @@ function realBatchDeps(
       try {
         await executeBuilderSourceExecutionWithDeps(
           executionArgs,
-          realExecutionDeps(),
+          realExecutionDeps(args.sourceId),
         );
       } catch (error) {
         if (!isMissingGateMessage(errorMessage(error))) {
           throw error;
         }
-        await prepareBuilderSourceExecution.run({
-          databaseId: args.databaseId,
-          documentId: args.documentId,
-          changeSetId,
-          publicationTransition: transition?.publicationTransition,
-          confirmUnpublish: transition?.confirmUnpublish,
-        });
+        await prepareBuilderSourceExecution.run(executionArgs);
         await executeBuilderSourceExecutionWithDeps(
           executionArgs,
-          realExecutionDeps(),
+          realExecutionDeps(args.sourceId),
         );
       }
       return { changeSetId, status: "succeeded" };
@@ -250,6 +249,10 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
     changeSetIds: z
       .array(z.string())
       .optional()

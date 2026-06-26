@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { asc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
@@ -13,7 +13,10 @@ import {
   buildBuilderCmsWriteModeJson,
   type BuilderCmsLiveWriteMode,
 } from "./_builder-cms-write-settings.js";
-import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
+import {
+  getExistingSourceForWrite,
+  resolveDatabaseForSourceMutation,
+} from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 
 const legacyWriteModeSchema = z.enum(["autosave", "draft", "publish"]);
@@ -38,6 +41,10 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
     liveWritesEnabled: z
       .boolean()
       .optional()
@@ -74,12 +81,7 @@ export default defineAction({
     await assertAccess("document", database.documentId, "editor");
 
     const db = getDb();
-    const [source] = await db
-      .select()
-      .from(schema.contentDatabaseSources)
-      .where(eq(schema.contentDatabaseSources.databaseId, database.id))
-      .orderBy(asc(schema.contentDatabaseSources.createdAt))
-      .limit(1);
+    const source = await getExistingSourceForWrite(database.id, args.sourceId);
     if (!source) {
       throw new Error(
         "Attach a Builder CMS source before changing write mode.",

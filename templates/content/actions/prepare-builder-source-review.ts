@@ -21,7 +21,7 @@ import {
 } from "./_builder-cms-write-adapter.js";
 import {
   findOpenSourceChangeSet,
-  getContentDatabaseSourceSnapshot,
+  getContentDatabaseSourceSnapshotForWrite,
   getExistingSource,
   resolveDatabaseForSourceMutation,
   sourceChangeSetKey,
@@ -364,6 +364,10 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
     pushModeConfirmation: z
       .enum(["autosave", "draft", "publish"])
       .optional()
@@ -381,7 +385,10 @@ export default defineAction({
       throw new Error("Attach a Builder CMS source before reviewing updates.");
     }
 
-    const snapshot = await getContentDatabaseSourceSnapshot(database);
+    const snapshot = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
     if (!snapshot) throw new Error("Attach a source before reviewing updates.");
     const reviewableChanges = snapshot.changeSets.filter(
       (changeSet) =>
@@ -410,7 +417,10 @@ export default defineAction({
       );
     }
 
-    const approvedSnapshot = await getContentDatabaseSourceSnapshot(database);
+    const approvedSnapshot = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
     if (!approvedSnapshot) throw new Error("Builder source disappeared.");
     const approvedChangeSets = approvedSnapshot.changeSets.filter(
       (changeSet) =>

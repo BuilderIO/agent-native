@@ -32,7 +32,7 @@ import {
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter.js";
 import {
-  getContentDatabaseSourceSnapshot,
+  getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -412,14 +412,17 @@ async function reconcileBuilderCmsWrite(args: {
     .where(eq(schema.contentDatabaseSources.id, args.source.id));
 }
 
-export function realExecutionDeps(): ExecuteBuilderSourceExecutionDeps {
+export function realExecutionDeps(
+  sourceId?: string,
+): ExecuteBuilderSourceExecutionDeps {
   return {
     now: () => new Date().toISOString(),
     resolveDatabase: (args) => resolveDatabaseForSourceMutation(args),
     assertEditor: async (database) => {
       await assertAccess("document", database.documentId, "editor");
     },
-    getSourceSnapshot: (database) => getContentDatabaseSourceSnapshot(database),
+    getSourceSnapshot: (database) =>
+      getContentDatabaseSourceSnapshotForWrite(database, sourceId),
     getExecution: async (args) => {
       const [execution] = await getDb()
         .select()
@@ -806,6 +809,10 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
     changeSetId: z.string().describe("Approved source change-set ID"),
     idempotencyKey: z
       .string()
@@ -827,6 +834,9 @@ export default defineAction({
   run: async (
     args: ExecuteBuilderSourceExecutionRequest,
   ): Promise<ContentDatabaseResponse> => {
-    return executeBuilderSourceExecutionWithDeps(args, realExecutionDeps());
+    return executeBuilderSourceExecutionWithDeps(
+      args,
+      realExecutionDeps(args.sourceId),
+    );
   },
 });
