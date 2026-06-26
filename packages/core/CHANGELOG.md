@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.78.1
+
+### Patch Changes
+
+- 71849f1: Add structured composer reference chips that can be inserted programmatically
+  and constrained to one visible value per app-defined slot.
+- 71849f1: Forward chat thread footer slots through AgentSidebar so apps can keep live run
+  results attached to chat threads.
+
 ## 0.78.0
 
 ### Minor Changes
