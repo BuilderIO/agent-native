@@ -145,7 +145,7 @@ export interface FormResponse {
   formId: string;
   data: Record<string, unknown>;
   submittedAt: string;
-  /** Email of the submitter when known (claimed by the client; not verified). */
+  /** Real submitter email when known; synthetic anonymous-owner ids are hidden. */
   submitterEmail?: string | null;
   /**
    * URL of the page the respondent was on, forwarded by trusted embeds (e.g.

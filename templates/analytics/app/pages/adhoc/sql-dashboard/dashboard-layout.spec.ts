@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  availableDropSlotIdsForPanel,
   buildDashboardPanelGroups,
   distanceFromPointerToRect,
+  dropSlotId,
   isDropSlotAvailable,
   movePanelToDropSlot,
   removePanelFromLayout,
@@ -138,6 +140,32 @@ describe("dashboard layout rows", () => {
         rowIndex: 1,
       }),
     ).toBe(true);
+  });
+
+  it("precomputes available drop slots for a dragging panel", () => {
+    const panels = [panel("a"), panel("b"), panel("c"), panel("d", 3)];
+    const [group] = buildDashboardPanelGroups(panels, 3);
+    const ids = availableDropSlotIdsForPanel([group], "d");
+
+    expect(
+      ids.has(
+        dropSlotId({
+          type: "row",
+          groupKey: "intro",
+          rowIndex: 1,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      ids.has(
+        dropSlotId({
+          type: "column",
+          groupKey: "intro",
+          rowIndex: 0,
+          columnIndex: 1,
+        }),
+      ),
+    ).toBe(false);
   });
 
   it("measures drop-slot distance from the pointer instead of the dragged card center", () => {

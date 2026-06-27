@@ -7,6 +7,7 @@ import {
   docsPathForSlug,
   isDocsLocale,
 } from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
@@ -71,7 +72,12 @@ export default function DocPage() {
   }));
 
   return (
-    <DocsLayout toc={toc}>
+    <DocsLayout
+      toc={toc}
+      markdownUrl={
+        docsMarkdownPathForDoc(doc.slug, DEFAULT_DOCS_LOCALE) ?? undefined
+      }
+    >
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

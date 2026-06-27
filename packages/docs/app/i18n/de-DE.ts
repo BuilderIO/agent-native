@@ -43,6 +43,9 @@ const deDE = {
   docs: {
     navigateAria: "Docs navigieren",
     onThisPage: "Auf dieser Seite",
+    copyMarkdown: "Dokument als Markdown kopieren",
+    copiedMarkdown: "Markdown kopiert",
+    copyMarkdownError: "Markdown konnte nicht kopiert werden",
     previous: "Zurück",
     next: "Weiter",
   },
@@ -536,7 +539,7 @@ const deDE = {
       s004: "Diktieren",
       s005: "Kann sehen + hören",
       s006: "Alle Vorlagen",
-      s007: "Die Open-Source-Alternative zu Loom und Jam",
+      s007: "Die Open-Source-Alternative zu Loom",
       s008: "Fügen Sie einen Clips-Link in einen Agenten ein und dieser kann das Transkript anhören, Zusammenfassungen lesen und zeitgestempelte Frames sehen, selbst wenn sein Modell kein Rohvideo oder Audio aufnehmen kann.",
       s009: "Ausprobieren",
       s010: "Was Sie tun können",

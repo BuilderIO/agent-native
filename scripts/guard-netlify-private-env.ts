@@ -13,7 +13,6 @@ const mustReject = [
   "BUILDER_PUBLIC_KEY",
   "GOOGLE_CLIENT_SECRET",
   "OPENAI_API_KEY",
-  "SENDGRID_API_KEY",
   "SLACK_BOT_TOKEN",
 ];
 
@@ -24,6 +23,7 @@ const mustAllow = [
   "GA_MEASUREMENT_ID",
   "GOOGLE_CLIENT_ID",
   "NETLIFY_DATABASE_URL",
+  "SENDGRID_API_KEY",
   "VITE_NEON_AUTH_URL",
 ];
 

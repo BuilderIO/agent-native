@@ -54,7 +54,7 @@ Yes. Pick any host that runs Node — Netlify, Vercel, Cloudflare, AWS, Deno Dep
 
 ### What AI models does it support? {#what-models}
 
-Anthropic Claude, OpenAI (GPT-5 family), Google Gemini, and any provider that speaks the OpenAI API shape (including local models via Ollama). You configure the model in settings; switching is a config change, not a code rewrite. The framework's heaviest tested path is Claude, so that's the default recommendation.
+Anthropic Claude, OpenAI (GPT-5 family), Google Gemini, and any provider that speaks the OpenAI API shape. For OpenAI-compatible gateways like LiteLLM, choose OpenAI in Settings and add the gateway URL under Advanced. You configure the model in settings; switching is a config change, not a code rewrite. The framework's heaviest tested path is Claude, so that's the default recommendation.
 
 ### Do I need to know AI/ML? {#do-i-need-to-know-ai}
 
