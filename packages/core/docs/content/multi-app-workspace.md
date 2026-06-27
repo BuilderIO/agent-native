@@ -289,6 +289,8 @@ These settings only affect read-only page navigation. Framework tools, agent cha
 
 Prefer each app on its own domain (`mail.company.com`, `calendar.company.com`)? Every app in the workspace is still an independent deployable — `cd apps/mail && npx @agent-native/core@latest build` behaves exactly like a standalone scaffold. Cross-app A2A then goes through the standard JWT-signed path with a shared `A2A_SECRET`. Cross-domain SSO between separately-deployed apps is handled by identity federation with Dispatch as the hub — see [Cross-App SSO](/docs/cross-app-sso); the unified single-origin deploy avoids needing it.
 
+For a self-hosted VPS or Docker Compose setup on one origin, build and run one container per app with its own path prefix (`APP_BASE_PATH=/mail`, `APP_BASE_PATH=/calendar`, ...), then route those prefixes through a reverse proxy. See [Deployment — Self-hosted workspace with Docker Compose](/docs/deployment#workspace-docker-compose) for the Dockerfile and compose example.
+
 ### Shared database, shared credentials
 
 Whatever you pick, point every app at the same `DATABASE_URL` for cross-app state out of the box: one set of user accounts, one set of organizations, one set of shared settings. If each app has its own database, the workspace pattern still works — you just lose that shared-state story.

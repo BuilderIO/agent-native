@@ -66,6 +66,139 @@ background processors. Local `--build-only` artifact checks still run without it
 
 Per-app independent deploy is still supported — just `cd apps/<name> && npx @agent-native/core@latest build` like a standalone scaffold.
 
+### Self-hosted workspace with Docker Compose {#workspace-docker-compose}
+
+The Dockerfile above is for one standalone app. A workspace is not one Nitro
+server process today: each app still builds to its own `.output/` directory and
+runs its own Node/Nitro server. For a VPS, run one container per workspace app,
+point every app at the same Postgres database and shared production secrets, and
+put a reverse proxy in front that routes path prefixes (`/mail`, `/calendar`,
+...) to the matching app container.
+
+Build each app with the same base path that the proxy will use at runtime. The
+base path is a build-time input for the client bundle and a runtime input for
+the server:
+
+```bash
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+A reusable workspace Dockerfile can take the app name and path prefix as build
+arguments:
+
+```dockerfile
+FROM node:24-slim AS build
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps ./apps
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV APP_BASE_PATH=$APP_BASE_PATH
+ENV VITE_APP_BASE_PATH=$APP_BASE_PATH
+RUN pnpm install --frozen-lockfile
+RUN pnpm --dir apps/$APP_NAME build
+
+FROM node:24-slim
+WORKDIR /app
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV APP_BASE_PATH=$APP_BASE_PATH
+COPY --from=build /workspace/apps/$APP_NAME/.output .output
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Then compose Postgres, the app containers, and your proxy. This example uses
+Caddy because it can terminate HTTP locally or sit behind Cloudflare's SSL
+proxy, but the important part is the path-prefix routing:
+
+```yaml
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agent_native
+      POSTGRES_USER: agent_native
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mail:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: mail
+        APP_BASE_PATH: /mail
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/mail
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  calendar:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: calendar
+        APP_BASE_PATH: /calendar
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/calendar
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - mail
+      - calendar
+
+volumes:
+  postgres-data:
+```
+
+```caddyfile
+agents.example.com {
+  reverse_proxy /mail* mail:3000
+  reverse_proxy /calendar* calendar:3000
+}
+```
+
+Notes for this shape:
+
+- Keep `DATABASE_URL`, `BETTER_AUTH_SECRET`, `A2A_SECRET`, and other production
+  secrets identical across app containers when you want shared auth, shared
+  credentials, and cross-app A2A.
+- Set `BETTER_AUTH_URL` to the public URL for that app path. OAuth callback URLs
+  should use the same public URL.
+- Do not rely on the container filesystem for production data; use Postgres (or
+  another persistent SQL backend) for `DATABASE_URL`.
+- If Cloudflare terminates TLS in front of the VPS, configure Cloudflare to send
+  normal `X-Forwarded-Proto` / `X-Forwarded-Host` headers and route the public
+  host to the proxy container.
+
 ## How It Works {#how-it-works}
 
 When you run `npx @agent-native/core@latest build`, Nitro builds both the client SPA and the server API into `.output/`:
