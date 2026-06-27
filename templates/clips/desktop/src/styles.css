@@ -1680,6 +1680,73 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-hover);
 }
 
+.storage-flow-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.storage-flow-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+
+.storage-flow-copy {
+  min-width: 0;
+}
+
+.storage-flow-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.storage-flow-sub {
+  margin-top: 3px;
+  color: #3b5f9a;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.storage-flow-connect {
+  grid-column: 2;
+  justify-self: start;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: white;
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.storage-flow-connect:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
 .pending-upload-banner {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
