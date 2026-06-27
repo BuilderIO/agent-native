@@ -34,7 +34,7 @@ import { toast } from "sonner";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { CommentsPanel } from "@/components/player/comments-panel";
-import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
+import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
@@ -212,6 +212,7 @@ export default function RecordingPage() {
   // can retry or report the issue instead of staring at a spinner.
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (
@@ -306,6 +307,30 @@ export default function RecordingPage() {
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
   const canDelete = role === "owner";
+  const canDownloadRecording = Boolean(
+    recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
+  );
+  const downloadRecording = useCallback(async () => {
+    if (!recording?.videoUrl) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(recording.videoUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sanitizeFilename(recording.title || "clip")}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setDownloading(false);
+    }
+  }, [recording?.title, recording?.videoUrl]);
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -1011,9 +1036,15 @@ export default function RecordingPage() {
             </Button>
           </ShareRecordingPopover>
 
-          {canDelete ? (
-            <DeleteRecordingMenu
+          {canDelete || canDownloadRecording ? (
+            <RecordingOptionsMenu
               recordingId={recording.id}
+              canDelete={canDelete}
+              canDownload={canDownloadRecording}
+              downloadPending={downloading}
+              onDownload={() => {
+                void downloadRecording();
+              }}
               onDeleted={() => navigate("/library", { replace: true })}
             />
           ) : null}
@@ -1282,6 +1313,16 @@ function capitalize(s: string) {
 
 function displayRecordingTitle(title: string | null | undefined): string {
   return isDefaultTitle(title) ? "Untitled Clip" : (title ?? "").trim();
+}
+
+function sanitizeFilename(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "clip"
+  );
 }
 
 function shouldShowGeneratedTitleSkeleton(

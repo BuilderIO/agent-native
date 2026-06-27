@@ -2263,7 +2263,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                   <LanguagePicker
                     variant="icon"
                     label={t("settings.languageLabel")}
-                    className="[&_[role=combobox]]:rounded-lg [&_[role=combobox]]:border-0 [&_[role=combobox]]:bg-transparent [&_[role=combobox]]:text-muted-foreground [&_[role=combobox]]:hover:bg-sidebar-accent/50 [&_[role=combobox]]:hover:text-primary"
+                    className="[&_[data-language-picker-trigger]]:rounded-lg [&_[data-language-picker-trigger]]:border-0 [&_[data-language-picker-trigger]]:bg-transparent [&_[data-language-picker-trigger]]:text-muted-foreground [&_[data-language-picker-trigger]]:hover:bg-sidebar-accent/50 [&_[data-language-picker-trigger]]:hover:text-primary"
                   />
                 </div>
               </div>

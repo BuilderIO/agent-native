@@ -22,7 +22,7 @@ export default function AskPage() {
   }, []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="analytics-ask-page flex h-full min-h-0 flex-col bg-background">
       <AgentChatSurface
         mode="page"
         chatViewTransition

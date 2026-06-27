@@ -43,6 +43,8 @@ const WHEEL_ZOOM_STEP = 0.16;
 const PINCH_ZOOM_SENSITIVITY = 0.01;
 /** Base CSS grid cell, scaled by zoom. */
 const GRID_CELL = 28;
+/** Extra world-space grid on each side so the grid still fills overscrolled pans. */
+const GRID_PADDING = 5000;
 
 type CanvasView = typeof DEFAULT_VIEW;
 export type CanvasViewport = CanvasView;
@@ -385,6 +387,7 @@ export function CanvasArea({
   }, [frameLayoutKey, frames, hasSavedViewport, updateView]);
 
   const { zoom, pan } = view;
+  const worldTransform = `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`;
   useEffect(() => {
     queueViewportChange(view);
   }, [queueViewportChange, view]);
@@ -656,8 +659,6 @@ export function CanvasArea({
         tabIndex={0}
         style={
           {
-            backgroundPosition: `${pan.x}px ${pan.y}px`,
-            backgroundSize: `${GRID_CELL * zoom}px ${GRID_CELL * zoom}px`,
             overscrollBehavior: "contain",
             touchAction: "none",
           } as CSSProperties
@@ -724,11 +725,25 @@ export function CanvasArea({
           style={{
             width: board.width,
             height: board.height,
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transform: worldTransform,
             transformOrigin: "0 0",
             willChange: "transform",
+            backfaceVisibility: "hidden",
           }}
         >
+          <div
+            aria-hidden="true"
+            className="plan-canvas-grid absolute"
+            data-plan-canvas-grid
+            style={{
+              left: -GRID_PADDING,
+              top: -GRID_PADDING,
+              width: board.width + GRID_PADDING * 2,
+              height: board.height + GRID_PADDING * 2,
+              backgroundSize: `${GRID_CELL}px ${GRID_CELL}px`,
+            }}
+          />
+
           {/* Section containers sit BEHIND the frames (lowest layer) so each
               group reads as one bounded region the artboards rest inside. */}
           {sectionRects.map(({ section, rect }) => (

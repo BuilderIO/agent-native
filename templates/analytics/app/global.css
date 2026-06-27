@@ -146,6 +146,19 @@
   display: none;
 }
 
+.dark .analytics-ask-page {
+  background: hsl(var(--secondary) / 0.38);
+}
+
+.dark .analytics-ask-page .analytics-chat-panel {
+  background: transparent;
+}
+
+.dark .agent-sidebar-panel[data-agent-sidebar-layout="desktop"],
+.dark .agent-sidebar-panel[data-agent-sidebar-layout="mobile"] {
+  background: #000 !important;
+}
+
 .analytics-chat-panel
   [data-agent-empty-state="centered"]
   .analytics-chat-intro {
@@ -236,9 +249,11 @@
 }
 
 .dark
+  .analytics-ask-page
   .analytics-chat-panel
   [data-agent-empty-state="centered"]
   .agent-composer-root {
+  background: hsl(var(--secondary) / 0.72);
   box-shadow: none;
 }
 

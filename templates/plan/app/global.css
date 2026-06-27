@@ -255,13 +255,18 @@
   touch-action: none;
 }
 
-/* Infinite low-contrast grid (slightly darker than the document bg) that
- * moves on pan via background-position and scales with zoom — both driven
- * inline by CanvasArea. */
+/* Infinite low-contrast grid. The live grid is rendered inside the transformed
+ * canvas world so Chrome can composite grid + artboards together while panning. */
 .plan-canvas-viewport {
+  isolation: isolate;
+}
+
+.plan-canvas-grid {
+  pointer-events: none;
   background-image:
     linear-gradient(var(--plan-grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--plan-grid-line) 1px, transparent 1px);
+  backface-visibility: hidden;
 }
 
 /* Fixed-size static artboard frame. No border / shadow / box around the
