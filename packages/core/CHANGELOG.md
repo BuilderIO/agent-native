@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.79.22
+
+### Patch Changes
+
+- cdf41db: Require signed-in email identity for browser session replay by default across templates and send replay timing/event-count metadata with each upload. Apps that intentionally record anonymous replay sessions can opt out with `sessionReplay.requireSignedInUser: false` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`.
+- cdf41db: Keep diagram primitive borders visible in sketchy Plan diagrams and stop the shared feedback button from sending synthetic anonymous Agent Native emails.
+- cdf41db: Add an advanced OpenAI-compatible endpoint URL setting for custom gateways like LiteLLM.
+- cdf41db: Default shared expandable code surfaces to 30 visible lines before the reader
+  expands them.
+
 ## 0.79.21
 
 ### Patch Changes

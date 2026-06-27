@@ -1,5 +1,15 @@
 # @agent-native/skills
 
+## 0.2.150
+
+### Patch Changes
+
+- Updated dependencies [cdf41db]
+- Updated dependencies [cdf41db]
+- Updated dependencies [cdf41db]
+- Updated dependencies [cdf41db]
+  - @agent-native/core@0.79.22
+
 ## 0.2.149
 
 ### Patch Changes
