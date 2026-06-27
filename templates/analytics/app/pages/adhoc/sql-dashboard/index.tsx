@@ -371,6 +371,18 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   }
 }
 
+function dashboardPrefetchInitialData<T>(
+  snapshot: PrefetchSnapshot<T> | undefined,
+  syncVersion: number,
+): T | undefined {
+  if (!snapshot || snapshot.syncVersion !== syncVersion) return undefined;
+  return snapshot.data;
+}
+
+function dashboardConfigSignature(config: SqlDashboardConfig | null): string {
+  return config ? JSON.stringify(config) : "null";
+}
+
 /**
  * Save dashboard config via the update-dashboard action. Throws on error so
  * callers (e.g. the panel editor dialog) can surface BigQuery validation
@@ -398,7 +410,6 @@ export default function SqlDashboardPage() {
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
   const [hiddenAt, setHiddenAt] = useState<string | null>(null);
-  const [hiddenBy, setHiddenBy] = useState<string | null>(null);
   const [dashboardVisibility, setDashboardVisibility] = useState<
     "private" | "org" | "public" | null
   >(null);
@@ -422,6 +433,11 @@ export default function SqlDashboardPage() {
     null,
   );
   const viewedDashboardIdRef = useRef<string | null>(null);
+  const pendingConfigRef = useRef<{
+    dashboardId: string;
+    signature: string;
+    expiresAt: number;
+  } | null>(null);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
   const dashboardColumns = clampDashboardColumns(
@@ -462,10 +478,7 @@ export default function SqlDashboardPage() {
       const snapshot = queryClient.getQueryData<
         PrefetchSnapshot<FetchedDashboard | null>
       >(sqlDashboardPrefetchKey(dashboardId));
-      if (snapshot?.data === null && snapshot.syncVersion !== sync) {
-        return undefined;
-      }
-      return snapshot?.data;
+      return dashboardPrefetchInitialData(snapshot, sync);
     },
     initialDataUpdatedAt: () => {
       if (!dashboardId) return undefined;
@@ -475,7 +488,7 @@ export default function SqlDashboardPage() {
           queryKey,
         );
       if (!snapshot) return undefined;
-      if (snapshot.syncVersion !== sync) return 0;
+      if (snapshot.syncVersion !== sync) return undefined;
       return queryClient.getQueryState(queryKey)?.dataUpdatedAt;
     },
   });
@@ -509,6 +522,40 @@ export default function SqlDashboardPage() {
     requestSource: TAB_ID,
     user: currentUser,
   });
+
+  const updateCachedDashboardConfig = useCallback(
+    (updated: SqlDashboardConfig) => {
+      if (!dashboardId) return;
+      queryClient.setQueriesData<FetchedDashboard | null>(
+        { queryKey: ["data", "sql-dashboard", dashboardId] },
+        (prev) => (prev ? { ...prev, config: updated } : prev),
+      );
+      queryClient.setQueryData<PrefetchSnapshot<FetchedDashboard | null>>(
+        sqlDashboardPrefetchKey(dashboardId),
+        (prev) =>
+          prev?.data
+            ? { ...prev, data: { ...prev.data, config: updated } }
+            : prev,
+      );
+    },
+    [dashboardId, queryClient],
+  );
+
+  const holdDashboardConfig = useCallback(
+    (updated: SqlDashboardConfig) => {
+      if (!dashboardId) return;
+      pendingConfigRef.current = {
+        dashboardId,
+        signature: dashboardConfigSignature(updated),
+        expiresAt: Date.now() + 10_000,
+      };
+      void queryClient.cancelQueries(
+        { queryKey: ["data", "sql-dashboard", dashboardId] },
+        { revert: false },
+      );
+    },
+    [dashboardId, queryClient],
+  );
 
   // Track which panels remote users are editing (from awareness)
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
@@ -548,8 +595,10 @@ export default function SqlDashboardPage() {
       if (!raw) return;
       try {
         const parsed = JSON.parse(raw) as SqlDashboardConfig;
-        if (parsed && parsed.panels) {
+        if (parsed && Array.isArray(parsed.panels)) {
+          holdDashboardConfig(parsed);
           setDashboard(parsed);
+          updateCachedDashboardConfig(parsed);
         }
       } catch {
         // JSON parse failed — ignore partial updates
@@ -559,7 +608,7 @@ export default function SqlDashboardPage() {
     return () => {
       ytext.unobserve(handler);
     };
-  }, [ydoc, collabSynced]);
+  }, [ydoc, collabSynced, holdDashboardConfig, updateCachedDashboardConfig]);
 
   // Per-user saved filter state
   const filterPrefKey = dashboardId ? `dashboard-filters:${dashboardId}` : "";
@@ -581,7 +630,6 @@ export default function SqlDashboardPage() {
     setDashboard(null);
     setArchivedAt(null);
     setHiddenAt(null);
-    setHiddenBy(null);
     setDashboardVisibility(null);
     setDashboardOwner(null);
     setDashboardUpdatedAt(null);
@@ -591,18 +639,30 @@ export default function SqlDashboardPage() {
 
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
+    if (loaded && dashboardQuery.isPlaceholderData) return;
     const fetched = dashboardQuery.data;
     if (fetched && fetched.id !== dashboardId) return;
+    const fetchedConfig = fetched?.config ?? null;
+    const pendingConfig = pendingConfigRef.current;
+    if (loaded && pendingConfig && pendingConfig.dashboardId === dashboardId) {
+      const fetchedSignature = dashboardConfigSignature(fetchedConfig);
+      if (
+        Date.now() < pendingConfig.expiresAt &&
+        fetchedSignature !== pendingConfig.signature
+      ) {
+        return;
+      }
+      pendingConfigRef.current = null;
+    }
     const fetchedVisibility =
       fetched?.visibility === "private" ||
       fetched?.visibility === "org" ||
       fetched?.visibility === "public"
         ? fetched.visibility
         : null;
-    setDashboard(fetched?.config ?? null);
+    setDashboard(fetchedConfig);
     setArchivedAt(fetched?.archivedAt ?? null);
     setHiddenAt(fetched?.hiddenAt ?? null);
-    setHiddenBy(fetched?.hiddenBy ?? null);
     setDashboardVisibility(fetchedVisibility);
     setDashboardOwner(fetched?.ownerEmail ?? null);
     setDashboardUpdatedAt(fetched?.updatedAt ?? null);
@@ -628,6 +688,8 @@ export default function SqlDashboardPage() {
     dashboardId,
     dashboardQuery.data,
     dashboardQuery.isSuccess,
+    dashboardQuery.isPlaceholderData,
+    loaded,
     reportScreenshot,
   ]);
 
@@ -738,24 +800,6 @@ export default function SqlDashboardPage() {
     [collabDocId],
   );
 
-  const updateCachedDashboardConfig = useCallback(
-    (updated: SqlDashboardConfig) => {
-      if (!dashboardId) return;
-      queryClient.setQueriesData<FetchedDashboard | null>(
-        { queryKey: ["data", "sql-dashboard", dashboardId] },
-        (prev) => (prev ? { ...prev, config: updated } : prev),
-      );
-      queryClient.setQueryData<PrefetchSnapshot<FetchedDashboard | null>>(
-        sqlDashboardPrefetchKey(dashboardId),
-        (prev) =>
-          prev?.data
-            ? { ...prev, data: { ...prev.data, config: updated } }
-            : prev,
-      );
-    },
-    [dashboardId, queryClient],
-  );
-
   /**
    * Persist without throwing — background save used for drag reorder, width
    * toggle, title/description edits, and panel delete. If the save fails
@@ -769,6 +813,7 @@ export default function SqlDashboardPage() {
         toast.error(t("sqlDashboard.viewOnly"));
         return;
       }
+      holdDashboardConfig(updated);
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
       pushToCollab(updated);
@@ -800,6 +845,7 @@ export default function SqlDashboardPage() {
     [
       dashboardId,
       canEdit,
+      holdDashboardConfig,
       queryClient,
       pushToCollab,
       t,
@@ -817,6 +863,7 @@ export default function SqlDashboardPage() {
       if (!canEdit) {
         throw new Error(t("sqlDashboard.viewOnly"));
       }
+      holdDashboardConfig(updated);
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
@@ -833,6 +880,7 @@ export default function SqlDashboardPage() {
     [
       dashboardId,
       canEdit,
+      holdDashboardConfig,
       queryClient,
       pushToCollab,
       t,
@@ -1155,7 +1203,6 @@ export default function SqlDashboardPage() {
         hidden: false,
       })) as { ownerEmail?: string | null } | undefined;
       setHiddenAt(null);
-      setHiddenBy(null);
       if (typeof result?.ownerEmail === "string") {
         setDashboardOwner(result.ownerEmail);
       }

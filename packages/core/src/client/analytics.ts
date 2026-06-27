@@ -78,6 +78,9 @@ let _trackingIdentity: TrackingIdentity | null = null;
 let _trackingIdentityResolved = false;
 let _trackingSessionRefresh: Promise<void> | null = null;
 let _trackingSessionRefreshInstalled = false;
+let _sessionReplayOptions: SessionReplayOptions | null = null;
+let _sessionReplayStartPromise: Promise<SessionReplayStartResult | null> | null =
+  null;
 // Buffer for setSentryUser calls made before Sentry has initialized.
 // `undefined` means "no pending update"; `null` means "pending clear".
 let _pendingSentryUser: SentryUser | null | undefined = undefined;
@@ -753,6 +756,7 @@ export function setSentryUser(
   user: SentryUser | null,
   orgId?: string | null,
 ): void {
+  let shouldRetryReplay = false;
   if (user) {
     const userId = user.email || user.id;
     _trackingIdentity = userId
@@ -763,10 +767,14 @@ export function setSentryUser(
           orgId: orgId ?? null,
         }
       : null;
+    shouldRetryReplay = Boolean(user.email);
   } else {
     _trackingIdentity = null;
   }
   _trackingIdentityResolved = true;
+  if (shouldRetryReplay && _sessionReplayOptions?.requireSignedInUser) {
+    void startConfiguredSessionReplay(_sessionReplayOptions);
+  }
   if (_sentryInitialized) {
     Sentry.setUser(user);
     if (orgId !== undefined) {
@@ -894,12 +902,16 @@ function sessionReplayEnabledFromEnv(): boolean {
   return /^(1|true|yes|on)$/i.test((value ?? "").trim());
 }
 
-function sessionReplayRequiresSignedInUserFromEnv(): boolean {
+function sessionReplayRequiresSignedInUserFromEnv(): boolean | undefined {
   const env = (import.meta.env as Record<string, string | undefined>) ?? {};
   const value =
     env.VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH ||
     env.VITE_SESSION_REPLAY_REQUIRE_AUTH;
-  return /^(1|true|yes|on)$/i.test((value ?? "").trim());
+  const normalized = (value ?? "").trim();
+  if (!normalized) return undefined;
+  if (/^(1|true|yes|on)$/i.test(normalized)) return true;
+  if (/^(0|false|no|off)$/i.test(normalized)) return false;
+  return undefined;
 }
 
 function configuredSessionReplayOptions(
@@ -923,7 +935,8 @@ function configuredSessionReplayOptions(
       ...options,
       requireSignedInUser:
         options.requireSignedInUser ??
-        sessionReplayRequiresSignedInUserFromEnv(),
+        sessionReplayRequiresSignedInUserFromEnv() ??
+        true,
       ...(extraProperties ? { extraProperties } : {}),
     };
   };
@@ -986,6 +999,7 @@ function maybeInstallSessionReplay(
   if (typeof window === "undefined") return;
   const options = configuredSessionReplayOptions(config, tracking);
   if (!options) return;
+  _sessionReplayOptions = options;
   void startConfiguredSessionReplay(options);
 }
 
@@ -993,7 +1007,7 @@ async function waitForSessionReplayAuthIfRequired(
   options: SessionReplayOptions,
 ): Promise<boolean> {
   if (!options.requireSignedInUser) return true;
-  if (_trackingIdentity?.userId) return true;
+  if (_trackingIdentity?.userEmail) return true;
   try {
     if (_trackingSessionRefresh) {
       await _trackingSessionRefresh;
@@ -1003,21 +1017,23 @@ async function waitForSessionReplayAuthIfRequired(
   } catch {
     // best-effort; missing identity below keeps replay off
   }
-  return !!_trackingIdentity?.userId;
+  return !!_trackingIdentity?.userEmail;
 }
 
 async function startConfiguredSessionReplay(
   options: SessionReplayOptions,
 ): Promise<SessionReplayStartResult | null> {
+  if (_sessionReplayStartPromise) return _sessionReplayStartPromise;
   if (!(await waitForSessionReplayAuthIfRequired(options))) {
     return { started: false, reason: "missing-user-id" };
   }
-  try {
-    const mod = await import("./session-replay.js");
-    return mod.startSessionReplay(options);
-  } catch {
-    return { started: false, reason: "import-failed" };
-  }
+  _sessionReplayStartPromise = import("./session-replay.js")
+    .then((mod) => mod.startSessionReplay(options))
+    .catch(() => ({ started: false, reason: "import-failed" as const }))
+    .finally(() => {
+      _sessionReplayStartPromise = null;
+    });
+  return _sessionReplayStartPromise;
 }
 
 export async function startSessionReplay(

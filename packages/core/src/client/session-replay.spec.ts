@@ -246,6 +246,83 @@ describe("session replay", () => {
     ).toBe(false);
   });
 
+  it("does not start auth-required replay without a session email", async () => {
+    installBrowser("https://app.agent-native.com/inbox", {
+      userId: "auth-user-1",
+      name: "Dev User",
+      orgId: "org_123",
+    });
+    vi.resetModules();
+    const { configureTracking } = await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: true,
+    });
+    await tick();
+
+    expect(recordMock).not.toHaveBeenCalled();
+  });
+
+  it("starts auth-required replay after browser identity is provided", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
+      error: "not authenticated",
+    });
+    let recordOptions: any;
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return vi.fn();
+    });
+    vi.resetModules();
+    const { configureTracking, setSentryUser, stopSessionReplay } =
+      await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: { enabled: true, requireSignedInUser: true },
+    });
+    await tick();
+
+    expect(recordOptions).toBeUndefined();
+    setSentryUser(
+      {
+        email: "dev@example.com",
+        id: "auth-user-1",
+        username: "Dev User",
+      },
+      "org_123",
+    );
+    await waitForAssertion(() => expect(recordOptions).toBeDefined());
+
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    await stopSessionReplay();
+    await waitForAssertion(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes("/api/analytics/replay"),
+        ),
+      ).toHaveLength(1),
+    );
+
+    const replayCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    const [, init] = replayCalls[0] as [string, RequestInit];
+    const body = await parseReplayUpload(init);
+    expect(body).toMatchObject({
+      userId: "dev@example.com",
+      userEmail: "dev@example.com",
+      properties: {
+        userId: "dev@example.com",
+        userEmail: "dev@example.com",
+        userName: "Dev User",
+        orgId: "org_123",
+      },
+    });
+  });
+
   it("starts rrweb with privacy defaults and uploads scrubbed replay batches", async () => {
     const { fetchMock } = installBrowser(
       "https://app.agent-native.com/inbox?code=secret&keep=1",
@@ -286,8 +363,10 @@ describe("session replay", () => {
       },
     });
 
+    const eventTimestamp = Date.now() + 2_500;
     recordOptions.emit({
       type: 3,
+      timestamp: eventTimestamp,
       data: {
         href: "https://app.agent-native.com/path?token=secret&ok=1",
         source: "/oauth/callback?code=private",
@@ -310,9 +389,16 @@ describe("session replay", () => {
       type: "session_replay",
       reason: "max-events",
       sequence: 0,
+      eventCount: 1,
+      startedAt: expect.any(String),
+      endedAt: new Date(eventTimestamp).toISOString(),
+      durationMs: expect.any(Number),
       url: "https://app.agent-native.com/inbox?code=%3Credacted%3E&keep=1",
       properties: { route: "/inbox?token=%3Credacted%3E" },
     });
+    expect(Date.parse(body.startedAt)).toBeLessThanOrEqual(
+      Date.parse(body.endedAt),
+    );
     expect(body.events[0].data.href).toBe(
       "https://app.agent-native.com/path?token=%3Credacted%3E&ok=1",
     );
@@ -375,7 +461,12 @@ describe("session replay", () => {
   });
 
   it("continues replay sequence across reloads for the same replay id", async () => {
-    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+      name: "Dev User",
+      orgId: "org_123",
+    });
     const recordOptions: any[] = [];
     recordMock.mockImplementation((options) => {
       recordOptions.push(options);
@@ -457,7 +548,12 @@ describe("session replay", () => {
   });
 
   it("derives replay defaults from configureTracking key and endpoint", async () => {
-    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+      name: "Dev User",
+      orgId: "org_123",
+    });
     let recordOptions: any;
     recordMock.mockImplementation((options) => {
       recordOptions = options;
@@ -497,7 +593,12 @@ describe("session replay", () => {
   });
 
   it("applies configureTracking default props to replay metadata", async () => {
-    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox");
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+      name: "Dev User",
+      orgId: "org_123",
+    });
     let recordOptions: any;
     recordMock.mockImplementation((options) => {
       recordOptions = options;
@@ -535,10 +636,11 @@ describe("session replay", () => {
     expect(replayCalls).toHaveLength(1);
     const [, init] = replayCalls[0] as [string, RequestInit];
     const body = await parseReplayUpload(init);
-    expect(body.userId).toBe("user_123");
+    expect(body.userId).toBe("dev@example.com");
     expect(body.properties).toMatchObject({
       app: "agent-native-test",
       userId: "user_123",
+      userEmail: "dev@example.com",
     });
   });
 

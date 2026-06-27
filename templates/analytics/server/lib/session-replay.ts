@@ -194,6 +194,11 @@ function replayString(value: unknown): string | null {
   return null;
 }
 
+function replayEmail(value: unknown): string | null {
+  const raw = replayString(value);
+  return raw && raw.includes("@") ? raw : null;
+}
+
 function replayInteger(value: unknown): number | null {
   if (typeof value === "number" && Number.isInteger(value)) return value;
   if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
@@ -339,6 +344,30 @@ function inferReplayEventCount(inlineData: string | null): number | null {
     return null;
   }
   return null;
+}
+
+function inferReplayEventTimes(inlineData: string | null): {
+  startedAt: string | null;
+  endedAt: string | null;
+} {
+  if (!inlineData) return { startedAt: null, endedAt: null };
+  try {
+    const parsed = JSON.parse(inlineData);
+    const events = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.events)
+        ? parsed.events
+        : [];
+    const timestamps = events
+      .map((event: unknown) => replayTimestamp(replayRecord(event).timestamp))
+      .filter((value: string | null): value is string => Boolean(value));
+    return {
+      startedAt: replayMinIso(timestamps),
+      endedAt: replayMaxIso(timestamps),
+    };
+  } catch {
+    return { startedAt: null, endedAt: null };
+  }
 }
 
 function normalizeReplayBlobRef(value: unknown): string | null {
@@ -533,14 +562,19 @@ function normalizeReplayChunk(rawValue: unknown): NormalizedSessionReplayChunk {
   if (!checksum || checksum.length > 128) {
     throw replayError("Each replay chunk requires a valid checksum", 400);
   }
+  const inferredTimes = inferReplayEventTimes(inlineData);
 
   return {
     seq,
     checksum,
     byteLength,
     eventCount,
-    startedAt: replayTimestamp(raw.startedAt ?? raw.startTime ?? raw.start),
-    endedAt: replayTimestamp(raw.endedAt ?? raw.endTime ?? raw.end),
+    startedAt:
+      replayTimestamp(raw.startedAt ?? raw.startTime ?? raw.start) ??
+      inferredTimes.startedAt,
+    endedAt:
+      replayTimestamp(raw.endedAt ?? raw.endTime ?? raw.end) ??
+      inferredTimes.endedAt,
     storageKind,
     storageRef,
     inlineData,
@@ -721,7 +755,15 @@ export function parseSessionReplayIngestPayload(
     body.status === "completed" || body.completed === true || endedAt
       ? "completed"
       : "active";
-  const userId = replayString(body.userId ?? body.user_id);
+  const userId =
+    replayEmail(body.userEmail ?? body.user_email) ||
+    replayEmail(properties.userEmail ?? properties.user_email) ||
+    replayEmail(properties.email) ||
+    replayEmail(context.userEmail ?? context.user_email) ||
+    replayEmail(body.userId ?? body.user_id);
+  if (!userId) {
+    throw replayError("Session replay requires a signed-in user email", 401);
+  }
   const anonymousId = replayString(body.anonymousId ?? body.anonymous_id);
 
   return {
@@ -1006,10 +1048,11 @@ export async function recordSessionReplayChunks(
     .limit(1);
 
   if (!recording) {
+    const newRecordingId = replayId("sr");
     await db
       .insert(schema.sessionRecordings)
       .values({
-        id: replayId("sr"),
+        id: newRecordingId,
         publicKeyId: key.id,
         clientRecordingId: input.clientRecordingId,
         sessionId: input.sessionId,
@@ -1071,53 +1114,66 @@ export async function recordSessionReplayChunks(
   );
   const rowsToInsert: any[] = [];
   let duplicateChunks = 0;
+  const wasEmptyRecording =
+    Number(recording.chunkCount ?? 0) === 0 &&
+    Number(recording.eventCount ?? 0) === 0 &&
+    existingChunks.length === 0;
 
-  for (const rawChunk of input.chunks) {
-    const chunk = await storeReplayChunkBlob(rawChunk, {
-      publicKeyId: key.id,
-      recordingId: recording.id,
-      ownerEmail: key.ownerEmail,
-      orgId: key.orgId,
-    });
-    const existing = existingBySeq.get(chunk.seq);
-    if (existing) {
-      if (existing.checksum !== chunk.checksum) {
+  try {
+    for (const rawChunk of input.chunks) {
+      const chunk = await storeReplayChunkBlob(rawChunk, {
+        publicKeyId: key.id,
+        recordingId: recording.id,
+        ownerEmail: key.ownerEmail,
+        orgId: key.orgId,
+      });
+      const existing = existingBySeq.get(chunk.seq);
+      if (existing) {
+        if (existing.checksum !== chunk.checksum) {
+          throw replayError(
+            `Replay chunk ${chunk.seq} was already recorded with a different checksum`,
+            409,
+          );
+        }
+        duplicateChunks += 1;
+        continue;
+      }
+      if (
+        existingChunks.length + rowsToInsert.length >=
+        MAX_REPLAY_CHUNKS_PER_RECORDING
+      ) {
         throw replayError(
-          `Replay chunk ${chunk.seq} was already recorded with a different checksum`,
-          409,
+          `Session recordings may contain at most ${MAX_REPLAY_CHUNKS_PER_RECORDING} chunks`,
+          413,
         );
       }
-      duplicateChunks += 1;
-      continue;
+      rowsToInsert.push({
+        id: replayId("src"),
+        recordingId: recording.id,
+        seq: chunk.seq,
+        checksum: chunk.checksum,
+        byteLength: chunk.byteLength,
+        eventCount: chunk.eventCount,
+        startedAt: chunk.startedAt,
+        endedAt: chunk.endedAt,
+        storageKind: chunk.storageKind,
+        storageRef: chunk.storageRef,
+        inlineData: chunk.inlineData,
+        ownerEmail: key.ownerEmail,
+        orgId: key.orgId,
+      });
     }
-    if (
-      existingChunks.length + rowsToInsert.length >=
-      MAX_REPLAY_CHUNKS_PER_RECORDING
-    ) {
-      throw replayError(
-        `Session recordings may contain at most ${MAX_REPLAY_CHUNKS_PER_RECORDING} chunks`,
-        413,
-      );
-    }
-    rowsToInsert.push({
-      id: replayId("src"),
-      recordingId: recording.id,
-      seq: chunk.seq,
-      checksum: chunk.checksum,
-      byteLength: chunk.byteLength,
-      eventCount: chunk.eventCount,
-      startedAt: chunk.startedAt,
-      endedAt: chunk.endedAt,
-      storageKind: chunk.storageKind,
-      storageRef: chunk.storageRef,
-      inlineData: chunk.inlineData,
-      ownerEmail: key.ownerEmail,
-      orgId: key.orgId,
-    });
-  }
 
-  if (rowsToInsert.length) {
-    await db.insert(schema.sessionReplayChunks).values(rowsToInsert);
+    if (rowsToInsert.length) {
+      await db.insert(schema.sessionReplayChunks).values(rowsToInsert);
+    }
+  } catch (error) {
+    if (wasEmptyRecording) {
+      await db
+        .delete(schema.sessionRecordings)
+        .where(eq(schema.sessionRecordings.id, recording.id));
+    }
+    throw error;
   }
 
   await db.insert(schema.sessionReplayIngests).values({
@@ -1239,6 +1295,9 @@ export async function listSessionRecordings(
       userEmail: scope.userEmail,
       orgId: scope.orgId ?? undefined,
     }),
+    replayTextContains(schema.sessionRecordings.userId, "@"),
+    gte(schema.sessionRecordings.chunkCount, 1),
+    gte(schema.sessionRecordings.eventCount, 1),
   ];
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
