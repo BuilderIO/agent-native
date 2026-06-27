@@ -115,7 +115,7 @@ const PROVIDER_SUPPORTED_MODELS = Object.fromEntries(
 
 const PROVIDER_ENV_VARS: Record<AISDKProvider, string[]> = {
   anthropic: ["ANTHROPIC_API_KEY"],
-  openai: ["OPENAI_API_KEY"],
+  openai: ["OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL"],
   openrouter: ["OPENROUTER_API_KEY"],
   google: ["GOOGLE_GENERATIVE_AI_API_KEY"],
   groq: ["GROQ_API_KEY"],
@@ -419,6 +419,21 @@ export function createAISDKEngine(
     const ollamaBaseUrl = readDeployCredentialEnv("OLLAMA_BASE_URL");
     if (ollamaBaseUrl) {
       finalConfig.baseUrl = ollamaBaseUrl;
+    }
+  }
+
+  if (provider === "openai") {
+    if (!finalConfig.baseUrl) {
+      const openaiBaseUrl = readDeployCredentialEnv("OPENAI_BASE_URL");
+      if (openaiBaseUrl) {
+        finalConfig.baseUrl = openaiBaseUrl;
+      }
+    }
+    if (!finalConfig.model) {
+      const openaiModel = readDeployCredentialEnv("OPENAI_MODEL");
+      if (openaiModel) {
+        finalConfig.model = openaiModel;
+      }
     }
   }
 
