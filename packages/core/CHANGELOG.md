@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.19
+
+### Patch Changes
+
+- 92876ad: Use a compact popover for the shared language picker so icon-only chrome can style it reliably.
+
 ## 0.79.18
 
 ### Patch Changes
