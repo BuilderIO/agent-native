@@ -120,6 +120,8 @@ const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
 const ANALYSIS_SORT_MODE_KEY = "analysis-sort-mode";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
 const ANALYSES_OPEN_KEY = "analytics-sidebar-analyses-open";
+const SIDEBAR_SKELETON_CLASS =
+  "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
 type SidebarSortMode = "most-used" | "alphabetical" | "manual";
 
@@ -2056,9 +2058,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                           key={`sql-skeleton-${i}`}
                           className="flex items-center gap-2 px-3 py-1"
                         >
-                          <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-sm" />
                           <Skeleton
-                            className="h-3 rounded"
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0 rounded-sm",
+                              SIDEBAR_SKELETON_CLASS,
+                            )}
+                          />
+                          <Skeleton
+                            className={cn(
+                              "h-3 rounded",
+                              SIDEBAR_SKELETON_CLASS,
+                            )}
                             style={{ width: `${60 + ((i * 17) % 30)}%` }}
                           />
                         </div>
@@ -2184,9 +2194,17 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                           key={`analysis-skeleton-${i}`}
                           className="flex items-center gap-2 px-3 py-1"
                         >
-                          <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-sm" />
                           <Skeleton
-                            className="h-3 rounded"
+                            className={cn(
+                              "h-3.5 w-3.5 shrink-0 rounded-sm",
+                              SIDEBAR_SKELETON_CLASS,
+                            )}
+                          />
+                          <Skeleton
+                            className={cn(
+                              "h-3 rounded",
+                              SIDEBAR_SKELETON_CLASS,
+                            )}
                             style={{ width: `${60 + ((i * 17) % 30)}%` }}
                           />
                         </div>

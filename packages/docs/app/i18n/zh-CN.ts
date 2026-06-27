@@ -43,6 +43,9 @@ const zhCN = {
   docs: {
     navigateAria: "浏览文档",
     onThisPage: "本页内容",
+    copyMarkdown: "将文档复制为 Markdown",
+    copiedMarkdown: "已复制 Markdown",
+    copyMarkdownError: "无法复制 Markdown",
     previous: "上一页",
     next: "下一页",
   },
@@ -526,7 +529,7 @@ const zhCN = {
       s004: "口授",
       s005: "能看到+听到",
       s006: "所有模板",
-      s007: "Loom 和 Jam 的开源替代方案",
+      s007: "Loom 的开源替代方案",
       s008: "将 Clips 链接粘贴到代理中，即使其模型无法摄取原始视频或音频，它也可以听到文字记录、读取摘要并查看带时间戳的帧。",
       s009: "试用",
       s010: "你能做什么",

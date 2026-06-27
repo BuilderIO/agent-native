@@ -82,6 +82,16 @@ export function docsPathForSlug(
     : `/${locale}/docs/${slug}`;
 }
 
+export function docsMarkdownPathForSlug(
+  slug: string,
+  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+) {
+  const docsPath = docsPathForSlug(slug, locale);
+  return slug === "getting-started"
+    ? `${docsPath}/getting-started.md`
+    : `${docsPath}.md`;
+}
+
 export function comparableDocsPath(pathname: string) {
   const slug = docsSlugFromPathname(pathname);
   return slug

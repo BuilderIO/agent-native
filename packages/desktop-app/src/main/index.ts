@@ -128,6 +128,13 @@ import {
   type BackgroundAgentTranscriptEvent,
 } from "../../../core/src/code-agents/background-run.js";
 import * as AppStore from "./app-store";
+import {
+  initializeDesktopSentry,
+  installSentryWebContentsInstrumentation,
+  setSentryWebContentsMetadata,
+} from "./sentry";
+
+initializeDesktopSentry();
 
 // ---------- stdout/stderr pipe resilience ----------
 // The main process logs spawned dev-server / code-agent child output via
@@ -1094,6 +1101,9 @@ function createWindow(): BrowserWindow {
       webSecurity: true,
     },
   });
+  installSentryWebContentsInstrumentation(win.webContents, {
+    role: "shell-renderer",
+  });
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
@@ -1296,6 +1306,10 @@ ipcMain.on(
   (_event: IpcMainEvent, target: ActiveWebviewTarget) => {
     activeAppId = target.appId;
     activeWebviewContentsId = target.webContentsId;
+    setSentryWebContentsMetadata(target.webContentsId, {
+      role: "app-webview",
+      appId: target.appId,
+    });
   },
 );
 
@@ -8594,6 +8608,9 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
 
 app.on("web-contents-created", (_event, contents) => {
   installContextMenu(contents);
+  installSentryWebContentsInstrumentation(contents, {
+    role: contents.getType() === "webview" ? "app-webview" : "web-contents",
+  });
 
   if (contents.getType() !== "webview") {
     contents.setWindowOpenHandler(({ url }) =>
@@ -8603,6 +8620,9 @@ app.on("web-contents-created", (_event, contents) => {
       "did-attach-webview",
       (_event, webviewContents: WebContents) => {
         installContextMenu(webviewContents);
+        installSentryWebContentsInstrumentation(webviewContents, {
+          role: "app-webview",
+        });
         installWebviewReloadGuard(webviewContents);
         installWebviewOAuthNavigationHandler(webviewContents);
 

@@ -41,6 +41,9 @@ const enUS = {
   docs: {
     navigateAria: "Navigate docs",
     onThisPage: "On this page",
+    copyMarkdown: "Copy doc as Markdown",
+    copiedMarkdown: "Copied Markdown",
+    copyMarkdownError: "Couldn't copy Markdown",
     previous: "Previous",
     next: "Next",
   },
@@ -533,7 +536,7 @@ const enUS = {
       s004: "Dictate",
       s005: "Can See + Hear",
       s006: "All Templates",
-      s007: "The open-source alternative to Loom and Jam",
+      s007: "The open-source alternative to Loom",
       s008: "Paste a Clips link into an agent and it can hear the transcript, read summaries, and see timestamped frames even if its model cannot ingest raw video or audio.",
       s009: "Try It",
       s010: "What you can do",

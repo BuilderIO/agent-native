@@ -144,7 +144,6 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    requireSignedInUser: true,
     sampleRate: 0.1,
   },
   getDefaultProps: (_event, props) => ({
@@ -163,11 +162,12 @@ Agent Native template roots already call `configureTracking()`. Hosted template 
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=true
 VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
 ```
 
-The browser helper also performs a best-effort, non-blocking read of the current Agent Native auth session. When `requireSignedInUser` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH` is enabled, replay does not start unless the session resolves to a signed-in user. Signed-in replays include `userId`/`userEmail` plus `orgId`; if auth gating is disabled, anonymous recordings remain queryable by anonymous visitor, session, app/template, hostname, and path.
+The browser helper also performs a best-effort, non-blocking read of the current Agent Native auth session. Replay is signed-in-only by default: when `sessionReplay` is enabled, recording does not start unless the session resolves to a user email address. Signed-in replays include email-backed `userId`/`userEmail` plus `orgId`.
+
+Set `sessionReplay.requireSignedInUser: false` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` only for an intentional anonymous replay deployment. When auth gating is disabled, anonymous recordings remain queryable by anonymous visitor, session, app/template, hostname, and path.
 
 Session replay is sampled deterministically per browser session. A `sampleRate` of `0.1` records about 10% of eligible sessions; use `1` when the eligible population is intentionally small, such as logged-in-only dogfooding.
 

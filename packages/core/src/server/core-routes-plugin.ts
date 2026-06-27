@@ -14,7 +14,10 @@ import { readMultipartFormData } from "h3";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
-import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
+import {
+  OPENAI_BASE_URL_ENV_VAR,
+  PROVIDER_ENV_META,
+} from "../agent/engine/provider-env-vars.js";
 import {
   isAgentEngineSettingConfigured,
   getAgentEngineEntry,
@@ -123,6 +126,7 @@ import {
 import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
   resolveSecret,
 } from "./credential-provider.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
@@ -2311,6 +2315,20 @@ export function createCoreRoutesPlugin(
                 /* org module not present in this template */
               }
             }
+            const openAiBaseUrlConfigured = await runWithRequestContext(
+              { userEmail, orgId },
+              async () => {
+                try {
+                  if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
+                } catch {
+                  /* fall through to deployment env when allowed */
+                }
+                return (
+                  canUseDeployCredentialFallbackForRequest() &&
+                  !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
+                );
+              },
+            );
             const stored = (await getSetting("agent-engine")) as {
               engine?: string;
               model?: string;
@@ -2323,6 +2341,7 @@ export function createCoreRoutesPlugin(
                 engine,
                 model: stored?.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
                 source: "settings" as const,
+                openAiBaseUrlConfigured,
               };
             }
             const envEntry = process.env.AGENT_ENGINE
@@ -2338,7 +2357,7 @@ export function createCoreRoutesPlugin(
                   ),
               );
               if (!envUsable) {
-                return { configured: false };
+                return { configured: false, openAiBaseUrlConfigured };
               }
               return {
                 configured: true,
@@ -2346,6 +2365,7 @@ export function createCoreRoutesPlugin(
                 model: envEntry.defaultModel ?? DEFAULT_MODEL,
                 source: "env" as const,
                 envVar: "AGENT_ENGINE",
+                openAiBaseUrlConfigured,
               };
             }
             // Per-user app_secrets — a user who connected Builder (or pasted
@@ -2363,6 +2383,7 @@ export function createCoreRoutesPlugin(
                 model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
                 source: "app_secrets" as const,
                 envVar: detectedFromUser.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
               };
             }
             if (stored && typeof stored.engine === "string") {
@@ -2379,6 +2400,7 @@ export function createCoreRoutesPlugin(
                   model: stored.model ?? entry.defaultModel ?? DEFAULT_MODEL,
                   source: "env" as const,
                   envVar: entry.requiredEnvVars[0],
+                  openAiBaseUrlConfigured,
                 };
               }
             }
@@ -2389,6 +2411,7 @@ export function createCoreRoutesPlugin(
                 model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
                 source: "app_secrets" as const,
                 envVar: detectedFromUser.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
               };
             }
             const canUseDeployEnv = await runWithRequestContext(
@@ -2403,6 +2426,7 @@ export function createCoreRoutesPlugin(
                 model: detected.defaultModel ?? DEFAULT_MODEL,
                 source: "env" as const,
                 envVar: detected.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
               };
             }
           } catch {}

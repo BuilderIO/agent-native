@@ -59,15 +59,6 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
 
   return (
     <div className="grid gap-2">
-      <div className="px-1 pb-1">
-        <div className="text-sm font-medium text-popover-foreground">
-          {t("captureInstall.title")}
-        </div>
-        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-          {t("captureInstall.description")}
-        </p>
-      </div>
-
       {chromeAvailable ? (
         <a
           href={clipsChromeExtensionUrl ?? undefined}

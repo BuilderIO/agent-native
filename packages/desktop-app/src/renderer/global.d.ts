@@ -561,6 +561,9 @@ type LocalAppFolderSelectResult = {
 /** Electron APIs exposed to the renderer via the preload contextBridge */
 interface ElectronAPI {
   platform: string;
+  sentry: {
+    enabled: boolean;
+  };
   webviewPreloadPath: string;
 
   windowControls: {

@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,6 +16,7 @@ describe("DiagramBlock expand affordance", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     setWireframeStyle("sketchy");
+    document.documentElement.classList.remove("dark");
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -25,6 +28,7 @@ describe("DiagramBlock expand affordance", () => {
     });
     container.remove();
     document.body.style.overflow = "";
+    document.documentElement.classList.remove("dark");
     setWireframeStyle("sketchy");
     vi.unstubAllGlobals();
   });
@@ -83,6 +87,54 @@ describe("DiagramBlock expand affordance", () => {
       "Switch to hand-drawn diagrams",
     );
     expect(styleButton()?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("renders html diagrams with the dark theme marker when the document is dark", () => {
+    document.documentElement.classList.add("dark");
+
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-dark"
+          ctx={{ sanitizeHtml: (html: string) => html }}
+          data={{
+            html: [
+              "<div class='diagram-card' data-rough><strong>Service</strong></div>",
+              "<div class='diagram-box'>Queue</div>",
+            ].join(""),
+          }}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(".plan-diagram-frame");
+
+    expect(frame?.getAttribute("data-theme")).toBe("dark");
+    expect(frame?.querySelector(".diagram-card[data-rough]")).toBeTruthy();
+    expect(frame?.querySelector(".diagram-box")).toBeTruthy();
+  });
+
+  it("keeps standard diagram primitives on a visible dark-mode border token", () => {
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+
+    expect(css).toMatch(
+      /\.plan-diagram-frame\[data-theme="dark"\]\s*{[^}]*--wf-diagram-line:\s*color-mix\([^}]*var\(--wf-sketch\)[^}]*var\(--wf-line\)/s,
+    );
+    expect(css).toMatch(
+      /:is\(\.diagram-panel,\s*\.diagram-card,\s*\.diagram-node,\s*\.diagram-box\)\s*{\s*--rough-stroke:\s*var\(--wf-diagram-line\);\s*border:\s*1\.25px solid var\(--wf-diagram-line\);/s,
+    );
+    expect(css).toMatch(
+      /\.plan-diagram-frame\s+:is\(\s*\.diagram-pill,[^}]*--rough-stroke:\s*var\(--wf-diagram-line\);/s,
+    );
+    expect(css).toMatch(
+      />\s*\.diagram-panel:not\(\[data-rough\]\):not\(\[data-diagram-frame\]\)/,
+    );
+    expect(css).toMatch(
+      /\.plan-diagram-frame\[data-rough-ready\][^}]*\.plan-diagram-frame-content[^}]*>\s*\.diagram-panel:not\(\[data-rough\]\):not\(\[data-diagram-frame\]\)\s*{\s*border-color:\s*transparent !important;/s,
+    );
+    expect(css).not.toMatch(
+      />\s*:is\(\.diagram-panel,\s*\.diagram-card,\s*\.diagram-box\):not\(\[data-rough\]\)/,
+    );
   });
 
   it("renders the expand control for the legacy node-graph variant", () => {

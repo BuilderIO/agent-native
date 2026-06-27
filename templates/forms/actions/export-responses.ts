@@ -6,6 +6,7 @@ import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { publicSubmitterEmail } from "../shared/submitter-email.js";
 
 export default defineAction({
   description: "Export form responses to CSV or JSON file.",
@@ -36,7 +37,7 @@ export default defineAction({
       const data = responses.map((r) => ({
         id: r.id,
         submittedAt: r.submittedAt,
-        submitterEmail: r.submitterEmail ?? null,
+        submitterEmail: publicSubmitterEmail(r.submitterEmail),
         pageUrl: r.pageUrl ?? null,
         clientSurface: r.clientSurface ?? null,
         ...JSON.parse(r.data),
@@ -56,7 +57,7 @@ export default defineAction({
         return [
           r.id,
           r.submittedAt,
-          r.submitterEmail ?? "",
+          publicSubmitterEmail(r.submitterEmail) ?? "",
           r.pageUrl ?? "",
           r.clientSurface ?? "",
           ...fields.map((f: any) => {

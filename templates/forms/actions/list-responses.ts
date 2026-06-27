@@ -4,6 +4,7 @@ import { eq, desc, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { publicSubmitterEmail } from "../shared/submitter-email.js";
 import type { FormResponse } from "../shared/types.js";
 
 export default defineAction({
@@ -49,7 +50,7 @@ export default defineAction({
         formId: r.formId,
         data: JSON.parse(r.data),
         submittedAt: r.submittedAt,
-        submitterEmail: r.submitterEmail ?? null,
+        submitterEmail: publicSubmitterEmail(r.submitterEmail),
         pageUrl: r.pageUrl ?? null,
         clientSurface: r.clientSurface ?? null,
       })) as FormResponse[],

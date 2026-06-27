@@ -3,6 +3,7 @@ import {
   DEFAULT_DOCS_LOCALE,
   DOCS_LOCALES,
   docsLocaleFromPathname,
+  docsMarkdownPathForSlug,
   docsPathForSlug,
   docsSlugFromPathname,
   type DocsLocale,
@@ -35,6 +36,26 @@ export function canonicalPathForPath(pathname: string) {
 
 function canonicalDocsPathForSlug(slug: string, locale: DocsLocale) {
   return canonicalPathForPath(docsPathForSlug(slug, locale));
+}
+
+export function docsMarkdownPathForDoc(
+  slug: string,
+  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+) {
+  const markdownLocale = hasLocalizedDoc(locale, slug)
+    ? locale
+    : DEFAULT_DOCS_LOCALE;
+  if (!hasLocalizedDoc(markdownLocale, slug)) return null;
+  return docsMarkdownPathForSlug(slug, markdownLocale);
+}
+
+export function docsMarkdownPathForPath(pathname: string) {
+  const slug = docsSlugFromPathname(pathname);
+  if (!slug) return null;
+  return docsMarkdownPathForDoc(
+    slug,
+    docsLocaleFromPathname(pathname) ?? DEFAULT_DOCS_LOCALE,
+  );
 }
 
 export function docsAlternateLinksForPath(

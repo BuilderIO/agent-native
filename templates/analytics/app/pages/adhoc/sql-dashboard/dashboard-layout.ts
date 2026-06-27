@@ -279,6 +279,44 @@ export function isDropSlotAvailable(
   return row.panels.length < group.columns;
 }
 
+export function availableDropSlotIdsForPanel(
+  groups: DashboardPanelGroup[],
+  panelId: string,
+): Set<string> {
+  const ids = new Set<string>();
+  if (!panelIsInRenderedRow(groups, panelId)) return ids;
+
+  for (const group of groups) {
+    for (let rowIndex = 0; rowIndex <= group.rows.length; rowIndex++) {
+      ids.add(dropSlotId({ type: "row", groupKey: group.key, rowIndex }));
+    }
+
+    for (let rowIndex = 0; rowIndex < group.rows.length; rowIndex++) {
+      const row = group.rows[rowIndex];
+      const rowContainsPanel = row.panels.some((panel) => panel.id === panelId);
+      if (!rowContainsPanel && row.panels.length >= group.columns) continue;
+      if (rowContainsPanel && row.panels.length <= 1) continue;
+
+      for (
+        let columnIndex = 0;
+        columnIndex <= row.panels.length;
+        columnIndex++
+      ) {
+        ids.add(
+          dropSlotId({
+            type: "column",
+            groupKey: group.key,
+            rowIndex,
+            columnIndex,
+          }),
+        );
+      }
+    }
+  }
+
+  return ids;
+}
+
 export function movePanelToDropSlot(
   panels: SqlPanel[],
   panelId: string,

@@ -13,6 +13,7 @@ import {
   isDocsLocale,
   type DocsLocale,
 } from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
@@ -90,7 +91,7 @@ export default function LocalizedDocPage() {
   const { locale: localeParam } = useParams<{
     locale: string;
   }>();
-  requireLocale(localeParam);
+  const locale = requireLocale(localeParam);
 
   if (!doc) return null;
 
@@ -101,7 +102,10 @@ export default function LocalizedDocPage() {
   }));
 
   return (
-    <DocsLayout toc={toc}>
+    <DocsLayout
+      toc={toc}
+      markdownUrl={docsMarkdownPathForDoc(doc.slug, locale) ?? undefined}
+    >
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

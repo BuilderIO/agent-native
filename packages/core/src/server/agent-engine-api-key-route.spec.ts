@@ -14,6 +14,7 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("../secrets/storage.js", () => ({
   writeAppSecret: vi.fn(),
+  deleteAppSecret: vi.fn(),
 }));
 
 import {
@@ -32,6 +33,49 @@ describe("agent engine api-key route helpers", () => {
       ok: true,
       key: "OPENAI_API_KEY",
       value: "sk-example",
+      clearBaseUrl: false,
+      scope: "user",
+    });
+  });
+
+  it("accepts OpenAI-compatible endpoint URLs and normalizes trailing slashes", () => {
+    expect(
+      normalizeAgentEngineApiKeyPayload({
+        provider: "openai",
+        baseUrl: " https://gateway.example/v1/// ",
+      }),
+    ).toEqual({
+      ok: true,
+      key: "OPENAI_API_KEY",
+      baseUrl: "https://gateway.example/v1",
+      clearBaseUrl: false,
+      scope: "user",
+    });
+  });
+
+  it("rejects endpoint URLs for non-OpenAI providers", () => {
+    expect(
+      normalizeAgentEngineApiKeyPayload({
+        provider: "anthropic",
+        baseUrl: "https://gateway.example/v1",
+      }),
+    ).toEqual({
+      ok: false,
+      statusCode: 400,
+      error: "Endpoint URL is only supported for OpenAI.",
+    });
+  });
+
+  it("accepts clearing the saved OpenAI endpoint", () => {
+    expect(
+      normalizeAgentEngineApiKeyPayload({
+        provider: "openai",
+        clearBaseUrl: true,
+      }),
+    ).toEqual({
+      ok: true,
+      key: "OPENAI_API_KEY",
+      clearBaseUrl: true,
       scope: "user",
     });
   });

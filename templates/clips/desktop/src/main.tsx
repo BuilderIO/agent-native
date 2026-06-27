@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 
 import { App } from "./app";
+import { initDesktopSentry } from "./lib/sentry";
 import { Bubble } from "./overlays/bubble";
 import { Countdown } from "./overlays/countdown";
 import { Finalizing } from "./overlays/finalizing";
@@ -211,6 +212,7 @@ const rootEl = document.getElementById("root");
 if (rootEl) {
   const route = currentRoute();
   installRouteAttributes(route);
+  initDesktopSentry(route);
   installConsoleCapture(route);
   installBeforeUnloadCleanup();
   installHeapDebugLog();

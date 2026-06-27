@@ -26,7 +26,7 @@ export default defineAction({
     app: z.string().optional().describe("Optional app filter"),
     template: z.string().optional().describe("Optional template filter"),
     sessionId: z.string().optional().describe("Optional analytics session id"),
-    userId: z.string().optional().describe("Optional signed-in user id"),
+    userId: z.string().optional().describe("Optional signed-in user email"),
     anonymousId: z.string().optional().describe("Optional anonymous user id"),
     path: z.string().optional().describe("Optional exact path filter"),
     from: z

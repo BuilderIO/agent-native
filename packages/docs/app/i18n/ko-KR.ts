@@ -43,6 +43,9 @@ const koKR = {
   docs: {
     navigateAria: "문서 탐색",
     onThisPage: "이 페이지",
+    copyMarkdown: "문서를 Markdown으로 복사",
+    copiedMarkdown: "Markdown 복사됨",
+    copyMarkdownError: "Markdown을 복사할 수 없음",
     previous: "이전",
     next: "다음",
   },
@@ -535,7 +538,7 @@ const koKR = {
       s004: "받아쓰기",
       s005: "볼 수 있고 들을 수 있음",
       s006: "모든 템플릿",
-      s007: "Loom 및 Jam에 대한 오픈 소스 대안",
+      s007: "Loom에 대한 오픈 소스 대안",
       s008: "Clips 링크를 에이전트에 붙여 넣으면 해당 모델이 원시 비디오 또는 오디오를 수집할 수 없는 경우에도 스크립트를 듣고, 요약을 읽고, 타임스탬프가 표시된 프레임을 볼 수 있습니다.",
       s009: "사용해 보기",
       s010: "당신이 할 수 있는 일",

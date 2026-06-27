@@ -1,7 +1,23 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 
-import type { FormField } from "../../shared/types.js";
-import { buildSlackPayload } from "./integrations.js";
+import type { FormField, FormIntegration } from "../../shared/types.js";
+
+const fetchMock = vi.hoisted(() => ({
+  requests: [] as Array<{ url: string; payload: any }>,
+}));
+
+vi.mock("@agent-native/core/tools/url-safety", () => ({
+  isBlockedToolUrl: () => false,
+  ssrfSafeToolFetch: async (url: string, init: { body?: unknown }) => {
+    fetchMock.requests.push({
+      url,
+      payload: JSON.parse(String(init.body ?? "{}")),
+    });
+    return { ok: true, status: 200 };
+  },
+}));
+
+import { buildSlackPayload, fireIntegrations } from "./integrations.js";
 
 const field: FormField = {
   id: "msg",
@@ -22,6 +38,16 @@ function payload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function integration(type: FormIntegration["type"]): FormIntegration {
+  return {
+    id: type,
+    type,
+    name: type,
+    enabled: true,
+    url: `https://example.com/${type}`,
+  };
+}
+
 /** Pull the trailing context block's mrkdwn text out of a Slack payload. */
 function contextText(p: ReturnType<typeof buildSlackPayload>): string {
   const ctx = p.blocks.find((b) => b.type === "context") as
@@ -31,6 +57,32 @@ function contextText(p: ReturnType<typeof buildSlackPayload>): string {
 }
 
 describe("buildSlackPayload page context", () => {
+  beforeEach(() => {
+    fetchMock.requests.length = 0;
+  });
+
+  it("shows real submitter emails in the context line", () => {
+    const text = contextText(
+      buildSlackPayload(payload({ submitterEmail: "user@example.com" })),
+    );
+
+    expect(text).toContain("by *user@example.com*");
+  });
+
+  it("hides synthetic anonymous Agent Native submitter emails", () => {
+    const text = contextText(
+      buildSlackPayload(
+        payload({
+          submitterEmail:
+            "anon-ee79aaee-98e2-452a-9476-5205713803c0@agent-native.com",
+        }),
+      ),
+    );
+
+    expect(text).not.toContain("@agent-native.com");
+    expect(text).not.toContain(" by *");
+  });
+
   it("shows a friendly App label and a readable page link for a per-app host", () => {
     const text = contextText(
       buildSlackPayload(
@@ -68,5 +120,36 @@ describe("buildSlackPayload page context", () => {
     const text = contextText(buildSlackPayload(payload()));
     expect(text).not.toContain("App:");
     expect(text).not.toContain("Page:");
+  });
+
+  it("scrubs synthetic anonymous submitter emails from integration payloads", async () => {
+    await fireIntegrations(
+      [
+        integration("slack"),
+        integration("discord"),
+        integration("google-sheets"),
+        integration("webhook"),
+      ],
+      payload({
+        submitterEmail:
+          "anon-ee79aaee-98e2-452a-9476-5205713803c0@agent-native.com",
+      }),
+    );
+
+    const payloadByType = new Map(
+      fetchMock.requests.map((request) => [
+        new URL(request.url).pathname.slice(1),
+        request.payload,
+      ]),
+    );
+    const slackText = contextText(payloadByType.get("slack"));
+    const discordFields = payloadByType.get("discord").embeds[0].fields;
+
+    expect(slackText).not.toContain("@agent-native.com");
+    expect(discordFields).not.toContainEqual(
+      expect.objectContaining({ name: "Submitted by" }),
+    );
+    expect(payloadByType.get("google-sheets").submitterEmail).toBe("");
+    expect(payloadByType.get("webhook").submitterEmail).toBeNull();
   });
 });

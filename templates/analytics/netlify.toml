@@ -16,3 +16,7 @@ AGENT_PROD_CODE_EXECUTION = "sandboxed"
 # If AGENT_RUN_SOFT_TIMEOUT_MS is customized, keep it below this timeout.
 [functions."*"]
 timeout = 75
+
+[functions.dashboard-report-sweep-background]
+timeout = 300
+memory = "2gb"

@@ -29,6 +29,32 @@ export interface SaveAgentEngineApiKeyOptions {
   scope?: "user" | "org";
 }
 
+export interface SaveAgentEngineProviderSettingsOptions {
+  provider?: AgentEngineProvider;
+  key?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  clearBaseUrl?: boolean;
+  scope?: "user" | "org";
+}
+
+function resolveProviderEnvVar(
+  provider: AgentEngineProvider | undefined,
+  key: string | undefined,
+): string {
+  const envVar = key?.trim() || (provider ? PROVIDER_ENV_VAR[provider] : "");
+  if (!envVar) {
+    throw new Error("Choose an API key provider first.");
+  }
+  return envVar;
+}
+
+function dispatchConfiguredChanged(): void {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(CONFIGURED_CHANGED_EVENT));
+  }
+}
+
 /**
  * Persist a provider API key for the current owner. Resolves on success.
  * Throws an Error with a readable message on failure. On success it also
@@ -41,20 +67,43 @@ export async function saveAgentEngineApiKey({
   apiKey,
   scope,
 }: SaveAgentEngineApiKeyOptions): Promise<void> {
-  const trimmed = apiKey.trim();
-  if (!trimmed) {
+  if (!apiKey.trim()) {
     throw new Error("Enter an API key first.");
   }
-  const envVar = key?.trim() || (provider ? PROVIDER_ENV_VAR[provider] : "");
-  if (!envVar) {
-    throw new Error("Choose an API key provider first.");
+  await saveAgentEngineProviderSettings({ provider, key, apiKey, scope });
+}
+
+/**
+ * Persist provider-specific settings for the current owner. This intentionally
+ * stays narrow: API keys for built-in BYOK providers, plus OpenAI's optional
+ * compatible endpoint URL. Values are stored server-side in scoped secrets.
+ */
+export async function saveAgentEngineProviderSettings({
+  provider,
+  key,
+  apiKey,
+  baseUrl,
+  clearBaseUrl,
+  scope,
+}: SaveAgentEngineProviderSettingsOptions): Promise<void> {
+  const trimmed = apiKey?.trim() ?? "";
+  const endpoint = baseUrl?.trim() ?? "";
+  if (!trimmed && !endpoint && !clearBaseUrl) {
+    throw new Error("Enter an API key or endpoint URL first.");
   }
+  const envVar = resolveProviderEnvVar(provider, key);
   const res = await fetch(
     agentNativePath("/_agent-native/agent-engine/api-key"),
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: envVar, value: trimmed, scope }),
+      body: JSON.stringify({
+        key: envVar,
+        ...(trimmed ? { value: trimmed } : {}),
+        ...(endpoint ? { baseUrl: endpoint } : {}),
+        ...(clearBaseUrl ? { clearBaseUrl: true } : {}),
+        scope,
+      }),
     },
   );
   if (!res.ok) {
@@ -66,10 +115,8 @@ export async function saveAgentEngineApiKey({
       message ??
         (res.status === 401
           ? "Sign in to save a key, or connect Builder instead."
-          : `Could not save the key (HTTP ${res.status}).`),
+          : `Could not save provider settings (HTTP ${res.status}).`),
     );
   }
-  if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(CONFIGURED_CHANGED_EVENT));
-  }
+  dispatchConfiguredChanged();
 }

@@ -17,6 +17,10 @@ import {
 } from "h3";
 import { nanoid } from "nanoid";
 
+import {
+  cleanSubmitterEmail,
+  publicSubmitterEmail,
+} from "../../shared/submitter-email.js";
 import type {
   FormField,
   FormIntegration,
@@ -40,13 +44,6 @@ function cleanMetaText(value: unknown): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, MAX_META_TEXT_LENGTH);
-}
-
-function cleanSubmitterEmail(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 320 || !trimmed.includes("@")) return null;
-  return trimmed;
 }
 
 // Allowlist the client-surface hint so only known values are stored. Anything
@@ -340,7 +337,7 @@ export const listResponses = defineEventHandler(async (event: H3Event) => {
           formId: r.formId,
           data: JSON.parse(r.data),
           submittedAt: r.submittedAt,
-          submitterEmail: r.submitterEmail,
+          submitterEmail: publicSubmitterEmail(r.submitterEmail),
           pageUrl: r.pageUrl ?? null,
           clientSurface: r.clientSurface ?? null,
         })) as FormResponse[],
