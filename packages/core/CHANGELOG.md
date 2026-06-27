@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.21
+
+### Patch Changes
+
+- 3acd677: Clarify workspace Docker Compose deployment for self-hosted VPS installs.
+
 ## 0.79.20
 
 ### Patch Changes
