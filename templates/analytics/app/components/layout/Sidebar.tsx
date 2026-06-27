@@ -1486,17 +1486,23 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [visibleDashboards, dashFilter],
   );
 
-  // Group dashboards that declare a parentId beneath their parent. Orphans
-  // (parent missing/filtered out) and self-references fall back to top level.
+  // Group dashboards that declare a parentId beneath their parent. Nesting is
+  // intentionally one level deep: a dashboard only nests when its parent is
+  // itself top-level. Orphans (parent missing/filtered out), self-references,
+  // cycles, and deeper descendants all fall back to top level so nothing is
+  // ever hidden.
   const dashboardChildren = useMemo<Map<string, SidebarDashboard[]>>(() => {
-    const present = new Set(filteredDashboards.map((d) => d.id));
+    const byId = new Map(filteredDashboards.map((d) => [d.id, d]));
+    const hasValidParent = (d: SidebarDashboard) =>
+      !!d.parentId && d.parentId !== d.id && byId.has(d.parentId);
     const byParent = new Map<string, SidebarDashboard[]>();
     for (const d of filteredDashboards) {
-      if (d.parentId && d.parentId !== d.id && present.has(d.parentId)) {
-        const arr = byParent.get(d.parentId) ?? [];
-        arr.push(d);
-        byParent.set(d.parentId, arr);
-      }
+      if (!hasValidParent(d)) continue;
+      const parent = byId.get(d.parentId as string);
+      if (!parent || hasValidParent(parent)) continue;
+      const arr = byParent.get(d.parentId as string) ?? [];
+      arr.push(d);
+      byParent.set(d.parentId as string, arr);
     }
     return byParent;
   }, [filteredDashboards]);
@@ -2125,7 +2131,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                           ? t("sidebar.showLess")
                           : t("sidebar.showMore", {
                               count:
-                                filteredDashboards.length -
+                                topLevelDashboards.length -
                                 SIDEBAR_PREVIEW_COUNT,
                             })}
                       </button>
