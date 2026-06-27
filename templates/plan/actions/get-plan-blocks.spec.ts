@@ -14,14 +14,17 @@ describe("get-plan-blocks action", () => {
     });
   });
 
-  it("teaches valid MDX component closing syntax", async () => {
+  it("teaches bare top-level prose and valid MDX component closing syntax", async () => {
     const result = (await (
       getPlanBlocksAction.run as (args: {
         format: "reference";
       }) => Promise<unknown>
     )({ format: "reference" })) as { reference: string };
 
-    expect(result.reference).toContain("MDX component syntax");
+    expect(result.reference).toContain("MDX prose and component syntax");
+    expect(result.reference).toContain(
+      "write ordinary top-level prose as normal Markdown",
+    );
     expect(result.reference).toContain(
       "Never write a bare opening tag like `<RichText ...>`",
     );

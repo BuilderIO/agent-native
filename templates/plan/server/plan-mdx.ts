@@ -14,6 +14,7 @@ import { unified } from "unified";
 import { visit } from "unist-util-visit";
 import { z } from "zod";
 
+import { parsePlanCommentAnchor } from "../shared/comment-context.js";
 import {
   PLAN_ASSET_MAX_SINGLE_BYTES,
   PLAN_ASSET_MAX_TOTAL_BYTES,
@@ -38,6 +39,7 @@ import {
   type PlanWireframeBlock,
   type PlanWireframeNode,
 } from "../shared/plan-content.js";
+import type { PlanComment } from "../shared/types.js";
 import { normalizePlanContent } from "./plan-content.js";
 
 // Server-side plan block registry. Registered specs (currently the editable
@@ -105,6 +107,7 @@ export type ExportPlanMdxInput = {
   brief?: string | null;
   planId?: string;
   url?: string;
+  referencedBlockIds?: Iterable<string>;
 };
 
 const HOSTED_PLAN_ORIGIN = "https://plan.agent-native.com";
@@ -122,6 +125,13 @@ export const planMdxFileSchema = z.object({
   "assets/": z.record(z.string(), z.string()).optional(),
 });
 
+const markdownBlockStateSchema = z.object({
+  id: z.string().min(1),
+  hash: z.string().min(1).optional(),
+});
+
+type MarkdownBlockState = z.infer<typeof markdownBlockStateSchema>;
+
 const planMdxStateSchema = z
   .object({
     version: z.number().optional(),
@@ -137,8 +147,29 @@ const planMdxStateSchema = z
           .optional(),
       })
       .optional(),
+    markdownBlockIds: z.array(z.string().min(1)).optional(),
+    markdownBlocks: z.array(markdownBlockStateSchema).optional(),
   })
   .passthrough();
+
+type PlanMdxState = z.infer<typeof planMdxStateSchema>;
+
+export function referencedBlockIdsForPlanComments(
+  comments: PlanComment[] | null | undefined,
+): Set<string> {
+  const ids = new Set<string>();
+  for (const comment of comments ?? []) {
+    if (comment.deletedAt) continue;
+    const anchor = parsePlanCommentAnchor(comment.anchor);
+    if (anchor?.sectionId) ids.add(anchor.sectionId);
+    const selectorBlockId = anchor?.targetSelector?.match(
+      /\[data-block-id=(?:"([^"]+)"|'([^']+)')\]/,
+    );
+    const matched = selectorBlockId?.[1] ?? selectorBlockId?.[2];
+    if (matched) ids.add(matched);
+  }
+  return ids;
+}
 
 const ANNOTATION_PLACEMENTS = [
   "top",
@@ -455,6 +486,77 @@ function serializeBlock(block: PlanBlock): string {
   throw new Error(`Unsupported plan block type: ${block.type}`);
 }
 
+function hasTopLevelCapitalizedMdxComponent(markdown: string): boolean {
+  try {
+    const tree = parseMdx(markdown);
+    return (tree.children ?? []).some((child) => {
+      const name = elementName(child);
+      return !!name && /^[A-Z]/.test(name);
+    });
+  } catch {
+    return true;
+  }
+}
+
+function markdownRunHash(markdown: string): string {
+  let hash = 0xcbf29ce484222325n;
+  const value = markdown.trim();
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= BigInt(value.charCodeAt(index));
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, "0");
+}
+
+function markdownBlockState(id: string, markdown: string): MarkdownBlockState {
+  return { id, hash: markdownRunHash(markdown) };
+}
+
+function shouldWrapTopLevelRichTextBlock(
+  block: Extract<PlanBlock, { type: "rich-text" }>,
+  referencedBlockIds: ReadonlySet<string>,
+): boolean {
+  return (
+    block.data.markdown.trim().length === 0 ||
+    Boolean(block.title) ||
+    Boolean(block.summary) ||
+    block.editable !== undefined ||
+    referencedBlockIds.has(block.id) ||
+    hasTopLevelCapitalizedMdxComponent(block.data.markdown)
+  );
+}
+
+function serializeTopLevelBlock(
+  block: PlanBlock,
+  options: {
+    referencedBlockIds: ReadonlySet<string>;
+    markdownBlocks: MarkdownBlockState[];
+  },
+): string {
+  if (
+    block.type === "rich-text" &&
+    !shouldWrapTopLevelRichTextBlock(block, options.referencedBlockIds)
+  ) {
+    const markdown = block.data.markdown.trim();
+    options.markdownBlocks.push(markdownBlockState(block.id, markdown));
+    return markdown;
+  }
+  return serializeBlock(block);
+}
+
+function serializeTopLevelBlocks(
+  blocks: PlanBlock[],
+  referencedBlockIds: ReadonlySet<string>,
+): { body: string; markdownBlocks: MarkdownBlockState[] } {
+  const markdownBlocks: MarkdownBlockState[] = [];
+  const body = blocks
+    .map((block) =>
+      serializeTopLevelBlock(block, { referencedBlockIds, markdownBlocks }),
+    )
+    .join("\n\n");
+  return { body, markdownBlocks };
+}
+
 function serializeColumnChild(block: PlanBlock): string {
   if (block.type === "rich-text") {
     return block.data.markdown.trim();
@@ -702,6 +804,11 @@ export async function exportPlanContentToMdxFolder(
     ...content,
     blocks: rewrittenBlocks,
   };
+  const referencedBlockIds = new Set(input.referencedBlockIds ?? []);
+  const serializedPlanBlocks = serializeTopLevelBlocks(
+    rewrittenContent.blocks,
+    referencedBlockIds,
+  );
 
   const planSource = [
     frontmatter({
@@ -711,7 +818,7 @@ export async function exportPlanContentToMdxFolder(
       version: content.version,
       notionSync: content.notionSync ? true : undefined,
     }),
-    rewrittenContent.blocks.map(serializeBlock).join("\n\n"),
+    serializedPlanBlocks.body,
   ].join("");
 
   const folder: PlanMdxFolder = {
@@ -721,6 +828,14 @@ export async function exportPlanContentToMdxFolder(
       {
         version: 1,
         planId: input.planId,
+        markdownBlockIds:
+          serializedPlanBlocks.markdownBlocks.length > 0
+            ? serializedPlanBlocks.markdownBlocks.map((block) => block.id)
+            : undefined,
+        markdownBlocks:
+          serializedPlanBlocks.markdownBlocks.length > 0
+            ? serializedPlanBlocks.markdownBlocks
+            : undefined,
         canvas: content.canvas
           ? (content.canvas.viewport ?? {
               zoom: 0.68,
@@ -880,39 +995,92 @@ function stringifyChildren(children: MdxNode[] | undefined): string {
   return stringifyMdx({ type: "root", children }).trim();
 }
 
+type ParsedPlanNode =
+  | { type: "block"; block: PlanBlock }
+  | { type: "markdown"; markdown: string };
+
+function resolveMarkdownRunIds(
+  markdowns: string[],
+  options: {
+    firstMarkdownBlockId?: string;
+    markdownBlockIds?: string[];
+    markdownBlocks?: MarkdownBlockState[];
+  } = {},
+): string[] {
+  const stateBlocks: MarkdownBlockState[] =
+    options.markdownBlocks && options.markdownBlocks.length > 0
+      ? options.markdownBlocks
+      : (options.markdownBlockIds?.map((id) => ({ id })) ?? []);
+
+  if (stateBlocks.length === markdowns.length) {
+    return stateBlocks.map((block) => block.id);
+  }
+
+  const byHash = new Map<string, string[]>();
+  for (const block of stateBlocks) {
+    if (!block.hash) continue;
+    const ids = byHash.get(block.hash) ?? [];
+    ids.push(block.id);
+    byHash.set(block.hash, ids);
+  }
+
+  return markdowns.map((markdown, index) => {
+    const ids = byHash.get(markdownRunHash(markdown));
+    const matched = ids?.shift();
+    if (matched) return matched;
+    if (index === 0 && options.firstMarkdownBlockId) {
+      return options.firstMarkdownBlockId;
+    }
+    return createPlanBlockId("markdown");
+  });
+}
+
 function parseBlocksFromNodes(
   nodes: MdxNode[] | undefined,
   idContext: string,
-  options: { firstMarkdownBlockId?: string } = {},
+  options: {
+    firstMarkdownBlockId?: string;
+    markdownBlockIds?: string[];
+    markdownBlocks?: MarkdownBlockState[];
+  } = {},
 ): PlanBlock[] {
-  const blocks: PlanBlock[] = [];
+  const parsedNodes: ParsedPlanNode[] = [];
   const looseNodes: MdxNode[] = [];
-  let markdownIndex = 0;
   const flushLoose = () => {
     const markdown = stringifyChildren(looseNodes).trim();
     looseNodes.length = 0;
     if (!markdown) return;
-    blocks.push({
-      id:
-        markdownIndex === 0 && options.firstMarkdownBlockId
-          ? options.firstMarkdownBlockId
-          : createPlanBlockId("markdown"),
-      type: "rich-text",
-      data: { markdown },
-    });
-    markdownIndex += 1;
+    parsedNodes.push({ type: "markdown", markdown });
   };
 
   for (const [index, child] of (nodes ?? []).entries()) {
     const block = parseBlock(child, `${idContext}-${index}`);
     if (block) {
       flushLoose();
-      blocks.push(block);
+      parsedNodes.push({ type: "block", block });
     } else {
       looseNodes.push(child);
     }
   }
   flushLoose();
+
+  const markdowns = parsedNodes
+    .filter(
+      (node): node is Extract<ParsedPlanNode, { type: "markdown" }> =>
+        node.type === "markdown",
+    )
+    .map((node) => node.markdown);
+  const markdownIds = resolveMarkdownRunIds(markdowns, options);
+  let markdownIndex = 0;
+  const blocks = parsedNodes.map((node) => {
+    if (node.type === "block") return node.block;
+    const id = markdownIds[markdownIndex++] ?? createPlanBlockId("markdown");
+    return {
+      id,
+      type: "rich-text",
+      data: { markdown: node.markdown },
+    } satisfies PlanBlock;
+  });
   return blocks;
 }
 
@@ -1372,7 +1540,11 @@ export async function parsePlanMdxFolder(
   const files = planMdxFileSchema.parse(folder);
   const parsedMatter = parseSimpleFrontmatter(files["plan.mdx"]);
   const planTree = parseMdx(parsedMatter.content);
-  const blocks = parseBlocksFromNodes(planTree.children, "plan-block");
+  const state = parsePlanState(files[".plan-state.json"]);
+  const blocks = parseBlocksFromNodes(planTree.children, "plan-block", {
+    markdownBlockIds: state?.markdownBlockIds,
+    markdownBlocks: state?.markdownBlocks,
+  });
 
   const canvas = files["canvas.mdx"]
     ? parseCanvas(files["canvas.mdx"])
@@ -1380,7 +1552,6 @@ export async function parsePlanMdxFolder(
   const prototype = files["prototype.mdx"]
     ? parsePrototype(files["prototype.mdx"])
     : undefined;
-  const state = parsePlanState(files[".plan-state.json"]);
   if (canvas && state?.canvas) canvas.viewport = state.canvas;
 
   const content: PlanContent = {
@@ -1619,6 +1790,148 @@ function elementId(node: MdxNode): string | undefined {
   return stringAttr(node, "id");
 }
 
+function makeRichTextMdxNode(input: {
+  blockId: string;
+  markdown: string;
+  title?: string;
+}): MdxNode {
+  const node: MdxNode = {
+    type: "mdxJsxFlowElement",
+    name: "RichText",
+    attributes: [],
+    children: parseMdx(input.markdown).children ?? [],
+  };
+  setAttribute(node, "id", input.blockId);
+  setAttribute(node, "title", input.title);
+  return node;
+}
+
+function hasTopLevelComponent(nodes: MdxNode[] | undefined): boolean {
+  return (nodes ?? []).some((node) => {
+    const name = elementName(node);
+    return !!name && /^[A-Z]/.test(name);
+  });
+}
+
+type LooseMarkdownRun = {
+  start: number;
+  end: number;
+  markdown: string;
+};
+
+function collectLooseMarkdownRuns(children: MdxNode[]): LooseMarkdownRun[] {
+  const runs: LooseMarkdownRun[] = [];
+  let runStart: number | null = null;
+  for (let index = 0; index <= children.length; index += 1) {
+    const child = children[index];
+    const atEnd = index === children.length;
+    const isBlockBoundary =
+      !atEnd && !!parseBlock(child, `markdown-run-${index}`);
+    if (!atEnd && !isBlockBoundary) {
+      runStart ??= index;
+      continue;
+    }
+    if (runStart === null) continue;
+    const markdown = stringifyChildren(children.slice(runStart, index)).trim();
+    if (markdown) runs.push({ start: runStart, end: index, markdown });
+    runStart = null;
+  }
+  return runs;
+}
+
+function markdownStatesForRuns(
+  runs: LooseMarkdownRun[],
+  ids: string[],
+): MarkdownBlockState[] {
+  return runs.map((run, index) =>
+    markdownBlockState(
+      ids[index] ?? createPlanBlockId("markdown"),
+      run.markdown,
+    ),
+  );
+}
+
+function replaceLooseMarkdownBlockById(
+  tree: MdxNode,
+  patch: Extract<PlanMdxSourcePatch, { op: "replace-markdown-block" }>,
+  options: {
+    markdownBlockIds?: string[];
+    markdownBlocks?: MarkdownBlockState[];
+  },
+): { changed: boolean; markdownBlocks: MarkdownBlockState[] } {
+  const children = tree.children ?? [];
+  const runs = collectLooseMarkdownRuns(children);
+  const runIds = resolveMarkdownRunIds(
+    runs.map((run) => run.markdown),
+    options,
+  );
+  const targetIndex = runIds.indexOf(patch.blockId);
+  if (targetIndex < 0) {
+    return { changed: false, markdownBlocks: options.markdownBlocks ?? [] };
+  }
+  const targetRun = runs[targetIndex];
+  if (!targetRun) {
+    return { changed: false, markdownBlocks: options.markdownBlocks ?? [] };
+  }
+
+  const replacement = parseMdx(patch.markdown);
+  const replacementChildren = replacement.children ?? [];
+  const replacementMarkdown = stringifyChildren(replacementChildren).trim();
+  let nextRunIds = [...runIds];
+
+  if (!replacementMarkdown) {
+    children.splice(targetRun.start, targetRun.end - targetRun.start);
+    nextRunIds.splice(targetIndex, 1);
+  } else if (patch.title || hasTopLevelComponent(replacementChildren)) {
+    children.splice(
+      targetRun.start,
+      targetRun.end - targetRun.start,
+      makeRichTextMdxNode({
+        blockId: patch.blockId,
+        markdown: patch.markdown,
+        title: patch.title,
+      }),
+    );
+    nextRunIds.splice(targetIndex, 1);
+  } else {
+    children.splice(
+      targetRun.start,
+      targetRun.end - targetRun.start,
+      ...replacementChildren,
+    );
+  }
+
+  tree.children = children;
+  const nextRuns = collectLooseMarkdownRuns(children);
+  return {
+    changed: true,
+    markdownBlocks: markdownStatesForRuns(nextRuns, nextRunIds),
+  };
+}
+
+function writePlanState(
+  folder: PlanMdxFolder,
+  state: PlanMdxState | undefined,
+) {
+  const markdownBlocks = state?.markdownBlocks;
+  const markdownBlockIds = Array.isArray(markdownBlocks)
+    ? markdownBlocks.map((block) => block.id)
+    : (state?.markdownBlockIds ?? []);
+  folder[".plan-state.json"] = JSON.stringify(
+    {
+      ...(state ?? { version: 1 }),
+      markdownBlockIds:
+        markdownBlockIds.length > 0 ? markdownBlockIds : undefined,
+      markdownBlocks:
+        markdownBlocks && markdownBlocks.length > 0
+          ? markdownBlocks
+          : undefined,
+    },
+    null,
+    2,
+  );
+}
+
 function parseFragmentElement(source: string, name: string): MdxNode {
   const tree = parseMdx(source);
   const found = (tree.children ?? []).find(
@@ -1688,6 +2001,11 @@ export async function applyPlanMdxSourcePatches(
     }
 
     if (patch.op === "replace-markdown-block") {
+      const state = parsePlanState(next[".plan-state.json"]);
+      let markdownBlocks = state?.markdownBlocks
+        ? [...state.markdownBlocks]
+        : [];
+      let markdownBlocksChanged = false;
       next["plan.mdx"] = await updateMdxSource(next["plan.mdx"], (tree) => {
         let changed = false;
         visitMdx(tree, "mdxJsxFlowElement", (node) => {
@@ -1701,11 +2019,26 @@ export async function applyPlanMdxSourcePatches(
           if (patch.title) setAttribute(node, "title", patch.title);
           changed = true;
         });
+        if (!changed) {
+          const result = replaceLooseMarkdownBlockById(tree, patch, {
+            markdownBlockIds: state?.markdownBlockIds,
+            markdownBlocks,
+          });
+          changed = result.changed;
+          markdownBlocksChanged = result.changed;
+          markdownBlocks = result.markdownBlocks;
+        }
         if (!changed)
           throw new Error(
-            `RichText block ${patch.blockId} not found in plan.mdx.`,
+            `Markdown block ${patch.blockId} not found in plan.mdx.`,
           );
       });
+      if (markdownBlocksChanged) {
+        writePlanState(next, {
+          ...(state ?? { version: 1 }),
+          markdownBlocks,
+        });
+      }
       continue;
     }
 

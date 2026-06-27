@@ -19,11 +19,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
+  docSourceSlugFromFilename,
+  preferMdxDocSourceFiles,
+} from "../../lib/docs-source";
+import {
   DocBlock,
   DocBlocksProvider,
   resolveDocBlockType,
   splitDocSegments,
-  validateDocBlock,
+  validateDocSegment,
 } from "./docBlocks";
 
 const CONTENT_DIR = join(
@@ -39,14 +43,11 @@ type LoadedDoc = {
 };
 
 function loadDocsFromDir(dir: string, locale?: string): LoadedDoc[] {
-  return readdirSync(dir)
-    .filter((name) => name.endsWith(".md"))
-    .sort()
-    .map((name) => ({
-      locale,
-      slug: name.replace(/\.md$/, ""),
-      body: readFileSync(join(dir, name), "utf8"),
-    }));
+  return preferMdxDocSourceFiles(readdirSync(dir)).map((name) => ({
+    locale,
+    slug: docSourceSlugFromFilename(name),
+    body: readFileSync(join(dir, name), "utf8"),
+  }));
 }
 
 function loadDocs(): LoadedDoc[] {
@@ -65,10 +66,13 @@ function docLabel(doc: LoadedDoc) {
   return doc.locale ? `${doc.locale}/${doc.slug}` : doc.slug;
 }
 
-function parseJsonBlockData(segment: {
-  alias: string;
-  body: string;
-}): unknown | undefined {
+function parseJsonBlockData(
+  segment: Extract<
+    ReturnType<typeof splitDocSegments>[number],
+    { kind: "block" }
+  >,
+): unknown | undefined {
+  if (segment.source === "mdx") return segment.data;
   if (resolveDocBlockType(segment.alias) === "mermaid") return undefined;
   const trimmed = segment.body.trim();
   if (!trimmed) return undefined;
@@ -84,7 +88,9 @@ function fileTreeSegments(doc: LoadedDoc) {
       { kind: "block" }
     > =>
       segment.kind === "block" &&
-      resolveDocBlockType(segment.alias) === "file-tree",
+      (segment.source === "mdx"
+        ? segment.type === "file-tree"
+        : resolveDocBlockType(segment.alias) === "file-tree"),
   );
 }
 
@@ -97,6 +103,28 @@ function shouldTranslateFileTreeText(value: unknown): value is string {
   if (trimmed.startsWith("@")) return false;
   if (/^[\w.-]+:\s*\[/.test(trimmed)) return false;
   return /[A-Za-z]/.test(trimmed);
+}
+
+function fileTreeTitle(
+  segment: Extract<
+    ReturnType<typeof splitDocSegments>[number],
+    { kind: "block" }
+  >,
+): unknown {
+  return segment.source === "mdx" ? segment.title : segment.attrs.title;
+}
+
+function markdownLinesOutsideFences(markdown: string): string[] {
+  const lines: string[] = [];
+  let inFence = false;
+  for (const line of markdown.split("\n")) {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) lines.push(line);
+  }
+  return lines;
 }
 
 describe("docs visual blocks", () => {
@@ -116,17 +144,43 @@ describe("docs visual blocks", () => {
     const failures: string[] = [];
     for (const doc of allDocs) {
       const rawOpeners = (doc.body.match(/^```an-[\w-]+/gm) ?? []).length;
-      const parsedBlocks = splitDocSegments(doc.body).filter(
-        (segment) => segment.kind === "block",
+      const parsedFenceBlocks = splitDocSegments(doc.body).filter(
+        (segment) =>
+          segment.kind === "block" &&
+          segment.source === "fence" &&
+          segment.alias.startsWith("an-"),
       ).length;
-      if (parsedBlocks !== rawOpeners) {
+      if (parsedFenceBlocks !== rawOpeners) {
         failures.push(
-          `${docLabel(doc)}: ${rawOpeners} \`an-*\` openers but ${parsedBlocks} parsed blocks`,
+          `${docLabel(doc)}: ${rawOpeners} \`an-*\` openers but ${parsedFenceBlocks} parsed fence blocks`,
         );
       }
     }
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
-  });
+  }, 30_000);
+
+  it("does not leave registered MDX block tags behind as prose", () => {
+    const failures: string[] = [];
+    const rawBlockTagPattern =
+      /^\s*<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)(?:\s|>|\/)/;
+    for (const doc of allDocs) {
+      const leaked = splitDocSegments(doc.body)
+        .filter((segment) => segment.kind === "markdown")
+        .flatMap((segment) =>
+          markdownLinesOutsideFences(segment.text).filter((line) =>
+            rawBlockTagPattern.test(line),
+          ),
+        );
+      if (leaked.length > 0) {
+        failures.push(
+          `${docLabel(doc)}: unparsed registered MDX block tags: ${leaked.join(
+            ", ",
+          )}`,
+        );
+      }
+    }
+    expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
+  }, 30_000);
 
   it("every embedded block passes its schema", () => {
     const failures: string[] = [];
@@ -134,16 +188,18 @@ describe("docs visual blocks", () => {
       const segments = splitDocSegments(doc.body);
       segments.forEach((segment, index) => {
         if (segment.kind !== "block") return;
-        const result = validateDocBlock(segment.alias, segment.body);
+        const result = validateDocSegment(segment);
         if (!result.ok) {
           failures.push(
-            `${docLabel(doc)} [block #${index} \`${segment.alias}\`]: ${result.error}`,
+            `${docLabel(doc)} [block #${index} \`${
+              segment.source === "mdx" ? segment.type : segment.alias
+            }\`]: ${result.error}`,
           );
         }
       });
     }
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
-  });
+  }, 30_000);
 
   it("every embedded block renders through the SSR path", () => {
     const failures: string[] = [];
@@ -154,11 +210,7 @@ describe("docs visual blocks", () => {
         try {
           const html = renderToStaticMarkup(
             <DocBlocksProvider>
-              <DocBlock
-                alias={segment.alias}
-                attrs={segment.attrs}
-                body={segment.body}
-              />
+              <DocBlock segment={segment} />
             </DocBlocksProvider>,
           );
           // A rendered DocBlockError surfaces as the only child text; treat the
@@ -169,9 +221,9 @@ describe("docs visual blocks", () => {
           }
         } catch (error) {
           failures.push(
-            `${docLabel(doc)} [block #${index} \`${segment.alias}\`]: render threw — ${
-              (error as Error).message
-            }`,
+            `${docLabel(doc)} [block #${index} \`${
+              segment.source === "mdx" ? segment.type : segment.alias
+            }\`]: render threw — ${(error as Error).message}`,
           );
         }
       });
@@ -183,9 +235,13 @@ describe("docs visual blocks", () => {
     const element = (
       <DocBlocksProvider>
         <DocBlock
-          alias="an-callout"
-          attrs={{}}
-          body='{ "tone": "info", "body": "Stable id" }'
+          segment={{
+            kind: "block",
+            source: "fence",
+            alias: "an-callout",
+            attrs: {},
+            body: '{ "tone": "info", "body": "Stable id" }',
+          }}
         />
       </DocBlocksProvider>
     );
@@ -217,8 +273,8 @@ describe("docs visual blocks", () => {
           | undefined;
 
         if (
-          shouldTranslateFileTreeText(sourceTree.attrs.title) &&
-          localizedTree.attrs.title === sourceTree.attrs.title
+          shouldTranslateFileTreeText(fileTreeTitle(sourceTree)) &&
+          fileTreeTitle(localizedTree) === fileTreeTitle(sourceTree)
         ) {
           failures.push(
             `${docLabel(localizedDoc)} file-tree #${treeIndex}: title still matches English`,
@@ -252,5 +308,5 @@ describe("docs visual blocks", () => {
     }
 
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
-  });
+  }, 30_000);
 });
