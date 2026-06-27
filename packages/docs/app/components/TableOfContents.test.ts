@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { getActiveTocId } from "./TableOfContents";
+import { copyMarkdownFromUrl, getActiveTocId } from "./TableOfContents";
 
 function headingAt(top: number): Pick<HTMLElement, "getBoundingClientRect"> {
   return {
@@ -33,5 +33,26 @@ describe("getActiveTocId", () => {
         (id) => headings.get(id) ?? null,
       ),
     ).toBe("actions");
+  });
+});
+
+describe("copyMarkdownFromUrl", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches the markdown twin and writes it to the clipboard", async () => {
+    const fetchMock = vi.fn(async () => new Response("# Docs\n"));
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("fetch", fetchMock);
+
+    await copyMarkdownFromUrl("/docs/multi-app-workspace.md", writeText);
+
+    expect(fetchMock).toHaveBeenCalledWith("/docs/multi-app-workspace.md", {
+      headers: {
+        Accept: "text/markdown, text/plain;q=0.9, */*;q=0.1",
+      },
+    });
+    expect(writeText).toHaveBeenCalledWith("# Docs\n");
   });
 });

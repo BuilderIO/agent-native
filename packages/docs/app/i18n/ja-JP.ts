@@ -43,6 +43,9 @@ const jaJP = {
   docs: {
     navigateAria: "ドキュメントを移動",
     onThisPage: "このページ",
+    copyMarkdown: "ドキュメントをMarkdownとしてコピー",
+    copiedMarkdown: "Markdownをコピーしました",
+    copyMarkdownError: "Markdownをコピーできませんでした",
     previous: "前へ",
     next: "次へ",
   },

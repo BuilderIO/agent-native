@@ -43,6 +43,9 @@ const arSA = {
   docs: {
     navigateAria: "تصفح الوثائق",
     onThisPage: "في هذه الصفحة",
+    copyMarkdown: "نسخ المستند كـ Markdown",
+    copiedMarkdown: "تم نسخ Markdown",
+    copyMarkdownError: "تعذر نسخ Markdown",
     previous: "السابق",
     next: "التالي",
   },

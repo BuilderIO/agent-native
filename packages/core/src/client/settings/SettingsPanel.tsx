@@ -1011,7 +1011,7 @@ function LLMSectionInner({
                               }}
                               className="h-3 w-3 accent-current"
                             />
-                            Clear saved endpoint
+                            Clear saved endpoint override
                           </label>
                         )}
                         {envVar && envConfigured && endpointChanged && (

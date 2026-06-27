@@ -41,6 +41,9 @@ const messages = {
   docs: {
     navigateAria: "瀏覽檔案",
     onThisPage: "本頁面內容",
+    copyMarkdown: "將文件複製為 Markdown",
+    copiedMarkdown: "已複製 Markdown",
+    copyMarkdownError: "無法複製 Markdown",
     previous: "上一頁面",
     next: "下一頁面",
   },

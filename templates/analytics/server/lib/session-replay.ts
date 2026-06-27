@@ -1015,11 +1015,15 @@ function replayRecordingChangeScope(row: {
 
 async function deleteEmptyReplayRecordingPlaceholder(
   db: any,
-  recordingId: string,
+  recording: { id: string; ownerEmail: string; orgId: string | null },
 ): Promise<void> {
   await db.delete(schema.sessionRecordings).where(
     and(
-      eq(schema.sessionRecordings.id, recordingId),
+      eq(schema.sessionRecordings.id, recording.id),
+      eq(schema.sessionRecordings.ownerEmail, recording.ownerEmail),
+      recording.orgId
+        ? eq(schema.sessionRecordings.orgId, recording.orgId)
+        : isNull(schema.sessionRecordings.orgId),
       eq(schema.sessionRecordings.chunkCount, 0),
       eq(schema.sessionRecordings.eventCount, 0),
       sql`not exists (
@@ -1213,7 +1217,11 @@ export async function recordSessionReplayChunks(
   } catch (error) {
     await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
     if (wasEmptyRecording) {
-      await deleteEmptyReplayRecordingPlaceholder(db, recording.id);
+      await deleteEmptyReplayRecordingPlaceholder(db, {
+        id: recording.id,
+        ownerEmail: key.ownerEmail,
+        orgId: key.orgId,
+      });
     }
     throw error;
   }

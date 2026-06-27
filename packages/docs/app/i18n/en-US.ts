@@ -41,6 +41,9 @@ const enUS = {
   docs: {
     navigateAria: "Navigate docs",
     onThisPage: "On this page",
+    copyMarkdown: "Copy doc as Markdown",
+    copiedMarkdown: "Copied Markdown",
+    copyMarkdownError: "Couldn't copy Markdown",
     previous: "Previous",
     next: "Next",
   },

@@ -1,8 +1,16 @@
-import { useLoaderData, type LoaderFunctionArgs } from "react-router";
+import {
+  useLoaderData,
+  useParams,
+  type LoaderFunctionArgs,
+} from "react-router";
 
 import DocContent from "../components/DocContent";
 import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
-import { DEFAULT_DOCS_LOCALE, isDocsLocale } from "../components/docs-locale";
+import {
+  DEFAULT_DOCS_LOCALE,
+  docsMarkdownPathForSlug,
+  isDocsLocale,
+} from "../components/docs-locale";
 import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
@@ -42,6 +50,8 @@ export const meta = ({
 
 export default function DocsIndex() {
   const currentDoc = useLoaderData<typeof loader>();
+  const params = useParams();
+  const locale = routeLocale(params);
 
   const toc = currentDoc.headings.map((h) => ({
     id: h.id,
@@ -50,7 +60,10 @@ export default function DocsIndex() {
   }));
 
   return (
-    <DocsLayout toc={toc}>
+    <DocsLayout
+      toc={toc}
+      markdownUrl={docsMarkdownPathForSlug(currentDoc.slug, locale)}
+    >
       <DocContent markdown={currentDoc.body} />
     </DocsLayout>
   );

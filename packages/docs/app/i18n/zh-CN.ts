@@ -43,6 +43,9 @@ const zhCN = {
   docs: {
     navigateAria: "浏览文档",
     onThisPage: "本页内容",
+    copyMarkdown: "将文档复制为 Markdown",
+    copiedMarkdown: "已复制 Markdown",
+    copyMarkdownError: "无法复制 Markdown",
     previous: "上一页",
     next: "下一页",
   },

@@ -44,6 +44,7 @@ import {
   type LocalAppFolderSelectResult,
   type UpdateStatus,
 } from "@shared/ipc-channels";
+import { isDesktopSentryConfigured } from "@shared/sentry-config";
 import { contextBridge, ipcRenderer } from "electron";
 
 const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
@@ -61,6 +62,11 @@ type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
 const electronAPI = {
   /** Current OS platform — used by renderer to adapt UI (e.g. traffic lights vs custom controls) */
   platform: process.platform as string,
+
+  /** Desktop shell Sentry is configured in the main process. */
+  sentry: {
+    enabled: isDesktopSentryConfigured(process.env),
+  },
 
   /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
   webviewPreloadPath: path.join(__dirname, "webview.js"),

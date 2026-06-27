@@ -43,6 +43,9 @@ const ptBR = {
   docs: {
     navigateAria: "Navegar pelos docs",
     onThisPage: "Nesta página",
+    copyMarkdown: "Copiar doc como Markdown",
+    copiedMarkdown: "Markdown copiado",
+    copyMarkdownError: "Não foi possível copiar Markdown",
     previous: "Anterior",
     next: "Próximo",
   },

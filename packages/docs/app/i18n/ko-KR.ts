@@ -43,6 +43,9 @@ const koKR = {
   docs: {
     navigateAria: "문서 탐색",
     onThisPage: "이 페이지",
+    copyMarkdown: "문서를 Markdown으로 복사",
+    copiedMarkdown: "Markdown 복사됨",
+    copyMarkdownError: "Markdown을 복사할 수 없음",
     previous: "이전",
     next: "다음",
   },

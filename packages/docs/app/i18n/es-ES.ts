@@ -43,6 +43,9 @@ const esES = {
   docs: {
     navigateAria: "Navegar por docs",
     onThisPage: "En esta página",
+    copyMarkdown: "Copiar doc como Markdown",
+    copiedMarkdown: "Markdown copiado",
+    copyMarkdownError: "No se pudo copiar Markdown",
     previous: "Anterior",
     next: "Siguiente",
   },

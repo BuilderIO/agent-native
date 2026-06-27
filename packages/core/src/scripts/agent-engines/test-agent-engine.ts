@@ -44,7 +44,9 @@ export const tool: ActionTool = {
   },
 };
 
-async function resolveCredential(key: string): Promise<string | undefined> {
+async function resolveAgentEngineSecret(
+  key: string,
+): Promise<string | undefined> {
   try {
     const value = await resolveSecret(key);
     if (value) return value;
@@ -63,7 +65,7 @@ async function createEngineConfig(
   const config: Record<string, unknown> = {
     apiKey:
       entry.requiredEnvVars.length > 0
-        ? await resolveCredential(entry.requiredEnvVars[0])
+        ? await resolveAgentEngineSecret(entry.requiredEnvVars[0])
         : undefined,
     allowEnvFallback: canUseDeployCredentialFallbackForRequest(),
   };
@@ -71,7 +73,7 @@ async function createEngineConfig(
   if (entry.name === "ai-sdk:openai") {
     const rawBaseUrl = args.baseUrl?.trim()
       ? args.baseUrl
-      : await resolveCredential(OPENAI_BASE_URL_ENV_VAR);
+      : await resolveAgentEngineSecret(OPENAI_BASE_URL_ENV_VAR);
     if (rawBaseUrl) {
       config.baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
     }

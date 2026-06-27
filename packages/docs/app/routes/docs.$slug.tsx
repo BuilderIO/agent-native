@@ -4,6 +4,7 @@ import DocContent from "../components/DocContent";
 import { getDoc, type DocEntry } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
+  docsMarkdownPathForSlug,
   docsPathForSlug,
   isDocsLocale,
 } from "../components/docs-locale";
@@ -71,7 +72,10 @@ export default function DocPage() {
   }));
 
   return (
-    <DocsLayout toc={toc}>
+    <DocsLayout
+      toc={toc}
+      markdownUrl={docsMarkdownPathForSlug(doc.slug, DEFAULT_DOCS_LOCALE)}
+    >
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

@@ -9,6 +9,7 @@ import DocContent from "../components/DocContent";
 import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
+  docsMarkdownPathForSlug,
   docsPathForSlug,
   isDocsLocale,
   type DocsLocale,
@@ -90,7 +91,7 @@ export default function LocalizedDocPage() {
   const { locale: localeParam } = useParams<{
     locale: string;
   }>();
-  requireLocale(localeParam);
+  const locale = requireLocale(localeParam);
 
   if (!doc) return null;
 
@@ -101,7 +102,10 @@ export default function LocalizedDocPage() {
   }));
 
   return (
-    <DocsLayout toc={toc}>
+    <DocsLayout
+      toc={toc}
+      markdownUrl={docsMarkdownPathForSlug(doc.slug, locale)}
+    >
       <DocContent markdown={doc.body} />
     </DocsLayout>
   );

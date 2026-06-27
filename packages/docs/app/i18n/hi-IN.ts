@@ -43,6 +43,9 @@ const hiIN = {
   docs: {
     navigateAria: "दस्तावेज़ नेविगेट करें",
     onThisPage: "इस पेज पर",
+    copyMarkdown: "डॉक को Markdown के रूप में कॉपी करें",
+    copiedMarkdown: "Markdown कॉपी हो गया",
+    copyMarkdownError: "Markdown कॉपी नहीं हो सका",
     previous: "पिछला",
     next: "अगला",
   },

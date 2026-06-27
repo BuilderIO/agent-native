@@ -43,6 +43,9 @@ const deDE = {
   docs: {
     navigateAria: "Docs navigieren",
     onThisPage: "Auf dieser Seite",
+    copyMarkdown: "Dokument als Markdown kopieren",
+    copiedMarkdown: "Markdown kopiert",
+    copyMarkdownError: "Markdown konnte nicht kopiert werden",
     previous: "Zurück",
     next: "Weiter",
   },

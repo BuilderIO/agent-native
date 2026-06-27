@@ -43,6 +43,9 @@ const frFR = {
   docs: {
     navigateAria: "Parcourir les docs",
     onThisPage: "Sur cette page",
+    copyMarkdown: "Copier le doc en Markdown",
+    copiedMarkdown: "Markdown copié",
+    copyMarkdownError: "Impossible de copier le Markdown",
     previous: "Précédent",
     next: "Suivant",
   },
