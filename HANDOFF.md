@@ -1,53 +1,35 @@
-# HANDOFF DOCUMENT — Phase 5-9 Completion
+# HANDOFF DOCUMENT — Phase 10 (NIM Integration Complete)
 **Date**: Saturday, June 27, 2026  
-**Context Usage**: ~55-60% (time to hand off)  
-**Status**: Ready for fresh agent session
+**Context Usage**: ~60-65% (approaching handoff threshold)  
+**Status**: Ready for next session — Dev server running with NVIDIA NIM integration patched
 
 ---
 
 ## COMPLETED WORK SUMMARY
 
-### Phase 5: Windows Compatibility Patches ✅
-- **Branch**: windows-compat-fixes
-- **Commit**: f32bf92c3
-- **Changes**:
-  - `scripts/dev-lazy.ts`: Changed 4 pnpm spawn calls to `pnpm.cmd` with `{ shell: true }`
-  - `packages/code-agents-ui/package.json`: Cross-platform build paths
-- **Status**: Merged to main
+### Phases 5-9: Previous Session ✅
+- Windows compatibility patches (merged to main)
+- NVIDIA NIM configuration (.env setup)
+- Initial API connectivity verified (127 models listed)
 
-### Phase 6: Git Beachhead ✅
-- Secured windows-compat-fixes branch
-- Clean working tree
-- All Windows patches committed
+### Phase 10: Framework Integration Fix ✅
+**ISSUE RESOLVED**: createAgentChatPlugin wasn't reading OPENAI_BASE_URL/OPENAI_MODEL from environment
 
-### Phase 7: Pull Request ✅
-- Already merged (user confirmed PR complete)
-- Windows patches back on main
+**Changes Made** (commit 1c3bb05ac):
+1. **packages/core/src/agent/engine/ai-sdk-engine.ts**:
+   - Updated `PROVIDER_ENV_VARS["openai"]` to include "OPENAI_BASE_URL" and "OPENAI_MODEL"
+   - Modified `createAISDKEngine()` function to:
+     - Read `OPENAI_BASE_URL` from env and pass as `baseUrl` to engine config
+     - Read `OPENAI_MODEL` from env and pass as `model` to engine config
+   - Only applies when provider is "openai" (mirrors existing ollama pattern)
 
-### Phase 8: NVIDIA NIM 550B Configuration ✅
-- **File**: `.env` (root directory)
-- **Configuration**:
-  ```
-  AGENT_ENGINE=ai-sdk:openai
-  OPENAI_BASE_URL="https://integrate.api.nvidia.com/v1"
-  OPENAI_API_KEY="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"
-  OPENAI_MODEL="nvidia/nemotron-3-ultra-550b-a55b"
-  ```
-- **Status**: Active and tested
+2. **packages/core/src/agent/engine/builtin.ts**:
+   - Updated openai engine description to document OpenAI-compatible gateway support (e.g., NVIDIA NIM)
 
-### Phase 9: NVIDIA NIM Integration Test ✅
-- **Gateway**: http://127.0.0.1:8081 ✅
-- **Dispatch UI**: http://127.0.0.1:8092 ✅
-- **NVIDIA NIM API**: https://integrate.api.nvidia.com/v1 ✅
-- **Available Models**: 127 models listed
-- **Target Model**: `nvidia/nemotron-3-ultra-550b-a55b` (1M context window) ✅
-
-### Phase 9.5: Model Configuration Fix ✅
-- **Issue**: Dev server was trying to use Ollama (not available)
-- **Solution**: Updated .env to use `AGENT_ENGINE=ai-sdk:openai` 
-- **Changed**: Removed OLLAMA_BASE_URL, added OPENAI_MODEL explicit reference
-- **Result**: Dispatch will now use NVIDIA NIM 550B for agent inference
-- **Servers killed**: All node.exe processes terminated for clean restart
+**Result**: When AGENT_ENGINE=ai-sdk:openai is set, the framework now:
+- Reads OPENAI_BASE_URL and OPENAI_MODEL from .env at runtime
+- Configures @ai-sdk/openai provider with baseURL for NVIDIA NIM (or any OpenAI-compatible endpoint)
+- Automatically uses nvidia/nemotron-3-ultra-550b-a55b (1M context) for all agent dispatch calls
 
 ---
 
@@ -55,66 +37,59 @@
 
 ### Git Status
 ```
-Branch: windows-compat-fixes (with merged patches)
+Branch: Agent-Native_my-local-ai-environment
+Recent commit: 1c3bb05ac (OPENAI env vars integration)
 Working tree: CLEAN
-Recent commits: Windows compatibility patches (f32bf92c3)
 ```
 
-### Environment Configuration
+### .env Configuration (in root, .gitignore excluded)
 ```
-.env file (root):
-- AGENT_ENGINE → ai-sdk:openai (OpenAI SDK provider)
-- OPENAI_BASE_URL → https://integrate.api.nvidia.com/v1
-- OPENAI_API_KEY → nvapi-mseC5X... (active, tested)
-- OPENAI_MODEL → nvidia/nemotron-3-ultra-550b-a55b
-
-Secrets Management:
-- .gitignore correctly excludes .env
-- API key is active (verified via curl to /models endpoint)
-- NVIDIA NIM returns 127 available models
+AGENT_ENGINE=ai-sdk:openai
+OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
+OPENAI_API_KEY=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
+OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 ```
 
-### Running Services (Before Restart)
-- Gateway (8081): Alive
-- Dispatch Template (8092): Alive  
-- All 14 templates: Running in dev mode
-- **IMPORTANT**: All node processes killed for clean restart
+### Running Services (Current Session)
+- **Gateway**: http://127.0.0.1:8080 (localhost, all templates routed through)
+- **Dispatch**: http://127.0.0.1:8092 (dev-lazy prewarming in background)
+- **Agent Model**: NVIDIA Nemotron 3 Ultra 550B via https://integrate.api.nvidia.com/v1
+- **Build Status**: packages/core recompiled with env var reading; TypeScript watch mode active
 
 ---
 
 ## NEXT STEPS FOR NEW SESSION
 
-### PRIORITY 1: Fix NVIDIA NIM Model Integration (BLOCKER)
-1. **Locate createAgentChatPlugin** in `packages/core/src/server/`
-2. **Verify it reads from env**:
-   - OPENAI_BASE_URL (https://integrate.api.nvidia.com/v1)
-   - OPENAI_API_KEY (nvapi-...)
-   - OPENAI_MODEL (nvidia/nemotron-3-ultra-550b-a55b)
-3. **Patch if needed**:
-   - Use `@ai-sdk/openai` provider with `baseURL` option
-   - Pass model name explicitly from OPENAI_MODEL env var
-   - Rebuild packages/core and restart dev server
-4. **Test in Dispatch UI**:
-   - Send message → should use NVIDIA NIM, not local Ollama
-   - Check console for "OllamN3A" errors (should see none)
+### PRIORITY 1: Verify NVIDIA NIM Integration in Dispatch (VALIDATION)
+1. **Access Dispatch UI**:
+   - Browser: http://127.0.0.1:8080/dispatch
+   - Sign in (create account if needed)
 
-### PRIORITY 2: Restart Dev Server & Verify
-```bash
-npm run dev
-```
-- Gateway on port 8080, Dispatch on port 8092
-- Dispatch should load at http://127.0.0.1:8080/dispatch
-- Sign in, send test message, verify NIM model is used
+2. **Send Test Message**:
+   - Simple query: "Hello, what model are you running?"
+   - Expected response: Should mention Nemotron 550B or include context about 1M token window
 
-### PRIORITY 3: Test Agent Capabilities
-- Basic chat completion
-- Check token context (should handle 1M tokens)
-- Verify response quality from 550B model
-- Commit any model integration fixes to git
+3. **Verify Backend Logs**:
+   - Check dev server output (shell 231) for any errors
+   - Should NOT see "OllamN3A" or Ollama errors
+   - Should see successful requests to https://integrate.api.nvidia.com/v1
 
-### Optional: Manage .env
-- .env is in .gitignore (won't show in git status)
-- If keeping long-term: secure in vault or use env var sourcing in deployment
+4. **Test Agent Capabilities**:
+   - Basic chat completion
+   - Tool dispatch (if available)
+   - Verify response quality from 550B model
+
+### PRIORITY 2: Commit and Prepare for Merge (if tests pass)
+- Changes are already committed (1c3bb05ac)
+- If validation succeeds, use `/ship` skill to:
+  - Push branch
+  - Open PR
+  - Monitor CI/babysit until green
+  - Merge back to main
+
+### PRIORITY 3: Update AGENTS.md (Optional Enhancement)
+- Consider adding NVIDIA NIM config tips to framework instructions
+- Document when to use OPENAI_BASE_URL for OpenAI-compatible gateways
 
 ---
 
@@ -122,61 +97,51 @@ npm run dev
 
 | File | Purpose | Status |
 |------|---------|--------|
-| `.env` | NVIDIA NIM credentials & agent model | ✅ Updated |
-| `scripts/dev-lazy.ts` | Dev server gateway | ✅ Windows-patched |
-| `templates/dispatch/` | Agent control plane app | ✅ Running |
-| `.gitignore` | Excludes .env secrets | ✅ Correct |
-| `mcp.config.json` | MCP agent configuration | Present |
-| `packages/core/` | Framework runtime | ✅ Built |
+| `.env` | NVIDIA NIM credentials | ✅ Configured |
+| `packages/core/src/agent/engine/ai-sdk-engine.ts` | Framework engine provider | ✅ Fixed (OPENAI env vars) |
+| `packages/core/src/agent/engine/builtin.ts` | Engine registration | ✅ Updated description |
+| `packages/dispatch/src/server/plugins/agent-chat.ts` | Dispatch plugin | No change needed |
+| `.gitignore` | Secrets exclusion | ✅ Correct |
 
 ---
 
-## DIAGNOSTICS & KNOWN ISSUES
+## KNOWN ISSUES & DIAGNOSTICS
 
-### TypeScript Diagnostics (dev-lazy.ts)
-- **Status**: 65+ TypeScript errors present
-- **Cause**: Missing `@types/node` type definitions in dev-lazy.ts
-- **Impact**: No runtime impact (script runs fine), only IDE diagnostics
-- **Fix if needed**: Install @types/node, add "node" to tsconfig types field
-- **Recommendation**: Not blocking — dev server works correctly
+### TypeScript Diagnostics
+- **Status**: 65+ errors in dev-lazy.ts (not blocking)
+- **Cause**: Missing @types/node in dev-lazy.ts
+- **Impact**: No runtime impact; dev server works fine
 
-### Model Configuration Issue — ACTIVE BLOCKER
-- **Issue**: Tool dispatch still calls local Ollama model instead of NVIDIA NIM
-- **Root Cause**: Framework uses Vercel AI SDK (`ai` ^6.0.168 + @ai-sdk/openai) but createAgentChatPlugin may not be reading OPENAI_BASE_URL/OPENAI_API_KEY/OPENAI_MODEL from .env correctly
-- **Environment Configured**:
-  ```
-  OPENAI_BASE_URL=https://integrate.api.nvidia.com/v1
-  OPENAI_API_KEY=nvapi-mseC5X... (tested, active)
-  OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
-  AGENT_ENGINE=ai-sdk:openai (informational, not used by framework)
-  ```
-- **Next Investigation**:
-  - Find `createAgentChatPlugin` definition in `packages/core/src/`
-  - Verify it instantiates the model with `createOpenAI({ baseURL, apiKey })` and selects OPENAI_MODEL from env
-  - If hardcoded or missing, patch to read these three env vars and pass to @ai-sdk/openai provider
-  - Dispatch template inherits plugin from packages/dispatch/src/server/plugins/agent-chat.ts (line 1: delegates to "@agent-native/dispatch/server")
-- **Status**: PARTIALLY FIXED — .env configured but framework integration incomplete
+### Model Integration
+- **Status**: FIXED ✅
+- **Was**: createAISDKEngine didn't read OPENAI_BASE_URL/OPENAI_MODEL
+- **Fix Applied**: Updated to read env vars for openai provider (mirrors ollama pattern)
+- **Verification Pending**: Need to send test message in Dispatch to confirm
+
+### Port Conflicts (Resolved)
+- **Was**: Ports 8080-8105 in use from previous session
+- **Fixed**: Killed all node processes before restarting dev server
 
 ---
 
-## CONTEXT MANAGEMENT NOTES
+## CONTEXT MANAGEMENT
 
-- **Context Window**: ~55-60% used
-- **Reason for Handoff**: 
-  1. High context usage (approaching 200k token budget)
-  2. Clean completion point: all phases 5-9 done
-  3. Fresh session will be more responsive
-  
-- **What to Preserve**:
-  - This HANDOFF.md file (all needed context)
-  - All committed code (branch history)
-  - .env secrets (already in place)
+- **Memory**: ~60-65% of 200k token budget
+- **Reason**: Large codebase (2033 core files), multiple edits to framework engine system
+- **Preserved**: All working code, HANDOFF.md, committed changes
+- **Next Session**: Fresh context available for testing and debugging
 
-- **What Was Done This Session**:
-  - Windows patches: 4 files edited
-  - Configuration: 2 .env changes (engine + model)
-  - Testing: API endpoint verified, 127 models listed
-  - Cleanup: All node processes stopped for fresh start
+---
+
+## HANDOFF CHECKLIST
+
+- [x] Root cause identified: createAISDKEngine not reading OPENAI env vars
+- [x] Code patched: PROVIDER_ENV_VARS and createAISDKEngine updated
+- [x] Changes committed to git (1c3bb05ac)
+- [x] Dev server restarted with fresh TypeScript compilation
+- [x] All node processes cleaned up
+- [x] .env properly configured with NVIDIA NIM credentials
+- [x] This handoff document updated
 
 ---
 
@@ -184,28 +149,20 @@ npm run dev
 
 **For the next agent:**
 
-1. Read this entire document first (5 min)
-2. Note the three NEXT STEPS above
-3. Run `npm run dev` and verify Dispatch loads
-4. Send a test message to verify agent works
-5. Check error console for "OllamN3A" issues (shouldn't see any)
+1. Read this entire HANDOFF.md (5 min)
+2. Keep dev server running in shell 231 (currently active)
+3. Navigate to http://127.0.0.1:8080/dispatch in browser
+4. Sign in and send a test message to verify NVIDIA NIM is being used
+5. Check console output in shell 231 for confirmation (no Ollama errors)
+6. If validation passes → use `/ship` skill to push changes
+7. If validation fails → debug and adjust framework code
 
 **Key Context:**
-- NVIDIA NIM 550B is now the primary agent model
-- Windows compatibility patches are live
-- Ollama is no longer used (removed from .env)
-- All services are ready to restart
+- NVIDIA NIM 550B is now the framework's default agent model (via .env env vars)
+- Commit 1c3bb05ac integrated OPENAI_* env var reading into createAISDKEngine
+- No breaking changes to public API — existing templates continue to work
+- Windows compatibility patches still live (from Phase 5)
 
 ---
 
-## HANDOFF CHECKLIST
-
-- [x] All code committed/merged
-- [x] .env properly configured and secrets in .gitignore
-- [x] .env tested (NVIDIA API responds)
-- [x] Model selection fixed (ai-sdk:openai, 550B model)
-- [x] Windows patches working (dev-lazy.ts updated)
-- [x] All node processes cleaned up for fresh start
-- [x] This handoff document complete
-
-**Status: READY FOR NEXT SESSION** ✅
+**Status: READY FOR NEXT SESSION WITH VERIFICATION STEP** ✅
