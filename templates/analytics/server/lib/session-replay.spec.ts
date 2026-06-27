@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
 import {
   assertReplayKeyBudget,
   getSessionReplaySummary,
+  listSessionRecordings,
   parseSessionReplayIngestPayload,
   recordSessionReplayChunks,
 } from "./session-replay";
@@ -79,6 +80,30 @@ function createReplayDbMock(results: unknown[][]) {
     })),
   };
   return { db, inserts, deletes };
+}
+
+function createSessionReplayListDbMock(rows: unknown[]) {
+  let whereCondition: unknown;
+  const db = {
+    select: vi.fn(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn((where: unknown) => {
+          whereCondition = where;
+          return {
+            orderBy: vi.fn(() => ({
+              limit: vi.fn(async () => rows),
+            })),
+          };
+        }),
+      })),
+    })),
+  };
+  return {
+    db,
+    get whereCondition() {
+      return whereCondition;
+    },
+  };
 }
 
 function conditionText(value: unknown): string {
@@ -176,6 +201,99 @@ describe("session replay ingest parsing", () => {
       statusCode: 404,
       message: "Session recording not found",
     });
+  });
+
+  it("returns anonymous recordings from direct summary reads", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "sr_anonymous",
+        clientRecordingId: "recording_1",
+        sessionId: "session_1",
+        userId: null,
+        anonymousId: "anon_1",
+        userKey: "anon_1",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: null,
+        durationMs: null,
+        chunkCount: 1,
+        eventCount: 1,
+        totalBytes: 128,
+        pageCount: 1,
+        errorCount: 0,
+        rageClickCount: 0,
+        privacyMode: "unknown",
+        metadata: "{}",
+        ownerEmail: "owner@example.com",
+        orgId: "org_123",
+        visibility: "private",
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        lastIngestedAt: "2026-01-01T00:00:00.000Z",
+      },
+    });
+
+    await expect(
+      getSessionReplaySummary("sr_anonymous", {
+        userEmail: "owner@example.com",
+        orgId: "org_123",
+      }),
+    ).resolves.toMatchObject({
+      id: "sr_anonymous",
+      userId: null,
+      anonymousId: "anon_1",
+      role: "viewer",
+    });
+  });
+
+  it("includes anonymous identities in session recording lists", async () => {
+    const listDb = createSessionReplayListDbMock([
+      {
+        id: "sr_anonymous",
+        clientRecordingId: "recording_1",
+        sessionId: "session_1",
+        userId: null,
+        anonymousId: "anon_1",
+        userKey: "anon_1",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: null,
+        durationMs: null,
+        chunkCount: 1,
+        eventCount: 1,
+        totalBytes: 128,
+        pageCount: 1,
+        errorCount: 0,
+        rageClickCount: 0,
+        privacyMode: "unknown",
+        metadata: "{}",
+        ownerEmail: "owner@example.com",
+        orgId: "org_123",
+        visibility: "private",
+        status: "active",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        lastIngestedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
+    getDbMock.mockReturnValue(listDb.db);
+
+    const rows = await listSessionRecordings({
+      userEmail: "owner@example.com",
+      orgId: "org_123",
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: "sr_anonymous",
+      userId: null,
+      anonymousId: "anon_1",
+    });
+    const listCondition = conditionText(listDb.whereCondition);
+    expect(listCondition).toContain("@");
+    expect(listCondition).toContain("anonymous_id");
+    expect(listCondition).toContain("chunk_count");
+    expect(listCondition).toContain("event_count");
   });
 
   it("derives replay timing from rrweb event timestamps", () => {
