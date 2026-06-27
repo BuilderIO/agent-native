@@ -987,9 +987,13 @@ function rowToSessionRecordingSummary(
   };
 }
 
+function hasVisibleSessionRecordingIdentity(row: any): boolean {
+  return Boolean(replayEmail(row.userId) || replayString(row.anonymousId));
+}
+
 function isVisibleSessionRecording(row: any): boolean {
   return (
-    Boolean(replayEmail(row.userId)) &&
+    hasVisibleSessionRecordingIdentity(row) &&
     Number(row.chunkCount ?? 0) > 0 &&
     Number(row.eventCount ?? 0) > 0
   );
@@ -1040,6 +1044,13 @@ function escapeSqlLike(value: string): string {
 
 function replayTextContains(column: unknown, query: string) {
   return sql`lower(coalesce(${column}, '')) like ${`%${escapeSqlLike(query.toLowerCase())}%`} escape '\\'`;
+}
+
+function replayVisibleIdentityCondition() {
+  return or(
+    replayTextContains(schema.sessionRecordings.userId, "@"),
+    sql`nullif(trim(coalesce(${schema.sessionRecordings.anonymousId}, '')), '') is not null`,
+  );
 }
 
 function replayListSearchCondition(query: string | undefined) {
@@ -1345,7 +1356,7 @@ export async function listSessionRecordings(
       userEmail: scope.userEmail,
       orgId: scope.orgId ?? undefined,
     }),
-    replayTextContains(schema.sessionRecordings.userId, "@"),
+    replayVisibleIdentityCondition(),
     gte(schema.sessionRecordings.chunkCount, 1),
     gte(schema.sessionRecordings.eventCount, 1),
   ];
