@@ -1232,30 +1232,6 @@ importers:
         specifier: 'catalog:'
         version: 4.1.9(@opentelemetry/api@1.9.1)(@types/node@25.9.3)(happy-dom@20.10.6)(jsdom@29.1.1(@noble/hashes@2.2.0)(canvas@3.2.3))(vite@8.1.0(@types/node@25.9.3)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.46.1)(tsx@4.21.0)(yaml@2.9.0))
 
-  templates/.retired/calls: {}
-
-  templates/.retired/code: {}
-
-  templates/.retired/contracts: {}
-
-  templates/.retired/images: {}
-
-  templates/.retired/issues: {}
-
-  templates/.retired/meeting-notes: {}
-
-  templates/.retired/migration: {}
-
-  templates/.retired/recruiting: {}
-
-  templates/.retired/scheduling: {}
-
-  templates/.retired/visual-plans: {}
-
-  templates/.retired/voice: {}
-
-  templates/.retired/workbench: {}
-
   templates/analytics:
     dependencies:
       '@agent-native/core':

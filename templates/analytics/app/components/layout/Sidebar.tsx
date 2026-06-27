@@ -30,7 +30,14 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  Fragment,
+} from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -51,6 +58,8 @@ type SidebarDashboard = {
   subviews?: DashboardSubview[];
   source: "static" | "sql";
   visibility?: Visibility;
+  /** Id of the dashboard this one nests under in the sidebar, if any. */
+  parentId?: string;
 };
 import {
   DevDatabaseLink,
@@ -1024,6 +1033,7 @@ type SqlDashboardListItem = {
   id: string;
   name: string;
   visibility?: Visibility;
+  parentId?: string;
 };
 
 async function fetchSqlDashboards(
@@ -1043,6 +1053,10 @@ async function fetchSqlDashboards(
           d.visibility === "org" || d.visibility === "public"
             ? (d.visibility as Visibility)
             : ("private" as Visibility),
+        parentId:
+          typeof d.parentId === "string" && d.parentId.trim().length > 0
+            ? d.parentId
+            : undefined,
       }));
   } catch {
     return [];
@@ -1434,6 +1448,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       name: d.name,
       source: "sql",
       visibility: d.visibility,
+      parentId: d.parentId,
     }));
     const all = [...staticItems, ...sqlItems];
     if (dashboardSortMode === "alphabetical") {
@@ -1471,12 +1486,34 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     [visibleDashboards, dashFilter],
   );
 
+  // Group dashboards that declare a parentId beneath their parent. Orphans
+  // (parent missing/filtered out) and self-references fall back to top level.
+  const dashboardChildren = useMemo<Map<string, SidebarDashboard[]>>(() => {
+    const present = new Set(filteredDashboards.map((d) => d.id));
+    const byParent = new Map<string, SidebarDashboard[]>();
+    for (const d of filteredDashboards) {
+      if (d.parentId && d.parentId !== d.id && present.has(d.parentId)) {
+        const arr = byParent.get(d.parentId) ?? [];
+        arr.push(d);
+        byParent.set(d.parentId, arr);
+      }
+    }
+    return byParent;
+  }, [filteredDashboards]);
+
+  const topLevelDashboards = useMemo(() => {
+    const childIds = new Set<string>();
+    for (const arr of dashboardChildren.values())
+      for (const c of arr) childIds.add(c.id);
+    return filteredDashboards.filter((d) => !childIds.has(d.id));
+  }, [filteredDashboards, dashboardChildren]);
+
   const displayedDashboards = useMemo(
     () =>
       dashShowAll
-        ? filteredDashboards
-        : filteredDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
-    [filteredDashboards, dashShowAll],
+        ? topLevelDashboards
+        : topLevelDashboards.slice(0, SIDEBAR_PREVIEW_COUNT),
+    [topLevelDashboards, dashShowAll],
   );
 
   const handleDashboardDelete = useCallback(
@@ -2032,27 +2069,54 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 onDragEnd={handleDashboardDragEnd}
               >
                 <SortableContext
-                  items={displayedDashboards.map((d) => d.id)}
+                  items={displayedDashboards.flatMap((d) => [
+                    d.id,
+                    ...(dashboardChildren.get(d.id) ?? []).map((c) => c.id),
+                  ])}
                   strategy={verticalListSortingStrategy}
                 >
                   <div className="ms-4 min-w-0 space-y-0.5">
-                    {displayedDashboards.map((d) => (
-                      <SortableDashboardItem
-                        key={d.id}
-                        d={d}
-                        isActive={activeDashboardId === d.id}
-                        location={location}
-                        favoriteIds={favoriteIds}
-                        onToggleFavorite={toggleFavorite}
-                        onDelete={handleDashboardDelete}
-                        onRename={handleDashboardRename}
-                        onArchive={handleDashboardArchive}
-                        onSetVisibility={handleDashboardSetVisibility}
-                        onPrefetch={prefetchDashboard}
-                        views={allViewsMap[d.id]}
-                      />
-                    ))}
-                    {filteredDashboards.length > SIDEBAR_PREVIEW_COUNT && (
+                    {displayedDashboards.map((d) => {
+                      const children = dashboardChildren.get(d.id) ?? [];
+                      return (
+                        <Fragment key={d.id}>
+                          <SortableDashboardItem
+                            d={d}
+                            isActive={activeDashboardId === d.id}
+                            location={location}
+                            favoriteIds={favoriteIds}
+                            onToggleFavorite={toggleFavorite}
+                            onDelete={handleDashboardDelete}
+                            onRename={handleDashboardRename}
+                            onArchive={handleDashboardArchive}
+                            onSetVisibility={handleDashboardSetVisibility}
+                            onPrefetch={prefetchDashboard}
+                            views={allViewsMap[d.id]}
+                          />
+                          {children.length > 0 && (
+                            <div className="ms-3 space-y-0.5 border-s border-sidebar-border/60 ps-1">
+                              {children.map((child) => (
+                                <SortableDashboardItem
+                                  key={child.id}
+                                  d={child}
+                                  isActive={activeDashboardId === child.id}
+                                  location={location}
+                                  favoriteIds={favoriteIds}
+                                  onToggleFavorite={toggleFavorite}
+                                  onDelete={handleDashboardDelete}
+                                  onRename={handleDashboardRename}
+                                  onArchive={handleDashboardArchive}
+                                  onSetVisibility={handleDashboardSetVisibility}
+                                  onPrefetch={prefetchDashboard}
+                                  views={allViewsMap[child.id]}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                    {topLevelDashboards.length > SIDEBAR_PREVIEW_COUNT && (
                       <button
                         onClick={() => setDashShowAll(!dashShowAll)}
                         className="flex items-center gap-1 px-3 py-1 text-[11px] text-muted-foreground/70 hover:text-primary"
