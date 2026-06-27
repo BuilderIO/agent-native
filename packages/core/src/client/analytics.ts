@@ -79,6 +79,7 @@ let _trackingIdentityResolved = false;
 let _trackingSessionRefresh: Promise<void> | null = null;
 let _trackingSessionRefreshInstalled = false;
 let _sessionReplayOptions: SessionReplayOptions | null = null;
+let _sessionReplayIdentitySnapshot: TrackingIdentity | null = null;
 let _sessionReplayStartPromise: Promise<SessionReplayStartResult | null> | null =
   null;
 // Buffer for setSentryUser calls made before Sentry has initialized.
@@ -267,17 +268,44 @@ function readTrackingString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function stopSessionReplayForAuthClear(
+  previousIdentity: TrackingIdentity | null,
+): void {
+  if (!_sessionReplayOptions?.requireSignedInUser) {
+    _sessionReplayIdentitySnapshot = null;
+    return;
+  }
+  if (!previousIdentity?.userEmail) return;
+  _sessionReplayIdentitySnapshot = previousIdentity;
+  void import("./session-replay.js")
+    .then((mod) => mod.stopSessionReplay("auth-cleared"))
+    .catch(() => {
+      // Auth clearing should never fail because replay cleanup failed.
+    })
+    .finally(() => {
+      if (_sessionReplayIdentitySnapshot === previousIdentity) {
+        _sessionReplayIdentitySnapshot = null;
+      }
+    });
+}
+
+function clearTrackingIdentity(): void {
+  const previousIdentity = _trackingIdentity;
+  stopSessionReplayForAuthClear(previousIdentity);
+  _trackingIdentity = null;
+}
+
 function setTrackingIdentityFromSession(data: unknown): void {
   const session = data as Record<string, unknown> | null;
   if (!session || typeof session !== "object" || session.error) {
-    _trackingIdentity = null;
+    clearTrackingIdentity();
     return;
   }
   const email = readTrackingString(session.email);
   const authUserId = readTrackingString(session.userId);
   const userId = email || authUserId;
   if (!userId) {
-    _trackingIdentity = null;
+    clearTrackingIdentity();
     return;
   }
   const userName = readTrackingString(session.name);
@@ -303,7 +331,7 @@ function refreshTrackingAuthSession(): Promise<void> {
       setTrackingIdentityFromSession(data);
     })
     .catch(() => {
-      _trackingIdentity = null;
+      clearTrackingIdentity();
     })
     .finally(() => {
       _trackingIdentityResolved = true;
@@ -323,8 +351,8 @@ function installTrackingAuthSessionRefresh(): void {
 
 function applyTrackingIdentity(
   properties: Record<string, unknown>,
+  identity: TrackingIdentity | null = _trackingIdentity,
 ): Record<string, unknown> {
-  const identity = _trackingIdentity;
   if (!identity) return properties;
   let next = properties;
   const assign = (key: string, value: unknown) => {
@@ -759,17 +787,19 @@ export function setSentryUser(
   let shouldRetryReplay = false;
   if (user) {
     const userId = user.email || user.id;
-    _trackingIdentity = userId
-      ? {
-          userId,
-          ...(user.email ? { userEmail: user.email } : {}),
-          ...(user.username ? { userName: user.username } : {}),
-          orgId: orgId ?? null,
-        }
-      : null;
+    if (userId) {
+      _trackingIdentity = {
+        userId,
+        ...(user.email ? { userEmail: user.email } : {}),
+        ...(user.username ? { userName: user.username } : {}),
+        orgId: orgId ?? null,
+      };
+    } else {
+      clearTrackingIdentity();
+    }
     shouldRetryReplay = Boolean(user.email);
   } else {
-    _trackingIdentity = null;
+    clearTrackingIdentity();
   }
   _trackingIdentityResolved = true;
   if (shouldRetryReplay && _sessionReplayOptions?.requireSignedInUser) {
@@ -962,7 +992,10 @@ function replayExtraPropertiesWithDefaults(
           : {};
     const props = rawProps && typeof rawProps === "object" ? rawProps : {};
     const withDefaults = _getDefaultProps?.("session_replay", props) ?? props;
-    return applyTrackingIdentity(withDefaults);
+    return applyTrackingIdentity(
+      withDefaults,
+      _trackingIdentity ?? _sessionReplayIdentitySnapshot,
+    );
   };
 }
 
@@ -1024,11 +1057,13 @@ async function startConfiguredSessionReplay(
   options: SessionReplayOptions,
 ): Promise<SessionReplayStartResult | null> {
   if (_sessionReplayStartPromise) return _sessionReplayStartPromise;
-  if (!(await waitForSessionReplayAuthIfRequired(options))) {
-    return { started: false, reason: "missing-user-id" };
-  }
-  _sessionReplayStartPromise = import("./session-replay.js")
-    .then((mod) => mod.startSessionReplay(options))
+  _sessionReplayStartPromise = (async () => {
+    if (!(await waitForSessionReplayAuthIfRequired(options))) {
+      return { started: false, reason: "missing-user-id" as const };
+    }
+    const mod = await import("./session-replay.js");
+    return mod.startSessionReplay(options);
+  })()
     .catch(() => ({ started: false, reason: "import-failed" as const }))
     .finally(() => {
       _sessionReplayStartPromise = null;
@@ -1060,7 +1095,7 @@ export async function maybeStartSessionReplay(
 
 export async function stopSessionReplay(reason = "manual"): Promise<void> {
   const mod = await import("./session-replay.js");
-  mod.stopSessionReplay(reason);
+  await mod.stopSessionReplay(reason);
 }
 
 function inferTemplateName(properties: Record<string, unknown>): string | null {

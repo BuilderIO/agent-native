@@ -74,6 +74,48 @@ describe("dashboard sync adoption", () => {
     ).toEqual({ adopt: true, clearHold: true });
   });
 
+  it("blocks stale first snapshots while an optimistic update has no current updatedAt", () => {
+    const hold = createDashboardAdoptionHold({
+      dashboardId: "dash",
+      currentUpdatedAt: null,
+      now: Date.parse("2026-06-27T10:00:05.000Z"),
+    });
+
+    expect(
+      shouldAdoptDashboardQueryResult({
+        dashboardId: "dash",
+        loaded: true,
+        isPlaceholderData: false,
+        fetchedId: "dash",
+        fetchedUpdatedAt: "2026-06-27T10:00:00.000Z",
+        currentUpdatedAt: null,
+        hold,
+        now: Date.parse("2026-06-27T10:00:06.000Z"),
+      }),
+    ).toEqual({ adopt: false, clearHold: false });
+  });
+
+  it("adopts newer server snapshots after a null-baseline optimistic hold", () => {
+    const hold = createDashboardAdoptionHold({
+      dashboardId: "dash",
+      currentUpdatedAt: null,
+      now: Date.parse("2026-06-27T10:00:05.000Z"),
+    });
+
+    expect(
+      shouldAdoptDashboardQueryResult({
+        dashboardId: "dash",
+        loaded: true,
+        isPlaceholderData: false,
+        fetchedId: "dash",
+        fetchedUpdatedAt: "2026-06-27T10:00:06.000Z",
+        currentUpdatedAt: null,
+        hold,
+        now: Date.parse("2026-06-27T10:00:06.000Z"),
+      }),
+    ).toEqual({ adopt: true, clearHold: true });
+  });
+
   it("rejects server payloads older than the adopted dashboard version", () => {
     expect(
       shouldAdoptDashboardQueryResult({

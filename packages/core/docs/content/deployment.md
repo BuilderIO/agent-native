@@ -66,6 +66,85 @@ background processors. Local `--build-only` artifact checks still run without it
 
 Per-app independent deploy is still supported — just `cd apps/<name> && npx @agent-native/core@latest build` like a standalone scaffold.
 
+## How It Works {#how-it-works}
+
+When you run `npx @agent-native/core@latest build`, Nitro builds both the client SPA and the server API into `.output/`:
+
+```an-file-tree title="Build output"
+{
+  "entries": [
+    { "path": ".output/", "note": "self-contained — copy to any environment and run" },
+    { "path": ".output/public/", "note": "built SPA (static assets)" },
+    { "path": ".output/server/index.mjs", "note": "server entry point" },
+    { "path": ".output/server/chunks/", "note": "server code chunks" }
+  ]
+}
+```
+
+The output is self-contained — copy `.output/` to any environment and run it.
+
+```an-diagram title="Build to deploy" summary="One source tree builds to a Nitro preset; the same self-contained output runs on Node, Vercel, Netlify, Cloudflare, AWS, or Deno. Every instance points at the same persistent DATABASE_URL."
+{
+  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>App source</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Persistent DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
+  "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
+}
+```
+
+## Setting the Preset {#setting-the-preset}
+
+By default, Nitro builds for Node.js. To target a different platform, set the preset in your `vite.config.ts`:
+
+```ts
+import { agentNative } from "@agent-native/core/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Or use the `NITRO_PRESET` environment variable at build time:
+
+```bash
+NITRO_PRESET=netlify npx @agent-native/core@latest build
+```
+
+## Node.js (Default) {#nodejs}
+
+The default preset. Build and run:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+Set `PORT` to configure the listen port (default: `3000`).
+
+Use the current Node.js LTS line for production deploys. As of May 2026, that
+is Node.js 24; Node.js 20 reached end-of-life on April 30, 2026 and no longer
+receives upstream security updates.
+
+### Docker {#docker}
+
+```dockerfile
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory — do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
 ### Self-hosted workspace with Docker Compose {#workspace-docker-compose}
 
 The Dockerfile above is for one standalone app. A workspace is not one Nitro
@@ -79,7 +158,7 @@ Build each app with the same base path that the proxy will use at runtime. The
 base path is a build-time input for the client bundle and a runtime input for
 the server:
 
-```bash
+```bash maxLines=8
 APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
 node .output/server/index.mjs
 ```
@@ -87,7 +166,7 @@ node .output/server/index.mjs
 A reusable workspace Dockerfile can take the app name and path prefix as build
 arguments:
 
-```dockerfile
+```dockerfile maxLines=12
 FROM node:24-slim AS build
 WORKDIR /workspace
 RUN corepack enable
@@ -117,7 +196,7 @@ Then compose Postgres, the app containers, and your proxy. This example uses
 Caddy because it can terminate HTTP locally or sit behind Cloudflare's SSL
 proxy, but the important part is the path-prefix routing:
 
-```yaml
+```yaml maxLines=30
 services:
   postgres:
     image: postgres:17
@@ -198,85 +277,6 @@ Notes for this shape:
 - If Cloudflare terminates TLS in front of the VPS, configure Cloudflare to send
   normal `X-Forwarded-Proto` / `X-Forwarded-Host` headers and route the public
   host to the proxy container.
-
-## How It Works {#how-it-works}
-
-When you run `npx @agent-native/core@latest build`, Nitro builds both the client SPA and the server API into `.output/`:
-
-```an-file-tree title="Build output"
-{
-  "entries": [
-    { "path": ".output/", "note": "self-contained — copy to any environment and run" },
-    { "path": ".output/public/", "note": "built SPA (static assets)" },
-    { "path": ".output/server/index.mjs", "note": "server entry point" },
-    { "path": ".output/server/chunks/", "note": "server code chunks" }
-  ]
-}
-```
-
-The output is self-contained — copy `.output/` to any environment and run it.
-
-```an-diagram title="Build to deploy" summary="One source tree builds to a Nitro preset; the same self-contained output runs on Node, Vercel, Netlify, Cloudflare, AWS, or Deno. Every instance points at the same persistent DATABASE_URL."
-{
-  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>App source</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Persistent DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
-  "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
-}
-```
-
-## Setting the Preset {#setting-the-preset}
-
-By default, Nitro builds for Node.js. To target a different platform, set the preset in your `vite.config.ts`:
-
-```ts
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-Or use the `NITRO_PRESET` environment variable at build time:
-
-```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
-```
-
-## Node.js (Default) {#nodejs}
-
-The default preset. Build and run:
-
-```bash
-npx @agent-native/core@latest build
-node .output/server/index.mjs
-```
-
-Set `PORT` to configure the listen port (default: `3000`).
-
-Use the current Node.js LTS line for production deploys. As of May 2026, that
-is Node.js 24; Node.js 20 reached end-of-life on April 30, 2026 and no longer
-receives upstream security updates.
-
-### Docker {#docker}
-
-```dockerfile
-FROM node:24-slim AS build
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
-COPY . .
-RUN pnpm build
-
-FROM node:24-slim
-WORKDIR /app
-COPY --from=build /app/.output .output
-# data/ is a runtime-created SQLite directory — do not copy a dev DB into prod.
-# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
-RUN mkdir -p /app/data
-ENV PORT=3000
-EXPOSE 3000
-CMD ["node", ".output/server/index.mjs"]
-```
 
 ## Vercel {#vercel}
 

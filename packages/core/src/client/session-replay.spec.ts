@@ -410,6 +410,41 @@ describe("session replay", () => {
     expect(stop).toHaveBeenCalled();
   });
 
+  it("deduplicates concurrent replay startup attempts", async () => {
+    installBrowser("https://app.agent-native.com/inbox");
+    const stop = vi.fn();
+    const recordOptions: any[] = [];
+    recordMock.mockImplementation((options) => {
+      recordOptions.push(options);
+      return stop;
+    });
+    const { startSessionReplay, stopSessionReplay } =
+      await freshSessionReplay();
+    const options = {
+      publicKey: "anpk_test",
+      endpoint: "https://analytics.example.test/session-replay",
+      flushIntervalMs: 100_000,
+    };
+
+    const [first, second] = await Promise.all([
+      startSessionReplay(options),
+      startSessionReplay(options),
+    ]);
+
+    expect(recordMock).toHaveBeenCalledTimes(1);
+    expect(recordOptions).toHaveLength(1);
+    expect(first).toMatchObject({ started: true, sampled: true });
+    expect(second).toMatchObject({
+      started: true,
+      sampled: true,
+      replayId: first.replayId,
+      sessionId: first.sessionId,
+    });
+
+    stopSessionReplay();
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
   it("falls back to raw sendBeacon uploads when gzip is unavailable", async () => {
     installBrowser("https://app.agent-native.com/inbox");
     const sendBeacon = vi.fn(() => true);
@@ -695,6 +730,66 @@ describe("session replay", () => {
       userName: "Dev User",
       orgId: "org_123",
     });
+  });
+
+  it("flushes queued auth-required replay events when auth is cleared", async () => {
+    const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
+      email: "dev@example.com",
+      userId: "auth-user-1",
+      name: "Dev User",
+      orgId: "org_123",
+    });
+    let recordOptions: any;
+    const stop = vi.fn();
+    recordMock.mockImplementation((options) => {
+      recordOptions = options;
+      return stop;
+    });
+    vi.resetModules();
+    const { configureTracking, setSentryUser } = await import("./analytics.js");
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      sessionReplay: {
+        enabled: true,
+        requireSignedInUser: true,
+        flushIntervalMs: 100_000,
+      },
+    });
+    await waitForAssertion(() => expect(recordOptions).toBeDefined());
+
+    recordOptions.emit({ type: 3, data: { href: "/inbox" } });
+    setSentryUser(null);
+
+    await waitForAssertion(() =>
+      expect(
+        fetchMock.mock.calls.filter(([url]) =>
+          String(url).includes("/api/analytics/replay"),
+        ),
+      ).toHaveLength(1),
+    );
+
+    expect(stop).toHaveBeenCalledTimes(1);
+    const replayCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("/api/analytics/replay"),
+    );
+    const [, init] = replayCalls[0] as [string, RequestInit];
+    const body = await parseReplayUpload(init);
+    expect(body).toMatchObject({
+      userId: "dev@example.com",
+      userEmail: "dev@example.com",
+      reason: "auth-cleared",
+      status: "completed",
+      eventCount: 1,
+      properties: {
+        userId: "dev@example.com",
+        userEmail: "dev@example.com",
+        userName: "Dev User",
+        orgId: "org_123",
+      },
+    });
+    expect(body.events[0].data.href).toBe("/inbox");
   });
 
   it("uses deterministic per-session sampling", async () => {

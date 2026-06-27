@@ -5,9 +5,13 @@ import {
   type H3Event,
 } from "h3";
 
-import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
+import { normalizeOpenAiBaseUrl } from "../agent/engine/openai-compatible-endpoint.js";
+import {
+  OPENAI_BASE_URL_ENV_VAR,
+  PROVIDER_ENV_META,
+} from "../agent/engine/provider-env-vars.js";
 import { getOrgContext } from "../org/context.js";
-import { writeAppSecret } from "../secrets/storage.js";
+import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
 import { getSession } from "./auth.js";
 import { readBody } from "./h3-helpers.js";
 
@@ -30,7 +34,9 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
   | {
       ok: true;
       key: string;
-      value: string;
+      value?: string;
+      baseUrl?: string;
+      clearBaseUrl: boolean;
       scope: AgentEngineApiKeyScope;
     }
   | { ok: false; statusCode: number; error: string } {
@@ -40,6 +46,9 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
     provider?: unknown;
     value?: unknown;
     apiKey?: unknown;
+    baseUrl?: unknown;
+    endpointUrl?: unknown;
+    clearBaseUrl?: unknown;
     scope?: unknown;
   };
 
@@ -63,8 +72,48 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
       : typeof raw.apiKey === "string"
         ? raw.apiKey.trim()
         : "";
-  if (!value) {
-    return { ok: false, statusCode: 400, error: "value is required" };
+
+  const rawBaseUrl =
+    typeof raw.baseUrl === "string"
+      ? raw.baseUrl
+      : typeof raw.endpointUrl === "string"
+        ? raw.endpointUrl
+        : "";
+  let baseUrl: string | undefined;
+  if (rawBaseUrl.trim()) {
+    if (key !== PROVIDER_TO_ENV_VAR.get("openai")) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: "Endpoint URL is only supported for OpenAI.",
+      };
+    }
+    try {
+      baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
+    } catch (err) {
+      return {
+        ok: false,
+        statusCode: 400,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+
+  const clearBaseUrl = raw.clearBaseUrl === true && baseUrl == null;
+  if (clearBaseUrl && key !== PROVIDER_TO_ENV_VAR.get("openai")) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "Endpoint URL is only supported for OpenAI.",
+    };
+  }
+
+  if (!value && !baseUrl && !clearBaseUrl) {
+    return {
+      ok: false,
+      statusCode: 400,
+      error: "value or baseUrl is required",
+    };
   }
 
   if (raw.scope != null && raw.scope !== "user" && raw.scope !== "org") {
@@ -78,7 +127,9 @@ export function normalizeAgentEngineApiKeyPayload(body: unknown):
   return {
     ok: true,
     key,
-    value,
+    ...(value ? { value } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+    clearBaseUrl,
     scope: raw.scope === "org" ? "org" : "user",
   };
 }
@@ -144,16 +195,36 @@ export function createAgentEngineApiKeyHandler() {
       return { error: resolved.error };
     }
 
-    await writeAppSecret({
-      key: payload.key,
-      value: payload.value,
-      scope: resolved.target.scope,
-      scopeId: resolved.target.scopeId,
-    });
+    if (payload.value) {
+      await writeAppSecret({
+        key: payload.key,
+        value: payload.value,
+        scope: resolved.target.scope,
+        scopeId: resolved.target.scopeId,
+      });
+    }
+
+    if (payload.baseUrl) {
+      await writeAppSecret({
+        key: OPENAI_BASE_URL_ENV_VAR,
+        value: payload.baseUrl,
+        scope: resolved.target.scope,
+        scopeId: resolved.target.scopeId,
+      });
+    } else if (payload.clearBaseUrl) {
+      await deleteAppSecret({
+        key: OPENAI_BASE_URL_ENV_VAR,
+        scope: resolved.target.scope,
+        scopeId: resolved.target.scopeId,
+      });
+    }
 
     return {
       ok: true,
       key: payload.key,
+      ...(payload.baseUrl || payload.clearBaseUrl
+        ? { baseUrlKey: OPENAI_BASE_URL_ENV_VAR }
+        : {}),
       scope: resolved.target.scope,
     };
   });

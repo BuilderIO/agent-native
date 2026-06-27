@@ -536,7 +536,7 @@ const frFR = {
       s004: "Dicter",
       s005: "Peut voir + entendre",
       s006: "Tous les modèles",
-      s007: "L'alternative open source à Loom et Jam",
+      s007: "L'alternative open source à Loom",
       s008: "Collez un lien Clips dans un agent et celui-ci pourra entendre la transcription, lire des résumés et voir les images horodatées même si son modèle ne peut pas ingérer de vidéo ou d'audio brut.",
       s009: "Essayer",
       s010: "Ce que tu peux faire",

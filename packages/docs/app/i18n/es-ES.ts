@@ -536,7 +536,7 @@ const esES = {
       s004: "Dictar",
       s005: "Puede ver + oír",
       s006: "Todas las plantillas",
-      s007: "La alternativa de código abierto a Loom y Jam",
+      s007: "La alternativa de código abierto a Loom",
       s008: "Pegue un enlace Clips en un agente y este podrá escuchar la transcripción, leer resúmenes y ver fotogramas con marca de tiempo incluso si su modelo no puede ingerir video o audio sin procesar.",
       s009: "Probar",
       s010: "que puedes hacer",

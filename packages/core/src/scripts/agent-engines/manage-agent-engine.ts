@@ -56,6 +56,11 @@ export const tool: ActionTool = {
         description:
           "Model ID (e.g. 'gpt-5.5', 'claude-sonnet-4-6', 'gemini-3-1-pro'). Required for \"set-app-default\"; optional for \"set\" and \"test\" where it defaults to the engine's default model.",
       },
+      baseUrl: {
+        type: "string",
+        description:
+          'Optional OpenAI-compatible endpoint URL for action="test" with engine="ai-sdk:openai". Saved endpoint settings are used when omitted.',
+      },
       appId: {
         type: "string",
         description:

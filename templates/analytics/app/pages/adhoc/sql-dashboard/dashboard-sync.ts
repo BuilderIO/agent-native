@@ -34,9 +34,10 @@ export function createDashboardAdoptionHold({
   now?: number;
   ttlMs?: number;
 }): DashboardAdoptionHold {
+  const currentUpdatedAtMs = dashboardUpdatedAtMs(currentUpdatedAt);
   return {
     dashboardId,
-    minUpdatedAtMs: dashboardUpdatedAtMs(currentUpdatedAt),
+    minUpdatedAtMs: currentUpdatedAtMs ?? now,
     expiresAt: now + ttlMs,
   };
 }

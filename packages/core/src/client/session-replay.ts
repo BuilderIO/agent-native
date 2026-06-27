@@ -40,6 +40,7 @@ interface RrwebRecordModule {
 
 interface SessionReplayState {
   active: boolean;
+  startPromise: Promise<SessionReplayStartResult> | null;
   replayId: string | null;
   startedAtMs: number | null;
   sequence: number;
@@ -53,6 +54,7 @@ interface SessionReplayState {
   restoreUrlMonitor: (() => void) | null;
   removeLifecycleListeners: (() => void) | null;
   options: NormalizedSessionReplayOptions | null;
+  lastAuthenticatedProperties: Record<string, unknown> | null;
 }
 
 interface StoredReplaySession {
@@ -207,6 +209,7 @@ function getState(): SessionReplayState {
   if (!g[SESSION_REPLAY_STATE_KEY]) {
     g[SESSION_REPLAY_STATE_KEY] = {
       active: false,
+      startPromise: null,
       replayId: null,
       startedAtMs: null,
       sequence: 0,
@@ -219,6 +222,7 @@ function getState(): SessionReplayState {
       restoreUrlMonitor: null,
       removeLifecycleListeners: null,
       options: null,
+      lastAuthenticatedProperties: null,
     };
   }
   return g[SESSION_REPLAY_STATE_KEY]!;
@@ -644,6 +648,21 @@ function replayUserEmail(
   );
 }
 
+function replayPropertiesForUpload(
+  state: SessionReplayState,
+  options: NormalizedSessionReplayOptions,
+): Record<string, unknown> | undefined {
+  const properties = replayExtraProperties(options);
+  if (replayUserEmail(properties)) {
+    state.lastAuthenticatedProperties = properties ? { ...properties } : null;
+    return properties;
+  }
+  if (options.requireSignedInUser && state.lastAuthenticatedProperties) {
+    return state.lastAuthenticatedProperties;
+  }
+  return properties;
+}
+
 function buildReplayBody(
   state: SessionReplayState,
   reason: string,
@@ -653,7 +672,7 @@ function buildReplayBody(
   if (!options || !state.replayId) return null;
   const sessionId = getAnalyticsSessionId();
   if (!sessionId) return null;
-  const properties = replayExtraProperties(options);
+  const properties = replayPropertiesForUpload(state, options);
   const userEmail = replayUserEmail(properties);
   if (options.requireSignedInUser && !userEmail) return null;
   const userId =
@@ -772,6 +791,7 @@ async function sendReplayUpload(
 
 function isFinalFlushReason(reason: string): boolean {
   return [
+    "auth-cleared",
     "manual",
     "pagehide",
     "beforeunload",
@@ -786,7 +806,14 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   const events = state.queue.splice(0, state.queue.length);
   state.queuedBytes = 0;
   const body = buildReplayBody(state, reason, events);
-  if (!body || !state.options) return;
+  if (!body || !state.options) {
+    state.queue = events.concat(state.queue);
+    state.queuedBytes += events.reduce(
+      (total, event) => total + event.json.length,
+      0,
+    );
+    return;
+  }
   state.flushing = true;
   try {
     await sendReplayUpload(state.options, body);
@@ -863,9 +890,9 @@ export async function startSessionReplay(
   if (!sampled) {
     return { started: false, reason: "sampled-out", sessionId, sampled };
   }
+  const initialProperties = replayExtraProperties(normalized);
   if (normalized.requireSignedInUser) {
-    const properties = replayExtraProperties(normalized);
-    if (!replayUserEmail(properties)) {
+    if (!replayUserEmail(initialProperties)) {
       return {
         started: false,
         reason: "missing-user-id",
@@ -879,6 +906,40 @@ export async function startSessionReplay(
   }
 
   const state = getState();
+  if (state.active && state.replayId) {
+    return {
+      started: true,
+      reason: "already-active",
+      replayId: state.replayId,
+      sessionId,
+      sampled,
+    };
+  }
+  if (state.startPromise) return state.startPromise;
+
+  let startPromise: Promise<SessionReplayStartResult>;
+  startPromise = startSessionReplayRecorder(
+    state,
+    normalized,
+    sessionId,
+    sampled,
+    initialProperties,
+  ).finally(() => {
+    if (state.startPromise === startPromise) {
+      state.startPromise = null;
+    }
+  });
+  state.startPromise = startPromise;
+  return startPromise;
+}
+
+async function startSessionReplayRecorder(
+  state: SessionReplayState,
+  normalized: NormalizedSessionReplayOptions,
+  sessionId: string,
+  sampled: boolean,
+  initialProperties: Record<string, unknown> | undefined,
+): Promise<SessionReplayStartResult> {
   if (state.active && state.replayId) {
     return {
       started: true,
@@ -904,6 +965,9 @@ export async function startSessionReplay(
   state.queue = [];
   state.queuedBytes = 0;
   state.stopRecorder = null;
+  state.lastAuthenticatedProperties = replayUserEmail(initialProperties)
+    ? { ...initialProperties }
+    : null;
   state.active = true;
 
   try {
@@ -943,6 +1007,7 @@ export async function startSessionReplay(
       state.options = null;
       state.replayId = null;
       state.startedAtMs = null;
+      state.lastAuthenticatedProperties = null;
       return { started: false, reason: "record-failed", sessionId, sampled };
     }
     state.stopRecorder = stopRecorder;
@@ -967,11 +1032,12 @@ export async function startSessionReplay(
     state.options = null;
     state.replayId = null;
     state.startedAtMs = null;
+    state.lastAuthenticatedProperties = null;
     return { started: false, reason: "record-failed", sessionId, sampled };
   }
 }
 
-export function stopSessionReplay(reason = "manual"): void {
+export async function stopSessionReplay(reason = "manual"): Promise<void> {
   const state = getState();
   if (!state.active) return;
   state.active = false;
@@ -991,7 +1057,7 @@ export function stopSessionReplay(reason = "manual"): void {
   }
   state.restoreUrlMonitor?.();
   state.removeLifecycleListeners?.();
-  void flushSessionReplay(reason);
+  await flushSessionReplay(reason);
 }
 
 export function maybeStartSessionReplay(

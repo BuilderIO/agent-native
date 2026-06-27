@@ -422,6 +422,16 @@ function decodeReplayBlobRef(value: string | null): StoredReplayBlobRef | null {
   }
 }
 
+async function deleteReplayBlobHandleQuietly(
+  handle: PrivateBlobHandle,
+): Promise<void> {
+  try {
+    await deletePrivateBlob(handle);
+  } catch {
+    // Best-effort rollback cleanup; the original ingest error is more useful.
+  }
+}
+
 function parsePositiveIntegerEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
@@ -755,15 +765,17 @@ export function parseSessionReplayIngestPayload(
     body.status === "completed" || body.completed === true || endedAt
       ? "completed"
       : "active";
-  const userId =
+  const userEmail =
     replayEmail(body.userEmail ?? body.user_email) ||
     replayEmail(properties.userEmail ?? properties.user_email) ||
     replayEmail(properties.email) ||
     replayEmail(context.userEmail ?? context.user_email) ||
     replayEmail(body.userId ?? body.user_id);
-  if (!userId) {
-    throw replayError("Session replay requires a signed-in user email", 401);
-  }
+  const userId =
+    userEmail ||
+    replayString(body.userId ?? body.user_id) ||
+    replayString(properties.userId ?? properties.user_id) ||
+    replayString(context.userId ?? context.user_id);
   const anonymousId = replayString(body.anonymousId ?? body.anonymous_id);
 
   return {
@@ -772,7 +784,7 @@ export function parseSessionReplayIngestPayload(
     sessionId,
     userId,
     anonymousId,
-    userKey: userId || anonymousId,
+    userKey: userEmail || userId || anonymousId,
     startedAt,
     endedAt,
     durationMs:
@@ -1001,6 +1013,23 @@ function replayRecordingChangeScope(row: {
   return { owner: row.ownerEmail };
 }
 
+async function deleteEmptyReplayRecordingPlaceholder(
+  db: any,
+  recordingId: string,
+): Promise<void> {
+  await db.delete(schema.sessionRecordings).where(
+    and(
+      eq(schema.sessionRecordings.id, recordingId),
+      eq(schema.sessionRecordings.chunkCount, 0),
+      eq(schema.sessionRecordings.eventCount, 0),
+      sql`not exists (
+          select 1 from ${schema.sessionReplayChunks}
+          where ${schema.sessionReplayChunks.recordingId} = ${schema.sessionRecordings.id}
+        )`,
+    ),
+  );
+}
+
 function escapeSqlLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
@@ -1121,6 +1150,7 @@ export async function recordSessionReplayChunks(
     existingChunks.map((chunk: any) => [chunk.seq, chunk]),
   );
   const rowsToInsert: any[] = [];
+  const uploadedBlobHandles: PrivateBlobHandle[] = [];
   let duplicateChunks = 0;
   const wasEmptyRecording =
     Number(recording.chunkCount ?? 0) === 0 &&
@@ -1129,17 +1159,11 @@ export async function recordSessionReplayChunks(
 
   try {
     for (const rawChunk of input.chunks) {
-      const chunk = await storeReplayChunkBlob(rawChunk, {
-        publicKeyId: key.id,
-        recordingId: recording.id,
-        ownerEmail: key.ownerEmail,
-        orgId: key.orgId,
-      });
-      const existing = existingBySeq.get(chunk.seq);
+      const existing = existingBySeq.get(rawChunk.seq);
       if (existing) {
-        if (existing.checksum !== chunk.checksum) {
+        if (existing.checksum !== rawChunk.checksum) {
           throw replayError(
-            `Replay chunk ${chunk.seq} was already recorded with a different checksum`,
+            `Replay chunk ${rawChunk.seq} was already recorded with a different checksum`,
             409,
           );
         }
@@ -1154,6 +1178,16 @@ export async function recordSessionReplayChunks(
           `Session recordings may contain at most ${MAX_REPLAY_CHUNKS_PER_RECORDING} chunks`,
           413,
         );
+      }
+      const chunk = await storeReplayChunkBlob(rawChunk, {
+        publicKeyId: key.id,
+        recordingId: recording.id,
+        ownerEmail: key.ownerEmail,
+        orgId: key.orgId,
+      });
+      if (rawChunk.storageKind !== "blob" && chunk.storageKind === "blob") {
+        const ref = decodeReplayBlobRef(chunk.storageRef);
+        if (ref) uploadedBlobHandles.push(ref.handle);
       }
       rowsToInsert.push({
         id: replayId("src"),
@@ -1175,11 +1209,11 @@ export async function recordSessionReplayChunks(
     if (rowsToInsert.length) {
       await db.insert(schema.sessionReplayChunks).values(rowsToInsert);
     }
+    uploadedBlobHandles.length = 0;
   } catch (error) {
+    await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
     if (wasEmptyRecording) {
-      await db
-        .delete(schema.sessionRecordings)
-        .where(eq(schema.sessionRecordings.id, recording.id));
+      await deleteEmptyReplayRecordingPlaceholder(db, recording.id);
     }
     throw error;
   }

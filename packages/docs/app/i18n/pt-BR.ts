@@ -535,7 +535,7 @@ const ptBR = {
       s004: "Ditar",
       s005: "Pode ver + ouvir",
       s006: "Todos os modelos",
-      s007: "A alternativa de código aberto para Loom e Jam",
+      s007: "A alternativa de código aberto para Loom",
       s008: "Cole um link Clips em um agente e ele poderá ouvir a transcrição, ler resumos e ver quadros com carimbo de data/hora, mesmo que seu modelo não consiga ingerir vídeo ou áudio bruto.",
       s009: "Experimentar",
       s010: "O que você pode fazer",

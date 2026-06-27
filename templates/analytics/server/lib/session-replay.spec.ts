@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const putPrivateBlobMock = vi.hoisted(() => vi.fn());
+const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
@@ -14,7 +15,7 @@ vi.mock("../db/index.js", async () => {
 });
 
 vi.mock("@agent-native/core/private-blob", () => ({
-  deletePrivateBlob: vi.fn(),
+  deletePrivateBlob: deletePrivateBlobMock,
   putPrivateBlob: putPrivateBlobMock,
   readPrivateBlob: vi.fn(),
 }));
@@ -47,7 +48,7 @@ function createBudgetDbMock(results: unknown[][]) {
 
 function createReplayDbMock(results: unknown[][]) {
   const inserts: Array<{ table: unknown; values: unknown }> = [];
-  const deletes: Array<{ table: unknown }> = [];
+  const deletes: Array<{ table: unknown; where: unknown }> = [];
   const db = {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
@@ -72,18 +73,33 @@ function createReplayDbMock(results: unknown[][]) {
       }),
     })),
     delete: vi.fn((table: unknown) => ({
-      where: vi.fn(async () => {
-        deletes.push({ table });
+      where: vi.fn(async (where: unknown) => {
+        deletes.push({ table, where });
       }),
     })),
   };
   return { db, inserts, deletes };
 }
 
+function conditionText(value: unknown): string {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(value, (_key, item) => {
+    if (typeof item === "object" && item !== null) {
+      if (seen.has(item)) return "[Circular]";
+      seen.add(item);
+    }
+    if (typeof item === "function") {
+      return `[Function ${item.name || "anonymous"}]`;
+    }
+    return item;
+  });
+}
+
 describe("session replay ingest parsing", () => {
   beforeEach(() => {
     getDbMock.mockReset();
     putPrivateBlobMock.mockReset();
+    deletePrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
   });
 
@@ -119,17 +135,25 @@ describe("session replay ingest parsing", () => {
     });
   });
 
-  it("rejects replay payloads without a signed-in user email", () => {
-    expect(() =>
-      parseSessionReplayIngestPayload({
-        publicKey: "anpk_test",
-        replayId: "recording_1",
-        sessionId: "session_1",
-        anonymousId: "anon_1",
-        sequence: 2,
-        events: [{ type: 4, timestamp: 1 }],
-      }),
-    ).toThrow("Session replay requires a signed-in user email");
+  it("accepts anonymous replay payloads without a signed-in user email", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      anonymousId: "anon_1",
+      sequence: 2,
+      events: [{ type: 4, timestamp: 1 }],
+    });
+
+    expect(parsed).toMatchObject({
+      publicKey: "anpk_test",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: null,
+      anonymousId: "anon_1",
+      userKey: "anon_1",
+    });
+    expect(parsed.chunks).toHaveLength(1);
   });
 
   it("does not return malformed zero-event recordings from direct summary reads", async () => {
@@ -332,6 +356,11 @@ describe("session replay ingest parsing", () => {
       });
 
       expect(deletes).toHaveLength(1);
+      const cleanupCondition = conditionText(deletes[0]?.where);
+      expect(cleanupCondition).toContain("chunk_count");
+      expect(cleanupCondition).toContain("event_count");
+      expect(cleanupCondition).toContain("not exists");
+      expect(cleanupCondition).toContain("session_replay_chunks");
     } finally {
       process.env.NODE_ENV = originalNodeEnv;
       if (originalFallback === undefined) {
@@ -340,5 +369,79 @@ describe("session replay ingest parsing", () => {
         process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK = originalFallback;
       }
     }
+  });
+
+  it("deletes uploaded replay blobs when chunk inserts fail", async () => {
+    const handle = {
+      opaque: "blob_1",
+      provider: "test",
+    };
+    putPrivateBlobMock.mockResolvedValue(handle);
+    deletePrivateBlobMock.mockResolvedValue({ deleted: true });
+    const recording = {
+      id: "sr_empty",
+      publicKeyId: "key_1",
+      clientRecordingId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com",
+      anonymousId: "anon_1",
+      userKey: "dev@example.com",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      endedAt: null,
+      durationMs: null,
+      chunkCount: 0,
+      eventCount: 0,
+      totalBytes: 0,
+      pageCount: 0,
+      errorCount: 0,
+      rageClickCount: 0,
+      privacyMode: "unknown",
+      metadata: "{}",
+      ownerEmail: "owner@example.com",
+      orgId: "org_123",
+      visibility: "private",
+      status: "active",
+    };
+    const { db, inserts } = createReplayDbMock([
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId: "org_123",
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 0 }],
+      [recording],
+      [],
+    ]);
+    db.insert.mockImplementation((table: unknown) => ({
+      values: vi.fn((values: unknown) => {
+        inserts.push({ table, values });
+        throw new Error("chunk insert failed");
+      }),
+    }));
+    getDbMock.mockReturnValue(db);
+
+    await expect(
+      recordSessionReplayChunks(
+        parseSessionReplayIngestPayload({
+          publicKey: "anpk_test",
+          replayId: "recording_1",
+          sessionId: "session_1",
+          userId: "dev@example.com",
+          anonymousId: "anon_1",
+          sequence: 0,
+          events: [{ type: 4, timestamp: 1 }],
+        }),
+        { origin: "https://app.example.com", requestBytes: 100 },
+      ),
+    ).rejects.toThrow("chunk insert failed");
+
+    expect(deletePrivateBlobMock).toHaveBeenCalledWith(handle);
   });
 });

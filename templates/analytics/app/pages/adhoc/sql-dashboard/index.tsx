@@ -25,7 +25,6 @@ import {
   type DragOverEvent,
   type DragStartEvent,
   type CollisionDetection,
-  type Collision,
 } from "@dnd-kit/core";
 import {
   IconArchive,
@@ -105,10 +104,10 @@ import {
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import {
+  availableDropSlotIdsForPanel,
   buildDashboardPanelGroups,
   distanceFromPointerToRect,
   dropSlotId,
-  isDropSlotAvailable,
   movePanelToDropSlot,
   readDropSlot,
   removePanelFromLayout,
@@ -171,6 +170,31 @@ function groupDashboardTabs(tabs: string[]): {
   return { groups, hasNestedTabs };
 }
 
+function parseReportPanelLimit(raw: string | null): number | null {
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.min(50, parsed);
+}
+
+function limitReportPanels(panels: SqlPanel[], limit: number | null) {
+  if (!limit) return panels;
+  const limited: SqlPanel[] = [];
+  let chartCount = 0;
+
+  for (const panel of panels) {
+    if (panel.chartType === "section") {
+      if (chartCount < limit) limited.push(panel);
+      continue;
+    }
+    if (chartCount >= limit) continue;
+    chartCount++;
+    limited.push(panel);
+  }
+
+  return limited;
+}
+
 function DashboardDropLine({
   slot,
   activeSlot,
@@ -226,6 +250,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor,
   editable,
   eagerLoad,
+  isDragSource,
   onRemovePanel,
   onEditPanel,
   onSavePanel,
@@ -235,6 +260,7 @@ const PanelCell = memo(function PanelCell({
   remoteEditor: { color: string; name: string } | undefined;
   editable: boolean;
   eagerLoad: boolean;
+  isDragSource: boolean;
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
   onSavePanel: (panel: SqlPanel) => Promise<void>;
@@ -289,6 +315,7 @@ const PanelCell = memo(function PanelCell({
         onSaveSql={(sql) => onSavePanel({ ...panel, sql })}
         editable={editable}
         eagerLoad={eagerLoad}
+        isDragSource={isDragSource}
       />
     </div>
   );
@@ -400,6 +427,9 @@ export default function SqlDashboardPage() {
   const navigate = useNavigate();
   const dashboardId = searchParams.get("id") || routeId;
   const reportScreenshot = searchParams.get("reportScreenshot") === "1";
+  const reportPanelLimit = reportScreenshot
+    ? parseReportPanelLimit(searchParams.get("reportPanelLimit"))
+    : null;
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
@@ -1060,9 +1090,11 @@ export default function SqlDashboardPage() {
   // dashboard shows every panel as before.
   const visiblePanels = useMemo(() => {
     if (!dashboard) return [];
-    if (!activeTab) return dashboard.panels;
-    return dashboard.panels.filter((p) => !p.tab || p.tab === activeTab);
-  }, [dashboard, activeTab]);
+    const tabPanels = activeTab
+      ? dashboard.panels.filter((p) => !p.tab || p.tab === activeTab)
+      : dashboard.panels;
+    return limitReportPanels(tabPanels, reportPanelLimit);
+  }, [dashboard, activeTab, reportPanelLimit]);
 
   // Group panels into "section blocks": each section starts a new block whose
   // grid uses the section's `columns` (falling back to the dashboard default).
@@ -1078,17 +1110,23 @@ export default function SqlDashboardPage() {
         : null,
     [activeDragPanelId, visiblePanels],
   );
+  const activeDropSlotIds = useMemo(
+    () =>
+      activeDragPanelId
+        ? availableDropSlotIdsForPanel(panelGroups, activeDragPanelId)
+        : null,
+    [activeDragPanelId, panelGroups],
+  );
 
   const dashboardCollisionDetection = useCallback<CollisionDetection>(
     (args) => {
       const activePanelId = String(args.active.id);
-      const droppableContainers = args.droppableContainers.filter(
-        (container) => {
-          const slot = readDropSlot(container.data.current);
-          return (
-            !!slot && isDropSlotAvailable(panelGroups, activePanelId, slot)
-          );
-        },
+      const availableSlotIds =
+        activeDragPanelId === activePanelId && activeDropSlotIds
+          ? activeDropSlotIds
+          : availableDropSlotIdsForPanel(panelGroups, activePanelId);
+      const droppableContainers = args.droppableContainers.filter((container) =>
+        availableSlotIds.has(String(container.id)),
       );
 
       if (droppableContainers.length === 0) return [];
@@ -1101,29 +1139,34 @@ export default function SqlDashboardPage() {
 
       if (!args.pointerCoordinates) return [];
 
-      const collisions: Collision[] = [];
+      let closestId: string | null = null;
+      let closestContainer: (typeof droppableContainers)[number] | null = null;
+      let closestValue = Number.MAX_VALUE;
       for (const droppableContainer of droppableContainers) {
         const rect = args.droppableRects.get(droppableContainer.id);
         if (!rect) continue;
 
-        collisions.push({
-          id: droppableContainer.id,
-          data: {
-            droppableContainer,
-            value: distanceFromPointerToRect(args.pointerCoordinates, rect),
-          },
-        });
+        const value = distanceFromPointerToRect(args.pointerCoordinates, rect);
+        if (value < closestValue) {
+          closestId = String(droppableContainer.id);
+          closestContainer = droppableContainer;
+          closestValue = value;
+        }
       }
 
-      return collisions.sort((a, b) => {
-        const aValue =
-          typeof a.data?.value === "number" ? a.data.value : Number.MAX_VALUE;
-        const bValue =
-          typeof b.data?.value === "number" ? b.data.value : Number.MAX_VALUE;
-        return aValue - bValue;
-      });
+      return closestId && closestContainer
+        ? [
+            {
+              id: closestId,
+              data: {
+                droppableContainer: closestContainer,
+                value: closestValue,
+              },
+            },
+          ]
+        : [];
     },
-    [panelGroups],
+    [activeDragPanelId, activeDropSlotIds, panelGroups],
   );
 
   const handleDelete = useCallback(async () => {
@@ -1682,6 +1725,7 @@ export default function SqlDashboardPage() {
                       onEdit={() => openEditPanel(section)}
                       editable={canEdit}
                       eagerLoad={reportScreenshot}
+                      isDragSource={activeDragPanelId === section.id}
                     />
                   </div>
                 );
@@ -1733,6 +1777,7 @@ export default function SqlDashboardPage() {
                                 }
                                 editable={canEdit}
                                 eagerLoad={reportScreenshot}
+                                isDragSource={activeDragPanelId === panel.id}
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSavePanel={handleSavePanel}
