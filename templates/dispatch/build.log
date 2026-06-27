@@ -1,0 +1,1290 @@
+
+> dispatch@ build C:\Users\larry\Documents\GitHub\agent-native\templates\dispatch
+> agent-native build
+
+Building (React Router framework mode)...
+Using Vite Environment API
+[36mvite v8.1.0 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[38;5;147m[LARGE_BARREL_MODULES] [0m../../node_modules/.pnpm/@tabler+icons-react@3.44.0_react@19.2.7/node_modules/@tabler/icons-react/dist/esm/tabler-icons-react.mjs has 6149 re-exports. Eagerly resolving every entry can significantly slow down the build. Consider using `@rolldown/plugin-transform-imports` to rewrite imports at the source level so the barrel file is never loaded.
+ [38;5;240m │[0m 
+ [38;5;240m │[0m [38;5;115mHelp[0m: See https://github.com/rolldown/plugins/tree/main/packages/transform-imports for usage.
+
+✓ 2307 modules transformed.
+rendering chunks...
+computing gzip size...
+build/client/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2      10.25 kB
+build/client/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2       11.23 kB
+build/client/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2        18.74 kB
+build/client/assets/inter-greek-wght-normal-CkhJZR-_.woff2           18.99 kB
+build/client/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2    25.96 kB
+build/client/assets/inter-latin-wght-normal-Dx4kXJAl.woff2           48.25 kB
+build/client/.vite/manifest.json                                     76.74 kB │ gzip:   8.59 kB
+build/client/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2       85.06 kB
+build/client/assets/global-BWW6K7km.css                             269.06 kB │ gzip:  39.47 kB
+build/client/assets/css-CdtkT07m.js                                   0.05 kB │ gzip:   0.07 kB
+build/client/assets/javascript-Yelw-5ZN.js                            0.06 kB │ gzip:   0.08 kB
+build/client/assets/_appId-DEsUJGt9.js                                0.06 kB │ gzip:   0.08 kB
+build/client/assets/_index-client-loader-CPCpY6ZV.js                  0.06 kB │ gzip:   0.08 kB
+build/client/assets/bash-BiGZg9Om.js                                  0.06 kB │ gzip:   0.08 kB
+build/client/assets/shellscript-BiGZg9Om.js                           0.06 kB │ gzip:   0.08 kB
+build/client/assets/_index-hydrate-fallback-CaV_LWdT.js               0.07 kB │ gzip:   0.08 kB
+build/client/assets/extensions._id._slug-DBbT2Khv.js                  0.07 kB │ gzip:   0.08 kB
+build/client/assets/_appId-main-C7pI7pQv.js                           0.07 kB │ gzip:   0.08 kB
+build/client/assets/extensions._id-B0jTPLz4.js                        0.08 kB │ gzip:   0.09 kB
+build/client/assets/ar-SA-DyY6EoHq.js                                 0.08 kB │ gzip:   0.09 kB
+build/client/assets/de-DE-CLiIgg5D.js                                 0.08 kB │ gzip:   0.09 kB
+build/client/assets/es-ES-CIAO2Cpt.js                                 0.08 kB │ gzip:   0.09 kB
+build/client/assets/fr-FR-CtWthU0k.js                                 0.08 kB │ gzip:   0.09 kB
+build/client/assets/hi-IN-axIqYgcu.js                                 0.08 kB │ gzip:   0.09 kB
+build/client/assets/ja-JP-Dfj__YXv.js                                 0.08 kB │ gzip:   0.09 kB
+build/client/assets/ko-KR-CV5PBt8z.js                                 0.08 kB │ gzip:   0.09 kB
+build/client/assets/pt-BR-BZ1-6Fh1.js                                 0.08 kB │ gzip:   0.09 kB
+build/client/assets/zh-CN-BiOsKvN8.js                                 0.08 kB │ gzip:   0.09 kB
+build/client/assets/utils-B7H6H1EL.js                                 0.09 kB │ gzip:   0.10 kB
+build/client/assets/collapsible-C-qCLWmx.js                           0.09 kB │ gzip:   0.10 kB
+build/client/assets/IconChevronUp-DqoRTI-a.js                         0.14 kB │ gzip:   0.15 kB
+build/client/assets/IconLoader2-D-ebM__P.js                           0.14 kB │ gzip:   0.15 kB
+build/client/assets/IconChevronLeft-C97qPmbR.js                       0.14 kB │ gzip:   0.15 kB
+build/client/assets/IconChevronRight-BSntBbLw.js                      0.14 kB │ gzip:   0.15 kB
+build/client/assets/IconActivity-VyYf2lhK.js                          0.14 kB │ gzip:   0.15 kB
+build/client/assets/IconPlayerPlay-d4URNGTm.js                        0.15 kB │ gzip:   0.15 kB
+build/client/assets/workspace-apps-Bde5Vdqq.js                        0.15 kB │ gzip:   0.12 kB
+build/client/assets/IconX-B_D0fd_c.js                                 0.16 kB │ gzip:   0.15 kB
+build/client/assets/IconPlus-UzuZY-c9.js                              0.16 kB │ gzip:   0.15 kB
+build/client/assets/_index-main-DbV-2nuv.js                           0.16 kB │ gzip:   0.14 kB
+build/client/assets/IconBrandTelegram-BJXGZEyU.js                     0.17 kB │ gzip:   0.17 kB
+build/client/assets/ccount-CyGsA0u7.js                                0.18 kB │ gzip:   0.16 kB
+build/client/assets/IconArrowUpRight-CHbxkHb1.js                      0.18 kB │ gzip:   0.17 kB
+build/client/assets/IconClock-C1BnZIYq.js                             0.19 kB │ gzip:   0.17 kB
+build/client/assets/team-BfOMITTS.js                                  0.19 kB │ gzip:   0.17 kB
+build/client/assets/IconSearch-CFPXeN6f.js                            0.19 kB │ gzip:   0.17 kB
+build/client/assets/IconCircleCheck-C7B_W5MB.js                       0.21 kB │ gzip:   0.17 kB
+build/client/assets/IconCode-DNIogkIx.js                              0.21 kB │ gzip:   0.16 kB
+build/client/assets/IconArrowLeft-B_YS7jwd.js                         0.21 kB │ gzip:   0.16 kB
+build/client/assets/IconArrowRight-zeiiwZC3.js                        0.21 kB │ gzip:   0.17 kB
+build/client/assets/skeleton-CYd93DZP.js                              0.21 kB │ gzip:   0.18 kB
+build/client/assets/IconRefresh-cxWAYYBx.js                           0.22 kB │ gzip:   0.18 kB
+build/client/assets/IconMail-CU7I5DuR.js                              0.23 kB │ gzip:   0.18 kB
+build/client/assets/IconClockHour4-BNyhudWF.js                        0.24 kB │ gzip:   0.18 kB
+build/client/assets/IconAlertCircle-2_BS8t2Z.js                       0.24 kB │ gzip:   0.18 kB
+build/client/assets/IconEye-0OrKn9tk.js                               0.26 kB │ gzip:   0.21 kB
+build/client/assets/chat-_Z49GINu.js                                  0.26 kB │ gzip:   0.20 kB
+build/client/assets/chat._threadId-_Z49GINu.js                        0.26 kB │ gzip:   0.20 kB
+build/client/assets/IconDatabase-fjjstMyO.js                          0.26 kB │ gzip:   0.18 kB
+build/client/assets/extensions._id-DhBEhfNj.js                        0.26 kB │ gzip:   0.20 kB
+build/client/assets/IconExternalLink-CxvF1nXH.js                      0.27 kB │ gzip:   0.19 kB
+build/client/assets/IconMessages-Cziwc-Q-.js                          0.27 kB │ gzip:   0.19 kB
+build/client/assets/IconShieldCheck-Db119m4V.js                       0.27 kB │ gzip:   0.20 kB
+build/client/assets/extensions._index-CnC0s7IL.js                     0.27 kB │ gzip:   0.21 kB
+build/client/assets/tools._id-DvEO8k2I.js                             0.27 kB │ gzip:   0.21 kB
+build/client/assets/tools._index-CnC0s7IL.js                          0.27 kB │ gzip:   0.21 kB
+build/client/assets/IconDots-BH204dYC.js                              0.27 kB │ gzip:   0.16 kB
+build/client/assets/spinner-BwMNTxsy.js                               0.28 kB │ gzip:   0.22 kB
+build/client/assets/IconUserPlus-DqdzRa1W.js                          0.28 kB │ gzip:   0.20 kB
+build/client/assets/IconBroadcast-uG328msl.js                         0.28 kB │ gzip:   0.20 kB
+build/client/assets/IconHelpCircle-CsE1jOa0.js                        0.28 kB │ gzip:   0.21 kB
+build/client/assets/IconCoin-Bm7koqmC.js                              0.29 kB │ gzip:   0.20 kB
+build/client/assets/IconBrandWhatsapp-Cp0vDPG9.js                     0.30 kB │ gzip:   0.22 kB
+build/client/assets/IconEdit-CUKqW-du.js                              0.31 kB │ gzip:   0.22 kB
+build/client/assets/IconLock-B5F5S3BH.js                              0.31 kB │ gzip:   0.21 kB
+build/client/assets/IconBook-DA7cu1Wt.js                              0.32 kB │ gzip:   0.18 kB
+build/client/assets/IconSparkles-Du_7kOGL.js                          0.32 kB │ gzip:   0.18 kB
+build/client/assets/IconUsers-DVFdodFm.js                             0.33 kB │ gzip:   0.21 kB
+build/client/assets/IconWorld-DJC8XLfW.js                             0.33 kB │ gzip:   0.20 kB
+build/client/assets/IconAlertTriangle-BwYGQxZM.js                     0.34 kB │ gzip:   0.23 kB
+build/client/assets/IconTrash-CluPO04J.js                             0.34 kB │ gzip:   0.21 kB
+build/client/assets/IconFileDiff-BGz7YdvX.js                          0.36 kB │ gzip:   0.22 kB
+build/client/assets/embed-B-SxjC41.js                                 0.37 kB │ gzip:   0.23 kB
+build/client/assets/IconPhoto-D92BYbe7.js                             0.37 kB │ gzip:   0.23 kB
+build/client/assets/IconCopy-DhCNYNDM.js                              0.39 kB │ gzip:   0.24 kB
+build/client/assets/IconBrandSlack-B3WCb_A8.js                        0.40 kB │ gzip:   0.23 kB
+build/client/assets/IconEyeOff-4TAJh2rO.js                            0.42 kB │ gzip:   0.28 kB
+build/client/assets/IconBuilding-DY0QmhXu.js                          0.43 kB │ gzip:   0.21 kB
+build/client/assets/IconPlugConnected-BoF1OFPA.js                     0.43 kB │ gzip:   0.23 kB
+build/client/assets/IconChartBar-N_MGkf3T.js                          0.45 kB │ gzip:   0.21 kB
+build/client/assets/IconUsersGroup-DdHuyNnh.js                        0.46 kB │ gzip:   0.22 kB
+build/client/assets/IconApps-CxC4Q-qd.js                              0.47 kB │ gzip:   0.20 kB
+build/client/assets/IconBrain-DiMN_NEP.js                             0.49 kB │ gzip:   0.23 kB
+build/client/assets/IconKey-BXy6YdGo.js                               0.49 kB │ gzip:   0.29 kB
+build/client/assets/IconUser-Bfzqx0rf.js                              0.53 kB │ gzip:   0.28 kB
+build/client/assets/textarea-P5ldWbSD.js                              0.54 kB │ gzip:   0.35 kB
+build/client/assets/IconCircleDashed-NOSSfPSi.js                      0.58 kB │ gzip:   0.26 kB
+build/client/assets/path-CEACs9s4.js                                  0.60 kB │ gzip:   0.37 kB
+build/client/assets/input-zI2dkdyp.js                                 0.64 kB │ gzip:   0.39 kB
+build/client/assets/label-D9v9Qa9o.js                                 0.66 kB │ gzip:   0.42 kB
+build/client/assets/IconSettings-Dju4XIIN.js                          0.71 kB │ gzip:   0.34 kB
+build/client/assets/tooltip-oU6odwIJ.js                               0.73 kB │ gzip:   0.41 kB
+build/client/assets/badge-ClkGrCHA.js                                 0.78 kB │ gzip:   0.41 kB
+build/client/assets/thread-link-preview-02SSwA0g.js                   0.78 kB │ gzip:   0.41 kB
+build/client/assets/format-DPJO96r2.js                                0.79 kB │ gzip:   0.42 kB
+build/client/assets/extension-popularity-Cso--dQo.js                  0.80 kB │ gzip:   0.42 kB
+build/client/assets/workspace-app-id-BI7si3ng.js                      0.82 kB │ gzip:   0.44 kB
+build/client/assets/_index-D3YncAd0.js                                0.92 kB │ gzip:   0.49 kB
+build/client/assets/SetupButton-B_cM78mY.js                           0.93 kB │ gzip:   0.60 kB
+build/client/assets/alert-Ae9b2u6l.js                                 1.01 kB │ gzip:   0.52 kB
+build/client/assets/audit-CGaHV9d9.js                                 1.02 kB │ gzip:   0.55 kB
+build/client/assets/addon-fit-DIOBYJe3.js                             1.20 kB │ gzip:   0.49 kB
+build/client/assets/preload-helper-CZgWQFsJ.js                        1.25 kB │ gzip:   0.70 kB
+build/client/assets/IconVideo-BEby-up6.js                             1.28 kB │ gzip:   0.50 kB
+build/client/assets/extension-order-nA-Z_DdI.js                       1.56 kB │ gzip:   0.74 kB
+build/client/assets/metadata-C-D2MOAY.js                              1.79 kB │ gzip:   0.90 kB
+build/client/assets/button-CKJ0oVoX.js                                1.97 kB │ gzip:   0.98 kB
+build/client/assets/dist-COHozunK.js                                  2.06 kB │ gzip:   0.92 kB
+build/client/assets/dialog-CsjnnYqg.js                                2.11 kB │ gzip:   0.85 kB
+build/client/assets/dispatch-shell-CP8yCGMn.js                        2.19 kB │ gzip:   1.05 kB
+build/client/assets/use-onboarding-CrFguHlz.js                        2.20 kB │ gzip:   0.96 kB
+build/client/assets/dist-DFInDVef.js                                  2.28 kB │ gzip:   1.01 kB
+build/client/assets/addon-web-links-xF2oeMXv.js                       2.38 kB │ gzip:   1.16 kB
+build/client/assets/chat-D0NLbtpi.js                                  2.44 kB │ gzip:   1.26 kB
+build/client/assets/identities-Cpruuwe0.js                            2.66 kB │ gzip:   0.98 kB
+build/client/assets/SettingsTabsPage-BHqOZgmf.js                      2.80 kB │ gzip:   1.33 kB
+build/client/assets/json-qhed-kSA.js                                  2.81 kB │ gzip:   0.77 kB
+build/client/assets/builder-mark-CoICC_GL.js                          2.91 kB │ gzip:   1.50 kB
+build/client/assets/sheet-evcRGxnx.js                                 2.94 kB │ gzip:   1.15 kB
+build/client/assets/workspace-resource-effective-stack-DqlcsCJD.js    3.14 kB │ gzip:   1.05 kB
+build/client/assets/select-CsggDixt.js                                3.18 kB │ gzip:   1.15 kB
+build/client/assets/hooks-D7pOS3gd.js                                 3.26 kB │ gzip:   0.88 kB
+build/client/assets/tabs-bjQOg5it.js                                  3.33 kB │ gzip:   1.40 kB
+build/client/assets/apps._appId-D5ylBWkN.js                           3.34 kB │ gzip:   1.20 kB
+build/client/assets/_appId-j84EgqoE.js                                3.35 kB │ gzip:   1.36 kB
+build/client/assets/DataChartRenderer-DepH5CcR.js                     3.38 kB │ gzip:   1.57 kB
+build/client/assets/react-dom-CD-sv4cH.js                             3.54 kB │ gzip:   1.34 kB
+build/client/assets/approvals-BioXsVl9.js                             3.62 kB │ gzip:   1.35 kB
+build/client/assets/switch-DrznCocg.js                                3.76 kB │ gzip:   1.62 kB
+build/client/assets/lib-B0zFa4kW.js                                   4.15 kB │ gzip:   1.79 kB
+build/client/assets/dist-PFup2EgD.js                                  4.69 kB │ gzip:   1.99 kB
+build/client/assets/destinations-CXuLfZ6O.js                          4.70 kB │ gzip:   1.60 kB
+build/client/assets/dist-CMNXWle8.js                                  5.21 kB │ gzip:   1.99 kB
+build/client/assets/dist-kuXapUW4.js                                  6.08 kB │ gzip:   2.72 kB
+build/client/assets/components-pW9RznLA.js                            6.10 kB │ gzip:   2.47 kB
+build/client/assets/api-path-DQnGv6v0.js                              6.59 kB │ gzip:   2.58 kB
+build/client/assets/terminal-BUT1jrYn.js                              7.17 kB │ gzip:   3.01 kB
+build/client/assets/approval-oqLLZmxJ.js                              7.58 kB │ gzip:   1.88 kB
+build/client/assets/alert-dialog-UDyCI2mr.js                          7.72 kB │ gzip:   2.49 kB
+build/client/assets/dist-CcPS6k0J.js                                  7.91 kB │ gzip:   2.94 kB
+build/client/assets/apps-Cp8A_cIu.js                                  8.42 kB │ gzip:   2.55 kB
+build/client/assets/jsx-runtime-Bt-cYkS5.js                           8.92 kB │ gzip:   3.44 kB
+build/client/assets/workspace-app-card-B4kAqiUX.js                   10.01 kB │ gzip:   3.16 kB
+build/client/assets/PromptComposer-3XLKkM8g.js                       10.28 kB │ gzip:   3.97 kB
+build/client/assets/yaml-rwi0_p6S.js                                 10.49 kB │ gzip:   2.26 kB
+build/client/assets/agents-Sitj6Q1I.js                               10.90 kB │ gzip:   3.59 kB
+build/client/assets/session-replay-D0dGKF88.js                       11.18 kB │ gzip:   4.07 kB
+build/client/assets/lib-Cjd57ZwA.js                                  11.26 kB │ gzip:   4.55 kB
+build/client/assets/use-chat-threads-Dc5FTnsZ.js                     11.33 kB │ gzip:   3.45 kB
+build/client/assets/utils-CQ55hr2p.js                                12.16 kB │ gzip:   5.07 kB
+build/client/assets/dist-Bxtygpas.js                                 12.24 kB │ gzip:   4.52 kB
+build/client/assets/messaging-CCxezUsN.js                            12.35 kB │ gzip:   4.14 kB
+build/client/assets/CHANGELOG-C79Cgip8.js                            13.80 kB │ gzip:   4.85 kB
+build/client/assets/thread-debug-DQEBCQ0H.js                         13.86 kB │ gzip:   3.86 kB
+build/client/assets/github-light-default-BXViO-2h.js                 14.15 kB │ gzip:   3.02 kB
+build/client/assets/IntegrationsPanel-DbuuS1-s.js                    14.20 kB │ gzip:   4.16 kB
+build/client/assets/github-dark-default-DXG-b-1a.js                  14.43 kB │ gzip:   3.12 kB
+build/client/assets/OnboardingPanel-DO_3BGAg.js                      14.74 kB │ gzip:   4.44 kB
+build/client/assets/metrics-CFhAEjW3.js                              15.15 kB │ gzip:   3.66 kB
+build/client/assets/ExtensionsListPage-DWl0lPXf.js                   15.23 kB │ gzip:   4.66 kB
+build/client/assets/RunsTray-CVI0VHcm.js                             15.90 kB │ gzip:   4.85 kB
+build/client/assets/new-app-BzSZEmjX.js                              16.14 kB │ gzip:   5.45 kB
+build/client/assets/markdown-renderer-CVrSa5oL.js                    17.03 kB │ gzip:   6.71 kB
+build/client/assets/vault-BgTLBPNh.js                                17.49 kB │ gzip:   4.55 kB
+build/client/assets/createStateHookForRuntime-BwJY_v3m.js            17.69 kB │ gzip:   6.67 kB
+build/client/assets/tooltip-DfmgEXG2.js                              17.89 kB │ gzip:   6.10 kB
+build/client/assets/dist-CLzQCgXV.js                                 18.36 kB │ gzip:   6.42 kB
+build/client/assets/space-separated-tokens-COsKzE9S.js               18.60 kB │ gzip:   6.24 kB
+build/client/assets/dist-DdOIFYWO.js                                 21.23 kB │ gzip:   6.30 kB
+build/client/assets/sql-BsFa4tDR.js                                  23.42 kB │ gzip:   7.45 kB
+build/client/assets/app-keys-popover-yyO1mHc6.js                     25.19 kB │ gzip:   7.65 kB
+build/client/assets/overview-Dv5LQICA.js                             25.82 kB │ gzip:   7.32 kB
+build/client/assets/workspace-DArFkj1X.js                            26.41 kB │ gzip:   7.03 kB
+build/client/assets/bundle-mjs-CRmSnKc2.js                           28.07 kB │ gzip:   9.07 kB
+build/client/assets/settings-6GV89cgY.js                             29.51 kB │ gzip:   6.75 kB
+build/client/assets/components-Bm07PgRH.js                           32.25 kB │ gzip:  11.27 kB
+build/client/assets/dist-B0hyaxR4.js                                 32.57 kB │ gzip:   9.13 kB
+build/client/assets/IconCheck-Ccy5gJ9h.js                            33.46 kB │ gzip:  10.73 kB
+build/client/assets/iframe-bridge-CPlUw6_7.js                        33.74 kB │ gzip:   9.69 kB
+build/client/assets/remark-gfm-D8ngTt8g.js                           38.22 kB │ gzip:  11.54 kB
+build/client/assets/root-DUJR4iP4.js                                 40.97 kB │ gzip:  14.85 kB
+build/client/assets/shellscript-CqHdAlCp.js                          41.46 kB │ gzip:   6.07 kB
+build/client/assets/ExtensionViewerPage-tvf2qrz-.js                  48.77 kB │ gzip:  14.13 kB
+build/client/assets/css-LbU1hoFO.js                                  49.02 kB │ gzip:  11.90 kB
+build/client/assets/integrations-DBVjJWF6.js                         50.77 kB │ gzip:  12.73 kB
+build/client/assets/dreams-BWM_Nl3u.js                               52.05 kB │ gzip:  13.29 kB
+build/client/assets/hooks-oupyjtnV.js                                56.52 kB │ gzip:  18.46 kB
+build/client/assets/html-CVO8wu9Q.js                                 57.24 kB │ gzip:  11.74 kB
+build/client/assets/engine-javascript-FQvzRocB.js                    57.63 kB │ gzip:  20.18 kB
+build/client/assets/markdown-BYOwaDjH.js                             59.32 kB │ gzip:   5.66 kB
+build/client/assets/python-gzcpVVnB.js                               69.94 kB │ gzip:   9.09 kB
+build/client/assets/record-CbtCLiCb.js                               73.87 kB │ gzip:  22.53 kB
+build/client/assets/components-BNhXB_oD.js                           76.70 kB │ gzip:  23.59 kB
+build/client/assets/AgentPanel-CWaPM7i5.js                           84.87 kB │ gzip:  27.30 kB
+build/client/assets/react-markdown-FeHw3_HS.js                       93.58 kB │ gzip:  27.85 kB
+build/client/assets/core-NtSFihcx.js                                 93.65 kB │ gzip:  29.47 kB
+build/client/assets/i18n-data-DmWcq8mC.js                            95.86 kB │ gzip:  22.61 kB
+build/client/assets/settings-CW7H9RT6.js                            103.32 kB │ gzip:  23.50 kB
+build/client/assets/i18n-BJsqWgrd.js                                143.74 kB │ gzip:  49.08 kB
+build/client/assets/javascript-BzbQS41l.js                          174.81 kB │ gzip:  16.62 kB
+build/client/assets/tsx-udAQXfEw.js                                 175.52 kB │ gzip:  16.62 kB
+build/client/assets/jsx-Bz0zcwM4.js                                 177.78 kB │ gzip:  16.71 kB
+build/client/assets/typescript-bsJCZSQ-.js                          181.07 kB │ gzip:  16.23 kB
+build/client/assets/entry.client-DWavD9iA.js                        182.68 kB │ gzip:  57.84 kB
+build/client/assets/ResourcesPanel-BUppBPNw.js                      215.59 kB │ gzip:  76.85 kB
+build/client/assets/ContextXRayPanel-D00aH3TB.js                    252.15 kB │ gzip:  78.47 kB
+build/client/assets/useBuilderStatus-B-uXrNrO.js                    314.32 kB │ gzip:  92.47 kB
+build/client/assets/xterm-DMlKjmUi.js                               340.34 kB │ gzip:  86.29 kB
+build/client/assets/MultiTabAssistantChat-D7ilvPMg.js               416.77 kB │ gzip: 115.72 kB
+build/client/assets/TiptapComposer-Cg6WrK6d.js                      658.43 kB │ gzip: 196.04 kB
+
+[32m✓ built in 3.15s[39m
+[36mvite v8.1.0 [32mbuilding ssr environment for production...[36m[39m
+[2Ktransforming...[38;5;147m[LARGE_BARREL_MODULES] [0m../../node_modules/.pnpm/@tabler+icons-react@3.44.0_react@19.2.7/node_modules/@tabler/icons-react/dist/esm/tabler-icons-react.mjs has 6149 re-exports. Eagerly resolving every entry can significantly slow down the build. Consider using `@rolldown/plugin-transform-imports` to rewrite imports at the source level so the barrel file is never loaded.
+ [38;5;240m │[0m 
+ [38;5;240m │[0m [38;5;115mHelp[0m: See https://github.com/rolldown/plugins/tree/main/packages/transform-imports for usage.
+
+✓ 4213 modules transformed.
+rendering chunks...
+
+[32m✓[39m 8 assets cleaned from React Router server build.
+[2mbuild\client\assets\global-BWW6K7km.css[22m
+[2mbuild\client\assets\inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2[22m
+[2mbuild\client\assets\inter-cyrillic-wght-normal-DqGufNeO.woff2[22m
+[2mbuild\client\assets\inter-greek-ext-wght-normal-DlzME5K_.woff2[22m
+[2mbuild\client\assets\inter-greek-wght-normal-CkhJZR-_.woff2[22m
+[2mbuild\client\assets\inter-vietnamese-wght-normal-CBcvBZtf.woff2[22m
+[2mbuild\client\assets\inter-latin-ext-wght-normal-DO1Apj_S.woff2[22m
+[2mbuild\client\assets\inter-latin-wght-normal-Dx4kXJAl.woff2[22m
+
+computing gzip size...
+build/server/assets/inter-vietnamese-wght-normal-CBcvBZtf.woff2       10.25 kB
+build/server/assets/inter-greek-ext-wght-normal-DlzME5K_.woff2        11.23 kB
+build/server/assets/inter-cyrillic-wght-normal-DqGufNeO.woff2         18.74 kB
+build/server/assets/inter-greek-wght-normal-CkhJZR-_.woff2            18.99 kB
+build/server/assets/inter-cyrillic-ext-wght-normal-BOeWTOD4.woff2     25.96 kB
+build/server/assets/inter-latin-wght-normal-Dx4kXJAl.woff2            48.25 kB
+build/server/assets/inter-latin-ext-wght-normal-DO1Apj_S.woff2        85.06 kB
+build/server/.vite/manifest.json                                     139.32 kB │ gzip:  17.13 kB
+build/server/assets/global-BWW6K7km.css                              269.06 kB │ gzip:  39.47 kB
+build/server/assets/plugin-DpP7QUkn.js                                 0.09 kB │ gzip:   0.09 kB
+build/server/assets/action-routes-ClqBGiJK.js                          0.09 kB │ gzip:   0.09 kB
+build/server/assets/terminal-plugin-BoBrhSXY.js                        0.10 kB │ gzip:   0.09 kB
+build/server/assets/dev-CNR3nZfW.js                                    0.10 kB │ gzip:   0.09 kB
+build/server/assets/plugin-B1IT7oXA.js                                 0.10 kB │ gzip:   0.09 kB
+build/server/assets/plugin-AP0qHTBw.js                                 0.10 kB │ gzip:   0.09 kB
+build/server/assets/token-util-BJyEdyMn.js                             0.11 kB │ gzip:   0.10 kB
+build/server/assets/social-og-image-Do1UY7tf.js                        0.12 kB │ gzip:   0.10 kB
+build/server/assets/plugin-wz5ScE1F.js                                 0.12 kB │ gzip:   0.10 kB
+build/server/assets/actions-BK7F9UG8.js                                0.12 kB │ gzip:   0.10 kB
+build/server/assets/kysely-adapter-VAO_JWPh.js                         0.13 kB │ gzip:   0.10 kB
+build/server/assets/workspace-connections-C2mMymmU.js                  0.14 kB │ gzip:   0.11 kB
+build/server/assets/action-discovery-CSiWQBVz.js                       0.15 kB │ gzip:   0.12 kB
+build/server/assets/ar-SA-BG1MIAXU.js                                  0.19 kB │ gzip:   0.15 kB
+build/server/assets/de-DE-6OUfXQi6.js                                  0.19 kB │ gzip:   0.15 kB
+build/server/assets/es-ES-WDyuvLKV.js                                  0.19 kB │ gzip:   0.15 kB
+build/server/assets/fr-FR-7PUTMFIp.js                                  0.19 kB │ gzip:   0.15 kB
+build/server/assets/hi-IN-CjtCbJBS.js                                  0.19 kB │ gzip:   0.15 kB
+build/server/assets/ja-JP-XyL34VFU.js                                  0.19 kB │ gzip:   0.15 kB
+build/server/assets/ko-KR-B_Djmuk5.js                                  0.19 kB │ gzip:   0.15 kB
+build/server/assets/pt-BR-BGea271P.js                                  0.19 kB │ gzip:   0.15 kB
+build/server/assets/zh-CN-BHM08IwB.js                                  0.19 kB │ gzip:   0.15 kB
+build/server/assets/a2a-continuation-marker-BgzwLd3n.js                0.21 kB │ gzip:   0.17 kB
+build/server/assets/event-bus-Cip1C8Fc.js                              0.29 kB │ gzip:   0.22 kB
+build/server/assets/select-DXXEOzzG.js                                 0.34 kB │ gzip:   0.24 kB
+build/server/assets/IconChevronUp-CFTva5Ne.js                          0.42 kB │ gzip:   0.30 kB
+build/server/assets/IconChevronDown-DyqIqhZk.js                        0.42 kB │ gzip:   0.30 kB
+build/server/assets/IconChevronLeft-BEau-hy-.js                        0.43 kB │ gzip:   0.30 kB
+build/server/assets/IconChevronRight-DpIbkSBt.js                       0.43 kB │ gzip:   0.30 kB
+build/server/assets/truncate-C16biZ_3.js                               0.47 kB │ gzip:   0.33 kB
+build/server/assets/coerce-DV0u-fa2.js                                 0.53 kB │ gzip:   0.27 kB
+build/server/assets/embed-auth-DTAVKJ-3.js                             0.56 kB │ gzip:   0.29 kB
+build/server/assets/context-xray-D6x8lbOg.js                           0.58 kB │ gzip:   0.34 kB
+build/server/assets/errors-CWoKaN-f.js                                 0.58 kB │ gzip:   0.29 kB
+build/server/assets/IconBrowser-CkVJSHIg.js                            0.58 kB │ gzip:   0.34 kB
+build/server/assets/IconHelpCircle-BgDW1qCp.js                         0.61 kB │ gzip:   0.37 kB
+build/server/assets/IconLock-mFPphpB2.js                               0.61 kB │ gzip:   0.37 kB
+build/server/assets/IconAlertTriangle-BsmzTwOB.js                      0.67 kB │ gzip:   0.39 kB
+build/server/assets/extension-change-kjy6muRM.js                       0.69 kB │ gzip:   0.29 kB
+build/server/assets/create-get-db-DhG_xTPK.js                          0.72 kB │ gzip:   0.50 kB
+build/server/assets/derived-secret-BMCqwUql.js                         0.73 kB │ gzip:   0.39 kB
+build/server/assets/app-result-0m7v_6iv.js                             0.76 kB │ gzip:   0.38 kB
+build/server/assets/IconKey-hEVZIw3m.js                                0.77 kB │ gzip:   0.45 kB
+build/server/assets/web-DMInhwCF.js                                    0.86 kB │ gzip:   0.46 kB
+build/server/assets/emitter-DqHTLUXg.js                                0.86 kB │ gzip:   0.36 kB
+build/server/assets/llm-connection-C3NMOD80.js                         0.88 kB │ gzip:   0.40 kB
+build/server/assets/get-audit-event-B8FOBznW.js                        0.90 kB │ gzip:   0.53 kB
+build/server/assets/get-localization-preference-D_f9-W3a.js            0.90 kB │ gzip:   0.52 kB
+build/server/assets/IconExternalLink-7iBjM-9c.js                       0.91 kB │ gzip:   0.40 kB
+build/server/assets/registry-D_LE_euD.js                               0.94 kB │ gzip:   0.53 kB
+build/server/assets/thread-link-preview-Dt1jk39X.js                    0.96 kB │ gzip:   0.46 kB
+build/server/assets/cli-registry-T7Re8Coj.js                           1.05 kB │ gzip:   0.54 kB
+build/server/assets/capture-error-Bm6tDF_z.js                          1.06 kB │ gzip:   0.58 kB
+build/server/assets/kysely-migration-tables-JkVUjPF_-CnSWF3ml.js       1.06 kB │ gzip:   0.59 kB
+build/server/assets/user-settings-zjgxmVXE.js                          1.10 kB │ gzip:   0.51 kB
+build/server/assets/emitter-Wvf9FXpR.js                                1.10 kB │ gzip:   0.46 kB
+build/server/assets/path-C-0bmFB3.js                                   1.10 kB │ gzip:   0.50 kB
+build/server/assets/change-appearance-B5V1VDSN.js                      1.11 kB │ gzip:   0.59 kB
+build/server/assets/set-localization-preference-Bu4TZxUw.js            1.13 kB │ gzip:   0.59 kB
+build/server/assets/agent-sidebar-url-jNdHRExU.js                      1.22 kB │ gzip:   0.53 kB
+build/server/assets/provider-env-vars-BbF4vlc0.js                      1.32 kB │ gzip:   0.53 kB
+build/server/assets/revoke-org-service-token-B3lhs6xN.js               1.32 kB │ gzip:   0.72 kB
+build/server/assets/toggle-demo-mode-CAEQXTR0.js                       1.32 kB │ gzip:   0.71 kB
+build/server/assets/settings-BectnVme.js                               1.34 kB │ gzip:   0.61 kB
+build/server/assets/context-restore-BFauaw60.js                        1.35 kB │ gzip:   0.61 kB
+build/server/assets/workspace-app-id-BAzp1H9V.js                       1.39 kB │ gzip:   0.64 kB
+build/server/assets/context-pin-D_YY5hL2.js                            1.41 kB │ gzip:   0.64 kB
+build/server/assets/open-chat-CxRnRXoN.js                              1.44 kB │ gzip:   0.70 kB
+build/server/assets/context-evict-jmeLCEX1.js                          1.48 kB │ gzip:   0.68 kB
+build/server/assets/delete-memory-DpczlV4A.js                          1.51 kB │ gzip:   0.75 kB
+build/server/assets/analytics-C4U_sYio.js                              1.52 kB │ gzip:   0.76 kB
+build/server/assets/app-base-path-DbCIqucz.js                          1.56 kB │ gzip:   0.62 kB
+build/server/assets/list-resource-shares-DyAFLFxd.js                   1.57 kB │ gzip:   0.72 kB
+build/server/assets/IconPhoto-c91R2kyz.js                              1.58 kB │ gzip:   0.54 kB
+build/server/assets/tool-schemas-cp6Frnfh.js                           1.60 kB │ gzip:   0.72 kB
+build/server/assets/google-oauth-credentials-ByUshTtc.js               1.62 kB │ gzip:   0.58 kB
+build/server/assets/app-name-Bd9QV8xw.js                               1.63 kB │ gzip:   0.90 kB
+build/server/assets/run-ownership-DQEjKBLI.js                          1.65 kB │ gzip:   0.82 kB
+build/server/assets/agents-fe0bXz5Y.js                                 1.67 kB │ gzip:   0.64 kB
+build/server/assets/action-change-OkYX66Yx.js                          1.70 kB │ gzip:   0.69 kB
+build/server/assets/list-org-service-tokens-DceAciGg.js                1.70 kB │ gzip:   0.85 kB
+build/server/assets/caller-auth-BQz1LoAs.js                            1.73 kB │ gzip:   0.75 kB
+build/server/assets/sqlite-client-DS1zd5JA.js                          1.74 kB │ gzip:   0.84 kB
+build/server/assets/script-helpers-C20eXrTE.js                         1.77 kB │ gzip:   0.80 kB
+build/server/assets/builder-gateway-headers-BeNeTdEh.js                1.78 kB │ gzip:   0.81 kB
+build/server/assets/addon-fit-BLraF25d.js                              1.88 kB │ gzip:   0.83 kB
+build/server/assets/rolldown-runtime-CE-6LUnI.js                       1.89 kB │ gzip:   0.86 kB
+build/server/assets/tool-error-redaction-DTJEoHR0.js                   1.91 kB │ gzip:   0.81 kB
+build/server/assets/unshare-resource-BVfXRO5A.js                       1.95 kB │ gzip:   0.79 kB
+build/server/assets/format-BxdVClZ1.js                                 1.95 kB │ gzip:   0.86 kB
+build/server/assets/effective-BH6sizEA.js                              2.01 kB │ gzip:   0.92 kB
+build/server/assets/delete-DvoSwliE.js                                 2.03 kB │ gzip:   0.90 kB
+build/server/assets/SetupButton-CNqIJxBs.js                            2.06 kB │ gzip:   0.96 kB
+build/server/assets/sqlite-adapter-l6yGnpKI.js                         2.14 kB │ gzip:   0.83 kB
+build/server/assets/store-CkxyQ_gc.js                                  2.21 kB │ gzip:   0.81 kB
+build/server/assets/context-report-CFaP4HpI.js                         2.26 kB │ gzip:   1.02 kB
+build/server/assets/reasoning-effort-KYav2dCb.js                       2.28 kB │ gzip:   0.77 kB
+build/server/assets/server-DmEC-9eV.js                                 2.30 kB │ gzip:   0.96 kB
+build/server/assets/config-fROfCylh2.js                                2.30 kB │ gzip:   1.21 kB
+build/server/assets/onboarding-B2v-iPk9.js                             2.36 kB │ gzip:   1.08 kB
+build/server/assets/config-BUO3UK7V.js                                 2.38 kB │ gzip:   1.17 kB
+build/server/assets/context-manifest-get-Dvn8s3Mv.js                   2.45 kB │ gzip:   1.06 kB
+build/server/assets/save-memory-E3FufAMz.js                            2.50 kB │ gzip:   1.19 kB
+build/server/assets/credentials-CI4SNQr7.js                            2.52 kB │ gzip:   1.07 kB
+build/server/assets/set-resource-visibility-Dgfw-GIj.js                2.52 kB │ gzip:   1.06 kB
+build/server/assets/request-context-BGDqZKM9.js                        2.56 kB │ gzip:   1.14 kB
+build/server/assets/mcp-embed-headers-Dl582HLj.js                      2.60 kB │ gzip:   0.89 kB
+build/server/assets/manage-agent-loop-settings-BHTrk6q3.js             2.60 kB │ gzip:   1.01 kB
+build/server/assets/list-audit-events-BCW7Ogwl.js                      2.71 kB │ gzip:   1.11 kB
+build/server/assets/read-s6uaHviW.js                                   2.71 kB │ gzip:   0.93 kB
+build/server/assets/h3-helpers-gXtsBBZG.js                             2.73 kB │ gzip:   1.40 kB
+build/server/assets/token-Dl1ys1Ll.js                                  2.73 kB │ gzip:   1.04 kB
+build/server/assets/service-Czky0kDw.js                                2.82 kB │ gzip:   0.93 kB
+build/server/assets/cleanup-job-Durb5Q9Z.js                            2.86 kB │ gzip:   1.19 kB
+build/server/assets/widen-columns-fTQ1Js_p.js                          2.89 kB │ gzip:   1.53 kB
+build/server/assets/list-2t73UMZK.js                                   2.93 kB │ gzip:   1.07 kB
+build/server/assets/create-org-service-token-BV42rWlR.js               3.04 kB │ gzip:   1.51 kB
+build/server/assets/service-token-access-wkvnt3iO.js                   3.06 kB │ gzip:   1.38 kB
+build/server/assets/search-chats-DlwX62hG.js                           3.19 kB │ gzip:   1.37 kB
+build/server/assets/security-headers-CdCl8ih9.js                       3.33 kB │ gzip:   1.39 kB
+build/server/assets/_agent-native-ssr-stub-YBO4pY7N.js                 3.37 kB │ gzip:   0.97 kB
+build/server/assets/use-dev-mode-WidE1-S2.js                           3.38 kB │ gzip:   1.41 kB
+build/server/assets/conditions-CLMwfQtE.js                             3.43 kB │ gzip:   0.96 kB
+build/server/assets/cli-capture-B6-PXqRA.js                            3.44 kB │ gzip:   1.46 kB
+build/server/assets/store-BNEybRsx.js                                  3.57 kB │ gzip:   1.23 kB
+build/server/assets/addon-web-links-GLmeEVcS.js                        3.60 kB │ gzip:   1.61 kB
+build/server/assets/crypto-CuexrZBb.js                                 3.77 kB │ gzip:   1.66 kB
+build/server/assets/registry-DQezs57d.js                               3.84 kB │ gzip:   1.59 kB
+build/server/assets/routes-CYst-qUA.js                                 3.89 kB │ gzip:   1.27 kB
+build/server/assets/use-onboarding-DnKCvkJp.js                         3.97 kB │ gzip:   1.39 kB
+build/server/assets/loop-settings-CcdlLzSr.js                          4.00 kB │ gzip:   1.29 kB
+build/server/assets/deep-link-VsgHiLPo.js                              4.02 kB │ gzip:   1.79 kB
+build/server/assets/d1-sqlite-dialect-BLC8LXE6-pyt2uoSb.js             4.02 kB │ gzip:   1.51 kB
+build/server/assets/proxy-security-XgKXznfS.js                         4.06 kB │ gzip:   1.53 kB
+build/server/assets/actions-Bqqx4LNf.js                                4.11 kB │ gzip:   1.69 kB
+build/server/assets/builder-space-Cs7qL1xi.js                          4.13 kB │ gzip:   1.88 kB
+build/server/assets/IconCopy-DPspQ4Iv.js                               4.15 kB │ gzip:   1.51 kB
+build/server/assets/builder-mark-ksNKye_t.js                           4.15 kB │ gzip:   2.13 kB
+build/server/assets/thread-link-preview-D9RNeElq.js                    4.26 kB │ gzip:   1.43 kB
+build/server/assets/workspace-app-audience-BQxw0E8e.js                 4.39 kB │ gzip:   1.36 kB
+build/server/assets/bun-sqlite-dialect-DApWON3g-DQPuAApc.js            4.40 kB │ gzip:   1.56 kB
+build/server/assets/node-sqlite-dialect-BYPOAQFe.js                    4.40 kB │ gzip:   1.55 kB
+build/server/assets/auth-policy-9FIAL5hp.js                            4.41 kB │ gzip:   1.98 kB
+build/server/assets/shared-_3zqG9EW.js                                 4.45 kB │ gzip:   1.45 kB
+build/server/assets/store-XQlfrPpT.js                                  4.57 kB │ gzip:   1.41 kB
+build/server/assets/bus-BpuywWG1.js                                    4.63 kB │ gzip:   1.79 kB
+build/server/assets/write-DuZ6BHA9.js                                  4.65 kB │ gzip:   1.74 kB
+build/server/assets/workspace-resolve-CoyOCSjz.js                      5.07 kB │ gzip:   2.10 kB
+build/server/assets/schema-BOawHZOB.js                                 5.12 kB │ gzip:   2.08 kB
+build/server/assets/model-config-DYr7XU8R.js                           5.17 kB │ gzip:   1.54 kB
+build/server/assets/email-CuPQyvKX.js                                  5.20 kB │ gzip:   1.86 kB
+build/server/assets/email-actions-Bio-DnLr.js                          5.47 kB │ gzip:   2.09 kB
+build/server/assets/search-C2DI8zQa.js                                 5.59 kB │ gzip:   2.09 kB
+build/server/assets/upload-image-Dcl0TSD2.js                           5.71 kB │ gzip:   2.32 kB
+build/server/assets/actions-HeQwgmgv.js                                5.76 kB │ gzip:   2.23 kB
+build/server/assets/store-CBq7a31e.js                                  5.78 kB │ gzip:   1.82 kB
+build/server/assets/record-B6mnW-9y.js                                 5.85 kB │ gzip:   2.36 kB
+build/server/assets/feedback-DoEYck2x.js                               5.86 kB │ gzip:   1.99 kB
+build/server/assets/tslib.es6-BMDLF0KJ.js                              5.92 kB │ gzip:   2.33 kB
+build/server/assets/templates-meta-DeLQcLxa.js                         5.95 kB │ gzip:   1.93 kB
+build/server/assets/better-sqlite3-Dy_RCP0l.js                         6.04 kB │ gzip:   1.80 kB
+build/server/assets/store-CgJgu0WQ.js                                  6.05 kB │ gzip:   2.07 kB
+build/server/assets/org-directory-nqpRkLLc.js                          6.18 kB │ gzip:   2.37 kB
+build/server/assets/attachment-actions-CEpgJI37.js                     6.34 kB │ gzip:   2.57 kB
+build/server/assets/metadata-BHVfH_cr.js                               6.41 kB │ gzip:   1.97 kB
+build/server/assets/DataChartRenderer-CCKPJg5c.js                      6.53 kB │ gzip:   2.16 kB
+build/server/assets/query-38ijaRZg.js                                  6.59 kB │ gzip:   2.49 kB
+build/server/assets/workspace-core-DhtDQ_0C.js                         6.84 kB │ gzip:   2.45 kB
+build/server/assets/csrf-DLl-vsee.js                                   7.09 kB │ gzip:   2.99 kB
+build/server/assets/postgres-js-rLKIRpaR.js                            7.20 kB │ gzip:   1.99 kB
+build/server/assets/url-safety-B3dNqEyM.js                             7.33 kB │ gzip:   2.73 kB
+build/server/assets/experiments-Di75azg_.js                            7.46 kB │ gzip:   2.31 kB
+build/server/assets/evals-Cv7-M3mB.js                                  7.52 kB │ gzip:   2.59 kB
+build/server/assets/store-Bvp4mnSs.js                                  7.57 kB │ gzip:   2.36 kB
+build/server/assets/tool-ClNytWme.js                                   7.64 kB │ gzip:   2.49 kB
+build/server/assets/registry-BUDKNFi6.js                               7.78 kB │ gzip:   2.74 kB
+build/server/assets/store-DOtfMuEQ.js                                  7.91 kB │ gzip:   2.80 kB
+build/server/assets/embed-route-DfRenbNT.js                            7.96 kB │ gzip:   2.64 kB
+build/server/assets/zh-TW-BoUL8yVX.js                                  8.04 kB │ gzip:   2.99 kB
+build/server/assets/stream-eglDzV6J.js                                 8.09 kB │ gzip:   2.22 kB
+build/server/assets/popover-DybdvVa2.js                                8.14 kB │ gzip:   2.05 kB
+build/server/assets/pty-server-BhQKs3zD.js                             8.15 kB │ gzip:   3.06 kB
+build/server/assets/auth-marketing-CzYQCaEB.js                         8.21 kB │ gzip:   3.05 kB
+build/server/assets/task-store-zuiKad6h.js                             8.34 kB │ gzip:   2.23 kB
+build/server/assets/web-search-tool-4c4VpP0e.js                        8.39 kB │ gzip:   2.72 kB
+build/server/assets/neon-serverless-CUrar6-b.js                        8.41 kB │ gzip:   2.21 kB
+build/server/assets/schema-NjcuRNOf.js                                 8.61 kB │ gzip:   2.55 kB
+build/server/assets/share-resource-aQWD70nE.js                         8.66 kB │ gzip:   3.26 kB
+build/server/assets/actions-Bvxiy59o.js                                8.77 kB │ gzip:   3.00 kB
+build/server/assets/request-context-D883BBl3.js                        8.78 kB │ gzip:   3.15 kB
+build/server/assets/source-search-CM1jcT13.js                          8.89 kB │ gzip:   2.99 kB
+build/server/assets/agents-bundle-Cip2ZA5J.js                          8.93 kB │ gzip:   3.56 kB
+build/server/assets/tools-CUhVWJKq.js                                  8.94 kB │ gzip:   3.04 kB
+build/server/assets/storage-CNYC6aSb.js                                8.96 kB │ gzip:   2.95 kB
+build/server/assets/substitution-BICdYWCu.js                           9.03 kB │ gzip:   3.04 kB
+build/server/assets/routes-DD4QP54_.js                                 9.34 kB │ gzip:   2.49 kB
+build/server/assets/access-COlpI9nY.js                                 9.38 kB │ gzip:   3.02 kB
+build/server/assets/email-template-BOTX__5P.js                         9.54 kB │ gzip:   3.63 kB
+build/server/assets/migrations-D3OHCcE1.js                             9.55 kB │ gzip:   3.47 kB
+build/server/assets/web-CtcyTZbj.js                                    9.56 kB │ gzip:   2.43 kB
+build/server/assets/ddl-guard-B4p4eLAf.js                              9.95 kB │ gzip:   3.58 kB
+build/server/assets/local-BoxOj3Or.js                                  9.99 kB │ gzip:   3.05 kB
+build/server/assets/registry-Drmyoi-b.js                              10.25 kB │ gzip:   3.41 kB
+build/server/assets/dist-BT4eAZgh.js                                  10.56 kB │ gzip:   2.74 kB
+build/server/assets/schema-vRvQChcM.js                                10.59 kB │ gzip:   2.04 kB
+build/server/assets/store-Btygy6lm.js                                 11.03 kB │ gzip:   3.35 kB
+build/server/assets/scheduler-B5SRgUHf.js                             11.12 kB │ gzip:   3.85 kB
+build/server/assets/recap-image-route-BegcZ_pc.js                     11.35 kB │ gzip:   4.34 kB
+build/server/assets/terminal-DmMTJauu.js                              11.53 kB │ gzip:   3.83 kB
+build/server/assets/server-DahYuiPj.js                                11.88 kB │ gzip:   4.56 kB
+build/server/assets/client-ANVcpjHK.js                                11.93 kB │ gzip:   4.02 kB
+build/server/assets/traces-B4f0gmQ0.js                                12.04 kB │ gzip:   4.22 kB
+build/server/assets/utils-DwGYwyNO.js                                 12.15 kB │ gzip:   4.06 kB
+build/server/assets/manage-agent-engine-C65mNbTq.js                   12.42 kB │ gzip:   3.53 kB
+build/server/assets/call-agent-Bd33yNCD.js                            12.57 kB │ gzip:   4.40 kB
+build/server/assets/redact-CDz7sXuZ.js                                12.74 kB │ gzip:   4.68 kB
+build/server/assets/a2a-continuations-store-CnXHfU9a.js               12.85 kB │ gzip:   2.66 kB
+build/server/assets/a2a-continuation-processor-DHua9E5G.js            13.31 kB │ gzip:   3.81 kB
+build/server/assets/fetch-tool-Bl5kcCjN.js                            13.43 kB │ gzip:   4.93 kB
+build/server/assets/store-A-w_XgKn.js                                 13.57 kB │ gzip:   3.31 kB
+build/server/assets/context-BsO1s2jp.js                               13.67 kB │ gzip:   4.26 kB
+build/server/assets/stable_attributes-DRbUFClW.js                     14.06 kB │ gzip:   4.71 kB
+build/server/assets/scoping-Pm8Hbq9M.js                               14.43 kB │ gzip:   4.53 kB
+build/server/assets/api-path-VklGDJVY.js                              14.86 kB │ gzip:   4.22 kB
+build/server/assets/agent-discovery-Dat-11bF.js                       15.09 kB │ gzip:   4.77 kB
+build/server/assets/dispatcher-7O2PWsuV.js                            15.50 kB │ gzip:   5.22 kB
+build/server/assets/action-DN1bH3zs.js                                15.86 kB │ gzip:   5.17 kB
+build/server/assets/directives-store-BCwDd54N.js                      15.94 kB │ gzip:   4.39 kB
+build/server/assets/agent-discovery-DHV6Sla9.js                       15.95 kB │ gzip:   5.11 kB
+build/server/assets/background-DKvYGQOk.js                            15.96 kB │ gzip:   3.58 kB
+build/server/assets/table-CeAe6_qU.js                                 16.33 kB │ gzip:   3.16 kB
+build/server/assets/oauth-token-D4zFdKPu.js                           17.47 kB │ gzip:   4.95 kB
+build/server/assets/cache-5Xvxr66a.js                                 17.70 kB │ gzip:   4.67 kB
+build/server/assets/create-get-db-DOkTAhsh.js                         18.48 kB │ gzip:   6.03 kB
+build/server/assets/registry-DOvEobVv.js                              18.69 kB │ gzip:   5.47 kB
+build/server/assets/exec-C6Op9kqR.js                                  18.99 kB │ gzip:   5.84 kB
+build/server/assets/store-BsVr6m7o.js                                 19.10 kB │ gzip:   4.21 kB
+build/server/assets/poll-dvH0lBIo.js                                  19.17 kB │ gzip:   5.14 kB
+build/server/assets/connect-store-CYhDqDPc.js                         19.18 kB │ gzip:   5.81 kB
+build/server/assets/helpers-CiJAlor3.js                               19.18 kB │ gzip:   5.20 kB
+build/server/assets/coding-tools-Cv5wllh5.js                          19.28 kB │ gzip:   5.84 kB
+build/server/assets/stdio-LZaYlYN-.js                                 19.59 kB │ gzip:   5.69 kB
+build/server/assets/embed-session-CCJxK3Fo.js                         19.67 kB │ gzip:   5.36 kB
+build/server/assets/session-replay-BhCK5Aur.js                        19.76 kB │ gzip:   5.68 kB
+build/server/assets/local-artifacts-BIYTzuEP.js                       19.88 kB │ gzip:   4.81 kB
+build/server/assets/framework-request-handler-BLzkyeIE.js             20.25 kB │ gzip:   6.67 kB
+build/server/assets/patch-CLoOtvfQ.js                                 20.56 kB │ gzip:   6.92 kB
+build/server/assets/PromptComposer-Cimih_rG.js                        20.94 kB │ gzip:   6.17 kB
+build/server/assets/streamableHttp-CLJpNhNV.js                        21.11 kB │ gzip:   6.21 kB
+build/server/assets/dist-KDxDWTq-.js                                  21.56 kB │ gzip:   5.70 kB
+build/server/assets/webStandardStreamableHttp-C_qTimCm.js             21.95 kB │ gzip:   5.25 kB
+build/server/assets/store-BYbQ4ejj.js                                 22.94 kB │ gzip:   6.03 kB
+build/server/assets/IntegrationsPanel-Cnt9um8l.js                     23.19 kB │ gzip:   5.24 kB
+build/server/assets/server-BpSUKZ4x.js                                23.84 kB │ gzip:   5.41 kB
+build/server/assets/drizzle-adapter-D_NtowZn.js                       24.39 kB │ gzip:   5.03 kB
+build/server/assets/useBuilderStatus-DFe4k_cj.js                      24.82 kB │ gzip:   5.70 kB
+build/server/assets/run-manager-BbMtPyf9.js                           25.33 kB │ gzip:   7.62 kB
+build/server/assets/oauth-route-CyQNgzBW.js                           25.52 kB │ gzip:   7.47 kB
+build/server/assets/dist-C4yDFLAV.js                                  26.13 kB │ gzip:   6.79 kB
+build/server/assets/OnboardingPanel-CkEhf0U_.js                       26.40 kB │ gzip:   6.06 kB
+build/server/assets/dist-BtL9HOuz.js                                  26.57 kB │ gzip:   6.81 kB
+build/server/assets/client-CrGUE1ae.js                                26.78 kB │ gzip:   6.13 kB
+build/server/assets/credential-provider-BPgKKRr5.js                   26.97 kB │ gzip:   6.97 kB
+build/server/assets/client-ktGttuxn.js                                27.84 kB │ gzip:   8.40 kB
+build/server/assets/sql-DcKTaYDh.js                                   28.11 kB │ gzip:   7.19 kB
+build/server/assets/routes-BJhBBlGd.js                                28.57 kB │ gzip:   7.31 kB
+build/server/assets/lib-D3nwrqxr.js                                   30.15 kB │ gzip:   7.29 kB
+build/server/assets/theme-DSr4DaXv.js                                 30.22 kB │ gzip:   8.54 kB
+build/server/assets/server-3EwG_V9T.js                                32.11 kB │ gzip:   9.24 kB
+build/server/assets/client-B4GQvATe.js                                33.22 kB │ gzip:  10.10 kB
+build/server/assets/store-Bq9GSF8D2.js                                33.29 kB │ gzip:   5.76 kB
+build/server/assets/create-CSshbQW5.js                                33.93 kB │ gzip:  10.31 kB
+build/server/assets/protocol-CMBA-5yW.js                              35.32 kB │ gzip:   8.09 kB
+build/server/assets/credentials-S8m2yjbP.js                           36.36 kB │ gzip:   6.69 kB
+build/server/assets/agent-chat-Cf8wNL06.js                            37.18 kB │ gzip:   9.33 kB
+build/server/assets/check-scoping-B21mK22M.js                         37.57 kB │ gzip:  10.08 kB
+build/server/assets/node-kmsaxMuB.js                                  38.02 kB │ gzip:  11.85 kB
+build/server/assets/store-tNH99J_q.js                                 38.32 kB │ gzip:   9.29 kB
+build/server/assets/run-store-C1P1aTyj.js                             38.47 kB │ gzip:  10.99 kB
+build/server/assets/data-widgets-B4_gd8cY.js                          38.59 kB │ gzip:   9.55 kB
+build/server/assets/store-BpTJ7cYH2.js                                39.68 kB │ gzip:   9.26 kB
+build/server/assets/lib-Bk9Xb6Vb.js                                   40.39 kB │ gzip:   9.09 kB
+build/server/assets/node-BgbFqlqz.js                                  40.49 kB │ gzip:  10.68 kB
+build/server/assets/lib-Ctqc216Z.js                                   41.98 kB │ gzip:  10.44 kB
+build/server/assets/default-query-compiler-erimBBX6.js                43.38 kB │ gzip:   7.82 kB
+build/server/assets/table-BeAF9B0d.js                                 43.95 kB │ gzip:   6.45 kB
+build/server/assets/actions-CxvFH6DX2.js                              44.85 kB │ gzip:  10.39 kB
+build/server/assets/run-code-BGzsun8m.js                              45.69 kB │ gzip:  12.85 kB
+build/server/assets/dist-DFwsWINF.js                                  47.08 kB │ gzip:  11.74 kB
+build/server/assets/esm-kQU570E2.js                                   47.12 kB │ gzip:  10.99 kB
+build/server/assets/store-ksHDtdpJ.js                                 47.62 kB │ gzip:  13.49 kB
+build/server/assets/esm-DCkKsaew.js                                   48.15 kB │ gzip:  12.71 kB
+build/server/assets/connect-route-C-S_d3Mc.js                         49.17 kB │ gzip:  14.24 kB
+build/server/assets/SettingsTabsPage-qDnCezvi.js                      53.43 kB │ gzip:  12.35 kB
+build/server/assets/shim-CWe-So0J.js                                  55.37 kB │ gzip:  13.87 kB
+build/server/assets/graphql-VqpSnilk.js                               55.58 kB │ gzip:  13.64 kB
+build/server/assets/agent-teams-q8ouoPxG.js                           58.92 kB │ gzip:  16.31 kB
+build/server/assets/streamableHttp-Cpi0M7K5.js                        60.06 kB │ gzip:  15.06 kB
+build/server/assets/builtin-Dnumz9gh.js                               63.02 kB │ gzip:  16.86 kB
+build/server/assets/src-DEOj5Hij.js                                   64.63 kB │ gzip:  18.22 kB
+build/server/assets/jsx-runtime-Bt8rmzQi.js                           65.76 kB │ gzip:  14.56 kB
+build/server/assets/IconTerminal2-Djw5e9_x.js                         70.49 kB │ gzip:  16.42 kB
+build/server/assets/factory-CmlxZ4J9.js                               71.26 kB │ gzip:  16.25 kB
+build/server/assets/build-server-CNPwENxU.js                          72.01 kB │ gzip:  19.91 kB
+build/server/assets/embed-app-CovLBo9A.js                             73.38 kB │ gzip:  16.23 kB
+build/server/assets/session-Cmuyyk3Y.js                               76.22 kB │ gzip:  15.60 kB
+build/server/assets/dist-D9K5UXO_.js                                  76.72 kB │ gzip:  19.07 kB
+build/server/assets/session-BLQJaTP1.js                               83.15 kB │ gzip:  16.63 kB
+build/server/assets/dist-CHfR_pgU.js                                  88.94 kB │ gzip:  23.02 kB
+build/server/assets/_virtual_agents-bundle-CoxoUJZz.js                90.09 kB │ gzip:  31.18 kB
+build/server/assets/webapi-CkG6SDTv.js                                94.39 kB │ gzip:  19.75 kB
+build/server/assets/i18n-data-fjPA7Llq.js                             98.65 kB │ gzip:  22.12 kB
+build/server/assets/types-DlIfNSPg.js                                100.08 kB │ gzip:  17.26 kB
+build/server/assets/wrapper-DJQki2oX.js                              113.23 kB │ gzip:  23.76 kB
+build/server/assets/angular-QGv3obrN.js                              115.00 kB │ gzip:  26.09 kB
+build/server/assets/github-repo-B6OSeX4b.js                          116.94 kB │ gzip:  26.85 kB
+build/server/assets/i18n-BgO7XQgd.js                                 125.26 kB │ gzip:  33.15 kB
+build/server/assets/remark-gfm-CatxmB7c.js                           129.62 kB │ gzip:  24.61 kB
+build/server/assets/http-Bzet8YSg.js                                 131.46 kB │ gzip:  27.92 kB
+build/server/assets/record-B6Uj_e8W.js                               137.47 kB │ gzip:  31.52 kB
+build/server/assets/dist-BmL8UkUF.js                                 145.13 kB │ gzip:  31.08 kB
+build/server/assets/iframe-bridge-TczL-Wpl.js                        149.36 kB │ gzip:  33.47 kB
+build/server/assets/yaml-0U8LxKSu.js                                 157.66 kB │ gzip:  42.81 kB
+build/server/assets/meriyah-DVjLV3dG.js                              160.40 kB │ gzip:  38.85 kB
+build/server/assets/dist-DuFMabKa.js                                 163.16 kB │ gzip:  28.55 kB
+build/server/assets/glimmer-CaCN3oZB.js                              169.83 kB │ gzip:  46.98 kB
+build/server/assets/dist-gYbdOOB3.js                                 176.31 kB │ gzip:  37.43 kB
+build/server/assets/acorn-DQWjyBqI.js                                177.71 kB │ gzip:  48.51 kB
+build/server/assets/settings-b0C-bs9l.js                             181.75 kB │ gzip:  31.90 kB
+build/server/assets/serverless-Bymgc56P.js                           183.02 kB │ gzip:  51.58 kB
+build/server/assets/markdown-i-lnqh2k.js                             188.55 kB │ gzip:  59.40 kB
+build/server/assets/dist-mFVVkfEg.js                                 188.94 kB │ gzip:  32.10 kB
+build/server/assets/dist-B4KThguQ.js                                 193.42 kB │ gzip:  36.79 kB
+build/server/assets/plugin-DtqMJtsB.js                               196.79 kB │ gzip:  47.67 kB
+build/server/assets/html-DRZvuYEi.js                                 197.68 kB │ gzip:  55.19 kB
+build/server/assets/postcss-B9cLt_-T.js                              201.56 kB │ gzip:  50.65 kB
+build/server/assets/client-CIDJOnRO.js                               202.92 kB │ gzip:  49.62 kB
+build/server/assets/jiti-sxUkgaeD.js                                 203.48 kB │ gzip:  53.24 kB
+build/server/assets/ajv-9SFy5p4e.js                                  216.97 kB │ gzip:  46.23 kB
+build/server/assets/core-routes-plugin-Bqjf2Sdq.js                   228.88 kB │ gzip:  56.08 kB
+build/server/assets/compiled-query-Bg9MGgPS.js                       234.24 kB │ gzip:  38.09 kB
+build/server/assets/tooltip-BVijfhqp.js                              234.34 kB │ gzip:  48.96 kB
+build/server/assets/production-agent-DAs28gCy.js                     236.07 kB │ gzip:  67.54 kB
+build/server/assets/estree-ozJJ66QS.js                               250.65 kB │ gzip:  65.59 kB
+build/server/assets/credential-errors-D9jqAvyX.js                    255.96 kB │ gzip:  53.06 kB
+build/server/assets/cron-CswLM2wx.js                                 308.55 kB │ gzip:  67.82 kB
+build/server/assets/auth-DsRLEyKO.js                                 329.37 kB │ gzip:  87.53 kB
+build/server/assets/agent-chat-plugin-BW7V7HWh.js                    351.19 kB │ gzip:  96.08 kB
+build/server/assets/sdk-DuKfbD-a.js                                  359.45 kB │ gzip:  80.06 kB
+build/server/assets/babel-DK06Eukc.js                                374.15 kB │ gzip:  91.18 kB
+build/server/assets/ResourcesPanel-HfwuUYLU.js                       410.55 kB │ gzip: 108.96 kB
+build/server/assets/xterm-Ca-0MUBw.js                                411.62 kB │ gzip:  96.73 kB
+build/server/assets/react-markdown-Bx7JFeQh.js                       414.99 kB │ gzip:  91.68 kB
+build/server/assets/dist--Z_VfmN8.js                                 434.77 kB │ gzip:  82.39 kB
+build/server/assets/analytics-5lXMAuvm.js                            548.34 kB │ gzip: 117.15 kB
+build/server/assets/MultiTabAssistantChat-DtYl_8gc.js                566.99 kB │ gzip: 124.40 kB
+build/server/assets/prettier-CQjDsX8n.js                             572.63 kB │ gzip: 136.26 kB
+build/server/assets/better-auth-instance-DlNbHI1t.js                 635.76 kB │ gzip: 145.72 kB
+build/server/assets/ContextXRayPanel-B-oamdJN.js                     668.19 kB │ gzip: 152.58 kB
+build/server/assets/dist-CombIfE8.js                                 684.76 kB │ gzip: 125.18 kB
+build/server/assets/cjs-DAAlpzej.js                                  711.50 kB │ gzip: 322.79 kB
+build/server/assets/sentry-DJwyURWf.js                               793.49 kB │ gzip: 177.93 kB
+build/server/assets/web-content-Bp9l6QLC.js                          873.46 kB │ gzip: 201.57 kB
+build/server/assets/server-CVN7vk9U.js                               926.32 kB │ gzip: 448.60 kB
+build/server/assets/typescript-DoIdpAwC.js                         1,019.41 kB │ gzip: 222.64 kB
+build/server/assets/flow-C7zUysaY.js                               1,144.01 kB │ gzip: 220.36 kB
+build/server/assets/TiptapComposer-BWJSkJnh.js                     1,371.76 kB │ gzip: 323.12 kB
+build/server/index.js                                              2,504.47 kB │ gzip: 508.64 kB
+
+[32m✓ built in 3.63s[39m
+[deploy] Building for node...
+[deploy] Building for preset "node" via Nitro...
+[90m[[90mnitro[90m][39m [32m√[39m Generated public [36m.output/public[39m
+[deploy] Copied client assets to .output\public
+[90m[[90mnitro[90m][39m [36mi[39m Building server (builder: [36mrolldown[39m, preset: [36mnode-server[39m, compatibility date: [36m2026-06-22[39m)
+[36mi[39m Tracing dependencies:
+- [36mimport-in-the-middle[39m (3.2.0)
+- [36mrequire-in-the-middle[39m (8.0.1)
+- [36mlibsql[39m (0.5.29)
+- [36mbetter-sqlite3[39m (12.11.1)
+- [36mnode-pty[39m (1.1.0)
+- [36mmodule-details-from-path[39m (1.0.4)
+- [36mdebug[39m (4.4.3)
+- [36mdetect-libc[39m (2.0.2)
+- [36m@libsql/linux-x64-gnu[39m (0.5.29)
+- [36m@neon-rs/load[39m (0.0.4)
+- [36mbindings[39m (1.5.0)
+- [36mms[39m (2.1.3)
+- [36msupports-color[39m (8.1.1)
+- [36mfile-uri-to-path[39m (1.0.0)
+- [36mhas-flag[39m (4.0.0)
+- [36m@libsql/win32-x64-msvc[39m (0.5.29)
+[32m√[39m Traced 16 dependencies (59 files) in 174ms.
+[36mi[39m Ensure your production environment matches the builder OS and architecture ([36mwin32-x64[39m) to avoid native module issues.
+INEFFECTIVE_DYNAMIC_IMPORT
+[36mi[39m Generated [36m.output/nitro.json[39m
+[90m[[90mnitro[90m][39m [32m√[39m Server built in 1622ms
+[90m  ├─ .output/server/_...page_.get.mjs (4.93 kB)[39m[90m (1.99 kB gzip)[39m
+[90m  ├─ .output/server/_agent-native-ssr-stub-YBO4pY7N.mjs (1.94 kB)[39m[90m (939 B gzip)[39m
+[90m  ├─ .output/server/_chunks/a2a-continuation-processor-DHua9E5G.mjs (130 kB)[39m[90m (37.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/a2a-continuation-processor.mjs (118 kB)[39m[90m (35.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/a2a-continuations-store-CnXHfU9a.mjs (9.18 kB)[39m[90m (2.24 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/a2a-continuations-store.mjs (9.17 kB)[39m[90m (2.22 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/access-COlpI9nY.mjs (3.51 kB)[39m[90m (1.46 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/access.mjs (3.49 kB)[39m[90m (1.46 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/acorn-DQWjyBqI.mjs (149 kB)[39m[90m (44.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/action-change-OkYX66Yx.mjs (866 B)[39m[90m (462 B gzip)[39m
+[90m  ├─ .output/server/_chunks/action-change.mjs (765 B)[39m[90m (403 B gzip)[39m
+[90m  ├─ .output/server/_chunks/action-discovery-CSiWQBVz.mjs (111 B)[39m[90m (116 B gzip)[39m
+[90m  ├─ .output/server/_chunks/action-discovery.mjs (6.97 kB)[39m[90m (2.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/action-DN1bH3zs.mjs (6.9 kB)[39m[90m (2.58 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/action-routes-ClqBGiJK.mjs (73 B)[39m[90m (88 B gzip)[39m
+[90m  ├─ .output/server/_chunks/action-routes.mjs (4.03 kB)[39m[90m (1.82 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/action-ui.mjs (327 B)[39m[90m (184 B gzip)[39m
+[90m  ├─ .output/server/_chunks/action.mjs (6.88 kB)[39m[90m (2.55 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/actions-BK7F9UG8.mjs (89 B)[39m[90m (103 B gzip)[39m
+[90m  ├─ .output/server/_chunks/actions-Bqqx4LNf.mjs (2.95 kB)[39m[90m (1.41 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/actions-Bvxiy59o.mjs (6.26 kB)[39m[90m (2.58 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/actions-CxvFH6DX2.mjs (31.1 kB)[39m[90m (8.78 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/actions-HeQwgmgv.mjs (4.35 kB)[39m[90m (1.95 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/actions.mjs (5.01 kB)[39m[90m (1.59 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/actions2.mjs (31 kB)[39m[90m (8.7 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/actions3.mjs (2.93 kB)[39m[90m (1.39 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/actions4.mjs (4.34 kB)[39m[90m (1.94 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/actions5.mjs (6.23 kB)[39m[90m (2.54 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/addon-fit-BLraF25d.mjs (1.56 kB)[39m[90m (690 B gzip)[39m
+[90m  ├─ .output/server/_chunks/addon-web-links-GLmeEVcS.mjs (2.73 kB)[39m[90m (1.36 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/agent-chat-Cf8wNL06.mjs (16.6 kB)[39m[90m (5.37 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/agent-discovery-Dat-11bF.mjs (6.94 kB)[39m[90m (2.85 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/agent-discovery-DHV6Sla9.mjs (8.64 kB)[39m[90m (3.04 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/agent-discovery.mjs (6.82 kB)[39m[90m (2.77 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/agent-sidebar-url-jNdHRExU.mjs (443 B)[39m[90m (281 B gzip)[39m
+[90m  ├─ .output/server/_chunks/agent-sidebar-url.mjs (445 B)[39m[90m (282 B gzip)[39m
+[90m  ├─ .output/server/_chunks/agent-teams-q8ouoPxG.mjs (28.6 kB)[39m[90m (9.37 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/agent-teams.mjs (28.2 kB)[39m[90m (9.14 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/agents-bundle-Cip2ZA5J.mjs (3.57 kB)[39m[90m (1.75 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/agents-bundle.mjs (3.58 kB)[39m[90m (1.74 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/agents-fe0bXz5Y.mjs (796 B)[39m[90m (412 B gzip)[39m
+[90m  ├─ .output/server/_chunks/agents.mjs (779 B)[39m[90m (396 B gzip)[39m
+[90m  ├─ .output/server/_chunks/ajv-9SFy5p4e.mjs (113 kB)[39m[90m (33.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/analytics-5lXMAuvm.mjs (240 kB)[39m[90m (68.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/analytics-C4U_sYio.mjs (893 B)[39m[90m (543 B gzip)[39m
+[90m  ├─ .output/server/_chunks/angular-QGv3obrN.mjs (93.7 kB)[39m[90m (23.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/api-path-VklGDJVY.mjs (6.58 kB)[39m[90m (2.56 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/app-base-path-DbCIqucz.mjs (540 B)[39m[90m (325 B gzip)[39m
+[90m  ├─ .output/server/_chunks/app-base-path.mjs (709 B)[39m[90m (363 B gzip)[39m
+[90m  ├─ .output/server/_chunks/app-name.mjs (583 B)[39m[90m (373 B gzip)[39m
+[90m  ├─ .output/server/_chunks/app-result-0m7v_6iv.mjs (379 B)[39m[90m (227 B gzip)[39m
+[90m  ├─ .output/server/_chunks/app-result.mjs (379 B)[39m[90m (227 B gzip)[39m
+[90m  ├─ .output/server/_chunks/ar-SA-BG1MIAXU.mjs (83 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/attachment-actions-CEpgJI37.mjs (3.76 kB)[39m[90m (1.84 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/attachment-actions.mjs (3.72 kB)[39m[90m (1.82 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/auth-DsRLEyKO.mjs (239 kB)[39m[90m (66.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/auth-marketing.mjs (6.34 kB)[39m[90m (2.68 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/auth-policy-9FIAL5hp.mjs (1.38 kB)[39m[90m (743 B gzip)[39m
+[90m  ├─ .output/server/_chunks/auth-policy.mjs (1.35 kB)[39m[90m (724 B gzip)[39m
+[90m  ├─ .output/server/_chunks/auth.mjs (233 kB)[39m[90m (63.7 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/babel-DK06Eukc.mjs (315 kB)[39m[90m (82.6 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/background-DKvYGQOk.mjs (10.5 kB)[39m[90m (2.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/background.mjs (10.5 kB)[39m[90m (2.76 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/better-auth-instance-DlNbHI1t.mjs (328 kB)[39m[90m (87.7 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/better-auth-instance.mjs (27.7 kB)[39m[90m (8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/better-sqlite3-Dy_RCP0l.mjs (2.89 kB)[39m[90m (1.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/build-server-CNPwENxU.mjs (34.8 kB)[39m[90m (11.6 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/build-server.mjs (34.3 kB)[39m[90m (11.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/builder-gateway-headers-BeNeTdEh.mjs (832 B)[39m[90m (522 B gzip)[39m
+[90m  ├─ .output/server/_chunks/builder-gateway-headers.mjs (761 B)[39m[90m (490 B gzip)[39m
+[90m  ├─ .output/server/_chunks/builder-mark-ksNKye_t.mjs (2.24 kB)[39m[90m (1.31 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/builder-space-Cs7qL1xi.mjs (1.38 kB)[39m[90m (829 B gzip)[39m
+[90m  ├─ .output/server/_chunks/builder-space.mjs (1.35 kB)[39m[90m (809 B gzip)[39m
+[90m  ├─ .output/server/_chunks/builtin-Dnumz9gh.mjs (31 kB)[39m[90m (9.85 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/builtin.mjs (33.3 kB)[39m[90m (10.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/bun-sqlite-dialect-DApWON3g-DQPuAApc.mjs (2.65 kB)[39m[90m (1.15 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/bus-BpuywWG1.mjs (2.51 kB)[39m[90m (1.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/bus.mjs (2.53 kB)[39m[90m (1.11 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/cache-5Xvxr66a.mjs (8.48 kB)[39m[90m (3.24 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/call-agent-Bd33yNCD.mjs (7.73 kB)[39m[90m (3.51 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/call-agent.mjs (7.63 kB)[39m[90m (3.42 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/caller-auth-BQz1LoAs.mjs (962 B)[39m[90m (543 B gzip)[39m
+[90m  ├─ .output/server/_chunks/caller-auth.mjs (872 B)[39m[90m (499 B gzip)[39m
+[90m  ├─ .output/server/_chunks/capture-error-Bm6tDF_z.mjs (222 B)[39m[90m (176 B gzip)[39m
+[90m  ├─ .output/server/_chunks/capture-error.mjs (224 B)[39m[90m (177 B gzip)[39m
+[90m  ├─ .output/server/_chunks/change-appearance-B5V1VDSN.mjs (879 B)[39m[90m (501 B gzip)[39m
+[90m  ├─ .output/server/_chunks/change-appearance.mjs (870 B)[39m[90m (486 B gzip)[39m
+[90m  ├─ .output/server/_chunks/check-scoping-B21mK22M.mjs (18.2 kB)[39m[90m (6.74 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/check-scoping.mjs (2.9 kB)[39m[90m (1.44 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/cjs-DAAlpzej.mjs (704 kB)[39m[90m (316 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/cleanup-job-Durb5Q9Z.mjs (1.02 kB)[39m[90m (558 B gzip)[39m
+[90m  ├─ .output/server/_chunks/cleanup-job.mjs (1.01 kB)[39m[90m (548 B gzip)[39m
+[90m  ├─ .output/server/_chunks/cli-capture.mjs (1.13 kB)[39m[90m (563 B gzip)[39m
+[90m  ├─ .output/server/_chunks/cli-registry-T7Re8Coj.mjs (644 B)[39m[90m (378 B gzip)[39m
+[90m  ├─ .output/server/_chunks/cli-registry.mjs (646 B)[39m[90m (379 B gzip)[39m
+[90m  ├─ .output/server/_chunks/client-ANVcpjHK.mjs (6.48 kB)[39m[90m (2.55 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/client-B4GQvATe.mjs (14.4 kB)[39m[90m (5.21 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/client-CIDJOnRO.mjs (84.6 kB)[39m[90m (28.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/client-CrGUE1ae.mjs (11.8 kB)[39m[90m (3.26 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/client.mjs (14.1 kB)[39m[90m (5.05 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/client2.mjs (6.39 kB)[39m[90m (2.51 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/coding-tools-Cv5wllh5.mjs (11.7 kB)[39m[90m (4.54 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/coding-tools.mjs (11.6 kB)[39m[90m (4.53 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/coerce-DV0u-fa2.mjs (196 B)[39m[90m (151 B gzip)[39m
+[90m  ├─ .output/server/_chunks/compiled-query-Bg9MGgPS.mjs (78.8 kB)[39m[90m (15.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/conditions-CLMwfQtE.mjs (1.56 kB)[39m[90m (552 B gzip)[39m
+[90m  ├─ .output/server/_chunks/config-BUO3UK7V.mjs (614 B)[39m[90m (383 B gzip)[39m
+[90m  ├─ .output/server/_chunks/config-fROfCylh2.mjs (659 B)[39m[90m (438 B gzip)[39m
+[90m  ├─ .output/server/_chunks/config.mjs (616 B)[39m[90m (384 B gzip)[39m
+[90m  ├─ .output/server/_chunks/config2.mjs (555 B)[39m[90m (385 B gzip)[39m
+[90m  ├─ .output/server/_chunks/connect-route-C-S_d3Mc.mjs (39.2 kB)[39m[90m (11.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/connect-route.mjs (39.2 kB)[39m[90m (11.3 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/connect-store-CYhDqDPc.mjs (9.16 kB)[39m[90m (2.62 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/connect-store.mjs (8.97 kB)[39m[90m (2.54 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/context-BsO1s2jp.mjs (6.04 kB)[39m[90m (2.08 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/context-evict-jmeLCEX1.mjs (818 B)[39m[90m (467 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-evict.mjs (777 B)[39m[90m (427 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-manifest-get-Dvn8s3Mv.mjs (1.5 kB)[39m[90m (804 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-manifest-get.mjs (1.44 kB)[39m[90m (740 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-pin-D_YY5hL2.mjs (749 B)[39m[90m (432 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-pin.mjs (708 B)[39m[90m (392 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-report-CFaP4HpI.mjs (1.32 kB)[39m[90m (716 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-report.mjs (1.29 kB)[39m[90m (683 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-restore-BFauaw60.mjs (718 B)[39m[90m (413 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-restore.mjs (682 B)[39m[90m (374 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-xray-D6x8lbOg.mjs (282 B)[39m[90m (205 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context-xray.mjs (282 B)[39m[90m (205 B gzip)[39m
+[90m  ├─ .output/server/_chunks/context.mjs (5.9 kB)[39m[90m (1.99 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/ContextXRayPanel-B-oamdJN.mjs (276 kB)[39m[90m (86.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/create-CSshbQW5.mjs (17.2 kB)[39m[90m (6.24 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/create-get-db-DOkTAhsh.mjs (7.24 kB)[39m[90m (2.85 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/create-get-db.mjs (3.5 kB)[39m[90m (1.51 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/create-org-service-token-BV42rWlR.mjs (1.49 kB)[39m[90m (889 B gzip)[39m
+[90m  ├─ .output/server/_chunks/create-org-service-token.mjs (1.45 kB)[39m[90m (855 B gzip)[39m
+[90m  ├─ .output/server/_chunks/create.mjs (17.2 kB)[39m[90m (6.22 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/credential-errors.mjs (1.24 kB)[39m[90m (587 B gzip)[39m
+[90m  ├─ .output/server/_chunks/credential-provider-BPgKKRr5.mjs (11.3 kB)[39m[90m (3.3 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/credential-provider.mjs (10.9 kB)[39m[90m (3.16 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/credentials-CI4SNQr7.mjs (804 B)[39m[90m (431 B gzip)[39m
+[90m  ├─ .output/server/_chunks/credentials-S8m2yjbP.mjs (22.1 kB)[39m[90m (5.01 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/credentials.mjs (709 B)[39m[90m (377 B gzip)[39m
+[90m  ├─ .output/server/_chunks/credentials2.mjs (22.1 kB)[39m[90m (5.02 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/cron-CswLM2wx.mjs (99.3 kB)[39m[90m (30.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/cron.mjs (1.35 kB)[39m[90m (704 B gzip)[39m
+[90m  ├─ .output/server/_chunks/crypto-CuexrZBb.mjs (1.58 kB)[39m[90m (849 B gzip)[39m
+[90m  ├─ .output/server/_chunks/crypto.mjs (1.58 kB)[39m[90m (849 B gzip)[39m
+[90m  ├─ .output/server/_chunks/csrf-DLl-vsee.mjs (980 B)[39m[90m (589 B gzip)[39m
+[90m  ├─ .output/server/_chunks/csrf.mjs (988 B)[39m[90m (599 B gzip)[39m
+[90m  ├─ .output/server/_chunks/d1-sqlite-dialect-BLC8LXE6-pyt2uoSb.mjs (2.4 kB)[39m[90m (1.07 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/data-widgets-B4_gd8cY.mjs (157 kB)[39m[90m (42.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/DataChartRenderer-CCKPJg5c.mjs (3.38 kB)[39m[90m (1.57 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/ddl-guard-B4p4eLAf.mjs (2.31 kB)[39m[90m (879 B gzip)[39m
+[90m  ├─ .output/server/_chunks/ddl-guard.mjs (2.3 kB)[39m[90m (869 B gzip)[39m
+[90m  ├─ .output/server/_chunks/de-DE-6OUfXQi6.mjs (83 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/deep-link-VsgHiLPo.mjs (927 B)[39m[90m (529 B gzip)[39m
+[90m  ├─ .output/server/_chunks/deep-link.mjs (904 B)[39m[90m (505 B gzip)[39m
+[90m  ├─ .output/server/_chunks/default-query-compiler-erimBBX6.mjs (30 kB)[39m[90m (6.23 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/delete-DvoSwliE.mjs (1.24 kB)[39m[90m (663 B gzip)[39m
+[90m  ├─ .output/server/_chunks/delete-memory-DpczlV4A.mjs (741 B)[39m[90m (493 B gzip)[39m
+[90m  ├─ .output/server/_chunks/delete-memory.mjs (720 B)[39m[90m (466 B gzip)[39m
+[90m  ├─ .output/server/_chunks/delete.mjs (1.22 kB)[39m[90m (638 B gzip)[39m
+[90m  ├─ .output/server/_chunks/derived-secret-BMCqwUql.mjs (360 B)[39m[90m (266 B gzip)[39m
+[90m  ├─ .output/server/_chunks/derived-secret.mjs (347 B)[39m[90m (257 B gzip)[39m
+[90m  ├─ .output/server/_chunks/dev-CNR3nZfW.mjs (79 B)[39m[90m (94 B gzip)[39m
+[90m  ├─ .output/server/_chunks/dev.mjs (11.2 kB)[39m[90m (4.39 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/directives-store-BCwDd54N.mjs (8.47 kB)[39m[90m (3.12 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/directives-store.mjs (8.46 kB)[39m[90m (3.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dispatch-store.mjs (24 kB)[39m[90m (5.44 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dispatcher-7O2PWsuV.mjs (7.86 kB)[39m[90m (3.43 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dispatcher.mjs (7.7 kB)[39m[90m (3.31 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist--Z_VfmN8.mjs (234 kB)[39m[90m (56.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-B4KThguQ.mjs (94.4 kB)[39m[90m (20.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-BmL8UkUF.mjs (77 kB)[39m[90m (20.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-BT4eAZgh.mjs (4.64 kB)[39m[90m (1.81 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-BtL9HOuz.mjs (13.1 kB)[39m[90m (4.29 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-C4yDFLAV.mjs (13.1 kB)[39m[90m (4.32 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-CHfR_pgU.mjs (58.9 kB)[39m[90m (17.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-CombIfE8.mjs (409 kB)[39m[90m (96.3 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-D9K5UXO_.mjs (41.8 kB)[39m[90m (13 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-DFwsWINF.mjs (20.5 kB)[39m[90m (7.49 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-DuFMabKa.mjs (80.1 kB)[39m[90m (16 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-gYbdOOB3.mjs (87.6 kB)[39m[90m (22.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-KDxDWTq-.mjs (11 kB)[39m[90m (3.77 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dist-mFVVkfEg.mjs (68.4 kB)[39m[90m (15.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/dreams-store.mjs (58.1 kB)[39m[90m (17.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/drizzle-adapter-D_NtowZn.mjs (12.1 kB)[39m[90m (3.54 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/effective-BH6sizEA.mjs (1.17 kB)[39m[90m (657 B gzip)[39m
+[90m  ├─ .output/server/_chunks/effective.mjs (1.15 kB)[39m[90m (631 B gzip)[39m
+[90m  ├─ .output/server/_chunks/email-actions-Bio-DnLr.mjs (4.14 kB)[39m[90m (1.81 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/email-actions.mjs (4.13 kB)[39m[90m (1.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/email-CuPQyvKX.mjs (3.09 kB)[39m[90m (1.3 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/email-template-BOTX__5P.mjs (5.01 kB)[39m[90m (2.05 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/email-template.mjs (4.99 kB)[39m[90m (2.04 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/email.mjs (3.08 kB)[39m[90m (1.29 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/embed-app-CovLBo9A.mjs (72.4 kB)[39m[90m (15.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/embed-app.mjs (72.4 kB)[39m[90m (15.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/embed-route-DfRenbNT.mjs (4.86 kB)[39m[90m (2.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/embed-route.mjs (4.76 kB)[39m[90m (2.04 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/embed-session-CCJxK3Fo.mjs (10.7 kB)[39m[90m (3.91 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/embed-session.mjs (10.5 kB)[39m[90m (3.83 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/emitter-DqHTLUXg.mjs (355 B)[39m[90m (195 B gzip)[39m
+[90m  ├─ .output/server/_chunks/emitter-Wvf9FXpR.mjs (552 B)[39m[90m (288 B gzip)[39m
+[90m  ├─ .output/server/_chunks/emitter.mjs (357 B)[39m[90m (196 B gzip)[39m
+[90m  ├─ .output/server/_chunks/emitter2.mjs (480 B)[39m[90m (254 B gzip)[39m
+[90m  ├─ .output/server/_chunks/errors-CWoKaN-f.mjs (255 B)[39m[90m (193 B gzip)[39m
+[90m  ├─ .output/server/_chunks/errors.mjs (255 B)[39m[90m (193 B gzip)[39m
+[90m  ├─ .output/server/_chunks/es-ES-WDyuvLKV.mjs (83 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/esm-kQU570E2.mjs (13.3 kB)[39m[90m (4.62 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/estree-ozJJ66QS.mjs (204 kB)[39m[90m (57.7 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/evals-Cv7-M3mB.mjs (4.22 kB)[39m[90m (1.91 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/evals.mjs (4.19 kB)[39m[90m (1.88 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/event-bus-Cip1C8Fc.mjs (123 B)[39m[90m (124 B gzip)[39m
+[90m  ├─ .output/server/_chunks/event-bus.mjs (98 B)[39m[90m (97 B gzip)[39m
+[90m  ├─ .output/server/_chunks/exec-C6Op9kqR.mjs (10.2 kB)[39m[90m (3.97 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/exec.mjs (10.2 kB)[39m[90m (3.94 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/experiments-Di75azg_.mjs (4.11 kB)[39m[90m (1.66 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/experiments.mjs (4.09 kB)[39m[90m (1.64 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/extension-change-kjy6muRM.mjs (296 B)[39m[90m (190 B gzip)[39m
+[90m  ├─ .output/server/_chunks/extension-change.mjs (280 B)[39m[90m (179 B gzip)[39m
+[90m  ├─ .output/server/_chunks/factory-CmlxZ4J9.mjs (34.7 kB)[39m[90m (11.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/feedback-DoEYck2x.mjs (3.08 kB)[39m[90m (1.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/feedback.mjs (3.06 kB)[39m[90m (1.38 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/fetch-tool-Bl5kcCjN.mjs (8.12 kB)[39m[90m (3.76 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/fetch-tool.mjs (8.05 kB)[39m[90m (3.71 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/flow-C7zUysaY.mjs (677 kB)[39m[90m (172 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/format-BxdVClZ1.mjs (788 B)[39m[90m (429 B gzip)[39m
+[90m  ├─ .output/server/_chunks/fr-FR-7PUTMFIp.mjs (83 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/framework-request-handler-BLzkyeIE.mjs (7.91 kB)[39m[90m (3.23 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/framework-request-handler.mjs (7.78 kB)[39m[90m (3.12 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/get-audit-event-B8FOBznW.mjs (473 B)[39m[90m (338 B gzip)[39m
+[90m  ├─ .output/server/_chunks/get-audit-event.mjs (465 B)[39m[90m (329 B gzip)[39m
+[90m  ├─ .output/server/_chunks/get-localization-preference-D_f9-W3a.mjs (500 B)[39m[90m (355 B gzip)[39m
+[90m  ├─ .output/server/_chunks/get-localization-preference.mjs (487 B)[39m[90m (338 B gzip)[39m
+[90m  ├─ .output/server/_chunks/github-repo-B6OSeX4b.mjs (71.3 kB)[39m[90m (20.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/github-repo.mjs (10 kB)[39m[90m (3.15 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/glimmer-CaCN3oZB.mjs (131 kB)[39m[90m (41.6 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/google-oauth-credentials-ByUshTtc.mjs (516 B)[39m[90m (253 B gzip)[39m
+[90m  ├─ .output/server/_chunks/google-oauth-credentials.mjs (516 B)[39m[90m (253 B gzip)[39m
+[90m  ├─ .output/server/_chunks/graphql-VqpSnilk.mjs (44.5 kB)[39m[90m (12.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/h3-helpers-gXtsBBZG.mjs (582 B)[39m[90m (332 B gzip)[39m
+[90m  ├─ .output/server/_chunks/h3-helpers.mjs (610 B)[39m[90m (346 B gzip)[39m
+[90m  ├─ .output/server/_chunks/helpers-CiJAlor3.mjs (11.1 kB)[39m[90m (3.39 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/hi-IN-CjtCbJBS.mjs (83 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/html-DRZvuYEi.mjs (162 kB)[39m[90m (50.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/http-Bzet8YSg.mjs (67.1 kB)[39m[90m (18.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/i18n-BgO7XQgd.mjs (78.3 kB)[39m[90m (25.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/i18n-data-fjPA7Llq.mjs (88.8 kB)[39m[90m (21.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/IconAlertTriangle-BsmzTwOB.mjs (519 B)[39m[90m (340 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconBrowser-CkVJSHIg.mjs (446 B)[39m[90m (299 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconChevronDown-DyqIqhZk.mjs (319 B)[39m[90m (262 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconChevronLeft-BEau-hy-.mjs (320 B)[39m[90m (263 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconChevronRight-DpIbkSBt.mjs (321 B)[39m[90m (263 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconChevronUp-CFTva5Ne.mjs (316 B)[39m[90m (263 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconCopy-DPspQ4Iv.mjs (2.65 kB)[39m[90m (1.21 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/IconExternalLink-7iBjM-9c.mjs (699 B)[39m[90m (340 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconHelpCircle-BgDW1qCp.mjs (462 B)[39m[90m (322 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconKey-hEVZIw3m.mjs (667 B)[39m[90m (412 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconLock-mFPphpB2.mjs (483 B)[39m[90m (322 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconPhoto-c91R2kyz.mjs (1.25 kB)[39m[90m (465 B gzip)[39m
+[90m  ├─ .output/server/_chunks/IconTerminal2-Djw5e9_x.mjs (33.7 kB)[39m[90m (10.7 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/iframe-bridge-TczL-Wpl.mjs (69.7 kB)[39m[90m (20.6 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/IntegrationsPanel-Cnt9um8l.mjs (14.3 kB)[39m[90m (4.18 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/ja-JP-XyL34VFU.mjs (83 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/jiti-sxUkgaeD.mjs (152 kB)[39m[90m (47.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/jsx-runtime-Bt8rmzQi.mjs (34.4 kB)[39m[90m (9.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/ko-KR-B_Djmuk5.mjs (83 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/kysely-adapter-VAO_JWPh.mjs (94 B)[39m[90m (97 B gzip)[39m
+[90m  ├─ .output/server/_chunks/lib-Bk9Xb6Vb.mjs (21 kB)[39m[90m (6.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/lib-Ctqc216Z.mjs (4.12 kB)[39m[90m (1.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/lib-D3nwrqxr.mjs (16.2 kB)[39m[90m (5.06 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/list-2t73UMZK.mjs (1.63 kB)[39m[90m (784 B gzip)[39m
+[90m  ├─ .output/server/_chunks/list-audit-events-BCW7Ogwl.mjs (1.9 kB)[39m[90m (825 B gzip)[39m
+[90m  ├─ .output/server/_chunks/list-audit-events.mjs (1.89 kB)[39m[90m (816 B gzip)[39m
+[90m  ├─ .output/server/_chunks/list-org-service-tokens-DceAciGg.mjs (955 B)[39m[90m (569 B gzip)[39m
+[90m  ├─ .output/server/_chunks/list-org-service-tokens.mjs (937 B)[39m[90m (549 B gzip)[39m
+[90m  ├─ .output/server/_chunks/list-resource-shares-DyAFLFxd.mjs (1 kB)[39m[90m (540 B gzip)[39m
+[90m  ├─ .output/server/_chunks/list-resource-shares.mjs (1.02 kB)[39m[90m (536 B gzip)[39m
+[90m  ├─ .output/server/_chunks/list.mjs (1.61 kB)[39m[90m (752 B gzip)[39m
+[90m  ├─ .output/server/_chunks/llm-connection-C3NMOD80.mjs (453 B)[39m[90m (247 B gzip)[39m
+[90m  ├─ .output/server/_chunks/local-artifacts-BIYTzuEP.mjs (33.4 kB)[39m[90m (11.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/local-artifacts.mjs (9.34 kB)[39m[90m (3.53 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/local-BoxOj3Or.mjs (5.27 kB)[39m[90m (2.17 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/local.mjs (5.27 kB)[39m[90m (2.16 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/loop-settings-CcdlLzSr.mjs (1.96 kB)[39m[90m (900 B gzip)[39m
+[90m  ├─ .output/server/_chunks/loop-settings.mjs (1.98 kB)[39m[90m (870 B gzip)[39m
+[90m  ├─ .output/server/_chunks/manage-agent-engine-C65mNbTq.mjs (6.84 kB)[39m[90m (2.58 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/manage-agent-engine.mjs (6.75 kB)[39m[90m (2.51 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/manage-agent-loop-settings-BHTrk6q3.mjs (1.61 kB)[39m[90m (781 B gzip)[39m
+[90m  ├─ .output/server/_chunks/manage-agent-loop-settings.mjs (1.59 kB)[39m[90m (761 B gzip)[39m
+[90m  ├─ .output/server/_chunks/markdown-i-lnqh2k.mjs (140 kB)[39m[90m (50.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/mcp-embed-headers-Dl582HLj.mjs (994 B)[39m[90m (448 B gzip)[39m
+[90m  ├─ .output/server/_chunks/mcp-embed-headers.mjs (996 B)[39m[90m (448 B gzip)[39m
+[90m  ├─ .output/server/_chunks/meriyah-DVjLV3dG.mjs (123 kB)[39m[90m (34.3 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/metadata-BHVfH_cr.mjs (3.37 kB)[39m[90m (1.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/metadata.mjs (2.73 kB)[39m[90m (1.22 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/migrations-D3OHCcE1.mjs (4.46 kB)[39m[90m (1.98 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/migrations.mjs (4.45 kB)[39m[90m (1.97 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/model-config-DYr7XU8R.mjs (2.66 kB)[39m[90m (855 B gzip)[39m
+[90m  ├─ .output/server/_chunks/MultiTabAssistantChat-DtYl_8gc.mjs (286 kB)[39m[90m (79.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/neon-serverless-CUrar6-b.mjs (4.26 kB)[39m[90m (1.56 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/node-BgbFqlqz.mjs (22.2 kB)[39m[90m (7.69 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/node-kmsaxMuB.mjs (15.4 kB)[39m[90m (5.66 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/node-sqlite-dialect-BYPOAQFe.mjs (2.65 kB)[39m[90m (1.16 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/oauth-route-CyQNgzBW.mjs (15.2 kB)[39m[90m (5.57 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/oauth-route.mjs (15.1 kB)[39m[90m (5.49 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/oauth-token-D4zFdKPu.mjs (10 kB)[39m[90m (3.19 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/oauth-token.mjs (9.99 kB)[39m[90m (3.14 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/onboarding-B2v-iPk9.mjs (1.01 kB)[39m[90m (579 B gzip)[39m
+[90m  ├─ .output/server/_chunks/onboarding.mjs (989 B)[39m[90m (555 B gzip)[39m
+[90m  ├─ .output/server/_chunks/OnboardingPanel-CkEhf0U_.mjs (14.8 kB)[39m[90m (4.46 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/open-chat-CxRnRXoN.mjs (893 B)[39m[90m (519 B gzip)[39m
+[90m  ├─ .output/server/_chunks/open-chat.mjs (867 B)[39m[90m (489 B gzip)[39m
+[90m  ├─ .output/server/_chunks/org-directory-nqpRkLLc.mjs (2.87 kB)[39m[90m (1.35 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/org-directory.mjs (2.73 kB)[39m[90m (1.28 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/patch-CLoOtvfQ.mjs (11.2 kB)[39m[90m (4.26 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/patch.mjs (11.1 kB)[39m[90m (4.22 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/path-C-0bmFB3.mjs (601 B)[39m[90m (372 B gzip)[39m
+[90m  ├─ .output/server/_chunks/path.mjs (567 B)[39m[90m (357 B gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin-AP0qHTBw.mjs (80 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin-B1IT7oXA.mjs (79 B)[39m[90m (94 B gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin-DpP7QUkn.mjs (72 B)[39m[90m (87 B gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin-DtqMJtsB.mjs (323 kB)[39m[90m (97.6 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin-wz5ScE1F.mjs (88 B)[39m[90m (101 B gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin.mjs (20.9 kB)[39m[90m (5.7 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin2.mjs (1.16 kB)[39m[90m (517 B gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin3.mjs (1.22 kB)[39m[90m (524 B gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin4.mjs (321 kB)[39m[90m (96.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/plugin5.mjs (8.48 kB)[39m[90m (2.97 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/poll-dvH0lBIo.mjs (7.77 kB)[39m[90m (2.58 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/poll.mjs (7.52 kB)[39m[90m (2.47 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/popover-DybdvVa2.mjs (3.79 kB)[39m[90m (1.34 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/postcss-B9cLt_-T.mjs (150 kB)[39m[90m (40.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/postgres-js-rLKIRpaR.mjs (3.73 kB)[39m[90m (1.36 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/prettier-CQjDsX8n.mjs (312 kB)[39m[90m (100 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/production-agent-DAs28gCy.mjs (111 kB)[39m[90m (37 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/production-agent.mjs (116 kB)[39m[90m (38.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/PromptComposer-Cimih_rG.mjs (10.3 kB)[39m[90m (3.98 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/provider-api.mjs (66.2 kB)[39m[90m (18.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/provider-env-vars-BbF4vlc0.mjs (876 B)[39m[90m (396 B gzip)[39m
+[90m  ├─ .output/server/_chunks/provider-env-vars.mjs (864 B)[39m[90m (392 B gzip)[39m
+[90m  ├─ .output/server/_chunks/proxy-security-XgKXznfS.mjs (2.03 kB)[39m[90m (987 B gzip)[39m
+[90m  ├─ .output/server/_chunks/proxy-security.mjs (2.03 kB)[39m[90m (987 B gzip)[39m
+[90m  ├─ .output/server/_chunks/pt-BR-BGea271P.mjs (83 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/pty-server-BhQKs3zD.mjs (4.69 kB)[39m[90m (2.22 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/pty-server.mjs (4.59 kB)[39m[90m (2.16 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/query-38ijaRZg.mjs (3.59 kB)[39m[90m (1.7 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/query.mjs (3.57 kB)[39m[90m (1.67 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/react-markdown-Bx7JFeQh.mjs (138 kB)[39m[90m (45.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/read-s6uaHviW.mjs (1.64 kB)[39m[90m (669 B gzip)[39m
+[90m  ├─ .output/server/_chunks/read.mjs (1.61 kB)[39m[90m (639 B gzip)[39m
+[90m  ├─ .output/server/_chunks/reasoning-effort-KYav2dCb.mjs (872 B)[39m[90m (469 B gzip)[39m
+[90m  ├─ .output/server/_chunks/recap-image-route-BegcZ_pc.mjs (4.49 kB)[39m[90m (2.12 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/recap-image-route.mjs (4.46 kB)[39m[90m (2.07 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/record-B6mnW-9y.mjs (2.69 kB)[39m[90m (1.29 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/record-B6Uj_e8W.mjs (73.9 kB)[39m[90m (22.3 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/record.mjs (2.67 kB)[39m[90m (1.27 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/redact-CDz7sXuZ.mjs (6.22 kB)[39m[90m (2.94 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/registry-BUDKNFi6.mjs (4.26 kB)[39m[90m (1.79 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/registry-D_LE_euD.mjs (353 B)[39m[90m (270 B gzip)[39m
+[90m  ├─ .output/server/_chunks/registry-DOvEobVv.mjs (7.18 kB)[39m[90m (2.59 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/registry-DQezs57d.mjs (2.1 kB)[39m[90m (1.01 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/registry-Drmyoi-b.mjs (6.08 kB)[39m[90m (2.41 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/registry.mjs (4.22 kB)[39m[90m (1.78 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/registry2.mjs (6.03 kB)[39m[90m (2.37 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/registry3.mjs (7.19 kB)[39m[90m (2.56 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/registry4.mjs (2.07 kB)[39m[90m (982 B gzip)[39m
+[90m  ├─ .output/server/_chunks/registry5.mjs (355 B)[39m[90m (272 B gzip)[39m
+[90m  ├─ .output/server/_chunks/remark-gfm-CatxmB7c.mjs (38.4 kB)[39m[90m (11.4 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/request-context-D883BBl3.mjs (1.98 kB)[39m[90m (811 B gzip)[39m
+[90m  ├─ .output/server/_chunks/request-context.mjs (1.81 kB)[39m[90m (736 B gzip)[39m
+[90m  ├─ .output/server/_chunks/ResourcesPanel-HfwuUYLU.mjs (216 kB)[39m[90m (76.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/revoke-org-service-token-B3lhs6xN.mjs (606 B)[39m[90m (405 B gzip)[39m
+[90m  ├─ .output/server/_chunks/revoke-org-service-token.mjs (588 B)[39m[90m (384 B gzip)[39m
+[90m  ├─ .output/server/_chunks/rolldown-runtime-CE-6LUnI.mjs (951 B)[39m[90m (543 B gzip)[39m
+[90m  ├─ .output/server/_chunks/routes-BJhBBlGd.mjs (15.1 kB)[39m[90m (5.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/routes-CYst-qUA.mjs (1.83 kB)[39m[90m (772 B gzip)[39m
+[90m  ├─ .output/server/_chunks/routes-DD4QP54_.mjs (4.8 kB)[39m[90m (1.77 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/routes.mjs (44.4 kB)[39m[90m (12.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/routes2.mjs (1.78 kB)[39m[90m (729 B gzip)[39m
+[90m  ├─ .output/server/_chunks/routes3.mjs (4.75 kB)[39m[90m (1.73 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/run-code-BGzsun8m.mjs (36.7 kB)[39m[90m (10.6 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/run-code.mjs (36.7 kB)[39m[90m (10.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/run-manager-BbMtPyf9.mjs (9.58 kB)[39m[90m (3.38 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/run-manager.mjs (9.52 kB)[39m[90m (3.32 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/run-ownership-DQEjKBLI.mjs (362 B)[39m[90m (237 B gzip)[39m
+[90m  ├─ .output/server/_chunks/run-ownership.mjs (336 B)[39m[90m (209 B gzip)[39m
+[90m  ├─ .output/server/_chunks/run-store-C1P1aTyj.mjs (16.6 kB)[39m[90m (4.44 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/run-store.mjs (16.3 kB)[39m[90m (4.27 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/save-memory-E3FufAMz.mjs (1.29 kB)[39m[90m (805 B gzip)[39m
+[90m  ├─ .output/server/_chunks/save-memory.mjs (1.26 kB)[39m[90m (777 B gzip)[39m
+[90m  ├─ .output/server/_chunks/scheduler-B5SRgUHf.mjs (6 kB)[39m[90m (2.63 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/scheduler.mjs (5.88 kB)[39m[90m (2.55 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/schema-BOawHZOB.mjs (1.08 kB)[39m[90m (545 B gzip)[39m
+[90m  ├─ .output/server/_chunks/schema-NjcuRNOf.mjs (5.66 kB)[39m[90m (1.91 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/schema-vRvQChcM.mjs (7.38 kB)[39m[90m (1.28 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/schema.mjs (1.07 kB)[39m[90m (538 B gzip)[39m
+[90m  ├─ .output/server/_chunks/schema2.mjs (7.38 kB)[39m[90m (1.27 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/schema3.mjs (5.65 kB)[39m[90m (1.89 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/scoping-Pm8Hbq9M.mjs (7.67 kB)[39m[90m (3.05 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/scoping.mjs (7.65 kB)[39m[90m (3.02 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/script-helpers-C20eXrTE.mjs (859 B)[39m[90m (453 B gzip)[39m
+[90m  ├─ .output/server/_chunks/script-helpers.mjs (725 B)[39m[90m (389 B gzip)[39m
+[90m  ├─ .output/server/_chunks/sdk-DuKfbD-a.mjs (148 kB)[39m[90m (39.2 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/search-C2DI8zQa.mjs (3.54 kB)[39m[90m (1.53 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/search-chats-DlwX62hG.mjs (2.09 kB)[39m[90m (1.04 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/search-chats.mjs (2.06 kB)[39m[90m (1.02 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/search.mjs (3.52 kB)[39m[90m (1.51 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/security-headers-CdCl8ih9.mjs (1.59 kB)[39m[90m (856 B gzip)[39m
+[90m  ├─ .output/server/_chunks/security-headers.mjs (1.77 kB)[39m[90m (939 B gzip)[39m
+[90m  ├─ .output/server/_chunks/select-DXXEOzzG.mjs (118 B)[39m[90m (110 B gzip)[39m
+[90m  ├─ .output/server/_chunks/sentry-config.mjs (986 B)[39m[90m (461 B gzip)[39m
+[90m  ├─ .output/server/_chunks/sentry-DJwyURWf.mjs (340 kB)[39m[90m (108 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/sentry.mjs (3.9 kB)[39m[90m (1.69 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/server-3EwG_V9T.mjs (14.6 kB)[39m[90m (5.32 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/server-BpSUKZ4x.mjs (10.1 kB)[39m[90m (2.52 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/server-CVN7vk9U.mjs (856 kB)[39m[90m (428 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/server-DahYuiPj.mjs (4.51 kB)[39m[90m (2.14 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/server-DmEC-9eV.mjs (1.8 kB)[39m[90m (776 B gzip)[39m
+[90m  ├─ .output/server/_chunks/server.mjs (10.1 kB)[39m[90m (3.55 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/server2.mjs (14.5 kB)[39m[90m (5.26 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/server3.mjs (4.51 kB)[39m[90m (2.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/server4.mjs (1.3 MB)[39m[90m (348 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/serverless-Bymgc56P.mjs (141 kB)[39m[90m (44.3 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/service-Czky0kDw.mjs (1.75 kB)[39m[90m (699 B gzip)[39m
+[90m  ├─ .output/server/_chunks/service-token-access-wkvnt3iO.mjs (1.34 kB)[39m[90m (719 B gzip)[39m
+[90m  ├─ .output/server/_chunks/service-token-access.mjs (1.33 kB)[39m[90m (709 B gzip)[39m
+[90m  ├─ .output/server/_chunks/service.mjs (1.75 kB)[39m[90m (700 B gzip)[39m
+[90m  ├─ .output/server/_chunks/session-BLQJaTP1.mjs (34.5 kB)[39m[90m (9.08 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/session-Cmuyyk3Y.mjs (33 kB)[39m[90m (8.64 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/session-replay-BhCK5Aur.mjs (10.9 kB)[39m[90m (3.95 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/set-localization-preference-Bu4TZxUw.mjs (654 B)[39m[90m (403 B gzip)[39m
+[90m  ├─ .output/server/_chunks/set-localization-preference.mjs (636 B)[39m[90m (383 B gzip)[39m
+[90m  ├─ .output/server/_chunks/set-resource-visibility-Dgfw-GIj.mjs (1.55 kB)[39m[90m (792 B gzip)[39m
+[90m  ├─ .output/server/_chunks/set-resource-visibility.mjs (1.55 kB)[39m[90m (775 B gzip)[39m
+[90m  ├─ .output/server/_chunks/settings-b0C-bs9l.mjs (103 kB)[39m[90m (22.9 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/settings-BectnVme.mjs (427 B)[39m[90m (251 B gzip)[39m
+[90m  ├─ .output/server/_chunks/settings.mjs (328 B)[39m[90m (196 B gzip)[39m
+[90m  ├─ .output/server/_chunks/SettingsTabsPage-qDnCezvi.mjs (24.3 kB)[39m[90m (8.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/SetupButton-CNqIJxBs.mjs (941 B)[39m[90m (604 B gzip)[39m
+[90m  ├─ .output/server/_chunks/share-resource-aQWD70nE.mjs (5.09 kB)[39m[90m (2.33 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/share-resource.mjs (5.03 kB)[39m[90m (2.27 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/shared-_3zqG9EW.mjs (2.29 kB)[39m[90m (991 B gzip)[39m
+[90m  ├─ .output/server/_chunks/shared.mjs (2.12 kB)[39m[90m (925 B gzip)[39m
+[90m  ├─ .output/server/_chunks/shim-CWe-So0J.mjs (23 kB)[39m[90m (8.21 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/social-meta.mjs (424 B)[39m[90m (222 B gzip)[39m
+[90m  ├─ .output/server/_chunks/social-og-image-Do1UY7tf.mjs (87 B)[39m[90m (102 B gzip)[39m
+[90m  ├─ .output/server/_chunks/social-og-image.mjs (786 kB)[39m[90m (406 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/source-search-CM1jcT13.mjs (5 kB)[39m[90m (2.14 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/source-search.mjs (4.97 kB)[39m[90m (2.11 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/sql-DcKTaYDh.mjs (12.3 kB)[39m[90m (4.06 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/sqlite-adapter-l6yGnpKI.mjs (919 B)[39m[90m (456 B gzip)[39m
+[90m  ├─ .output/server/_chunks/sqlite-client-DS1zd5JA.mjs (867 B)[39m[90m (543 B gzip)[39m
+[90m  ├─ .output/server/_chunks/sqlite-client.mjs (810 B)[39m[90m (505 B gzip)[39m
+[90m  ├─ .output/server/_chunks/src-DEOj5Hij.mjs (37.6 kB)[39m[90m (14.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/stdio-LZaYlYN-.mjs (8.78 kB)[39m[90m (3.58 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/storage-CNYC6aSb.mjs (4.44 kB)[39m[90m (1.53 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/storage.mjs (4.29 kB)[39m[90m (1.44 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-A-w_XgKn.mjs (6.85 kB)[39m[90m (2.03 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-BNEybRsx.mjs (2.21 kB)[39m[90m (980 B gzip)[39m
+[90m  ├─ .output/server/_chunks/store-BpTJ7cYH2.mjs (20.6 kB)[39m[90m (6.41 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-Bq9GSF8D2.mjs (22.6 kB)[39m[90m (4.58 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-Btygy6lm.mjs (7.09 kB)[39m[90m (2.35 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-Bvp4mnSs.mjs (4.91 kB)[39m[90m (1.56 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-BYbQ4ejj.mjs (12.4 kB)[39m[90m (3.89 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-CBq7a31e.mjs (3.76 kB)[39m[90m (1.42 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-CgJgu0WQ.mjs (2.84 kB)[39m[90m (1.32 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-CkxyQ_gc.mjs (1.49 kB)[39m[90m (633 B gzip)[39m
+[90m  ├─ .output/server/_chunks/store-DOtfMuEQ.mjs (3.59 kB)[39m[90m (1.39 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-tNH99J_q.mjs (23.6 kB)[39m[90m (7.46 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store-XQlfrPpT.mjs (3.03 kB)[39m[90m (1.06 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store.mjs (2.09 kB)[39m[90m (912 B gzip)[39m
+[90m  ├─ .output/server/_chunks/store10.mjs (1.47 kB)[39m[90m (612 B gzip)[39m
+[90m  ├─ .output/server/_chunks/store11.mjs (6.75 kB)[39m[90m (1.94 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store12.mjs (20.6 kB)[39m[90m (6.33 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store13.mjs (22.6 kB)[39m[90m (4.56 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store14.mjs (2.84 kB)[39m[90m (1.31 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store2.mjs (3.46 kB)[39m[90m (1.32 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store3.mjs (2.89 kB)[39m[90m (988 B gzip)[39m
+[90m  ├─ .output/server/_chunks/store4.mjs (12.2 kB)[39m[90m (3.77 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store5.mjs (23.4 kB)[39m[90m (7.33 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store6.mjs (11.4 kB)[39m[90m (3.28 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store7.mjs (3.62 kB)[39m[90m (1.34 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store8.mjs (7.28 kB)[39m[90m (2.42 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/store9.mjs (4.87 kB)[39m[90m (1.51 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/stream-eglDzV6J.mjs (3.71 kB)[39m[90m (1.55 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/streamableHttp-CLJpNhNV.mjs (9.57 kB)[39m[90m (3.75 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/streamableHttp-Cpi0M7K5.mjs (25.3 kB)[39m[90m (7.33 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/substitution-BICdYWCu.mjs (3.15 kB)[39m[90m (1.27 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/substitution.mjs (3.02 kB)[39m[90m (1.19 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/table-BeAF9B0d.mjs (21.7 kB)[39m[90m (4.7 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/table-CeAe6_qU.mjs (8.02 kB)[39m[90m (2.19 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/task-store-zuiKad6h.mjs (4.99 kB)[39m[90m (1.45 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/task-store.mjs (4.97 kB)[39m[90m (1.43 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/templates-meta-DeLQcLxa.mjs (4.52 kB)[39m[90m (1.67 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/templates-meta.mjs (4.43 kB)[39m[90m (1.63 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/terminal-DmMTJauu.mjs (7.14 kB)[39m[90m (3 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/terminal-plugin-BoBrhSXY.mjs (77 B)[39m[90m (92 B gzip)[39m
+[90m  ├─ .output/server/_chunks/terminal-plugin.mjs (3.69 kB)[39m[90m (1.56 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/theme-DSr4DaXv.mjs (29.1 kB)[39m[90m (8.05 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/thread-data-builder.mjs (11.8 kB)[39m[90m (4.14 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/thread-link-preview-D9RNeElq.mjs (2.17 kB)[39m[90m (907 B gzip)[39m
+[90m  ├─ .output/server/_chunks/thread-link-preview-Dt1jk39X.mjs (521 B)[39m[90m (345 B gzip)[39m
+[90m  ├─ .output/server/_chunks/TiptapComposer-BWJSkJnh.mjs (685 kB)[39m[90m (201 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/toggle-demo-mode-CAEQXTR0.mjs (1.05 kB)[39m[90m (584 B gzip)[39m
+[90m  ├─ .output/server/_chunks/toggle-demo-mode.mjs (1.04 kB)[39m[90m (572 B gzip)[39m
+[90m  ├─ .output/server/_chunks/token-Dl1ys1Ll.mjs (1.3 kB)[39m[90m (700 B gzip)[39m
+[90m  ├─ .output/server/_chunks/token-util-BJyEdyMn.mjs (71 B)[39m[90m (83 B gzip)[39m
+[90m  ├─ .output/server/_chunks/tool-ClNytWme.mjs (5.17 kB)[39m[90m (2.08 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/tool-error-redaction.mjs (1.12 kB)[39m[90m (566 B gzip)[39m
+[90m  ├─ .output/server/_chunks/tool-schemas.mjs (991 B)[39m[90m (556 B gzip)[39m
+[90m  ├─ .output/server/_chunks/tool.mjs (5.16 kB)[39m[90m (2.07 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/tools-CUhVWJKq.mjs (5.44 kB)[39m[90m (2.24 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/tools.mjs (5.4 kB)[39m[90m (2.19 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/tooltip-BVijfhqp.mjs (89.9 kB)[39m[90m (29.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/traces-B4f0gmQ0.mjs (5.08 kB)[39m[90m (2.06 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/traces.mjs (5.09 kB)[39m[90m (2.06 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/truncate-C16biZ_3.mjs (82 B)[39m[90m (102 B gzip)[39m
+[90m  ├─ .output/server/_chunks/truncate.mjs (82 B)[39m[90m (102 B gzip)[39m
+[90m  ├─ .output/server/_chunks/tslib.es6-BMDLF0KJ.mjs (3.28 kB)[39m[90m (1.41 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/types-DlIfNSPg.mjs (56.4 kB)[39m[90m (12.7 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/typescript-DoIdpAwC.mjs (886 kB)[39m[90m (206 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/unshare-resource-BVfXRO5A.mjs (1.06 kB)[39m[90m (545 B gzip)[39m
+[90m  ├─ .output/server/_chunks/unshare-resource.mjs (1.04 kB)[39m[90m (519 B gzip)[39m
+[90m  ├─ .output/server/_chunks/upload-image-Dcl0TSD2.mjs (3.85 kB)[39m[90m (1.83 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/upload-image.mjs (3.82 kB)[39m[90m (1.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/url-safety-B3dNqEyM.mjs (2.83 kB)[39m[90m (1.32 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/url-safety.mjs (2.84 kB)[39m[90m (1.32 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/use-dev-mode-WidE1-S2.mjs (1.3 kB)[39m[90m (694 B gzip)[39m
+[90m  ├─ .output/server/_chunks/use-onboarding-DnKCvkJp.mjs (2.43 kB)[39m[90m (1.09 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/useBuilderStatus-DFe4k_cj.mjs (12.2 kB)[39m[90m (3.98 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/user-settings-zjgxmVXE.mjs (249 B)[39m[90m (168 B gzip)[39m
+[90m  ├─ .output/server/_chunks/user-settings.mjs (240 B)[39m[90m (155 B gzip)[39m
+[90m  ├─ .output/server/_chunks/utils-DwGYwyNO.mjs (6.37 kB)[39m[90m (2.83 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/utils.mjs (816 B)[39m[90m (507 B gzip)[39m
+[90m  ├─ .output/server/_chunks/web-content-Bp9l6QLC.mjs (464 kB)[39m[90m (144 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/web-content.mjs (7.31 kB)[39m[90m (2.91 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/web-CtcyTZbj.mjs (4.92 kB)[39m[90m (1.67 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/web-DMInhwCF.mjs (512 B)[39m[90m (347 B gzip)[39m
+[90m  ├─ .output/server/_chunks/web-search-tool-4c4VpP0e.mjs (5.67 kB)[39m[90m (2.22 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/web-search-tool.mjs (5.65 kB)[39m[90m (2.21 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/webapi-CkG6SDTv.mjs (53.4 kB)[39m[90m (14.8 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/webStandardStreamableHttp-C_qTimCm.mjs (11.5 kB)[39m[90m (3.03 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/widen-columns-fTQ1Js_p.mjs (542 B)[39m[90m (404 B gzip)[39m
+[90m  ├─ .output/server/_chunks/widen-columns.mjs (535 B)[39m[90m (394 B gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-app-audience-BQxw0E8e.mjs (2.01 kB)[39m[90m (723 B gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-app-audience.mjs (2.01 kB)[39m[90m (723 B gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-app-id-BAzp1H9V.mjs (846 B)[39m[90m (445 B gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-app-id.mjs (895 B)[39m[90m (472 B gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-connections-C2mMymmU.mjs (103 B)[39m[90m (110 B gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-connections.mjs (95 B)[39m[90m (102 B gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-core-DhtDQ_0C.mjs (2.45 kB)[39m[90m (1.03 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-core.mjs (2.45 kB)[39m[90m (1.03 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-resolve-CoyOCSjz.mjs (2.1 kB)[39m[90m (1.04 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-resolve.mjs (2.09 kB)[39m[90m (1.03 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/workspace-resources-store.mjs (18.4 kB)[39m[90m (6.36 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/wrapper-DJQki2oX.mjs (45.4 kB)[39m[90m (13.1 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/write-DuZ6BHA9.mjs (2.96 kB)[39m[90m (1.34 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/write.mjs (2.94 kB)[39m[90m (1.31 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/xterm-Ca-0MUBw.mjs (341 kB)[39m[90m (85.5 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/yaml-0U8LxKSu.mjs (120 kB)[39m[90m (36.6 kB gzip)[39m
+[90m  ├─ .output/server/_chunks/zh-CN-BHM08IwB.mjs (83 B)[39m[90m (95 B gzip)[39m
+[90m  ├─ .output/server/_chunks/zh-TW-BoUL8yVX.mjs (7.21 kB)[39m[90m (2.87 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@ai-sdk/anthropic+[...].mjs (261 kB)[39m[90m (62.4 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@anthropic-ai/sdk+[...].mjs (164 kB)[39m[90m (44.2 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@anthropic-ai/tokenizer+[...].mjs (704 kB)[39m[90m (316 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@better-auth/core+[...].mjs (240 kB)[39m[90m (60.6 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@better-auth/drizzle-adapter+[...].mjs (25.8 kB)[39m[90m (7.71 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@better-auth/kysely-adapter+[...].mjs (185 kB)[39m[90m (36.4 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@better-auth/telemetry+[...].mjs (11.2 kB)[39m[90m (3.88 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@clack/core+[...].mjs (29 kB)[39m[90m (9.53 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@libsql/client+[...].mjs (118 kB)[39m[90m (32.3 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@modelcontextprotocol/ext-apps+[...].mjs (49.6 kB)[39m[90m (13.6 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@modelcontextprotocol/sdk+[...].mjs (192 kB)[39m[90m (53.8 kB gzip)[39m
+[90m  ├─ .output/server/_libs/@sentry/node+[...].mjs (202 kB)[39m[90m (61.9 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ai-sdk__cohere.mjs (13.1 kB)[39m[90m (4.34 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ai-sdk__gateway+vercel__oidc.mjs (41.4 kB)[39m[90m (10.9 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ai-sdk__google.mjs (87.6 kB)[39m[90m (22.9 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ai-sdk__groq.mjs (13.1 kB)[39m[90m (4.3 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ai-sdk__mistral.mjs (11 kB)[39m[90m (3.79 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ai-sdk__openai+zod.mjs (94.5 kB)[39m[90m (20.4 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ai-sdk-ollama+[...].mjs (382 kB)[39m[90m (88.3 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ai.mjs (193 kB)[39m[90m (46 kB gzip)[39m
+[90m  ├─ .output/server/_libs/balanced-match.mjs (635 B)[39m[90m (374 B gzip)[39m
+[90m  ├─ .output/server/_libs/better-auth__memory-adapter.mjs (4.71 kB)[39m[90m (1.85 kB gzip)[39m
+[90m  ├─ .output/server/_libs/better-auth__utils.mjs (1.94 kB)[39m[90m (923 B gzip)[39m
+[90m  ├─ .output/server/_libs/better-auth+defu.mjs (171 kB)[39m[90m (45.2 kB gzip)[39m
+[90m  ├─ .output/server/_libs/brace-expansion.mjs (2.27 kB)[39m[90m (1.09 kB gzip)[39m
+[90m  ├─ .output/server/_libs/clack__prompts.mjs (30.3 kB)[39m[90m (9.13 kB gzip)[39m
+[90m  ├─ .output/server/_libs/cookie-es.mjs (483 B)[39m[90m (288 B gzip)[39m
+[90m  ├─ .output/server/_libs/cron-parser+luxon.mjs (97.5 kB)[39m[90m (29.6 kB gzip)[39m
+[90m  ├─ .output/server/_libs/dotenv.mjs (5.63 kB)[39m[90m (2.5 kB gzip)[39m
+[90m  ├─ .output/server/_libs/drizzle-orm+postgres.mjs (161 kB)[39m[90m (42.5 kB gzip)[39m
+[90m  ├─ .output/server/_libs/h3+rou3+srvx.mjs (33.5 kB)[39m[90m (11.5 kB gzip)[39m
+[90m  ├─ .output/server/_libs/hono__node-server.mjs (8.3 kB)[39m[90m (3.45 kB gzip)[39m
+[90m  ├─ .output/server/_libs/hookable.mjs (616 B)[39m[90m (347 B gzip)[39m
+[90m  ├─ .output/server/_libs/jiti.mjs (152 kB)[39m[90m (47.8 kB gzip)[39m
+[90m  ├─ .output/server/_libs/linkedom.mjs (168 kB)[39m[90m (59 kB gzip)[39m
+[90m  ├─ .output/server/_libs/minimatch.mjs (21.2 kB)[39m[90m (7.43 kB gzip)[39m
+[90m  ├─ .output/server/_libs/mixmark-io__domino.mjs (231 kB)[39m[90m (62.7 kB gzip)[39m
+[90m  ├─ .output/server/_libs/mozilla__readability.mjs (33.9 kB)[39m[90m (11.2 kB gzip)[39m
+[90m  ├─ .output/server/_libs/neondatabase__serverless.mjs (141 kB)[39m[90m (44.2 kB gzip)[39m
+[90m  ├─ .output/server/_libs/noble__ciphers.mjs (13.2 kB)[39m[90m (5.58 kB gzip)[39m
+[90m  ├─ .output/server/_libs/noble__hashes.mjs (6.94 kB)[39m[90m (3.07 kB gzip)[39m
+[90m  ├─ .output/server/_libs/openrouter__ai-sdk-provider.mjs (77 kB)[39m[90m (20.8 kB gzip)[39m
+[90m  ├─ .output/server/_libs/opentelemetry__api-logs.mjs (3.52 kB)[39m[90m (1.09 kB gzip)[39m
+[90m  ├─ .output/server/_libs/opentelemetry__api.mjs (23.7 kB)[39m[90m (5.92 kB gzip)[39m
+[90m  ├─ .output/server/_libs/opentelemetry__core.mjs (25.3 kB)[39m[90m (6.58 kB gzip)[39m
+[90m  ├─ .output/server/_libs/opentelemetry__instrumentation.mjs (18.8 kB)[39m[90m (5.49 kB gzip)[39m
+[90m  ├─ .output/server/_libs/opentelemetry__resources.mjs (15.5 kB)[39m[90m (4.06 kB gzip)[39m
+[90m  ├─ .output/server/_libs/opentelemetry__sdk-trace-base.mjs (29.8 kB)[39m[90m (7.83 kB gzip)[39m
+[90m  ├─ .output/server/_libs/prettier.mjs (3.52 MB)[39m[90m (952 kB gzip)[39m
+[90m  ├─ .output/server/_libs/react-router.mjs (58.6 kB)[39m[90m (17.9 kB gzip)[39m
+[90m  ├─ .output/server/_libs/react.mjs (28.1 kB)[39m[90m (8.46 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ret.mjs (12 kB)[39m[90m (3.39 kB gzip)[39m
+[90m  ├─ .output/server/_libs/safe-regex2.mjs (700 B)[39m[90m (425 B gzip)[39m
+[90m  ├─ .output/server/_libs/sentry__core.mjs (172 kB)[39m[90m (53.6 kB gzip)[39m
+[90m  ├─ .output/server/_libs/turndown.mjs (10.5 kB)[39m[90m (4.05 kB gzip)[39m
+[90m  ├─ .output/server/_libs/ufo.mjs (1 kB)[39m[90m (483 B gzip)[39m
+[90m  ├─ .output/server/_libs/vercel__oidc.mjs (1.29 kB)[39m[90m (687 B gzip)[39m
+[90m  ├─ .output/server/_runtime.mjs (766 B)[39m[90m (458 B gzip)[39m
+[90m  ├─ .output/server/_virtual_agents-bundle-CoxoUJZz.mjs (88.9 kB)[39m[90m (31 kB gzip)[39m
+[90m  ├─ .output/server/_virtual/virtual_agents-bundle.mjs (88.9 kB)[39m[90m (31 kB gzip)[39m
+[90m  ├─ .output/server/index.mjs (291 kB)[39m[90m (72.9 kB gzip)[39m
+[90m  └─ .output/server/package.json (610 B)[39m[90m (320 B gzip)[39m
+[36mΣ Total size:[39m 49.3 MB (18 MB gzip)
+[90m[[90mnitro[90m][39m [32m√[39m You can preview this build using [36mnpx nitro preview[39m
+[deploy] Nitro build complete for preset "node".
+
+Build complete.

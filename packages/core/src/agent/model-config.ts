@@ -225,7 +225,7 @@ export const AGENT_MODEL_CONFIG = {
     },
     ollama: {
       defaultModel: "llama3.1",
-      supportedModels: ["llama3.1", "llama3.2", "mistral", "codestral"],
+      supportedModels: ["llama3.1", "llama3.2", "mistral", "codestral", "Ornith35b"],
     },
   },
 } as const;

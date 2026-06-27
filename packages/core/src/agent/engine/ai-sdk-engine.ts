@@ -121,7 +121,7 @@ const PROVIDER_ENV_VARS: Record<AISDKProvider, string[]> = {
   groq: ["GROQ_API_KEY"],
   mistral: ["MISTRAL_API_KEY"],
   cohere: ["COHERE_API_KEY"],
-  ollama: [], // runs locally
+  ollama: ["OLLAMA_BASE_URL"],
 };
 
 const PROVIDER_PACKAGES: Record<AISDKProvider, string> = {
@@ -413,7 +413,16 @@ export function createAISDKEngine(
   provider: AISDKProvider,
   config: Record<string, unknown> = {},
 ): AgentEngine {
-  return new AISDKEngine(provider, config as AISDKEngineConfig);
+  const finalConfig = { ...config } as AISDKEngineConfig;
+
+  if (provider === "ollama" && !finalConfig.baseUrl) {
+    const ollamaBaseUrl = readDeployCredentialEnv("OLLAMA_BASE_URL");
+    if (ollamaBaseUrl) {
+      finalConfig.baseUrl = ollamaBaseUrl;
+    }
+  }
+
+  return new AISDKEngine(provider, finalConfig);
 }
 
 // ---------------------------------------------------------------------------

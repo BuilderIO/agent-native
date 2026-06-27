@@ -1,0 +1,16 @@
+{
+  "additionalDirectories": [
+    "C:\\Users\\larry\\.abacusai\\tmp\\codellm-prompt-N69pQe",
+    "C:\\Users\\larry\\.abacusai\\tmp\\codellm-prompt-cDaecP"
+  ],
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:\\\\Users\\\\larry\\\\Documents\\\\GitHub\\\\agent-native\")",
+      "Bash(pnpm add *)",
+      "Bash(curl *)",
+      "Bash(powershell *)",
+      "Bash(taskkill *)",
+      "Bash(pnpm run dev *)"
+    ]
+  }
+}

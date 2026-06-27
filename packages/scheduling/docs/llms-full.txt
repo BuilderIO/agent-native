@@ -437,7 +437,7 @@ Use `share-resource` / `set-resource-visibility` framework actions.
 
 
 ---
-## skills/availability/SKILL.md
+## skills\availability\SKILL.md
 
 ---
 name: availability
@@ -486,7 +486,7 @@ redirect to another team member.
 
 
 ---
-## skills/booker/SKILL.md
+## skills\booker\SKILL.md
 
 ---
 name: booker
@@ -542,7 +542,7 @@ slides in as full-screen sheet.
 
 
 ---
-## skills/bookings/SKILL.md
+## skills\bookings\SKILL.md
 
 ---
 name: bookings
@@ -590,7 +590,7 @@ confirmation-email attachments and "Add to calendar" buttons.
 
 
 ---
-## skills/embeds/SKILL.md
+## skills\embeds\SKILL.md
 
 ---
 name: embeds
@@ -644,7 +644,7 @@ The iframe posts messages to the parent on lifecycle events:
 
 
 ---
-## skills/event-types/SKILL.md
+## skills\event-types\SKILL.md
 
 ---
 name: event-types
@@ -689,7 +689,7 @@ optionally with `expiresAt` and `isSingleUse`.
 
 
 ---
-## skills/integrations/SKILL.md
+## skills\integrations\SKILL.md
 
 ---
 name: integrations
@@ -746,7 +746,7 @@ See `docs/providers.md` for the full interface.
 
 
 ---
-## skills/routing-forms/SKILL.md
+## skills\routing-forms\SKILL.md
 
 ---
 name: routing-forms
@@ -790,7 +790,7 @@ description: ChiliPiper-style pre-booking forms that route prospects to the righ
 
 
 ---
-## skills/scheduling-basics/SKILL.md
+## skills\scheduling-basics\SKILL.md
 
 ---
 name: scheduling-basics
@@ -846,7 +846,7 @@ The mental model:
 
 
 ---
-## skills/slot-engine/SKILL.md
+## skills\slot-engine\SKILL.md
 
 ---
 name: slot-engine
@@ -903,7 +903,7 @@ If a slot is unexpectedly present:
 
 
 ---
-## skills/team-scheduling/SKILL.md
+## skills\team-scheduling\SKILL.md
 
 ---
 name: team-scheduling
@@ -962,7 +962,7 @@ window. Bookings can redirect to the OOO's `redirectUserEmail`.
 
 
 ---
-## skills/workflows/SKILL.md
+## skills\workflows\SKILL.md
 
 ---
 name: workflows

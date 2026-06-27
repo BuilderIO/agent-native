@@ -52,6 +52,11 @@ export const PROVIDER_ENV_META: Record<string, ProviderEnvMeta> = {
     label: "Cohere API Key",
     placeholder: "...",
   },
+  ollama: {
+    envVar: "OLLAMA_BASE_URL",
+    label: "Ollama Base URL",
+    placeholder: "http://localhost:11434",
+  },
 };
 
 export const PROVIDER_TO_ENV: Record<string, string> = Object.fromEntries(
