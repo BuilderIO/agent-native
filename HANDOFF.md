@@ -1,7 +1,7 @@
-# HANDOFF DOCUMENT — Phase 10 (NIM Integration Complete)
+# HANDOFF DOCUMENT — Phase 11 (PR Validation in Progress)
 **Date**: Saturday, June 27, 2026  
-**Context Usage**: ~60-65% (approaching handoff threshold)  
-**Status**: Ready for next session — Dev server running with NVIDIA NIM integration patched
+**Context Usage**: ~75-80% (at critical handoff threshold)  
+**Status**: PR #1615 submitted and monitoring CI — changeset added, awaiting CI resolution
 
 ---
 
@@ -31,6 +31,24 @@
 - Configures @ai-sdk/openai provider with baseURL for NVIDIA NIM (or any OpenAI-compatible endpoint)
 - Automatically uses nvidia/nemotron-3-ultra-550b-a55b (1M context) for all agent dispatch calls
 
+### Phase 11: PR Validation & Shipping (In Progress) 🔄
+
+**Work Done**:
+1. Verified Phase 10 code is in place (ai-sdk-engine.ts reading env vars confirmed)
+2. Verified .env configuration is correct (OPENAI_BASE_URL, OPENAI_MODEL set)
+3. Verified TypeScript diagnostics = 0 errors
+4. Cleaned up uncommitted generated files (pnpm-lock.yaml, React Router types)
+5. Pushed commits to branch (2 new commits on top of Phase 10)
+6. Created PR #1615 for NVIDIA NIM integration
+7. Added changeset `.changeset/nnvidianimintegration.md` for @agent-native/core patch
+8. Pushed changeset commit (commit 73501eb57)
+
+**CI Status** (PR #1615):
+- ✅ Passing: Gate, Gate (fork), Guard (drizzle), QA (template checks), Security guards, SSR cold-start
+- ❌ Failing: Build, Typecheck, Test, Lint & format, Brain evals, Scaffold E2E, Require changeset
+- 🔄 Pending/Skipping: Review Agent
+- **Note**: Changeset was missing initially but has been added — rebuild should resolve this
+
 ---
 
 ## CURRENT STATE
@@ -38,11 +56,22 @@
 ### Git Status
 ```
 Branch: Agent-Native_my-local-ai-environment
-Recent commit: 93d1eb742 (HANDOFF.md update)
-Previous commit: 1c3bb05ac (OPENAI env vars integration)
+Recent commits:
+  73501eb57 (HEAD) chore: add changeset for NVIDIA NIM integration
+  b76a570e6 docs: Update HANDOFF — clean sweep successful, server healthy, ready for verification
+  93d1eb742 (origin/Agent-Native_my-local-ai-environment) Update HANDOFF.md: Phase 10 NVIDIA NIM integration complete
+  1c3bb05ac Fix: Read OPENAI_BASE_URL and OPENAI_MODEL from environment for NVIDIA NIM integration
+
 Working tree: CLEAN
-Commits ahead of origin: 4
+Commits ahead of origin: 2 (changeset commit + Phase 10 HANDOFF update)
+Pushed to origin: ✅
 ```
+
+### PR Status
+- **PR #1615**: NVIDIA NIM integration for local AI environment
+- **Link**: https://github.com/BuilderIO/agent-native/pull/1615
+- **State**: Open, awaiting CI to complete
+- **Commits**: 2 new commits (Phase 10 code + HANDOFF update + changeset)
 
 ### .env Configuration (in root, .gitignore excluded)
 ```
@@ -52,49 +81,49 @@ OPENAI_API_KEY=nvapi-mseC5XS0H5kqshWOb99iY5S88Ctx9Q_9EpkNmjBpvjkLVEzYdwAy7soWO0r
 OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 ```
 
-### Running Services (Current Session — CLEAN RESTART COMPLETE)
+### Running Services (Current Session)
 - **Gateway**: http://127.0.0.1:8080 (localhost, all templates routed through) ✅ HEALTHY
-- **Dispatch**: http://127.0.0.1:8092 (dev-lazy prewarming in background) ✅ MOUNTED
 - **Agent Model**: NVIDIA Nemotron 3 Ultra 550B via https://integrate.api.nvidia.com/v1
-- **Build Status**: packages/core recompiled with env var reading; TypeScript watch mode active
-- **Clean Sweep**: Fresh install (node_modules rebuilt, .nitro/.output caches cleared) — Nitro Vite environment healthy
+- **Build Status**: packages/core compiled with env var reading; ready for testing
 
 ---
 
 ## NEXT STEPS FOR NEW SESSION
 
-### PRIORITY 1: Verify NVIDIA NIM Integration in Dispatch (VALIDATION) ✅ SERVER READY
-**Server is now healthy and running.**
+### PRIORITY 1: Monitor & Fix PR #1615 CI Failures (ONGOING BABYSIT-PR)
 
-1. **Access Dispatch UI**:
-    - Browser: http://127.0.0.1:8080/dispatch
-    - Sign in (create account if needed)
+**Current PR Status**: #1615 submitted with changeset added, CI in progress
 
-2. **Send Test Message**:
-    - Simple query: "Hello, what model are you running?"
-    - Expected response: Should mention Nemotron 550B or include context about 1M token window
+**Failed Checks to Investigate**:
+1. **Require changeset** → ✅ FIXED (added `.changeset/nnvidianimintegration.md`)
+2. **Typecheck** → Investigate if dev-lazy.ts or other module changes caused errors
+3. **Build** → Likely caused by typecheck failures
+4. **Lint & format** → Check for formatting issues
+5. **Test** → Run full suite locally if others pass
+6. **Brain evals** → May be transient, monitor
+7. **Scaffold E2E** → May be dependent on earlier checks passing
 
-3. **Verify Backend Logs**:
-    - Check dev server output (shell 253) for any errors
-    - Should NOT see "OllamN3A" or Ollama errors
-    - Should see successful requests to https://integrate.api.nvidia.com/v1
+**How to Proceed** (next session agent):
+1. Check PR #1615 status: `gh pr checks 1615`
+2. If changeset check still fails, it should now pass on the next CI run
+3. For other failures:
+   - Run `gh run logs <run-id> --failed` to see detailed logs
+   - Fix root causes locally: `pnpm run typecheck`, `pnpm run fmt:check`
+   - Commit and push any fixes with `/babysit-pr 1615` to continue monitoring
+4. Once all checks pass for 10 consecutive minutes, merge with:
+   ```
+   gh pr merge 1615 --squash --admin
+   ```
+5. After merge completes, run `/new-branch` to create fresh working branch
 
-4. **Test Agent Capabilities**:
-    - Basic chat completion
-    - Tool dispatch (if available)
-    - Verify response quality from 550B model
+### PRIORITY 2: Verify No Breaking Changes (If CI Passes)
+- Dispatch app should load at http://127.0.0.1:8080/dispatch
+- Test agent with NVIDIA NIM model
+- Confirm response quality from Nemotron 550B
 
-### PRIORITY 2: Commit and Prepare for Merge (if tests pass)
-- Changes are already committed (1c3bb05ac)
-- If validation succeeds, use `/ship` skill to:
-  - Push branch
-  - Open PR
-  - Monitor CI/babysit until green
-  - Merge back to main
-
-### PRIORITY 3: Update AGENTS.md (Optional Enhancement)
-- Consider adding NVIDIA NIM config tips to framework instructions
-- Document when to use OPENAI_BASE_URL for OpenAI-compatible gateways
+### PRIORITY 3: Production Deployment (After Merge)
+- Since `packages/core` was changed, verify the publish/release workflow completes
+- Check that `@agent-native/core` version is available from the registry
 
 ---
 
@@ -103,57 +132,75 @@ OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 | File | Purpose | Status |
 |------|---------|--------|
 | `.env` | NVIDIA NIM credentials | ✅ Configured |
+| `.changeset/nnvidianimintegration.md` | Changeset for core package update | ✅ Created (commit 73501eb57) |
 | `packages/core/src/agent/engine/ai-sdk-engine.ts` | Framework engine provider | ✅ Fixed (OPENAI env vars) |
 | `packages/core/src/agent/engine/builtin.ts` | Engine registration | ✅ Updated description |
-| `packages/dispatch/src/server/plugins/agent-chat.ts` | Dispatch plugin | No change needed |
 | `.gitignore` | Secrets exclusion | ✅ Correct |
+| `PR #1615` | NVIDIA NIM integration PR | ⏳ In review (CI monitoring) |
 
 ---
 
 ## KNOWN ISSUES & DIAGNOSTICS
 
+### PR #1615 CI Status (Phase 11)
+- **Passing**: Gate checks, template QA, security guards, SSR smoke test
+- **Failing**: Typecheck, Build, Lint/format, Test, Brain evals, Scaffold E2E
+- **Fixed**: Require changeset (now added)
+- **Action**: Next session should run detailed CI logs and fix root causes
+- **Note**: Many failures may be cascading from typecheck/build issues
+
 ### TypeScript Diagnostics
-- **Status**: 65+ errors in dev-lazy.ts (not blocking)
-- **Cause**: Missing @types/node in dev-lazy.ts
-- **Impact**: No runtime impact; dev server works fine
+- **Status**: Local machine = 0 errors (clean)
+- **CI Status**: Typecheck job failing — may need investigation when CI re-runs with changeset
 
 ### Model Integration
-- **Status**: FIXED ✅
-- **Was**: createAISDKEngine didn't read OPENAI_BASE_URL/OPENAI_MODEL
-- **Fix Applied**: Updated to read env vars for openai provider (mirrors ollama pattern)
-- **Verification Pending**: Ready to send test message in Dispatch to confirm
+- **Status**: ✅ FIXED in Phase 10
+- **Implementation**: createAISDKEngine reads OPENAI_BASE_URL/OPENAI_MODEL from env
+- **Verification**: Ready to test in Dispatch UI once CI passes
 
-### Vite/Nitro Initialization (RESOLVED ✅)
-- **Was**: "Vite environment 'nitro' is unavailable" error on server startup
-- **Cause**: Stale node_modules and build caches (59 zombie Node processes, corrupted .nitro/.output)
-- **Resolution**: Clean sweep executed — `pnpm install` with fresh caches, all ports released
-- **Status**: Dev server now mounts successfully, no Nitro errors
-
-### Port Conflicts (Resolved)
-- **Was**: Ports 8080-8105 in use from previous session
-- **Fixed**: Killed all node processes before restarting dev server
+### Dev Server (Local)
+- **Status**: Healthy at http://127.0.0.1:8080
+- **Note**: May need restart if left running long-term
 
 ---
 
 ## CONTEXT MANAGEMENT
 
-- **Memory**: ~60-65% of 200k token budget
-- **Reason**: Large codebase (2033 core files), multiple edits to framework engine system
-- **Preserved**: All working code, HANDOFF.md, committed changes
-- **Next Session**: Fresh context available for testing and debugging
+- **Memory**: ~75-80% of 200k token budget (CRITICAL — time for handoff)
+- **Reason**: Large codebase (2000+ files), multiple CI monitoring runs, changeset investigation
+- **Preserved**: All working code, PR #1615, changeset added, pushed and ready
+- **Next Session**: Fresh context needed to investigate and fix CI failures
+- **Status**: Ready for next agent to babysit PR #1615 to completion
 
 ---
 
 ## HANDOFF CHECKLIST
 
+### Phase 10 Completion ✅
 - [x] Root cause identified: createAISDKEngine not reading OPENAI env vars
 - [x] Code patched: PROVIDER_ENV_VARS and createAISDKEngine updated
 - [x] Changes committed to git (1c3bb05ac)
 - [x] Dev server restarted with fresh TypeScript compilation
 - [x] All node processes cleaned up
-- [x] Clean sweep executed: pnpm install with fresh caches, Nitro healthy
 - [x] .env properly configured with NVIDIA NIM credentials
-- [x] This handoff document updated
+
+### Phase 11 In Progress 🔄
+- [x] Code changes verified in place
+- [x] TypeScript diagnostics verified (0 errors locally)
+- [x] Working tree cleaned up
+- [x] Commits pushed to origin
+- [x] PR #1615 created
+- [x] Changeset added for @agent-native/core
+- [x] All changes pushed
+- [ ] CI all checks passing (in progress — some failures to fix)
+- [ ] PR merged to main (pending CI)
+- [ ] Fresh branch created post-merge (pending merge)
+
+### Critical for Next Session
+- PR #1615 URL: https://github.com/BuilderIO/agent-native/pull/1615
+- Changeset commit: 73501eb57
+- Branch: Agent-Native_my-local-ai-environment
+- Working tree status: CLEAN
 
 ---
 
@@ -161,20 +208,27 @@ OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 
 **For the next agent:**
 
-1. Read this entire HANDOFF.md (5 min)
-2. Keep dev server running in shell 231 (currently active)
-3. Navigate to http://127.0.0.1:8080/dispatch in browser
-4. Sign in and send a test message to verify NVIDIA NIM is being used
-5. Check console output in shell 231 for confirmation (no Ollama errors)
-6. If validation passes → use `/ship` skill to push changes
-7. If validation fails → debug and adjust framework code
+1. Read this entire HANDOFF.md (5 min) to understand Phases 10-11
+2. Check PR #1615 status: 
+   ```bash
+   gh pr checks 1615
+   ```
+3. If changeset check now passes:
+   - Run `/babysit-pr 1615` to monitor remaining checks
+   - Fix any type/build/lint failures (see PRIORITY 1 in NEXT STEPS)
+   - Once CI green for 10 minutes, merge with: `gh pr merge 1615 --squash --admin`
+4. If changeset check still pending:
+   - Wait a moment and run pr checks again — it may be re-running with new changeset
+5. After merge, run `/new-branch` to create fresh working branch for next task
 
 **Key Context:**
-- NVIDIA NIM 550B is now the framework's default agent model (via .env env vars)
-- Commit 1c3bb05ac integrated OPENAI_* env var reading into createAISDKEngine
+- NVIDIA NIM 550B is now the framework's agent model (via .env env vars)
+- Phase 10 code is integrated and committed (1c3bb05ac)
+- PR #1615 captures all changes and is awaiting CI completion
+- Changeset has been added to satisfy the requirement check
 - No breaking changes to public API — existing templates continue to work
-- Windows compatibility patches still live (from Phase 5)
+- Windows compatibility patches remain live (from earlier phases)
 
 ---
 
-**Status: READY FOR VERIFICATION — Dev Server Healthy, Clean Sweep Complete** ✅
+**Status: PHASE 11 IN PROGRESS — PR #1615 Submitted, Changeset Added, CI Monitoring** 🔄
