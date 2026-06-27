@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.79.20
+
+### Patch Changes
+
+- 8bcc21d: Declare the Sentry OpenTelemetry trace dependency directly so the published CLI installs reliably through npx.
+- 8bcc21d: Use a compact popover for the shared language picker so icon-only chrome can style it reliably.
+
 ## 0.79.19
 
 ### Patch Changes
