@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.24
+
+### Patch Changes
+
+- 2c214f1: Fix French docs MDX block serialization so markdown mirrors do not expose raw component tags.
+
 ## 0.79.23
 
 ### Patch Changes
