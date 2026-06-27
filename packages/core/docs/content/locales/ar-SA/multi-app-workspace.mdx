@@ -45,45 +45,49 @@ npx @agent-native/core@latest create my-company-platform
 
 تحصل على pnpm monorepo مع الحزمة المشتركة الخاصة، و`package.json` الجذري الذي يربط اكتشاف مساحة العمل، و`.env` مشترك، ودليل فرعي واحد لكل تطبيق اخترته:
 
-<FileTree id="doc-block-uekj3z" title={"workspace مولد"} entries={[
-  {
-    "path": "package.json",
-    "note": "يعلن agent-native.workspaceCore"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "packages: [\"packages/*\", \"apps/*\"]"
-  },
-  {
-    "path": ".env.example",
-    "note": "ANTHROPIC_API_KEY و A2A_SECRET و DATABASE_URL و ... مشتركة"
-  },
-  {
-    "path": "packages/shared/",
-    "note": "@my-company-platform/shared"
-  },
-  {
-    "path": "packages/shared/src/server/",
-    "note": "plugin overrides عند الحاجة فقط"
-  },
-  {
-    "path": "packages/shared/src/client/",
-    "note": "React code مشترك عند الحاجة فقط"
-  },
-  {
-    "path": "packages/shared/AGENTS.md",
-    "note": "تعليمات على مستوى workspace"
-  },
-  {
-    "path": "apps/mail/"
-  },
-  {
-    "path": "apps/calendar/"
-  },
-  {
-    "path": "apps/forms/"
-  }
-]} />
+<FileTree
+  id="doc-block-uekj3z"
+  title={"workspace مولد"}
+  entries={[
+    {
+      path: "package.json",
+      note: "يعلن agent-native.workspaceCore",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: 'packages: ["packages/*", "apps/*"]',
+    },
+    {
+      path: ".env.example",
+      note: "ANTHROPIC_API_KEY و A2A_SECRET و DATABASE_URL و ... مشتركة",
+    },
+    {
+      path: "packages/shared/",
+      note: "@my-company-platform/shared",
+    },
+    {
+      path: "packages/shared/src/server/",
+      note: "plugin overrides عند الحاجة فقط",
+    },
+    {
+      path: "packages/shared/src/client/",
+      note: "React code مشترك عند الحاجة فقط",
+    },
+    {
+      path: "packages/shared/AGENTS.md",
+      note: "تعليمات على مستوى workspace",
+    },
+    {
+      path: "apps/mail/",
+    },
+    {
+      path: "apps/calendar/",
+    },
+    {
+      path: "apps/forms/",
+    },
+  ]}
+/>
 
 ثم قم بتشغيله:
 

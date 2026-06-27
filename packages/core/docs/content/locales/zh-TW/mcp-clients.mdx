@@ -102,23 +102,32 @@ Chrome DevTools 預設使用 `--autoConnect`。它附加到符合條件的正在
 
 形狀很小：由伺服器 ID 鍵入的 `servers` 對應，其中每個條目都是 stdio 啟動程式（`command` + `args` + 可選的 `env`）或遠端 `{ "type": "http", "url", "headers" }` 條目。
 
-<AnnotatedCode id="doc-block-33w93e" title={"mcp.config.json，帶註解"} filename="mcp.config.json" language="jsonc" code={"{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}"} annotations={[
-  {
-    "lines": "3",
-    "label": "伺服器ID",
-    "note": "鍵成為工具前綴：該伺服器的工具在代理的註冊表中顯示為 `mcp__claude-in-chrome__*`，因此它們不會與範本的操作發生衝突。"
-  },
-  {
-    "lines": "4-6",
-    "label": "stdio launcher",
-    "note": "`command` + `args` 生成本機二進制檔案。 Stdio 伺服器旨在用於**本機開發**- 它們在邊緣執行時中是無操作的。"
-  },
-  {
-    "lines": "6",
-    "label": "行程環境",
-    "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens."
+<AnnotatedCode
+  id="doc-block-33w93e"
+  title={"mcp.config.json，帶註解"}
+  filename="mcp.config.json"
+  language="jsonc"
+  code={
+    '{\n  "$schema": "https://agent-native.com/schema/mcp.config.json",\n  "servers": {\n    "claude-in-chrome": {\n      "command": "claude-in-chrome-mcp",\n      "args": [],\n      "env": { "LOG_LEVEL": "info" }\n    },\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "/Users/me/projects"]\n    }\n  }\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "3",
+      label: "伺服器ID",
+      note: "鍵成為工具前綴：該伺服器的工具在代理的註冊表中顯示為 `mcp__claude-in-chrome__*`，因此它們不會與範本的操作發生衝突。",
+    },
+    {
+      lines: "4-6",
+      label: "stdio launcher",
+      note: "`command` + `args` 生成本機二進制檔案。 Stdio 伺服器旨在用於**本機開發**- 它們在邊緣執行時中是無操作的。",
+    },
+    {
+      lines: "6",
+      label: "行程環境",
+      note: "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens.",
+    },
+  ]}
+/>
 
 在下一次應用程式啟動時，您將看到：
 

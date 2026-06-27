@@ -14,18 +14,27 @@ A maioria dos actions deve simplesmente rodar. Alguns – enviar um e-mail, cobr
 
 Defina `needsApproval` em um `defineAction`. Aceita um booleano ou um predicado:
 
-<AnnotatedCode id="doc-block-ns0lug" title={"Bloqueando a única ação consequencial"} filename="actions/send-email.ts" language="ts" code={"export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});"} annotations={[
-  {
-    "lines": "10",
-    "label": "A rua inteira",
-    "note": "Uma bandeira. Com isso verdadeiro e a chamada não aprovada, o loop para antes de `run` - o modelo nunca atinge o efeito colateral por conta própria."
-  },
-  {
-    "lines": "11-13",
-    "label": "run() is untouched",
-    "note": "O manipulador permanece o mesmo. A aprovação é imposta pelo loop ao seu redor, não por nada dentro de `run`."
+<AnnotatedCode
+  id="doc-block-ns0lug"
+  title={"Bloqueando a única ação consequencial"}
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10",
+      label: "A rua inteira",
+      note: "Uma bandeira. Com isso verdadeiro e a chamada não aprovada, o loop para antes de `run` - o modelo nunca atinge o efeito colateral por conta própria.",
+    },
+    {
+      lines: "11-13",
+      label: "run() is untouched",
+      note: "O manipulador permanece o mesmo. A aprovação é imposta pelo loop ao seu redor, não por nada dentro de `run`.",
+    },
+  ]}
+/>
 
 - **`needsApproval: true`** — sempre exige aprovação.
 - **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** — requer aprovação somente quando o predicado retornar verdadeiro. Gate condicionalmente, por ex. apenas para destinatários externos ou apenas acima do limite em dólares:

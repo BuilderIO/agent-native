@@ -8,7 +8,12 @@ description: "Agent-Native 數位資產管理器和跨代理生成服務，用�
 Assets 是一個 Agent-Native 工作區，用於建立和管理品牌一致的媒體。它將上傳和產生的結果組織到庫和資料夾中，讓團隊收集部落格英雄、圖表、到達頁面、產品鏡頭、影片和徽標的範例，然後透過代理聊天路由生成，以便可以審查和完善每個資產。
 
 <WireframeBlock id="doc-block-13het1b">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>發布品牌</h1><span class='wf-pill accent'>部落格 hero 圖</span><span class='wf-pill'>產品截圖</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>建立品牌媒體</strong><div class='wf-box'>使用已核准的 logo 和產品參考生成三個首頁 hero 選項。</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>網頁匯出</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>主視覺 A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>參考集</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo 安全</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>發布品牌</h1><span class='wf-pill accent'>部落格 hero 圖</span><span class='wf-pill'>產品截圖</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>建立品牌媒體</strong><div class='wf-box'>使用已核准的 logo 和產品參考生成三個首頁 hero 選項。</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>網頁匯出</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>主視覺 A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>參考集</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo 安全</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 當您開啟應用程式時，選定的庫、提示、參考文獻和產生的候選項將保留在一個工作區中。代理可以透過 UI 使用的同一個 actions 瀏覽、搜尋、生成、最佳化和匯出每個資產。
@@ -127,236 +132,244 @@ npx @agent-native/core@latest create my-assets --standalone --template assets
 | `image_assets`                   | 資產紀錄 - 媒體型別、角色、狀態、標題/描述/替代文字、提示、模型、尺寸、MIME 型別、物件/縮略圖鍵和沿襲                          |
 | `image_generation_runs`          | 生成審核記錄 - 提示、編譯提示、模型、引用、狀態、錯誤以及觸發它的 `source` (`chat` / `ui` / `a2a`)                             |
 
-<DataModel id="doc-block-94qdkz" title={"資產資料模型"} summary={"Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."} entities={[
-  {
-    "id": "library",
-    "name": "image_libraries",
-    "note": "頂級可擁有容器",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "logo_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      },
-      {
-        "name": "archived",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "library_shares",
-    "name": "image_library_shares",
-    "note": "框架股份表",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "role",
-        "type": "text",
-        "note": "viewer / editor / admin"
-      }
-    ]
-  },
-  {
-    "id": "collections",
-    "name": "image_collections",
-    "note": "Style/category 分組",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "prompt_template",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "asset_folders",
-    "note": "可嵌套資料夾",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "parent_id",
-        "type": "id",
-        "fk": "asset_folders.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "presets",
-    "name": "image_generation_presets",
-    "note": "已儲存的生成配方",
-    "fields": [
-      {
-        "name": "media_type",
-        "type": "text"
-      },
-      {
-        "name": "prompt_template",
-        "type": "text"
-      },
-      {
-        "name": "model",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "image_generation_sessions",
-    "note": "迭代生成和選取",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "active_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "session_items",
-    "name": "image_generation_session_items",
-    "note": "工作階段中的候選資產",
-    "fields": [
-      {
-        "name": "session_id",
-        "type": "id",
-        "fk": "image_generation_sessions.id"
-      },
-      {
-        "name": "asset_id",
-        "type": "id",
-        "fk": "image_assets.id"
-      },
-      {
-        "name": "role",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "assets",
-    "name": "image_assets",
-    "note": "資產紀錄",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "media_type",
-        "type": "text",
-        "note": "image / video"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "prompt",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "object_key",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "runs",
-    "name": "image_generation_runs",
-    "note": "生成審核記錄",
-    "fields": [
-      {
-        "name": "model",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "note": "chat / ui / a2a"
-      }
-    ]
+<DataModel
+  id="doc-block-94qdkz"
+  title={"資產資料模型"}
+  summary={
+    "Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
   }
-]} relations={[
-  {
-    "from": "library",
-    "to": "collections",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "folders",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "assets",
-    "kind": "1-n"
-  },
-  {
-    "from": "sessions",
-    "to": "session_items",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "library_shares",
-    "kind": "1-n"
-  }
-]} />
+  entities={[
+    {
+      id: "library",
+      name: "image_libraries",
+      note: "頂級可擁有容器",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "logo_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+        {
+          name: "archived",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "library_shares",
+      name: "image_library_shares",
+      note: "框架股份表",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "collections",
+      name: "image_collections",
+      note: "Style/category 分組",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "asset_folders",
+      note: "可嵌套資料夾",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "parent_id",
+          type: "id",
+          fk: "asset_folders.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "presets",
+      name: "image_generation_presets",
+      note: "已儲存的生成配方",
+      fields: [
+        {
+          name: "media_type",
+          type: "text",
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+        },
+        {
+          name: "model",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "image_generation_sessions",
+      note: "迭代生成和選取",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "active_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "session_items",
+      name: "image_generation_session_items",
+      note: "工作階段中的候選資產",
+      fields: [
+        {
+          name: "session_id",
+          type: "id",
+          fk: "image_generation_sessions.id",
+        },
+        {
+          name: "asset_id",
+          type: "id",
+          fk: "image_assets.id",
+        },
+        {
+          name: "role",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "assets",
+      name: "image_assets",
+      note: "資產紀錄",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "media_type",
+          type: "text",
+          note: "image / video",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "prompt",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "object_key",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "runs",
+      name: "image_generation_runs",
+      note: "生成審核記錄",
+      fields: [
+        {
+          name: "model",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          note: "chat / ui / a2a",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "library",
+      to: "collections",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "folders",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "assets",
+      kind: "1-n",
+    },
+    {
+      from: "sessions",
+      to: "session_items",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "library_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
 
 ### 自訂它
 

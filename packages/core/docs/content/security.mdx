@@ -188,33 +188,38 @@ export const projects = table("projects", {
 });
 ```
 
-<DataModel id="doc-block-1ifdlq7" title="What ownableColumns() adds" summary="The three columns that make a table tenant-aware and shareable." entities={[
-  {
-    "id": "ownable",
-    "name": "ownable resource",
-    "note": "Any table that spreads ...ownableColumns()",
-    "fields": [
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "Creator. Auto-filled by write actions; auto-injected on INSERT."
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true,
-        "note": "Owner's active org at creation. Drives org-visibility checks."
-      },
-      {
-        "name": "visibility",
-        "type": "enum",
-        "nullable": false,
-        "note": "private | org | public — coarse default, defaults to private."
-      }
-    ]
-  }
-]} />
+<DataModel
+  id="doc-block-1ifdlq7"
+  title="What ownableColumns() adds"
+  summary="The three columns that make a table tenant-aware and shareable."
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads ...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "Owner's active org at creation. Drives org-visibility checks.",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "private | org | public — coarse default, defaults to private.",
+        },
+      ],
+    },
+  ]}
+/>
 
 ### Access guards in actions {#access-guards}
 

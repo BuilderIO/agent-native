@@ -19,20 +19,24 @@ Agent-Native 앱은 AI 에이전트와 UI에 동일한 actions, 데이터 및
 이후의 모든 것(명령 작성, skills 추가, actions 정의, 실행
 에이전트)는 어느 쪽이든 동일합니다.
 
-<FileTree id="doc-block-1ttoo6q" title={"기본 Agent-Native 에이전트"} entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "항상 적용되는 지침: 목적, 규칙, 톤, 에이전트가 할 수 있는 일의 지도"
-  },
-  {
-    "path": ".agents/skills/customer-research/SKILL.md",
-    "note": "작업이 일치할 때 에이전트가 로드하는 재사용 가능한 playbook"
-  },
-  {
-    "path": "actions/summarize-week.ts",
-    "note": "에이전트, UI, CLI, HTTP, MCP, A2A, jobs, webhooks가 실행할 수 있는 typed code"
-  }
-]} />
+<FileTree
+  id="doc-block-1ttoo6q"
+  title={"기본 Agent-Native 에이전트"}
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "항상 적용되는 지침: 목적, 규칙, 톤, 에이전트가 할 수 있는 일의 지도",
+    },
+    {
+      path: ".agents/skills/customer-research/SKILL.md",
+      note: "작업이 일치할 때 에이전트가 로드하는 재사용 가능한 playbook",
+    },
+    {
+      path: "actions/summarize-week.ts",
+      note: "에이전트, UI, CLI, HTTP, MCP, A2A, jobs, webhooks가 실행할 수 있는 typed code",
+    },
+  ]}
+/>
 
 채팅 UI, 헤드리스 에이전트, 전체 앱으로 시작하든 마찬가지입니다.
 UI는 표면을 변경합니다. 지침, skills 및 actions는 에이전트에게
@@ -79,33 +83,42 @@ pnpm install
 액션은 에이전트와 UI가 호출할 수 있는 작업 중 하나입니다. 양쪽 비계
 다음 예와 함께 제공:
 
-<AnnotatedCode id="doc-block-2iu6e7" title={"첫 번째 action"} filename="actions/hello.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"로컬 에이전트에서 인사합니다.\",\n  schema: z.object({\n    name: z.string().default(\"world\"),\n  }),\n  http: { method: \"GET\" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "도구 설명",
-    "note": "에이전트는 `description`을 읽고 언제 도구로 호출할지 판단합니다."
-  },
-  {
-    "lines": "6-8",
-    "label": "타입 계약",
-    "note": "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A의 모든 입력을 검증합니다."
-  },
-  {
-    "lines": "9",
-    "label": "HTTP 동사",
-    "note": "이 액션을 자동으로 마운트되는 HTTP 엔드포인트로 노출합니다."
-  },
-  {
-    "lines": "10",
-    "label": "읽기 전용",
-    "note": "`readOnly`는 이 액션이 승인 없이 안전하게 호출될 수 있고 쿼리용으로 캐시될 수 있음을 표시합니다."
-  },
-  {
-    "lines": "11-13",
-    "label": "하나의 구현",
-    "note": "`run` 본문은 모든 표면이 실행하는 단일 진실 공급원입니다."
+<AnnotatedCode
+  id="doc-block-2iu6e7"
+  title={"첫 번째 action"}
+  filename="actions/hello.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "로컬 에이전트에서 인사합니다.",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "도구 설명",
+      note: "에이전트는 `description`을 읽고 언제 도구로 호출할지 판단합니다.",
+    },
+    {
+      lines: "6-8",
+      label: "타입 계약",
+      note: "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A의 모든 입력을 검증합니다.",
+    },
+    {
+      lines: "9",
+      label: "HTTP 동사",
+      note: "이 액션을 자동으로 마운트되는 HTTP 엔드포인트로 노출합니다.",
+    },
+    {
+      lines: "10",
+      label: "읽기 전용",
+      note: "`readOnly`는 이 액션이 승인 없이 안전하게 호출될 수 있고 쿼리용으로 캐시될 수 있음을 표시합니다.",
+    },
+    {
+      lines: "11-13",
+      label: "하나의 구현",
+      note: "`run` 본문은 모든 표면이 실행하는 단일 진실 공급원입니다.",
+    },
+  ]}
+/>
 
 `hello`를 도메인의 첫 번째 실제 작업으로 바꾸세요. 한 번만 정의하면 됩니다.
 모든 표면이 이를 포착합니다.

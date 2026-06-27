@@ -51,24 +51,29 @@ search: "المحولات، محول وضع الحماية، محول cli، رم
 
 يعيش خط التماس في قلب `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (العقد)، `index.ts` (التحديد: `getSandboxAdapter()` / `registerSandboxAdapter()`)، و`local-child-process-adapter.ts` (الافتراضي). يتم توصيله داخل العبوة بواسطة `run-code.ts`؛ يقوم المضيف بتوصيل واجهة خلفية مختلفة من خلال مساعد التسجيل `index.ts` (أو، بالنسبة لواجهة Docker الخلفية, عبر [blueprint](/docs/blueprint-installer) الذي يحرر هذه الملفات مباشرة).
 
-<FileTree id="doc-block-1b7w44a" title={"نقطة وصل sandbox في core"} title="packages/core/src/coding-tools/sandbox/" entries={[
-  {
-    "path": "adapter.ts",
-    "note": "عقد SandboxAdapter (SandboxRunRequest / SandboxRunResult)"
-  },
-  {
-    "path": "index.ts",
-    "note": "الاختيار: getSandboxAdapter() / registerSandboxAdapter()"
-  },
-  {
-    "path": "local-child-process-adapter.ts",
-    "note": "ال backend الافتراضي: Node child process مقيد"
-  },
-  {
-    "path": "../run-code.ts",
-    "note": "يوصل نقطة الربط؛ لا يتغير أبداً عند تبديل backends"
-  }
-]} />
+<FileTree
+  id="doc-block-1b7w44a"
+  title={"نقطة وصل sandbox في core"}
+  title="packages/core/src/coding-tools/sandbox/"
+  entries={[
+    {
+      path: "adapter.ts",
+      note: "عقد SandboxAdapter (SandboxRunRequest / SandboxRunResult)",
+    },
+    {
+      path: "index.ts",
+      note: "الاختيار: getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "local-child-process-adapter.ts",
+      note: "ال backend الافتراضي: Node child process مقيد",
+    },
+    {
+      path: "../run-code.ts",
+      note: "يوصل نقطة الربط؛ لا يتغير أبداً عند تبديل backends",
+    },
+  ]}
+/>
 
 تطبق كل واجهة خلفية `SandboxAdapter`:
 

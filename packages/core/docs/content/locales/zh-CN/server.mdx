@@ -103,23 +103,32 @@ export default defineAction({
 
 Actions 由框架自动安装并与请求上下文一起运行。自定义路线则不然。如果自定义路由读取或写入可拥有的资源，则加载会话并包装工作：
 
-<AnnotatedCode id="doc-block-vprq97" title={"将自定义路由范围限定为请求用户"} filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project分享s));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "自定义路由没有自动上下文",
-    "note": "与操作不同，文件路由必须加载会话本身，并且在没有经过身份验证的用户时无法关闭。"
-  },
-  {
-    "lines": "12-13",
-    "label": "建立请求上下文",
-    "note": "`runWithRequestContext` 使 user/org 在工作期间可供范围界定助手使用。"
-  },
-  {
-    "lines": "18-19",
-    "label": "范围可拥有的读取",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-vprq97"
+  title={"将自定义路由范围限定为请求用户"}
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project分享s));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "自定义路由没有自动上下文",
+      note: "与操作不同，文件路由必须加载会话本身，并且在没有经过身份验证的用户时无法关闭。",
+    },
+    {
+      lines: "12-13",
+      label: "建立请求上下文",
+      note: "`runWithRequestContext` 使 user/org 在工作期间可供范围界定助手使用。",
+    },
+    {
+      lines: "18-19",
+      label: "范围可拥有的读取",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `getDb`是通过`server/db/index.ts`中的`createGetDb(schema)`为每个应用程序创建的，因此自定义路由从模板（`../../db/index.js`）导入，而不是从`@agent-native/core/db`导入；见[Database — Where the DB Client Lives](/docs/database#db-client)。不要在自定义路由中运行无作用域的 `db.select().from(ownableTable)`。
 

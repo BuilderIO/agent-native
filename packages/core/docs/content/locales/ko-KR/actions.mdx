@@ -79,23 +79,32 @@ actions 정도이며 작업 자체에 필요한 전제 조건은 아닙니다.
 
 ## 액션 정의 {#defining}
 
-<AnnotatedCode id="doc-block-1g6dstm" title={"행동의 해부학"} filename="actions/reply-to-email.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "도구 표면",
-    "note": "`description`은 에이전트가 이 액션을 언제 호출할지 판단하기 위해 읽는 내용입니다. 각 필드의 `.describe()` 호출도 JSON Schema에 들어갑니다."
-  },
-  {
-    "lines": "6-9",
-    "label": "타입 계약",
-    "note": "하나의 schema가 **모든** 표면의 입력을 검증하고 모델용 JSON Schema로 변환합니다. 유효하지 않은 입력은 `run`에 도달하지 않습니다."
-  },
-  {
-    "lines": "10-13",
-    "label": "단일 구현",
-    "note": "`run` 본문이 단일 진실 공급원입니다. UI 버튼과 에이전트 도구가 정확히 이것을 실행합니다."
+<AnnotatedCode
+  id="doc-block-1g6dstm"
+  title={"행동의 해부학"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "도구 표면",
+      note: "`description`은 에이전트가 이 액션을 언제 호출할지 판단하기 위해 읽는 내용입니다. 각 필드의 `.describe()` 호출도 JSON Schema에 들어갑니다.",
+    },
+    {
+      lines: "6-9",
+      label: "타입 계약",
+      note: "하나의 schema가 **모든** 표면의 입력을 검증하고 모델용 JSON Schema로 변환합니다. 유효하지 않은 입력은 `run`에 도달하지 않습니다.",
+    },
+    {
+      lines: "10-13",
+      label: "단일 구현",
+      note: "`run` 본문이 단일 진실 공급원입니다. UI 버튼과 에이전트 도구가 정확히 이것을 실행합니다.",
+    },
+  ]}
+/>
 
 그렇습니다. 프레임워크는 `actions/`의 모든 파일을 자동으로 검색하고 시작 시 이를 마운트합니다.
 

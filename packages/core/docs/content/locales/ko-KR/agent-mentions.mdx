@@ -118,23 +118,32 @@ You are a focused design agent.
 
 템플릿은 사용자 정의 멘션 공급자를 등록하여 에이전트 및 파일 외에 도메인별 멘션 가능 항목을 추가할 수 있습니다. 멘션 제공자는 `MentionProvider` 인터페이스를 구현합니다:
 
-<AnnotatedCode id="doc-block-6q8qu8" title={"사용자 정의 MentionProvider"} filename="server/mentions/contacts.ts" language="ts" code={"import type { MentionProvider } from \"@agent-native/core/server\";\n\nconst contactsProvider: MentionProvider = {\n  id: \"contacts\",\n  label: \"Contacts\",\n\n  // 검색 for mentionable items\n  async search(query: string) {\n    const contacts = await db.query.contacts.findMany({\n      where: like(contacts.name, `%${query}%`),\n      limit: 10,\n    });\n    return contacts.map((c) => ({\n      id: c.id,\n      label: c.name,\n      description: c.email,\n      type: \"contact\",\n    }));\n  },\n\n  // Resolve a mention into context for the agent\n  async resolve(id: string) {\n    const contact = await db.query.contacts.findFirst({\n      where: eq(contacts.id, id),\n    });\n    return {\n      type: \"context\",\n      text: `Contact: ${contact.name} (${contact.email})`,\n    };\n  },\n};"} annotations={[
-  {
-    "lines": "4-5",
-    "label": "아이덴티티",
-    "note": "`id` namespaces the provider; `label` is the section heading shown in the `@` popover."
-  },
-  {
-    "lines": "8-9",
-    "label": "search",
-    "note": "Runs as the user types after `@`. Return up to a handful of matches as `{ id, label, description, type }`."
-  },
-  {
-    "lines": "23-24",
-    "label": "resolve",
-    "note": "Called when the message is sent. Turns a picked id into `{ type: \"context\", text }` that is injected into the agent's context."
+<AnnotatedCode
+  id="doc-block-6q8qu8"
+  title={"사용자 정의 MentionProvider"}
+  filename="server/mentions/contacts.ts"
+  language="ts"
+  code={
+    'import type { MentionProvider } from "@agent-native/core/server";\n\nconst contactsProvider: MentionProvider = {\n  id: "contacts",\n  label: "Contacts",\n\n  // 검색 for mentionable items\n  async search(query: string) {\n    const contacts = await db.query.contacts.findMany({\n      where: like(contacts.name, `%${query}%`),\n      limit: 10,\n    });\n    return contacts.map((c) => ({\n      id: c.id,\n      label: c.name,\n      description: c.email,\n      type: "contact",\n    }));\n  },\n\n  // Resolve a mention into context for the agent\n  async resolve(id: string) {\n    const contact = await db.query.contacts.findFirst({\n      where: eq(contacts.id, id),\n    });\n    return {\n      type: "context",\n      text: `Contact: ${contact.name} (${contact.email})`,\n    };\n  },\n};'
   }
-]} />
+  annotations={[
+    {
+      lines: "4-5",
+      label: "아이덴티티",
+      note: "`id` namespaces the provider; `label` is the section heading shown in the `@` popover.",
+    },
+    {
+      lines: "8-9",
+      label: "search",
+      note: "Runs as the user types after `@`. Return up to a handful of matches as `{ id, label, description, type }`.",
+    },
+    {
+      lines: "23-24",
+      label: "resolve",
+      note: 'Called when the message is sent. Turns a picked id into `{ type: "context", text }` that is injected into the agent\'s context.',
+    },
+  ]}
+/>
 
 에이전트 채팅 플러그인 구성에 공급자를 등록합니다.
 

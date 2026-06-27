@@ -45,45 +45,49 @@ The CLI shows a multi-select picker of every first-party template. Pick as many 
 
 You get a pnpm monorepo with the private shared package, a root `package.json` that wires up workspace discovery, a shared `.env`, and one sub-directory per app you picked:
 
-<FileTree id="doc-block-joerdt" title="A scaffolded workspace" entries={[
-  {
-    "path": "package.json",
-    "note": "declares agent-native.workspaceCore"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "packages: [\"packages/*\", \"apps/*\"]"
-  },
-  {
-    "path": ".env.example",
-    "note": "shared ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ..."
-  },
-  {
-    "path": "packages/shared/",
-    "note": "@my-company-platform/shared"
-  },
-  {
-    "path": "packages/shared/src/server/",
-    "note": "plugin overrides only when needed"
-  },
-  {
-    "path": "packages/shared/src/client/",
-    "note": "shared React code only when needed"
-  },
-  {
-    "path": "packages/shared/AGENTS.md",
-    "note": "workspace-wide instructions"
-  },
-  {
-    "path": "apps/mail/"
-  },
-  {
-    "path": "apps/calendar/"
-  },
-  {
-    "path": "apps/forms/"
-  }
-]} />
+<FileTree
+  id="doc-block-joerdt"
+  title="A scaffolded workspace"
+  entries={[
+    {
+      path: "package.json",
+      note: "declares agent-native.workspaceCore",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: 'packages: ["packages/*", "apps/*"]',
+    },
+    {
+      path: ".env.example",
+      note: "shared ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ...",
+    },
+    {
+      path: "packages/shared/",
+      note: "@my-company-platform/shared",
+    },
+    {
+      path: "packages/shared/src/server/",
+      note: "plugin overrides only when needed",
+    },
+    {
+      path: "packages/shared/src/client/",
+      note: "shared React code only when needed",
+    },
+    {
+      path: "packages/shared/AGENTS.md",
+      note: "workspace-wide instructions",
+    },
+    {
+      path: "apps/mail/",
+    },
+    {
+      path: "apps/calendar/",
+    },
+    {
+      path: "apps/forms/",
+    },
+  ]}
+/>
 
 Then boot it:
 

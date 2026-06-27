@@ -10,7 +10,12 @@ Chat ist der grundlegende Ausgangspunkt für agentennative Apps. Sie erhalten ei
 Wenn Sie die kleinste reine Aktionslaufzeit ohne Browser UI wünschen, beginnen Sie mit [Pure-Agent Apps](/docs/pure-agent-apps). Wenn Sie eine fertige Domänenproduktform wünschen, beginnen Sie mit [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) oder einer anderen Domänenvorlage.
 
 <WireframeBlock id="doc-block-av9kdb">
-<Screen surface="desktop" html={"<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Wie kann ich helfen?</h1><p class='wf-muted' style='margin:10px 0 0'>Chatte über alles. Füge Actions, Komponenten, Seiten, Jobs oder dein eigenes Backend hinzu.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Nachricht an den Agenten...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Wie kann ich helfen?</h1><p class='wf-muted' style='margin:10px 0 0'>Chatte über alles. Füge Actions, Komponenten, Seiten, Jobs oder dein eigenes Backend hinzu.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Nachricht an den Agenten...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 ## Was ist drin {#whats-in-it}
@@ -71,28 +76,32 @@ Kopieren Sie von dort aus die `/`-Route und die Seitenleisten-Thread-Liste der C
   Vorschläge, leerer Zustand, Komponist oder umgebendes Layout hier.
 - `AGENTS.md` teilt dem integrierten Agent mit, wie er in dieser App arbeiten soll.
 
-<FileTree id="doc-block-1vs7yrp" title="Layout des Chat-Templates" entries={[
-  {
-    "path": "actions/hello.ts",
-    "note": "Die eine Beispiel-Action; ersetzen oder daneben Actions ergänzen"
-  },
-  {
-    "path": "actions/view-screen.ts",
-    "note": "Standard-Kontext-Action, die der Agent liest"
-  },
-  {
-    "path": "actions/navigate.ts",
-    "note": "Standard-Navigations-Action"
-  },
-  {
-    "path": "app/routes/_index.tsx",
-    "note": "Rendert die ganzseitige Chat-Oberfläche; Vorschläge, Empty State und Verfassenr bearbeiten"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "Chat-orientierte Anleitung, die der integrierte Agent liest"
-  }
-]} />
+<FileTree
+  id="doc-block-1vs7yrp"
+  title="Layout des Chat-Templates"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "Die eine Beispiel-Action; ersetzen oder daneben Actions ergänzen",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "Standard-Kontext-Action, die der Agent liest",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "Standard-Navigations-Action",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "Rendert die ganzseitige Chat-Oberfläche; Vorschläge, Empty State und Verfassenr bearbeiten",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Chat-orientierte Anleitung, die der integrierte Agent liest",
+    },
+  ]}
+/>
 
 Die Chat-Seite ist absichtlich dünn:
 

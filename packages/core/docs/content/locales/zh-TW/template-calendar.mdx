@@ -8,7 +8,12 @@ description: "由代理支援的行事曆，具有 Google Calendar 同步和 Cal
 代理驅動的行事曆應用程式。連線您的 Google Calendar，代理就可以讀取您的日程安排、尋找空閒時段、建立活動並管理 Calendly 風格的預訂連結 - 全部采用簡單的英語。它用您擁有的一個應用程式取代了 Google Calendar + Calendly 組合。
 
 <WireframeBlock id="doc-block-1a4jrkr">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>2026 年 5 月 3-9 日</strong><div style='flex:1'></div><button class='primary'>新事件</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>週日 3</strong><strong>週一 4</strong><strong>週二 5</strong><strong>週三 6</strong><strong>週四 7</strong><strong>週五 8</strong><strong>週六 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>全員會</div><div class='wf-box'>工程站會</div><div class='wf-box'>工程站會</div><div class='wf-box'>工程站會</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>設計審核</div><div></div><div class='wf-box'>設計評審</div><div class='wf-box'>Roadmap</div><div class='wf-box'>週五示範</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>專注時段</div><div></div><div></div><div class='wf-box'>全員會</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>越級會議</div><div></div><div></div><div></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>2026 年 5 月 3-9 日</strong><div style='flex:1'></div><button class='primary'>新事件</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>週日 3</strong><strong>週一 4</strong><strong>週二 5</strong><strong>週三 6</strong><strong>週四 7</strong><strong>週五 8</strong><strong>週六 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>全員會</div><div class='wf-box'>工程站會</div><div class='wf-box'>工程站會</div><div class='wf-box'>工程站會</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>設計審核</div><div></div><div class='wf-box'>設計評審</div><div class='wf-box'>Roadmap</div><div class='wf-box'>週五示範</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>專注時段</div><div></div><div></div><div class='wf-box'>全員會</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>越級會議</div><div></div><div></div><div></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 當您開啟應用程式時，活動行事曆檢視是主表面。代理仍然知道您正在檢視哪一天、哪一週或哪一天的活動，因此您可以說“安排在這一天與 Alex 進行 30 分鐘的通話”，而無需說明所有內容。
@@ -108,187 +113,195 @@ pnpm dev
 - `booking_slug_redirects` - 重新命名連結時會記住舊的 slugs，以便現有的公開 URL 繼續工作。
 - `booking_link_shares` — 分享預訂連結的贈款。
 
-<DataModel id="doc-block-1t24i1a" title={"行事曆資料模型"} summary={"僅非事件資料儲存在本機 - 事件即時儲存在 Google 行事曆中。預訂連結使用 ownableColumns，因此共用系統適用。"} entities={[
-  {
-    "id": "booking_links",
-    "name": "booking_links",
-    "note": "Calendly-style link definitions (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "note": "public page at /book/{slug}"
-      },
-      {
-        "name": "title",
-        "type": "string"
-      },
-      {
-        "name": "description",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "duration",
-        "type": "int",
-        "note": "primary duration in minutes"
-      },
-      {
-        "name": "durations",
-        "type": "json",
-        "nullable": true,
-        "note": "alternative durations"
-      },
-      {
-        "name": "customFields",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "conferencing",
-        "type": "string",
-        "note": "Google Meet / Zoom / 自訂"
-      },
-      {
-        "name": "color",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "isActive",
-        "type": "bool",
-        "note": "pause without deleting"
-      }
-    ]
-  },
-  {
-    "id": "bookings",
-    "name": "bookings",
-    "note": "從公開預訂頁面確認的預約",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "fk": "booking_links.slug"
-      },
-      {
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "name": "email",
-        "type": "string"
-      },
-      {
-        "name": "start",
-        "type": "datetime"
-      },
-      {
-        "name": "end",
-        "type": "datetime"
-      },
-      {
-        "name": "notes",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "customFields",
-        "type": "json",
-        "nullable": true,
-        "note": "custom field responses"
-      },
-      {
-        "name": "meetingLink",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "cancelToken",
-        "type": "string",
-        "note": "powers /booking/manage/{token}"
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "確認 |取消"
-      }
-    ]
-  },
-  {
-    "id": "booking_slug_redirects",
-    "name": "booking_slug_redirects",
-    "note": "連結重新命名後保持舊的公開 URLs 正常工作",
-    "fields": [
-      {
-        "name": "oldSlug",
-        "type": "string",
-        "pk": true
-      },
-      {
-        "name": "linkId",
-        "type": "id",
-        "fk": "booking_links.id"
-      }
-    ]
-  },
-  {
-    "id": "booking_link_shares",
-    "name": "booking_link_shares",
-    "note": "分享預訂連結贈款",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "linkId",
-        "type": "id",
-        "fk": "booking_links.id"
-      },
-      {
-        "name": "principal",
-        "type": "string",
-        "note": "user or org"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "觀眾|編輯|行政"
-      }
-    ]
+<DataModel
+  id="doc-block-1t24i1a"
+  title={"行事曆資料模型"}
+  summary={
+    "僅非事件資料儲存在本機 - 事件即時儲存在 Google 行事曆中。預訂連結使用 ownableColumns，因此共用系統適用。"
   }
-]} relations={[
-  {
-    "from": "booking_links",
-    "to": "bookings",
-    "kind": "1-n",
-    "label": "has bookings"
-  },
-  {
-    "from": "booking_links",
-    "to": "booking_slug_redirects",
-    "kind": "1-n",
-    "label": "has old slugs"
-  },
-  {
-    "from": "booking_links",
-    "to": "booking_link_shares",
-    "kind": "1-n",
-    "label": "has share grants"
-  }
-]} />
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly-style link definitions (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "public page at /book/{slug}",
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "duration",
+          type: "int",
+          note: "primary duration in minutes",
+        },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "alternative durations",
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "conferencing",
+          type: "string",
+          note: "Google Meet / Zoom / 自訂",
+        },
+        {
+          name: "color",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "isActive",
+          type: "bool",
+          note: "pause without deleting",
+        },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "從公開預訂頁面確認的預約",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          fk: "booking_links.slug",
+        },
+        {
+          name: "name",
+          type: "string",
+        },
+        {
+          name: "email",
+          type: "string",
+        },
+        {
+          name: "start",
+          type: "datetime",
+        },
+        {
+          name: "end",
+          type: "datetime",
+        },
+        {
+          name: "notes",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+          note: "custom field responses",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "powers /booking/manage/{token}",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "確認 |取消",
+        },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "連結重新命名後保持舊的公開 URLs 正常工作",
+      fields: [
+        {
+          name: "oldSlug",
+          type: "string",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "分享預訂連結贈款",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "觀眾|編輯|行政",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "has bookings",
+    },
+    {
+      from: "booking_links",
+      to: "booking_slug_redirects",
+      kind: "1-n",
+      label: "has old slugs",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
 
 可用性規則和每使用者設定位於設定表中，由 `calendar-availability` 鍵入。 Google OAuth 代幣位於框架 `oauth_tokens` 表中。臨時 UI 狀態（目前檢視、日期、選定事件）位於 `navigation` 鍵下的 `application_state` 中。
 

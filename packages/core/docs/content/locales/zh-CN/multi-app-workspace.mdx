@@ -45,45 +45,49 @@ CLI 显示每个第一方模板的多选选择器。选择任意数量的邮件 
 
 您将获得一个包含私有共享包的 pnpm monorepo、一个连接工作区发现的根 `package.json`、一个共享 `.env` 以及您选择的每个应用程序的一个子目录：
 
-<FileTree id="doc-block-o8x3oz" title={"一个脚手架生成的 workspace"} entries={[
-  {
-    "path": "package.json",
-    "note": "声明 agent-native.workspaceCore"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "packages: [\"packages/*\", \"apps/*\"]"
-  },
-  {
-    "path": ".env.example",
-    "note": "共享的 ANTHROPIC_API_KEY、A2A_SECRET、DATABASE_URL、..."
-  },
-  {
-    "path": "packages/shared/",
-    "note": "@my-company-platform/shared"
-  },
-  {
-    "path": "packages/shared/src/server/",
-    "note": "仅在需要时使用 plugin overrides"
-  },
-  {
-    "path": "packages/shared/src/client/",
-    "note": "仅在需要时共享 React 代码"
-  },
-  {
-    "path": "packages/shared/AGENTS.md",
-    "note": "整个 workspace 的指令"
-  },
-  {
-    "path": "apps/mail/"
-  },
-  {
-    "path": "apps/calendar/"
-  },
-  {
-    "path": "apps/forms/"
-  }
-]} />
+<FileTree
+  id="doc-block-o8x3oz"
+  title={"一个脚手架生成的 workspace"}
+  entries={[
+    {
+      path: "package.json",
+      note: "声明 agent-native.workspaceCore",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: 'packages: ["packages/*", "apps/*"]',
+    },
+    {
+      path: ".env.example",
+      note: "共享的 ANTHROPIC_API_KEY、A2A_SECRET、DATABASE_URL、...",
+    },
+    {
+      path: "packages/shared/",
+      note: "@my-company-platform/shared",
+    },
+    {
+      path: "packages/shared/src/server/",
+      note: "仅在需要时使用 plugin overrides",
+    },
+    {
+      path: "packages/shared/src/client/",
+      note: "仅在需要时共享 React 代码",
+    },
+    {
+      path: "packages/shared/AGENTS.md",
+      note: "整个 workspace 的指令",
+    },
+    {
+      path: "apps/mail/",
+    },
+    {
+      path: "apps/calendar/",
+    },
+    {
+      path: "apps/forms/",
+    },
+  ]}
+/>
 
 然后启动它：
 

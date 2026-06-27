@@ -47,24 +47,28 @@ main                         ← production
 
 程式碼治理由儲存庫根目錄中的幾個檔案設定：
 
-<FileTree id="doc-block-6mbtt1" title={"repo 中的治理設定"} entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "按變更路徑自動分配 reviewers"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "按 app 自動給 PR 加標籤"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Workspace 層級：寬範圍 review"
-  },
-  {
-    "path": "package.json",
-    "note": "Workspace 層級：平台團隊負責"
-  }
-]} />
+<FileTree
+  id="doc-block-6mbtt1"
+  title={"repo 中的治理設定"}
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "按變更路徑自動分配 reviewers",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "按 app 自動給 PR 加標籤",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Workspace 層級：寬範圍 review",
+    },
+    {
+      path: "package.json",
+      note: "Workspace 層級：平台團隊負責",
+    },
+  ]}
+/>
 
 GitHub 的 CODEOWNERS 檔案會根據更改的檔案自動將審閱者分配給 PR。在儲存庫根目錄建立 `.github/CODEOWNERS`：
 

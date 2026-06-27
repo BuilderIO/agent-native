@@ -76,24 +76,33 @@ description: "使公開路由可爬行、可讀、可引用，並可選取由代
 
 <Callout id="doc-block-s50w8y" tone="warning">
 
-**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action *and* `publicMcp: true` on the app.
+**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action _and_ `publicMcp: true` on the app.
 
 </Callout>
 
 要透過公開代理協議公開操作，該操作必須選取加入：
 
-<AnnotatedCode id="doc-block-tcborp" title={"在公開表面上選取一項安全行動"} filename="actions/search-docs.ts" language="ts" code={"export default defineAction({\n  description: \"搜尋 published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"搜尋 published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});"} annotations={[
-  {
-    "lines": "4",
-    "label": "明確選取加入",
-    "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are."
-  },
-  {
-    "lines": "5-7",
-    "label": "自我描述安全性",
-    "note": "將其標記為唯讀，聲明它是否需要驗證，並標記它是否是重要的。除非策略明確允許，否則公開 MCP 排除 consequential/write 操作。"
+<AnnotatedCode
+  id="doc-block-tcborp"
+  title={"在公開表面上選取一項安全行動"}
+  filename="actions/search-docs.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "搜尋 published docs",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: "搜尋 published docs",\n  },\n  run: async (args) => {\n    // ...\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "4",
+      label: "明確選取加入",
+      note: "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are.",
+    },
+    {
+      lines: "5-7",
+      label: "自我描述安全性",
+      note: "將其標記為唯讀，聲明它是否需要驗證，並標記它是否是重要的。除非策略明確允許，否則公開 MCP 排除 consequential/write 操作。",
+    },
+  ]}
+/>
 
 `agentWeb.publicMcp` 預設情況下保持 `false`。啟用公開 MCP 時，伺服器應僅公開 actions 和 `publicAgent.expose === true`，並且仍應排除後續或寫入 actions，除非操作和驗證策略明確允許它們。
 

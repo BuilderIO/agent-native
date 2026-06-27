@@ -159,23 +159,32 @@ Dies wird von [A2A](/docs/a2a-protocol) und [MCP](/docs/mcp-protocol) unter der 
 
 Wenn Sie eine agentennative App erstellen oder erweitern, ist hier das zentrale Muster: Jeder Vorgang in der App ist eine **Aktion** – einmal definiert und sowohl für den Agenten als auch für UI verfügbar.
 
-<AnnotatedCode id="doc-block-uurxtd" title="Eine Aktion, einmal definiert" filename="actions/reply-to-email.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "Werkzeugoberfläche",
-    "note": "`description` ist das, was der Agent liest, um zu entscheiden, wann er dies als Tool aufrufen soll."
-  },
-  {
-    "lines": "6",
-    "label": "Typisierter Vertrag",
-    "note": "Ein zod `schema` validiert Eingaben von **jeder** Oberfläche — Agent, UI, HTTP, MCP und A2A."
-  },
-  {
-    "lines": "7-10",
-    "label": "Eine Implementierung",
-    "note": "Der `run`-Körper ist die einzige Quelle der Wahrheit. Sowohl die UI-Schaltfläche als auch das Agententool führen genau dies aus."
+<AnnotatedCode
+  id="doc-block-uurxtd"
+  title="Eine Aktion, einmal definiert"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app\'s server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "Werkzeugoberfläche",
+      note: "`description` ist das, was der Agent liest, um zu entscheiden, wann er dies als Tool aufrufen soll.",
+    },
+    {
+      lines: "6",
+      label: "Typisierter Vertrag",
+      note: "Ein zod `schema` validiert Eingaben von **jeder** Oberfläche — Agent, UI, HTTP, MCP und A2A.",
+    },
+    {
+      lines: "7-10",
+      label: "Eine Implementierung",
+      note: "Der `run`-Körper ist die einzige Quelle der Wahrheit. Sowohl die UI-Schaltfläche als auch das Agententool führen genau dies aus.",
+    },
+  ]}
+/>
 
 ```tsx
 // In any React component — same action, called from a button

@@ -54,23 +54,32 @@ export default defineAction({
 });
 ```
 
-<AnnotatedCode id="doc-block-1c5jqad" title={"La configuración del recurso mcpApp"} filename="actions/review-draft.ts" language="ts" code={"import { embedApp } from \"@agent-native/core\";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: \"Review draft\",\n      description: \"Open the generated draft in the real Mail compose UI.\",\n      iframeTitle: \"Agent-Native Mail\",\n      openLabel: \"Open in Mail\",\n    }),\n  },\n});"} annotations={[
-  {
-    "lines": "6",
-    "label": "Mejora progresiva",
-    "note": "`mcpApp.resource` anuncia una interfaz de usuario en línea para hosts que admiten la extensión de aplicaciones MCP. Mantenga también el generador `link` de la acción: los hosts anteriores y exclusivos para CLI ignoran los metadatos de la interfaz de usuario y aún necesitan el enlace profundo."
-  },
-  {
-    "lines": "7",
-    "label": "Embed = the link target",
-    "note": "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route."
-  },
-  {
-    "lines": "11",
-    "label": "Etiqueta de reserva universal",
-    "note": "`openLabel` is the visible `\"Open in … →\"` text used as the deep-link escape hatch when a host does not render the inline iframe."
+<AnnotatedCode
+  id="doc-block-1c5jqad"
+  title={"La configuración del recurso mcpApp"}
+  filename="actions/review-draft.ts"
+  language="ts"
+  code={
+    'import { embedApp } from "@agent-native/core";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: "Review draft",\n      description: "Open the generated draft in the real Mail compose UI.",\n      iframeTitle: "Agent-Native Mail",\n      openLabel: "Open in Mail",\n    }),\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "Mejora progresiva",
+      note: "`mcpApp.resource` anuncia una interfaz de usuario en línea para hosts que admiten la extensión de aplicaciones MCP. Mantenga también el generador `link` de la acción: los hosts anteriores y exclusivos para CLI ignoran los metadatos de la interfaz de usuario y aún necesitan el enlace profundo.",
+    },
+    {
+      lines: "7",
+      label: "Embed = the link target",
+      note: "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route.",
+    },
+    {
+      lines: "11",
+      label: "Etiqueta de reserva universal",
+      note: '`openLabel` es el texto visible `"Open in … →"` que se usa como salida de enlace profundo cuando un host no renderiza el iframe en línea.',
+    },
+  ]}
+/>
 
 El servidor MCP anuncia la extensión `io.modelcontextprotocol/ui`, agrega `_meta.ui.resourceUri` más `_meta["ui/resourceUri"]` a `tools/list` y también emite metadatos de compatibilidad de aplicaciones ChatGPT SDK (`openai/outputTemplate`, widget CSP/descripción/accesibilidad). Expone desde HTML hasta `resources/list`, `resources/templates/list` y `resources/read` usando MIME `text/html;profile=mcp-app`. El proxy stdio reenvía esos controladores de recursos desde la aplicación en vivo, por lo que los clientes de escritorio y CLI ven los mismos recursos que los clientes HTTP.
 

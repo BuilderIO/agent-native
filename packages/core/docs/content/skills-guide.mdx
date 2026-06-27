@@ -80,28 +80,37 @@ Don't create a skill when:
 
 Each skill is a Markdown file with YAML frontmatter:
 
-<AnnotatedCode id="doc-block-iajhzm" title="Anatomy of a SKILL.md" filename=".agents/skills/project-imports/SKILL.md" language="markdown" code={"---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"} annotations={[
-  {
-    "lines": "2",
-    "label": "Discovery key",
-    "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`."
-  },
-  {
-    "lines": "3-5",
-    "label": "The trigger",
-    "note": "This `description` is the **only** text always in context. Make it state precisely *when* the skill applies."
-  },
-  {
-    "lines": "9-14",
-    "label": "Rules first",
-    "note": "Lead with the hard rule and the why; the agent reads the body only once the task matches."
-  },
-  {
-    "lines": "27-30",
-    "label": "Cross-link",
-    "note": "Point at related skills so the agent can chain them instead of re-deriving guidance."
+<AnnotatedCode
+  id="doc-block-iajhzm"
+  title="Anatomy of a SKILL.md"
+  filename=".agents/skills/project-imports/SKILL.md"
+  language="markdown"
+  code={
+    "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "Discovery key",
+      note: "The `name` matches the folder; it is how the skill is invoked as `/project-imports`.",
+    },
+    {
+      lines: "3-5",
+      label: "The trigger",
+      note: "This `description` is the **only** text always in context. Make it state precisely *when* the skill applies.",
+    },
+    {
+      lines: "9-14",
+      label: "Rules first",
+      note: "Lead with the hard rule and the why; the agent reads the body only once the task matches.",
+    },
+    {
+      lines: "27-30",
+      label: "Cross-link",
+      note: "Point at related skills so the agent can chain them instead of re-deriving guidance.",
+    },
+  ]}
+/>
 
 The frontmatter `name` and `description` are used by the agent's tool system for skill discovery. The description should state when the skill triggers — be specific about the situations.
 

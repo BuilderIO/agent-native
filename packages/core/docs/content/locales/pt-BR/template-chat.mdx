@@ -10,7 +10,12 @@ O Chat é o ponto de partida básico do aplicativo nativo do agente. Ele oferece
 Se você deseja o menor tempo de execução somente de ação sem navegador UI, comece com [Pure-Agent Apps](/docs/pure-agent-apps). Se você quiser um formato de produto de domínio finalizado, comece com [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) ou outro modelo de domínio.
 
 <WireframeBlock id="doc-block-a4b2bv">
-<Screen surface="desktop" html={"<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Como posso ajudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Converse sobre qualquer coisa. Adicione ações, componentes, páginas, jobs ou seu próprio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Envie mensagem ao agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Como posso ajudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Converse sobre qualquer coisa. Adicione ações, componentes, páginas, jobs ou seu próprio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Envie mensagem ao agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 ## O que há nele {#whats-in-it}
@@ -71,28 +76,32 @@ A partir daí, copie a rota `/` do modelo de bate-papo e a lista de tópicos da 
   sugestões, estado vazio, compositor ou layout circundante aqui.
 - `AGENTS.md` informa ao agente integrado como trabalhar dentro deste aplicativo.
 
-<FileTree id="doc-block-hy56z3" title="Layout do template Chat" entries={[
-  {
-    "path": "actions/hello.ts",
-    "note": "A action de exemplo; substitua ou adicione actions ao lado dela"
-  },
-  {
-    "path": "actions/view-screen.ts",
-    "note": "Action de contexto padrão que o agente lê"
-  },
-  {
-    "path": "actions/navigate.ts",
-    "note": "Action de navegação padrão"
-  },
-  {
-    "path": "app/routes/_index.tsx",
-    "note": "Renderiza a superfície de chat em página inteira; edite sugestões, estado vazio e composer"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "Orientação centrada em chat que o agente integrado lê"
-  }
-]} />
+<FileTree
+  id="doc-block-hy56z3"
+  title="Layout do template Chat"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "A action de exemplo; substitua ou adicione actions ao lado dela",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "Action de contexto padrão que o agente lê",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "Action de navegação padrão",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "Renderiza a superfície de chat em página inteira; edite sugestões, estado vazio e composer",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Orientação centrada em chat que o agente integrado lê",
+    },
+  ]}
+/>
 
 A página de bate-papo é intencionalmente estreita:
 

@@ -40,33 +40,42 @@ description: "<AgentPanel>, <AgentSidebar> 및 sendToAgentChat()을 사용하여
 기존 루트 레이아웃을 `<AgentSidebar>`로 래핑합니다. 당신이 전달하는 무엇이든
 어린이는 기본 앱 영역에 머물러 있습니다. 상담원 채팅은 측면 패널입니다.
 
-<AnnotatedCode id="doc-block-1ildzlq" title={"<AgentSidebar>으로 루트 레이아웃 래핑"} filename="app/root.tsx" language="tsx" code={"import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"무엇을 도와드릴까요?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}"} annotations={[
-  {
-    "lines": "6",
-    "label": "래퍼",
-    "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area."
-  },
-  {
-    "lines": "8-12",
-    "label": "시작 메시지",
-    "note": "`suggestions` 빈 채팅에서 클릭 가능한 칩으로 렌더링됩니다."
-  },
-  {
-    "lines": "13",
-    "label": "상황 인식 칩",
-    "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default."
-  },
-  {
-    "lines": "18-20",
-    "label": "토글 버튼",
-    "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel."
-  },
-  {
-    "lines": "22-24",
-    "label": "귀하의 앱",
-    "note": "`<Outlet/>` (your routes) renders in the main area, untouched."
+<AnnotatedCode
+  id="doc-block-1ildzlq"
+  title={"<AgentSidebar>으로 루트 레이아웃 래핑"}
+  filename="app/root.tsx"
+  language="tsx"
+  code={
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="무엇을 도와드릴까요?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "래퍼",
+      note: "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area.",
+    },
+    {
+      lines: "8-12",
+      label: "시작 메시지",
+      note: "`suggestions` 빈 채팅에서 클릭 가능한 칩으로 렌더링됩니다.",
+    },
+    {
+      lines: "13",
+      label: "상황 인식 칩",
+      note: '`dynamicSuggestions` merges screen-aware prompts (e.g. "Summarize this selection") with your static ones. On by default.',
+    },
+    {
+      lines: "18-20",
+      label: "토글 버튼",
+      note: "Put `<AgentToggleButton />` anywhere in your header to open and close the panel.",
+    },
+    {
+      lines: "22-24",
+      label: "귀하의 앱",
+      note: "`<Outlet/>` (your routes) renders in the main area, untouched.",
+    },
+  ]}
+/>
 
 그렇습니다. 이제 사용자는 채팅 기록, 작업 공간 탭, CLI 터미널, 음성 입력 및 전체 화면 모드를 포함하여 모든 페이지에 전환 가능한 에이전트를 갖게 됩니다. `localStorage`를 통해 다시 로드해도 상태가 유지됩니다.
 

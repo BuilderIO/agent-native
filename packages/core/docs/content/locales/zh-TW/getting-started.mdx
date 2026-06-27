@@ -19,20 +19,24 @@ Agent-Native 應用程式為 AI 代理和您的 UI 提供相同的 actions、資
 之後的一切（編寫指令、新增 skills、定義 actions、執行
 代理）無論哪種方式都是相同的。
 
-<FileTree id="doc-block-15hdkha" title={"一個基礎 Agent-Native 代理"} entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "始終生效的指令：目的、規則、語氣以及代理能力地圖"
-  },
-  {
-    "path": ".agents/skills/customer-research/SKILL.md",
-    "note": "工作匹配時代理會載入的可複用 playbook"
-  },
-  {
-    "path": "actions/summarize-week.ts",
-    "note": "代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 都能執行的型別化程式碼"
-  }
-]} />
+<FileTree
+  id="doc-block-15hdkha"
+  title={"一個基礎 Agent-Native 代理"}
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "始終生效的指令：目的、規則、語氣以及代理能力地圖",
+    },
+    {
+      path: ".agents/skills/customer-research/SKILL.md",
+      note: "工作匹配時代理會載入的可複用 playbook",
+    },
+    {
+      path: "actions/summarize-week.ts",
+      note: "代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 都能執行的型別化程式碼",
+    },
+  ]}
+/>
 
 無論您是從聊天 UI、無頭代理還是完整應用程式開始，都是如此。
 UI 改變表面；指令、skills 和 actions 為代理提供
@@ -79,33 +83,42 @@ pnpm install
 操作是您的代理（以及您的 UI）可以呼叫的一項操作。兩個腳手架
 附帶此範例：
 
-<AnnotatedCode id="doc-block-qfy4rq" title={"你的第一個 action"} filename="actions/hello.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"從本機代理問好。\",\n  schema: z.object({\n    name: z.string().default(\"world\"),\n  }),\n  http: { method: \"GET\" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "工具描述",
-    "note": "代理會讀取 `description`，判斷何時把它作為工具呼叫。"
-  },
-  {
-    "lines": "6-8",
-    "label": "型別化契約",
-    "note": "一個 zod `schema` 會校驗來自每個入口的輸入：代理、UI、HTTP、MCP 和 A2A。"
-  },
-  {
-    "lines": "9",
-    "label": "HTTP 動詞",
-    "note": "將此操作接入自動掛載的 HTTP 端點。"
-  },
-  {
-    "lines": "10",
-    "label": "唯讀",
-    "note": "`readOnly` 表示該操作無需核准即可安全呼叫，並且可作為查詢快取。"
-  },
-  {
-    "lines": "11-13",
-    "label": "單一實現",
-    "note": "`run` 主體是所有介面都會執行的唯一真實來源。"
+<AnnotatedCode
+  id="doc-block-qfy4rq"
+  title={"你的第一個 action"}
+  filename="actions/hello.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "從本機代理問好。",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "工具描述",
+      note: "代理會讀取 `description`，判斷何時把它作為工具呼叫。",
+    },
+    {
+      lines: "6-8",
+      label: "型別化契約",
+      note: "一個 zod `schema` 會校驗來自每個入口的輸入：代理、UI、HTTP、MCP 和 A2A。",
+    },
+    {
+      lines: "9",
+      label: "HTTP 動詞",
+      note: "將此操作接入自動掛載的 HTTP 端點。",
+    },
+    {
+      lines: "10",
+      label: "唯讀",
+      note: "`readOnly` 表示該操作無需核准即可安全呼叫，並且可作為查詢快取。",
+    },
+    {
+      lines: "11-13",
+      label: "單一實現",
+      note: "`run` 主體是所有介面都會執行的唯一真實來源。",
+    },
+  ]}
+/>
 
 將 `hello` 替換為您域中的第一個實際操作。您定義一次；
 每個表面都會吸收它。

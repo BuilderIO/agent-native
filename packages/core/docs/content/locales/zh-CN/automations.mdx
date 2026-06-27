@@ -39,28 +39,37 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 第三条路径 - 通过 `resourcePut` 手动写入 `jobs/<name>.md` 文件 - 与 [recurring jobs](/docs/recurring-jobs#creating) 的工作方式完全相同。对于事件驱动的自动化，您可以将下面的事件触发 frontmatter 添加到同一文件中。事件触发作业设置 `schedule: ""` 并提供 `triggerType: event`、`event` 名称和可选的 `condition`：
 
-<AnnotatedCode id="doc-block-nyf9gy" title={"事件触发的自动化"} filename="jobs/slack-on-builder-booking.md" language="markdown" code={"---\nschedule: \"\"\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: \"attendee email ends with @builder.io\"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}."} annotations={[
-  {
-    "lines": "2",
-    "label": "没有计划任务",
-    "note": "Event triggers set `schedule` to `\"\"` — the cron field stays empty."
-  },
-  {
-    "lines": "4-5",
-    "label": "触发器",
-    "note": "`triggerType: event` 加上 `event` 名称将此自动化订阅到总线。"
-  },
-  {
-    "lines": "6",
-    "label": "门",
-    "note": "可选的自然语言 `condition`，由 Haiku 在调度之前根据有效负载进行评估。"
-  },
-  {
-    "lines": "12",
-    "label": "服务器端秘密",
-    "note": "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context."
+<AnnotatedCode
+  id="doc-block-nyf9gy"
+  title={"事件触发的自动化"}
+  filename="jobs/slack-on-builder-booking.md"
+  language="markdown"
+  code={
+    '---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: "attendee email ends with @builder.io"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}.'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "没有计划任务",
+      note: '事件触发器将 `schedule` 设为 `""`；cron 字段保持为空。',
+    },
+    {
+      lines: "4-5",
+      label: "触发器",
+      note: "`triggerType: event` 加上 `event` 名称将此自动化订阅到总线。",
+    },
+    {
+      lines: "6",
+      label: "门",
+      note: "可选的自然语言 `condition`，由 Haiku 在调度之前根据有效负载进行评估。",
+    },
+    {
+      lines: "12",
+      label: "服务器端秘密",
+      note: "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context.",
+    },
+  ]}
+/>
 
 ## 自动化前沿 {#frontmatter}
 

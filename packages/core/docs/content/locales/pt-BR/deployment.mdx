@@ -70,24 +70,28 @@ A implantação independente por aplicativo ainda é suportada — apenas `cd ap
 
 Quando você executa `npx @agent-native/core@latest build`, Nitro cria o cliente SPA e o servidor API em `.output/`:
 
-<FileTree id="doc-block-14mhyic" title={"Saída do build"} entries={[
-  {
-    "path": ".output/",
-    "note": "Autônomo: copie para qualquer ambiente e execute"
-  },
-  {
-    "path": ".output/public/",
-    "note": "SPA buildada (assets estáticos)"
-  },
-  {
-    "path": ".output/server/index.mjs",
-    "note": "Ponto de entrada do servidor"
-  },
-  {
-    "path": ".output/server/chunks/",
-    "note": "Chunks de código do servidor"
-  }
-]} />
+<FileTree
+  id="doc-block-14mhyic"
+  title={"Saída do build"}
+  entries={[
+    {
+      path: ".output/",
+      note: "Autônomo: copie para qualquer ambiente e execute",
+    },
+    {
+      path: ".output/public/",
+      note: "SPA buildada (assets estáticos)",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "Ponto de entrada do servidor",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "Chunks de código do servidor",
+    },
+  ]}
+/>
 
 A saída é independente – copie `.output/` para qualquer ambiente e execute-o.
 

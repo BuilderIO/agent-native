@@ -14,18 +14,27 @@ La mayoría de actions deberían simplemente ejecutarse. Algunos (enviar un corr
 
 Establezca `needsApproval` en un `defineAction`. Acepta un booleano o un predicado:
 
-<AnnotatedCode id="doc-block-15w96g5" title={"Cerrar la única acción consecuente"} filename="actions/send-email.ts" language="ts" code={"export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});"} annotations={[
-  {
-    "lines": "10",
-    "label": "toda la puerta",
-    "note": "Una bandera. Si es veraz y la llamada no está aprobada, el ciclo se detiene antes de `run`: el modelo nunca alcanza el efecto secundario por sí solo."
-  },
-  {
-    "lines": "11-13",
-    "label": "run() is untouched",
-    "note": "El manejador sigue siendo el mismo. La aprobación la impone el bucle que lo rodea, no nada dentro de `run`."
+<AnnotatedCode
+  id="doc-block-15w96g5"
+  title={"Cerrar la única acción consecuente"}
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10",
+      label: "toda la puerta",
+      note: "Una bandera. Si es veraz y la llamada no está aprobada, el ciclo se detiene antes de `run`: el modelo nunca alcanza el efecto secundario por sí solo.",
+    },
+    {
+      lines: "11-13",
+      label: "run() is untouched",
+      note: "El manejador sigue siendo el mismo. La aprobación la impone el bucle que lo rodea, no nada dentro de `run`.",
+    },
+  ]}
+/>
 
 - **`needsApproval: true`**: siempre requiere aprobación.
 - **`needsApproval: (args, ctx) => boolean | Promise<boolean>`**: requiere aprobación solo cuando el predicado devuelve verdadero. Puerta condicional, p.e. solo para destinatarios externos o solo por encima de un umbral en dólares:

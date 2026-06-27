@@ -70,24 +70,28 @@ npx @agent-native/core@latest deploy --preset vercel
 
 عند تشغيل `npx @agent-native/core@latest build`، يقوم Nitro ببناء كل من العميل SPA والخادم API في `.output/`:
 
-<FileTree id="doc-block-iw2wb5" title={"مخرجات build"} entries={[
-  {
-    "path": ".output/",
-    "note": "مكتف ذاتياً: انسخه إلى أي environment وشغّله"
-  },
-  {
-    "path": ".output/public/",
-    "note": "SPA مبنية (static assets)"
-  },
-  {
-    "path": ".output/server/index.mjs",
-    "note": "نقطة دخول server"
-  },
-  {
-    "path": ".output/server/chunks/",
-    "note": "أجزاء كود الخادم"
-  }
-]} />
+<FileTree
+  id="doc-block-iw2wb5"
+  title={"مخرجات build"}
+  entries={[
+    {
+      path: ".output/",
+      note: "مكتف ذاتياً: انسخه إلى أي environment وشغّله",
+    },
+    {
+      path: ".output/public/",
+      note: "SPA مبنية (static assets)",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "نقطة دخول server",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "أجزاء كود الخادم",
+    },
+  ]}
+/>
 
 الإخراج مستقل بذاته - انسخ `.output/` إلى أي بيئة وقم بتشغيله.
 

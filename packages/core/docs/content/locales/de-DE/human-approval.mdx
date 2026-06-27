@@ -14,18 +14,27 @@ Die meisten actions sollten einfach laufen. Einige davon – das Senden einer E-
 
 Legen Sie `needsApproval` auf einen `defineAction`. Es akzeptiert einen booleschen Wert oder ein Prädikat:
 
-<AnnotatedCode id="doc-block-6g3d1l" title={"Die eine Folgemaßnahme blockieren"} filename="actions/send-email.ts" language="ts" code={"export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});"} annotations={[
-  {
-    "lines": "10",
-    "label": "Das ganze Tor",
-    "note": "Eine Flagge. Wenn es wahr ist und der Aufruf nicht genehmigt ist, stoppt die Schleife vor `run` – das Modell erreicht den Nebeneffekt nie von selbst."
-  },
-  {
-    "lines": "11-13",
-    "label": "run() is untouched",
-    "note": "Der Handler bleibt derselbe. Die Genehmigung wird durch die Schleife erzwungen, die sie umgibt, nicht durch irgendetwas in `run`."
+<AnnotatedCode
+  id="doc-block-6g3d1l"
+  title={"Die eine Folgemaßnahme blockieren"}
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10",
+      label: "Das ganze Tor",
+      note: "Eine Flagge. Wenn es wahr ist und der Aufruf nicht genehmigt ist, stoppt die Schleife vor `run` – das Modell erreicht den Nebeneffekt nie von selbst.",
+    },
+    {
+      lines: "11-13",
+      label: "run() is untouched",
+      note: "Der Handler bleibt derselbe. Die Genehmigung wird durch die Schleife erzwungen, die sie umgibt, nicht durch irgendetwas in `run`.",
+    },
+  ]}
+/>
 
 - **`needsApproval: true`** – immer Genehmigung erforderlich.
 - **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** – Genehmigung nur erforderlich, wenn das Prädikat „true“ zurückgibt. Tor bedingt, z.B. nur für externe Empfänger oder nur über einem Dollar-Schwellenwert:

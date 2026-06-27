@@ -45,45 +45,49 @@ CLI zeigt eine Mehrfachauswahlauswahl für jede Erstanbietervorlage. Wählen Sie
 
 Sie erhalten ein pnpm-Monorepo mit dem privaten freigegebenen Paket, ein Root-`package.json`, das die Arbeitsbereichserkennung verkabelt, ein freigegebenes `.env` und ein Unterverzeichnis pro von Ihnen ausgewählter App:
 
-<FileTree id="doc-block-9lp73p" title="Ein generierter Workspace" entries={[
-  {
-    "path": "package.json",
-    "note": "Deklariert agent-native.workspaceCore"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "packages: [\"packages/*\", \"apps/*\"]"
-  },
-  {
-    "path": ".env.example",
-    "note": "Gemeinsame ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ..."
-  },
-  {
-    "path": "packages/shared/",
-    "note": "@my-company-platform/shared"
-  },
-  {
-    "path": "packages/shared/src/server/",
-    "note": "Plugin-Overrides nur bei Bedarf"
-  },
-  {
-    "path": "packages/shared/src/client/",
-    "note": "Gemeinsamer React-Code nur bei Bedarf"
-  },
-  {
-    "path": "packages/shared/AGENTS.md",
-    "note": "Workspace-weite Anweisungen"
-  },
-  {
-    "path": "apps/mail/"
-  },
-  {
-    "path": "apps/calendar/"
-  },
-  {
-    "path": "apps/forms/"
-  }
-]} />
+<FileTree
+  id="doc-block-9lp73p"
+  title="Ein generierter Workspace"
+  entries={[
+    {
+      path: "package.json",
+      note: "Deklariert agent-native.workspaceCore",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: 'packages: ["packages/*", "apps/*"]',
+    },
+    {
+      path: ".env.example",
+      note: "Gemeinsame ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ...",
+    },
+    {
+      path: "packages/shared/",
+      note: "@my-company-platform/shared",
+    },
+    {
+      path: "packages/shared/src/server/",
+      note: "Plugin-Overrides nur bei Bedarf",
+    },
+    {
+      path: "packages/shared/src/client/",
+      note: "Gemeinsamer React-Code nur bei Bedarf",
+    },
+    {
+      path: "packages/shared/AGENTS.md",
+      note: "Workspace-weite Anweisungen",
+    },
+    {
+      path: "apps/mail/",
+    },
+    {
+      path: "apps/calendar/",
+    },
+    {
+      path: "apps/forms/",
+    },
+  ]}
+/>
 
 Dann booten Sie es:
 

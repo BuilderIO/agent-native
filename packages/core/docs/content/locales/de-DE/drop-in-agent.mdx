@@ -40,33 +40,42 @@ Das häufigste Setup ist eine Seitenleiste, die auf jedem Bildschirm von rechts 
 Umschließen Sie Ihr vorhandenes Root-Layout mit `<AgentSidebar>`; als was auch immer Sie übergeben
 Kinder bleiben im Haupt-App-Bereich. Der Agenten-Chat ist der Seitenbereich.
 
-<AnnotatedCode id="doc-block-109nn9r" title={"Umschließen des Root-Layouts mit <AgentSidebar>"} filename="app/root.tsx" language="tsx" code={"import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"Wie kann ich helfen?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}"} annotations={[
-  {
-    "lines": "6",
-    "label": "Verpackung",
-    "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area."
-  },
-  {
-    "lines": "8-12",
-    "label": "Starter-Eingabeaufforderungen",
-    "note": "`suggestions` werden als anklickbare Chips im leeren Chat gerendert."
-  },
-  {
-    "lines": "13",
-    "label": "Kontextsensitive Chips",
-    "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default."
-  },
-  {
-    "lines": "18-20",
-    "label": "Umschalttaste",
-    "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel."
-  },
-  {
-    "lines": "22-24",
-    "label": "Ihre App",
-    "note": "`<Outlet/>` (your routes) renders in the main area, untouched."
+<AnnotatedCode
+  id="doc-block-109nn9r"
+  title={"Umschließen des Root-Layouts mit <AgentSidebar>"}
+  filename="app/root.tsx"
+  language="tsx"
+  code={
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="Wie kann ich helfen?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "Verpackung",
+      note: "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area.",
+    },
+    {
+      lines: "8-12",
+      label: "Starter-Eingabeaufforderungen",
+      note: "`suggestions` werden als anklickbare Chips im leeren Chat gerendert.",
+    },
+    {
+      lines: "13",
+      label: "Kontextsensitive Chips",
+      note: '`dynamicSuggestions` merges screen-aware prompts (e.g. "Summarize this selection") with your static ones. On by default.',
+    },
+    {
+      lines: "18-20",
+      label: "Umschalttaste",
+      note: "Put `<AgentToggleButton />` anywhere in your header to open and close the panel.",
+    },
+    {
+      lines: "22-24",
+      label: "Ihre App",
+      note: "`<Outlet/>` (your routes) renders in the main area, untouched.",
+    },
+  ]}
+/>
 
 Das ist es. Der Benutzer hat jetzt auf jeder Seite einen umschaltbaren Agenten – mit Chat-Verlauf, Arbeitsbereich-Tab, CLI-Terminal, Spracheingabe und einem Vollbildmodus. Der Status bleibt über Neuladevorgänge über `localStorage` hinweg bestehen.
 

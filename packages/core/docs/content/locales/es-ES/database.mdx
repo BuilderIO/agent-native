@@ -89,55 +89,62 @@ export const tasks = table("tasks", {
 
 La tabla `tasks` anterior define las mismas columnas en cada backend:
 
-<DataModel id="doc-block-pe44ma" title="la tabla de tareas" summary={"Definida una sola vez con los helpers del framework; el dialecto se elige en tiempo de ejecución a partir de DATABASE_URL."} entities={[
-  {
-    "id": "tasks",
-    "name": "tasks",
-    "note": "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true,
-        "nullable": false
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "priority",
-        "type": "integer",
-        "nullable": false,
-        "note": "default 0"
-      },
-      {
-        "name": "weight",
-        "type": "real",
-        "nullable": true
-      },
-      {
-        "name": "done",
-        "type": "integer (boolean mode)",
-        "nullable": false,
-        "note": "default false; maps to a Postgres boolean"
-      },
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "enables data scoping"
-      },
-      {
-        "name": "created_at",
-        "type": "text",
-        "nullable": false,
-        "note": "default now()"
-      }
-    ]
+<DataModel
+  id="doc-block-pe44ma"
+  title="la tabla de tareas"
+  summary={
+    "Definida una sola vez con los helpers del framework; el dialecto se elige en tiempo de ejecución a partir de DATABASE_URL."
   }
-]} />
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "weight",
+          type: "real",
+          nullable: true,
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
 
 Nunca importe desde `drizzle-orm/sqlite-core` o `drizzle-orm/pg-core` directamente. Utilice siempre `@agent-native/core/db/schema`.
 
@@ -191,23 +198,32 @@ Todas las actualizaciones del esquema de la base de datos deben ser **estrictame
 
 En lugar de enviarlos directamente, los cambios de esquema deben aplicarse mediante migraciones SQL ejecutadas al inicio de la aplicación. Implemente migraciones aditivas dentro de un complemento de servidor (por ejemplo, `server/plugins/db.ts`) invocando el asistente `runMigrations()` del marco:
 
-<AnnotatedCode id="doc-block-3q7984" title={"Un complemento de migración aditiva"} filename="server/plugins/db.ts" language="ts" code={"import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);"} annotations={[
-  {
-    "lines": "6-7",
-    "label": "Sólo aditivo",
-    "note": "Es seguro volver a ejecutar `ADD COLUMN IF NOT EXISTS` y nunca pierde datos. Los cambios de nombre se ven como soltar+crear a Drizzle, así que agregue y luego migre."
-  },
-  {
-    "lines": "13-16",
-    "label": "Puerta de dialecto",
-    "note": "Pase un objeto indexado por dialecto para ejecutar SQL diferente por backend. Haga que la otra clave sea un no-op (`SELECT 1`) para funciones exclusivas de Postgres o de SQLite."
-  },
-  {
-    "lines": "19",
-    "label": "Tabla de versiones por aplicación",
-    "note": "Cada aplicación rastrea sus propias versiones aplicadas, por lo que las migraciones son idempotentes entre reinicios e instancias."
+<AnnotatedCode
+  id="doc-block-3q7984"
+  title={"Un complemento de migración aditiva"}
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
-]} />
+  annotations={[
+    {
+      lines: "6-7",
+      label: "Sólo aditivo",
+      note: "Es seguro volver a ejecutar `ADD COLUMN IF NOT EXISTS` y nunca pierde datos. Los cambios de nombre se ven como soltar+crear a Drizzle, así que agregue y luego migre.",
+    },
+    {
+      lines: "13-16",
+      label: "Puerta de dialecto",
+      note: "Pase un objeto indexado por dialecto para ejecutar SQL diferente por backend. Haga que la otra clave sea un no-op (`SELECT 1`) para funciones exclusivas de Postgres o de SQLite.",
+    },
+    {
+      lines: "19",
+      label: "Tabla de versiones por aplicación",
+      note: "Cada aplicación rastrea sus propias versiones aplicadas, por lo que las migraciones son idempotentes entre reinicios e instancias.",
+    },
+  ]}
+/>
 
 ## Variables de entorno {#environment-variables}
 

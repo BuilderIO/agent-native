@@ -31,20 +31,24 @@ Headless-Apps können mit `pnpm agent` dieselbe Produktions-App-Agent-Schleife a
 Jede agentennative App verfügt über die gleichen Agentenbausteine, unabhängig davon, ob
 Die Produktoberfläche ist Headless, Chat-First oder eine vollständige UI:
 
-<FileTree id="doc-block-yblsyc" title="Anleitung und Verhalten" entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "Immer aktive Anweisungen: Zweck, Kernregeln, State-Keys, Action-Index, Skills-Index"
-  },
-  {
-    "path": ".agents/skills/<name>/SKILL.md",
-    "note": "Wiederverwendbares Verhalten: Workflow-Schritte, Policies, Beispiele, Referenzen und Do/Don’t-Listen"
-  },
-  {
-    "path": "actions/<name>.ts",
-    "note": "Ausführbare Fähigkeit: typisierte Operation für Agent, UI, CLI, HTTP, MCP, A2A, Jobs und Webhooks"
-  }
-]} />
+<FileTree
+  id="doc-block-yblsyc"
+  title="Anleitung und Verhalten"
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "Immer aktive Anweisungen: Zweck, Kernregeln, State-Keys, Action-Index, Skills-Index",
+    },
+    {
+      path: ".agents/skills/<name>/SKILL.md",
+      note: "Wiederverwendbares Verhalten: Workflow-Schritte, Policies, Beispiele, Referenzen und Do/Don’t-Listen",
+    },
+    {
+      path: "actions/<name>.ts",
+      note: "Ausführbare Fähigkeit: typisierte Operation für Agent, UI, CLI, HTTP, MCP, A2A, Jobs und Webhooks",
+    },
+  ]}
+/>
 
 | Baustein      | Verwenden Sie es für                                                                                                                      | Geladen, wenn                                                              |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
@@ -91,74 +95,81 @@ Kern-SQL-Stores werden automatisch erstellt und sind in jeder Vorlage verfügbar
 - `oauth_tokens` – OAuth-Anmeldeinformationen
 - `sessions` – Authentifizierungssitzungen
 
-<DataModel id="doc-block-1bgy8qd" title={"Kerngeschäfte SQL"} summary={"Wird in jeder Vorlage automatisch erstellt – der Agent und die Benutzeroberfläche lesen und schreiben diese."} entities={[
-  {
-    "id": "application_state",
-    "name": "application_state",
-    "note": "Kurzlebiger UI-Status, den der Agent als Kontext liest",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true,
-        "note": "z.B. 'Navigation'"
-      },
-      {
-        "name": "value",
-        "type": "json",
-        "note": "Ansicht, Auswahl, Entwürfe"
-      }
-    ]
-  },
-  {
-    "id": "settings",
-    "name": "settings",
-    "note": "Persistente Schlüsselwertkonfiguration",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "value",
-        "type": "json"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "OAuth Anmeldeinformationen",
-    "fields": [
-      {
-        "name": "provider",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "token",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "sessions",
-    "note": "Authentifizierungssitzungen",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "userId",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-1bgy8qd"
+  title={"Kerngeschäfte SQL"}
+  summary={
+    "Wird in jeder Vorlage automatisch erstellt – der Agent und die Benutzeroberfläche lesen und schreiben diese."
   }
-]} />
+  entities={[
+    {
+      id: "application_state",
+      name: "application_state",
+      note: "Kurzlebiger UI-Status, den der Agent als Kontext liest",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+          note: "z.B. 'Navigation'",
+        },
+        {
+          name: "value",
+          type: "json",
+          note: "Ansicht, Auswahl, Entwürfe",
+        },
+      ],
+    },
+    {
+      id: "settings",
+      name: "settings",
+      note: "Persistente Schlüsselwertkonfiguration",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "value",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "OAuth Anmeldeinformationen",
+      fields: [
+        {
+          name: "provider",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "token",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "sessions",
+      note: "Authentifizierungssitzungen",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "userId",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+/>
 
 ```ts
 // Drizzle schema for domain data

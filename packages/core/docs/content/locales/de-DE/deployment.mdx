@@ -70,24 +70,28 @@ Die unabhängige Bereitstellung pro App wird weiterhin unterstützt – nur `cd 
 
 Wenn Sie `npx @agent-native/core@latest build` ausführen, erstellt Nitro sowohl den Client SPA als auch den Server API in `.output/`:
 
-<FileTree id="doc-block-7ve5w2" title="Build-Ausgabe" entries={[
-  {
-    "path": ".output/",
-    "note": "Eigenständig: in jede Umgebung kopieren und ausführen"
-  },
-  {
-    "path": ".output/public/",
-    "note": "Gebuildete SPA (statische Assets)"
-  },
-  {
-    "path": ".output/server/index.mjs",
-    "note": "Server-Einstiegspunkt"
-  },
-  {
-    "path": ".output/server/chunks/",
-    "note": "Server-Code-Chunks"
-  }
-]} />
+<FileTree
+  id="doc-block-7ve5w2"
+  title="Build-Ausgabe"
+  entries={[
+    {
+      path: ".output/",
+      note: "Eigenständig: in jede Umgebung kopieren und ausführen",
+    },
+    {
+      path: ".output/public/",
+      note: "Gebuildete SPA (statische Assets)",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "Server-Einstiegspunkt",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "Server-Code-Chunks",
+    },
+  ]}
+/>
 
 Die Ausgabe ist in sich geschlossen – kopieren Sie `.output/` in eine beliebige Umgebung und führen Sie sie aus.
 

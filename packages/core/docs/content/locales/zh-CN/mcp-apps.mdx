@@ -54,23 +54,32 @@ export default defineAction({
 });
 ```
 
-<AnnotatedCode id="doc-block-1ma3lkw" title={"mcpApp 资源配置"} filename="actions/review-draft.ts" language="ts" code={"import { embedApp } from \"@agent-native/core\";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: \"Review draft\",\n      description: \"Open the generated draft in the real Mail compose UI.\",\n      iframeTitle: \"Agent-Native Mail\",\n      openLabel: \"Open in Mail\",\n    }),\n  },\n});"} annotations={[
-  {
-    "lines": "6",
-    "label": "渐进增强",
-    "note": "`mcpApp.resource` 为支持 MCP 应用扩展的主机宣传内联 UI。也保留操作的 `link` 构建器 - 仅 CLI 和较旧的主机会忽略 UI 元数据，但仍然需要深层链接。"
-  },
-  {
-    "lines": "7",
-    "label": "Embed = the link target",
-    "note": "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route."
-  },
-  {
-    "lines": "11",
-    "label": "通用后备标签",
-    "note": "`openLabel` is the visible `\"Open in … →\"` text used as the deep-link escape hatch when a host does not render the inline iframe."
+<AnnotatedCode
+  id="doc-block-1ma3lkw"
+  title={"mcpApp 资源配置"}
+  filename="actions/review-draft.ts"
+  language="ts"
+  code={
+    'import { embedApp } from "@agent-native/core";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: "Review draft",\n      description: "Open the generated draft in the real Mail compose UI.",\n      iframeTitle: "Agent-Native Mail",\n      openLabel: "Open in Mail",\n    }),\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "渐进增强",
+      note: "`mcpApp.resource` 为支持 MCP 应用扩展的主机宣传内联 UI。也保留操作的 `link` 构建器 - 仅 CLI 和较旧的主机会忽略 UI 元数据，但仍然需要深层链接。",
+    },
+    {
+      lines: "7",
+      label: "Embed = the link target",
+      note: "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route.",
+    },
+    {
+      lines: "11",
+      label: "通用后备标签",
+      note: '`openLabel` 是可见的 `"Open in … →"` 文本，当主机不渲染内联 iframe 时用作深层链接出口。',
+    },
+  ]}
+/>
 
 MCP 服务器通告扩展 `io.modelcontextprotocol/ui`，将 `_meta.ui.resourceUri` 和 `_meta["ui/resourceUri"]` 添加到 `tools/list`，并且还发出 ChatGPT 应用 SDK 兼容性元数据（`openai/outputTemplate`、小部件 CSP/描述/可访问性）。它通过 `resources/list`、`resources/templates/list` 和 `resources/read` 使用 MIME `text/html;profile=mcp-app` 公开 HTML。 stdio 代理从实时应用程序转发这些资源处理程序，因此桌面和 CLI 客户端可以看到与 HTTP 客户端相同的资源。
 

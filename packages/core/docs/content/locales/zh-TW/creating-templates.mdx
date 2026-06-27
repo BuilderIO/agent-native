@@ -39,69 +39,74 @@ npx @agent-native/core@latest create my-platform
 
 每個範本都遵循相同的廣泛布局：
 
-<FileTree id="doc-block-xwc8h5" title={"範本專案結構"} title="my-template/" entries={[
-  {
-    "path": "app/",
-    "note": "React 前端"
-  },
-  {
-    "path": "app/root.tsx",
-    "note": "HTML shell 和 providers"
-  },
-  {
-    "path": "app/routes/",
-    "note": "React Router 檔案路由"
-  },
-  {
-    "path": "app/components/",
-    "note": "範本 UI"
-  },
-  {
-    "path": "app/hooks/",
-    "note": "UI 狀態和資料 hooks"
-  },
-  {
-    "path": "actions/",
-    "note": "defineAction 操作：唯一事實來源"
-  },
-  {
-    "path": "server/db/schema.ts",
-    "note": "Drizzle 架構"
-  },
-  {
-    "path": "server/plugins/db.ts",
-    "note": "增量 migrations"
-  },
-  {
-    "path": "server/plugins/",
-    "note": "啟動 integrations"
-  },
-  {
-    "path": "server/routes/api/",
-    "note": "僅在 actions 不夠時使用自訂路由"
-  },
-  {
-    "path": "shared/types.ts",
-    "note": "共用的 client/server 型別"
-  },
-  {
-    "path": ".agents/skills/",
-    "note": "<skill>/SKILL.md：複雜工作流的代理指南"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "範本專用代理指令"
-  },
-  {
-    "path": "package.json"
-  },
-  {
-    "path": "react-router.config.ts"
-  },
-  {
-    "path": "vite.config.ts"
-  }
-]} />
+<FileTree
+  id="doc-block-xwc8h5"
+  title={"範本專案結構"}
+  title="my-template/"
+  entries={[
+    {
+      path: "app/",
+      note: "React 前端",
+    },
+    {
+      path: "app/root.tsx",
+      note: "HTML shell 和 providers",
+    },
+    {
+      path: "app/routes/",
+      note: "React Router 檔案路由",
+    },
+    {
+      path: "app/components/",
+      note: "範本 UI",
+    },
+    {
+      path: "app/hooks/",
+      note: "UI 狀態和資料 hooks",
+    },
+    {
+      path: "actions/",
+      note: "defineAction 操作：唯一事實來源",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle 架構",
+    },
+    {
+      path: "server/plugins/db.ts",
+      note: "增量 migrations",
+    },
+    {
+      path: "server/plugins/",
+      note: "啟動 integrations",
+    },
+    {
+      path: "server/routes/api/",
+      note: "僅在 actions 不夠時使用自訂路由",
+    },
+    {
+      path: "shared/types.ts",
+      note: "共用的 client/server 型別",
+    },
+    {
+      path: ".agents/skills/",
+      note: "<skill>/SKILL.md：複雜工作流的代理指南",
+    },
+    {
+      path: "AGENTS.md",
+      note: "範本專用代理指令",
+    },
+    {
+      path: "package.json",
+    },
+    {
+      path: "react-router.config.ts",
+    },
+    {
+      path: "vite.config.ts",
+    },
+  ]}
+/>
 
 不要為應用程式狀態新增 `data/` 目錄。持久應用資料屬於 SQL，UI 透過 actions 或型別化伺服器處理常式讀取它。
 
@@ -181,27 +186,36 @@ export default runMigrations(
 
 行動 是應用行為的單一事實來源。代理將它們作為工具呼叫，前端透過鉤子呼叫它們，其他應用程式可以透過 MCP/A2A 存取它們。
 
-<AnnotatedCode id="doc-block-19rhq9e" title="actions/create-project.ts" filename="actions/create-project.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});"} annotations={[
-  {
-    "lines": "2",
-    "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`."
-  },
-  {
-    "lines": "8",
-    "label": "工具表面",
-    "note": "`description` 是代理讀取的內容，以決定何時將此操作作為工具呼叫。"
-  },
-  {
-    "lines": "9-11",
-    "label": "型別化契約",
-    "note": "一個 zod `schema` 會驗證來自代理、UI、HTTP、MCP 和 A2A 的輸入。"
-  },
-  {
-    "lines": "18-19",
-    "label": "範圍寫入",
-    "note": "從 `ctx` 標記 `ownerEmail` / `orgId`，以便該行正確地確定共用和存取檢查的範圍。"
+<AnnotatedCode
+  id="doc-block-19rhq9e"
+  title="actions/create-project.ts"
+  filename="actions/create-project.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { getDb } from "../server/db/index.js";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\nimport * as schema from "../server/db/schema";\n\nexport default defineAction({\n  description: "Create a project.",\n  schema: z.object({\n    title: z.string().min(1).describe("Project title"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      note: "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`.",
+    },
+    {
+      lines: "8",
+      label: "工具表面",
+      note: "`description` 是代理讀取的內容，以決定何時將此操作作為工具呼叫。",
+    },
+    {
+      lines: "9-11",
+      label: "型別化契約",
+      note: "一個 zod `schema` 會驗證來自代理、UI、HTTP、MCP 和 A2A 的輸入。",
+    },
+    {
+      lines: "18-19",
+      label: "範圍寫入",
+      note: "從 `ctx` 標記 `ownerEmail` / `orgId`，以便該行正確地確定共用和存取檢查的範圍。",
+    },
+  ]}
+/>
 
 使用 `http: { method: "GET" }` 或 `readOnly: true` 表示唯讀 actions。僅將 `parallelSafe: true` 用於變異 actions，這些 actions 可以安全地與同輪工具呼叫同時執行。將 `toolCallable: false` 用於不應從沙盒工具執行的高爆炸半徑 actions。
 

@@ -8,7 +8,12 @@ description: "用於動態圖形、產品示範和動態文字的程式化影片
 一個程式化影片工作室，用於製作動態圖形、產品示範和動態文字影片，這些影片很難手動設定關鍵幀。要求代理“顯示 6 秒的徽標，並在 2 秒後淡入”，它就會建置動畫。調整時間、緩動和相機在時間軸上的行動，然後渲染到 MP4 或 WebM。
 
 <WireframeBlock id="doc-block-1vwh1bl">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo 展示</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion 預覽</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>新軌道</button></div><div class='wf-box'>標題淡入 · 0-48 幀</div><div class='wf-box'>Logo 縮放 · 48-120 幀</div><div class='wf-box'>鏡頭推進 · 72-144 幀</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo 展示</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion 預覽</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>新軌道</button></div><div class='wf-box'>標題淡入 · 0-48 幀</div><div class='wf-box'>Logo 縮放 · 48-120 幀</div><div class='wf-box'>鏡頭推進 · 72-144 幀</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 當您開啟工作室時，您將在主螢幕上看到作品清單。點選其中一個，您會在頂部看到一個播放器，在底部看到一個時間線，在右側看到一個屬性面板。代理始終知道您開啟了哪個組合。
@@ -96,113 +101,121 @@ pnpm dev
 
 伺服器端架構位於 `templates/videos/server/db/schema.ts` 中：
 
-<DataModel id="doc-block-rq1bqi" title={"影片資料模型"} summary={"SQL 支援的組合以及設計系統和可嵌套資料夾，每個資料夾都有一個框架共用表。"} entities={[
-  {
-    "id": "compositions",
-    "name": "compositions",
-    "note": "User-created compositions and overrides; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "type",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "完整組合 JSON 斑點"
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      },
-      {
-        "name": "updated_at",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "design_systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens; ownableColumns",
-    "fields": [
-      {
-        "name": "data",
-        "type": "text",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "folders",
-    "note": "Nestable folders; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "name",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "folder_memberships",
-    "name": "folder_memberships",
-    "note": "多對多加入",
-    "fields": [
-      {
-        "name": "folder_id",
-        "type": "text",
-        "fk": "folders.id"
-      },
-      {
-        "name": "composition_id",
-        "type": "text",
-        "fk": "compositions.id"
-      }
-    ]
+<DataModel
+  id="doc-block-rq1bqi"
+  title={"影片資料模型"}
+  summary={
+    "SQL 支援的組合以及設計系統和可嵌套資料夾，每個資料夾都有一個框架共用表。"
   }
-]} relations={[
-  {
-    "from": "folders",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "members"
-  },
-  {
-    "from": "compositions",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "in folders"
-  }
-]} />
+  entities={[
+    {
+      id: "compositions",
+      name: "compositions",
+      note: "User-created compositions and overrides; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "完整組合 JSON 斑點",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "Nestable folders; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "folder_memberships",
+      name: "folder_memberships",
+      note: "多對多加入",
+      fields: [
+        {
+          name: "folder_id",
+          type: "text",
+          fk: "folders.id",
+        },
+        {
+          name: "composition_id",
+          type: "text",
+          fk: "compositions.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "folders",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "members",
+    },
+    {
+      from: "compositions",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "in folders",
+    },
+  ]}
+/>
 
 每個表還有一個由 `createSharesTable()` 產生的匹配框架份額表（`composition_shares`、`design_system_shares`、`folder_shares`）。
 

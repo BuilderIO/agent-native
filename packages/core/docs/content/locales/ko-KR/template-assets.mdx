@@ -8,7 +8,12 @@ description: "브랜드 일관성이 있는 미디어를 위한 에이전트 기
 Assets는 브랜드와 일관된 미디어를 생성하고 관리하기 위한 상담원 기본 작업 공간입니다. 업로드 및 생성된 결과를 라이브러리와 폴더에 정리하고 팀이 블로그 히어로, 다이어그램, 랜딩 페이지, 제품 사진, 비디오 및 로고에 대한 예를 수집한 다음 에이전트 채팅을 통해 생성을 라우팅하여 모든 자산을 검토하고 개선할 수 있도록 합니다.
 
 <WireframeBlock id="doc-block-hibfdf">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>출시 브랜드</h1><span class='wf-pill accent'>블로그 hero</span><span class='wf-pill'>제품 이미지</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>브랜드 미디어 만들기</strong><div class='wf-box'>승인된 로고와 제품 참고 자료를 사용한 홈페이지 hero 옵션 3개.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>웹 내보내기</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>히어로 A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>참조 세트</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>로고 안전</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>출시 브랜드</h1><span class='wf-pill accent'>블로그 hero</span><span class='wf-pill'>제품 이미지</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>브랜드 미디어 만들기</strong><div class='wf-box'>승인된 로고와 제품 참고 자료를 사용한 홈페이지 hero 옵션 3개.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>웹 내보내기</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>히어로 A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>참조 세트</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>로고 안전</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 앱을 열면 선택한 라이브러리, 프롬프트, 참조 및 생성된 후보가 하나의 작업 공간에 유지됩니다. 에이전트는 UI가 사용하는 것과 동일한 actions를 통해 모든 자산을 탐색, 검색, 생성, 구체화 및 내보낼 수 있습니다.
@@ -131,236 +136,244 @@ npx @agent-native/core@latest create my-assets --standalone --template assets
 | `image_assets`                   | 자산 기록 — 미디어 유형, 역할, 상태, 제목/설명/대체 텍스트, 프롬프트, 모델, 크기, MIME 유형, 개체/썸네일 키 및 계보                                                                  |
 | `image_generation_runs`          | 생성 감사 로그 — 프롬프트, 컴파일된 프롬프트, 모델, 참조, 상태, 오류 및 이를 트리거한 `source`(`chat` / `ui` / `a2a`)                                                                |
 
-<DataModel id="doc-block-a0hcix" title={"자산 데이터 모델"} summary={"Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."} entities={[
-  {
-    "id": "library",
-    "name": "image_libraries",
-    "note": "최상위 소유 가능 컨테이너",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "logo_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      },
-      {
-        "name": "archived",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "library_shares",
-    "name": "image_library_shares",
-    "note": "프레임워크 공유 테이블",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "role",
-        "type": "text",
-        "note": "viewer / editor / admin"
-      }
-    ]
-  },
-  {
-    "id": "collections",
-    "name": "image_collections",
-    "note": "Style/category 그룹화",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "prompt_template",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "asset_folders",
-    "note": "중첩 가능한 폴더",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "parent_id",
-        "type": "id",
-        "fk": "asset_folders.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "presets",
-    "name": "image_generation_presets",
-    "note": "저장된 세대 레시피",
-    "fields": [
-      {
-        "name": "media_type",
-        "type": "text"
-      },
-      {
-        "name": "prompt_template",
-        "type": "text"
-      },
-      {
-        "name": "model",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "image_generation_sessions",
-    "note": "반복적인 생성 및 선택",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "active_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "session_items",
-    "name": "image_generation_session_items",
-    "note": "세션의 후보 자산",
-    "fields": [
-      {
-        "name": "session_id",
-        "type": "id",
-        "fk": "image_generation_sessions.id"
-      },
-      {
-        "name": "asset_id",
-        "type": "id",
-        "fk": "image_assets.id"
-      },
-      {
-        "name": "role",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "assets",
-    "name": "image_assets",
-    "note": "자산 기록",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "media_type",
-        "type": "text",
-        "note": "image / video"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "prompt",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "object_key",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "runs",
-    "name": "image_generation_runs",
-    "note": "생성 감사 로그",
-    "fields": [
-      {
-        "name": "model",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "note": "chat / ui / a2a"
-      }
-    ]
+<DataModel
+  id="doc-block-a0hcix"
+  title={"자산 데이터 모델"}
+  summary={
+    "Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
   }
-]} relations={[
-  {
-    "from": "library",
-    "to": "collections",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "folders",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "assets",
-    "kind": "1-n"
-  },
-  {
-    "from": "sessions",
-    "to": "session_items",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "library_shares",
-    "kind": "1-n"
-  }
-]} />
+  entities={[
+    {
+      id: "library",
+      name: "image_libraries",
+      note: "최상위 소유 가능 컨테이너",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "logo_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+        {
+          name: "archived",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "library_shares",
+      name: "image_library_shares",
+      note: "프레임워크 공유 테이블",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "collections",
+      name: "image_collections",
+      note: "Style/category 그룹화",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "asset_folders",
+      note: "중첩 가능한 폴더",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "parent_id",
+          type: "id",
+          fk: "asset_folders.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "presets",
+      name: "image_generation_presets",
+      note: "저장된 세대 레시피",
+      fields: [
+        {
+          name: "media_type",
+          type: "text",
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+        },
+        {
+          name: "model",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "image_generation_sessions",
+      note: "반복적인 생성 및 선택",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "active_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "session_items",
+      name: "image_generation_session_items",
+      note: "세션의 후보 자산",
+      fields: [
+        {
+          name: "session_id",
+          type: "id",
+          fk: "image_generation_sessions.id",
+        },
+        {
+          name: "asset_id",
+          type: "id",
+          fk: "image_assets.id",
+        },
+        {
+          name: "role",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "assets",
+      name: "image_assets",
+      note: "자산 기록",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "media_type",
+          type: "text",
+          note: "image / video",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "prompt",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "object_key",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "runs",
+      name: "image_generation_runs",
+      note: "생성 감사 로그",
+      fields: [
+        {
+          name: "model",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          note: "chat / ui / a2a",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "library",
+      to: "collections",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "folders",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "assets",
+      kind: "1-n",
+    },
+    {
+      from: "sessions",
+      to: "session_items",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "library_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
 
 ### 맞춤설정
 

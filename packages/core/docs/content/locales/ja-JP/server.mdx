@@ -103,23 +103,32 @@ export default defineAction({
 
 フレームワークによってマウントされた Actions は、リクエスト コンテキストを使用して自動的に実行されます。カスタムルートはそうではありません。カスタム ルートが所有可能なリソースを読み書きする場合は、セッションをロードして作業をラップします。
 
-<AnnotatedCode id="doc-block-2srqi" title={"カスタムルートのスコープをリクエストユーザーに設定する"} filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project共有s));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "カスタムルートには自動コンテキストがありません",
-    "note": "アクションとは異なり、ファイル ルートはセッション自体をロードし、認証されたユーザーがいない場合はフェール クローズする必要があります。"
-  },
-  {
-    "lines": "12-13",
-    "label": "リクエストコンテキストを確立する",
-    "note": "`runWithRequestContext` により、作業中にスコープ ヘルパーが user/org を利用できるようになります。"
-  },
-  {
-    "lines": "18-19",
-    "label": "所有可能な読み取りのスコープ",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-2srqi"
+  title={"カスタムルートのスコープをリクエストユーザーに設定する"}
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project共有s));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "カスタムルートには自動コンテキストがありません",
+      note: "アクションとは異なり、ファイル ルートはセッション自体をロードし、認証されたユーザーがいない場合はフェール クローズする必要があります。",
+    },
+    {
+      lines: "12-13",
+      label: "リクエストコンテキストを確立する",
+      note: "`runWithRequestContext` により、作業中にスコープ ヘルパーが user/org を利用できるようになります。",
+    },
+    {
+      lines: "18-19",
+      label: "所有可能な読み取りのスコープ",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `getDb` は、`server/db/index.ts` の `createGetDb(schema)` 経由でアプリごとに作成されるため、カスタム ルートは `@agent-native/core/db` からではなく、テンプレート (`../../db/index.js`) からインポートします。 [Database — Where the DB Client Lives](/docs/database#db-client)を参照してください。カスタム ルートではスコープ外の `db.select().from(ownableTable)` を実行しないでください。
 

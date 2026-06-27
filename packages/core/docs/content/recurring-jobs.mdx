@@ -13,28 +13,37 @@ Jobs live in the [workspace](/docs/workspace) at `jobs/<name>.md` — just a Mar
 
 ## A job file {#job-file}
 
-<AnnotatedCode id="doc-block-3pl82t" title="jobs/morning-digest.md" filename="jobs/morning-digest.md" language="markdown" code={"---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Morning digest\n\nSummarize the emails received overnight. Group by sender domain.\nPin the top 3 threads that look like they need a reply today to the\n\"Needs reply\" label. Draft replies for any that are obvious."} annotations={[
-  {
-    "lines": "2",
-    "label": "When",
-    "note": "Standard 5-field cron — `0 7 * * *` is every day at 07:00."
-  },
-  {
-    "lines": "3",
-    "label": "Pause switch",
-    "note": "Flip to `false` to stop the job without deleting it."
-  },
-  {
-    "lines": "4",
-    "label": "Identity",
-    "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key."
-  },
-  {
-    "lines": "7-12",
-    "label": "The prompt",
-    "note": "The body is just a prompt — the agent runs it at each firing with all its normal tools and workspace context."
+<AnnotatedCode
+  id="doc-block-3pl82t"
+  title="jobs/morning-digest.md"
+  filename="jobs/morning-digest.md"
+  language="markdown"
+  code={
+    '---\nschedule: "0 7 * * *"\nenabled: true\nrunAs: creator\n---\n\n# Morning digest\n\nSummarize the emails received overnight. Group by sender domain.\nPin the top 3 threads that look like they need a reply today to the\n"Needs reply" label. Draft replies for any that are obvious.'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "When",
+      note: "Standard 5-field cron — `0 7 * * *` is every day at 07:00.",
+    },
+    {
+      lines: "3",
+      label: "Pause switch",
+      note: "Flip to `false` to stop the job without deleting it.",
+    },
+    {
+      lines: "4",
+      label: "Identity",
+      note: "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key.",
+    },
+    {
+      lines: "7-12",
+      label: "The prompt",
+      note: "The body is just a prompt — the agent runs it at each firing with all its normal tools and workspace context.",
+    },
+  ]}
+/>
 
 That's it. The body is a prompt the agent runs at each scheduled firing. The agent has access to all the same tools and workspace context it has in an interactive chat — actions, skills, memory, connected MCP servers, sub-agents.
 

@@ -47,24 +47,28 @@ main                         ← production
 
 يتم تكوين إدارة التعليمات البرمجية من خلال عدد قليل من الملفات في جذر الريبو:
 
-<FileTree id="doc-block-1mdjyq3" title={"إعدادات الحوكمة في repo"} entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "يعيّن reviewers تلقائياً حسب المسار المتغير"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "يضيف labels تلقائياً إلى PRs حسب app"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "على مستوى workspace: review واسعة"
-  },
-  {
-    "path": "package.json",
-    "note": "على مستوى workspace: يملكه فريق platform"
-  }
-]} />
+<FileTree
+  id="doc-block-1mdjyq3"
+  title={"إعدادات الحوكمة في repo"}
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "يعيّن reviewers تلقائياً حسب المسار المتغير",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "يضيف labels تلقائياً إلى PRs حسب app",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "على مستوى workspace: review واسعة",
+    },
+    {
+      path: "package.json",
+      note: "على مستوى workspace: يملكه فريق platform",
+    },
+  ]}
+/>
 
 يقوم ملف CODEOWNERS الخاص بـ GitHub بتعيين المراجعين تلقائيًا إلى PRs بناءً على الملفات التي تم تغييرها. قم بإنشاء `.github/CODEOWNERS` في جذر الريبو:
 

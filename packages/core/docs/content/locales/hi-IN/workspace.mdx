@@ -185,36 +185,43 @@ instructions/legal-review-policy.md
 
 इनमें से हर एक सतह - `AGENTS.md`, skills, मेमोरी, कस्टम एजेंट, MCP सर्वर - एक ही अंतर्निहित संसाधन आकार है: एक `path` + `scope` + `content`, उसी तरह से संबोधित और हल किया गया है।
 
-<DataModel id="doc-block-1p22j2y" title={"कार्यस्थान संसाधन मॉडल"} summary={"एक संसाधन आकार प्रत्येक कार्यक्षेत्र फ़ाइल का समर्थन करता है। रनटाइम इसे पथ और दायरे के आधार पर कुंजीबद्ध करता है और पढ़ने पर प्रभावी मान का समाधान करता है।"} entities={[
-  {
-    "id": "resource",
-    "name": "workspace resource",
-    "note": "उपयोगकर्ता के कार्यक्षेत्र में एक एकल फ़ाइल - निर्देश, कौशल, मेमोरी, एजेंट, MCP कॉन्फ़िगरेशन, या कार्य।",
-    "fields": [
-      {
-        "name": "path",
-        "type": "string",
-        "note": "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md"
-      },
-      {
-        "name": "scope",
-        "type": "workspace | shared | personal",
-        "note": "यह पंक्ति किस स्तर पर रहती है"
-      },
-      {
-        "name": "owner",
-        "type": "string",
-        "nullable": true,
-        "note": "u:<email> for personal scope"
-      },
-      {
-        "name": "content",
-        "type": "text",
-        "note": "मार्कडाउन / JSON / YAML बॉडी"
-      }
-    ]
+<DataModel
+  id="doc-block-1p22j2y"
+  title={"कार्यस्थान संसाधन मॉडल"}
+  summary={
+    "एक संसाधन आकार प्रत्येक कार्यक्षेत्र फ़ाइल का समर्थन करता है। रनटाइम इसे पथ और दायरे के आधार पर कुंजीबद्ध करता है और पढ़ने पर प्रभावी मान का समाधान करता है।"
   }
-]} />
+  entities={[
+    {
+      id: "resource",
+      name: "workspace resource",
+      note: "उपयोगकर्ता के कार्यक्षेत्र में एक एकल फ़ाइल - निर्देश, कौशल, मेमोरी, एजेंट, MCP कॉन्फ़िगरेशन, या कार्य।",
+      fields: [
+        {
+          name: "path",
+          type: "string",
+          note: "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md",
+        },
+        {
+          name: "scope",
+          type: "workspace | shared | personal",
+          note: "यह पंक्ति किस स्तर पर रहती है",
+        },
+        {
+          name: "owner",
+          type: "string",
+          nullable: true,
+          note: "u:<email> for personal scope",
+        },
+        {
+          name: "content",
+          type: "text",
+          note: "मार्कडाउन / JSON / YAML बॉडी",
+        },
+      ],
+    },
+  ]}
+/>
 
 ## Skills {#skills}
 
@@ -232,27 +239,36 @@ Skills, `skills/` पथ (अधिमानतः `skills/<name>/SKILL.md`) क
 
 कस्टम एजेंट YAML फ्रंटमैटर प्लस Markdown निर्देशों का उपयोग करते हैं:
 
-<AnnotatedCode id="doc-block-1uh24lt" title={"एक कस्टम एजेंट प्रोफ़ाइल"} filename="agents/design.md" language="markdown" code={"---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# भूमिका\n\nआप एक केंद्रित डिजाइन एजेंट हैं।\n\n## जिम्मेदारियां\n\n- लेआउट और इंटरैक्शन प्रवाह की समीक्षा करें\n- मजबूत दृश्य दिशा का सुझाव दें\n- संक्षिप्त और विचारशील बनें"} annotations={[
-  {
-    "lines": "2",
-    "label": "@mention handle",
-    "note": "`name` वह है जो `@`-ड्रॉपडाउन में दिखाई देता है और मुख्य एजेंट जिसे सौंपता है।"
-  },
-  {
-    "lines": "3-4",
-    "label": "कब प्रत्यायोजित करें",
-    "note": "`description` वह है जिसे ऑर्केस्ट्रेटर यह तय करने के लिए पढ़ता है कि यह प्रोफ़ाइल किसी कार्य के लिए उपयुक्त है।"
-  },
-  {
-    "lines": "5",
-    "label": "मॉडल",
-    "note": "`inherit` मुख्य एजेंट के मॉडल का पुन: उपयोग करता है। केवल तभी ओवरराइड करें जब प्रोफ़ाइल को स्पष्ट रूप से किसी भिन्न प्रोफ़ाइल की आवश्यकता हो।"
-  },
-  {
-    "lines": "6",
-    "note": "`tools: inherit` अभी के लिए - फ़ील्ड भविष्य की प्रति-एजेंट टूल नीतियों के लिए आरक्षित है।"
+<AnnotatedCode
+  id="doc-block-1uh24lt"
+  title={"एक कस्टम एजेंट प्रोफ़ाइल"}
+  filename="agents/design.md"
+  language="markdown"
+  code={
+    "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# भूमिका\n\nआप एक केंद्रित डिजाइन एजेंट हैं।\n\n## जिम्मेदारियां\n\n- लेआउट और इंटरैक्शन प्रवाह की समीक्षा करें\n- मजबूत दृश्य दिशा का सुझाव दें\n- संक्षिप्त और विचारशील बनें"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "@mention handle",
+      note: "`name` वह है जो `@`-ड्रॉपडाउन में दिखाई देता है और मुख्य एजेंट जिसे सौंपता है।",
+    },
+    {
+      lines: "3-4",
+      label: "कब प्रत्यायोजित करें",
+      note: "`description` वह है जिसे ऑर्केस्ट्रेटर यह तय करने के लिए पढ़ता है कि यह प्रोफ़ाइल किसी कार्य के लिए उपयुक्त है।",
+    },
+    {
+      lines: "5",
+      label: "मॉडल",
+      note: "`inherit` मुख्य एजेंट के मॉडल का पुन: उपयोग करता है। केवल तभी ओवरराइड करें जब प्रोफ़ाइल को स्पष्ट रूप से किसी भिन्न प्रोफ़ाइल की आवश्यकता हो।",
+    },
+    {
+      lines: "6",
+      note: "`tools: inherit` अभी के लिए - फ़ील्ड भविष्य की प्रति-एजेंट टूल नीतियों के लिए आरक्षित है।",
+    },
+  ]}
+/>
 
 अनुशंसित परंपराएँ:
 

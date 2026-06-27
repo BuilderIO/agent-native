@@ -27,7 +27,12 @@ Oberflächen zum Verbinden von Daten, zum Genehmigen von Vorschlägen und zum Ü
 ```
 
 <WireframeBlock id="doc-block-9wj2l9">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Unternehmensgedächtnis fragen</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Suchen'></span><strong style='flex:1'>Warum haben wir nutzungsbasierte Preise gewählt?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>Das Team entschied sich für nutzungsbasierte Preise, nachdem Piloten zeigten, dass Sitzplatzanzahlen den Automatisierungswert unterschätzen.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>Pricing-RFC</span><span class='wf-pill'>Launch-Retro</span><span class='wf-pill'>Vertriebsnotizen</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Quellen-Zeitleiste</strong><div class='wf-box'>3. Mai · Entscheidung erfasst</div><div class='wf-box'>8. Mai · Kundennachweis ergänzt</div><div class='wf-box'>12. Mai · Rechtsnotiz genehmigt</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Unternehmensgedächtnis fragen</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='Suchen'></span><strong style='flex:1'>Warum haben wir nutzungsbasierte Preise gewählt?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>Das Team entschied sich für nutzungsbasierte Preise, nachdem Piloten zeigten, dass Sitzplatzanzahlen den Automatisierungswert unterschätzen.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>Pricing-RFC</span><span class='wf-pill'>Launch-Retro</span><span class='wf-pill'>Vertriebsnotizen</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Quellen-Zeitleiste</strong><div class='wf-box'>3. Mai · Entscheidung erfasst</div><div class='wf-box'>8. Mai · Kundennachweis ergänzt</div><div class='wf-box'>12. Mai · Rechtsnotiz genehmigt</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Wenn Sie die App öffnen, steht **Ask** im Vordergrund – ein sauberer, überprüfter Chat
@@ -149,221 +154,229 @@ Das Schema von Brain befindet sich in `templates/brain/server/db/schema.ts`. Ach
 | `brain_sync_runs`        | Überwachungsprotokoll synchronisieren – Anbieter, Status, Statistiken JSON, Fehler, Start-/Endzeitstempel                                                              |
 | `brain_ingest_queue`     | Hintergrund-Destillationswarteschlange – Vorgang, Status, Priorität, Anzahl der Wiederholungen, `run_after`                                                            |
 
-<DataModel id="doc-block-19q0jla" title="Brain Datenmodell" summary={"Connectors erzeugen Roh-Captures; Distillation verwandelt sie in prüfbares Wissen; Vorschläge schützen sensible Einträge. Sync-Runs und die Ingest-Warteschlange verfolgen Hintergrundarbeit."} entities={[
-  {
-    "id": "sources",
-    "name": "brain_sources",
-    "note": "Connector-Konfiguration",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "provider",
-        "type": "text",
-        "note": "slack / granola / github / clips / webhook"
-      },
-      {
-        "name": "ingest_token_hash",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "last_synced_at",
-        "type": "timestamp",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "source_shares",
-    "name": "brain_source_shares",
-    "note": "viewer / editor / admin",
-    "fields": [
-      {
-        "name": "source_id",
-        "type": "id",
-        "fk": "brain_sources.id"
-      }
-    ]
-  },
-  {
-    "id": "captures",
-    "name": "brain_raw_captures",
-    "note": "Rohe Nutzlasten aufgenommen",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "source_id",
-        "type": "id",
-        "fk": "brain_sources.id"
-      },
-      {
-        "name": "external_id",
-        "type": "text",
-        "note": "dedupe key"
-      },
-      {
-        "name": "content_hash",
-        "type": "text"
-      },
-      {
-        "name": "kind",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "knowledge",
-    "name": "brain_knowledge",
-    "note": "Destillierte Atomeinträge",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "kind",
-        "type": "text",
-        "note": "decision / fact / process"
-      },
-      {
-        "name": "topic",
-        "type": "text"
-      },
-      {
-        "name": "entities",
-        "type": "json"
-      },
-      {
-        "name": "confidence",
-        "type": "real"
-      },
-      {
-        "name": "publish_tier",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "knowledge_shares",
-    "name": "brain_knowledge_shares",
-    "fields": [
-      {
-        "name": "knowledge_id",
-        "type": "id",
-        "fk": "brain_knowledge.id"
-      }
-    ]
-  },
-  {
-    "id": "proposals",
-    "name": "brain_proposals",
-    "note": "Ausstehende Überprüfungselemente",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "op",
-        "type": "text",
-        "note": "create / update / archive"
-      }
-    ]
-  },
-  {
-    "id": "proposal_shares",
-    "name": "brain_proposal_shares",
-    "fields": [
-      {
-        "name": "proposal_id",
-        "type": "id",
-        "fk": "brain_proposals.id"
-      }
-    ]
-  },
-  {
-    "id": "sync_runs",
-    "name": "brain_sync_runs",
-    "note": "Audit-Protokoll synchronisieren",
-    "fields": [
-      {
-        "name": "source_id",
-        "type": "id",
-        "fk": "brain_sources.id"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "stats",
-        "type": "json"
-      }
-    ]
-  },
-  {
-    "id": "ingest_queue",
-    "name": "brain_ingest_queue",
-    "note": "Hintergrunddestillationswarteschlange",
-    "fields": [
-      {
-        "name": "operation",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "priority",
-        "type": "int"
-      },
-      {
-        "name": "run_after",
-        "type": "timestamp",
-        "nullable": true
-      }
-    ]
+<DataModel
+  id="doc-block-19q0jla"
+  title="Brain Datenmodell"
+  summary={
+    "Connectors erzeugen Roh-Captures; Distillation verwandelt sie in prüfbares Wissen; Vorschläge schützen sensible Einträge. Sync-Runs und die Ingest-Warteschlange verfolgen Hintergrundarbeit."
   }
-]} relations={[
-  {
-    "from": "sources",
-    "to": "captures",
-    "kind": "1-n",
-    "label": "ingested into"
-  },
-  {
-    "from": "knowledge",
-    "to": "captures",
-    "kind": "n-n",
-    "label": "evidence"
-  },
-  {
-    "from": "knowledge",
-    "to": "proposals",
-    "kind": "1-n",
-    "label": "gated by"
-  },
-  {
-    "from": "sources",
-    "to": "sync_runs",
-    "kind": "1-n",
-    "label": "audited by"
-  }
-]} />
+  entities={[
+    {
+      id: "sources",
+      name: "brain_sources",
+      note: "Connector-Konfiguration",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "provider",
+          type: "text",
+          note: "slack / granola / github / clips / webhook",
+        },
+        {
+          name: "ingest_token_hash",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "last_synced_at",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "source_shares",
+      name: "brain_source_shares",
+      note: "viewer / editor / admin",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+      ],
+    },
+    {
+      id: "captures",
+      name: "brain_raw_captures",
+      note: "Rohe Nutzlasten aufgenommen",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "external_id",
+          type: "text",
+          note: "dedupe key",
+        },
+        {
+          name: "content_hash",
+          type: "text",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge",
+      name: "brain_knowledge",
+      note: "Destillierte Atomeinträge",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: "decision / fact / process",
+        },
+        {
+          name: "topic",
+          type: "text",
+        },
+        {
+          name: "entities",
+          type: "json",
+        },
+        {
+          name: "confidence",
+          type: "real",
+        },
+        {
+          name: "publish_tier",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge_shares",
+      name: "brain_knowledge_shares",
+      fields: [
+        {
+          name: "knowledge_id",
+          type: "id",
+          fk: "brain_knowledge.id",
+        },
+      ],
+    },
+    {
+      id: "proposals",
+      name: "brain_proposals",
+      note: "Ausstehende Überprüfungselemente",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "op",
+          type: "text",
+          note: "create / update / archive",
+        },
+      ],
+    },
+    {
+      id: "proposal_shares",
+      name: "brain_proposal_shares",
+      fields: [
+        {
+          name: "proposal_id",
+          type: "id",
+          fk: "brain_proposals.id",
+        },
+      ],
+    },
+    {
+      id: "sync_runs",
+      name: "brain_sync_runs",
+      note: "Audit-Protokoll synchronisieren",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "stats",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "ingest_queue",
+      name: "brain_ingest_queue",
+      note: "Hintergrunddestillationswarteschlange",
+      fields: [
+        {
+          name: "operation",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "priority",
+          type: "int",
+        },
+        {
+          name: "run_after",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "sources",
+      to: "captures",
+      kind: "1-n",
+      label: "ingested into",
+    },
+    {
+      from: "knowledge",
+      to: "captures",
+      kind: "n-n",
+      label: "evidence",
+    },
+    {
+      from: "knowledge",
+      to: "proposals",
+      kind: "1-n",
+      label: "gated by",
+    },
+    {
+      from: "sources",
+      to: "sync_runs",
+      kind: "1-n",
+      label: "audited by",
+    },
+  ]}
+/>
 
 ### Schlüssel actions
 
@@ -426,8 +439,6 @@ Notizen oder jede andere Quelle, die eine begrenzte Erfassung erstellen kann.
     "description": "Missing or invalid ingest bearer token"
   }
 ]}>
-
-
 
 </Endpoint>
 

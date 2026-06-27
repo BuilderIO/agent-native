@@ -188,33 +188,38 @@ export const projects = table("projects", {
 });
 ```
 
-<DataModel id="doc-block-ne78tl" title="What ownableColumns() adds" summary={"這三列使表具有租戶意識且可共用。"} entities={[
-  {
-    "id": "ownable",
-    "name": "ownable resource",
-    "note": "Any table that spreads ...ownableColumns()",
-    "fields": [
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "Creator. Auto-filled by write actions; auto-injected on INSERT."
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true,
-        "note": "所有者在建立時的活動組織。推動組織可見性檢查。"
-      },
-      {
-        "name": "visibility",
-        "type": "enum",
-        "nullable": false,
-        "note": "私人|組織| public — 粗略預設值，預設為私人。"
-      }
-    ]
-  }
-]} />
+<DataModel
+  id="doc-block-ne78tl"
+  title="What ownableColumns() adds"
+  summary={"這三列使表具有租戶意識且可共用。"}
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads ...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "所有者在建立時的活動組織。推動組織可見性檢查。",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "私人|組織| public — 粗略預設值，預設為私人。",
+        },
+      ],
+    },
+  ]}
+/>
 
 ### actions中的存取守衛 {#access-guards}
 

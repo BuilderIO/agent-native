@@ -89,55 +89,62 @@ export const tasks = table("tasks", {
 
 上面的 `tasks` 表在每个后端定义了相同的列：
 
-<DataModel id="doc-block-1m0kgyx" title={"任务表"} summary={"Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."} entities={[
-  {
-    "id": "tasks",
-    "name": "tasks",
-    "note": "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true,
-        "nullable": false
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "priority",
-        "type": "integer",
-        "nullable": false,
-        "note": "default 0"
-      },
-      {
-        "name": "weight",
-        "type": "real",
-        "nullable": true
-      },
-      {
-        "name": "done",
-        "type": "integer (boolean mode)",
-        "nullable": false,
-        "note": "default false; maps to a Postgres boolean"
-      },
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "enables data scoping"
-      },
-      {
-        "name": "created_at",
-        "type": "text",
-        "nullable": false,
-        "note": "default now()"
-      }
-    ]
+<DataModel
+  id="doc-block-1m0kgyx"
+  title={"任务表"}
+  summary={
+    "Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
   }
-]} />
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "weight",
+          type: "real",
+          nullable: true,
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
 
 切勿直接从 `drizzle-orm/sqlite-core` 或 `drizzle-orm/pg-core` 导入。始终使用 `@agent-native/core/db/schema`。
 
@@ -191,23 +198,32 @@ await db.update(tasks).set({ done: true }).where(eq(tasks.id, taskId));
 
 不应直接推送，而应通过在应用程序启动时执行的 SQL 迁移来应用架构更改。通过调用框架的 `runMigrations()` 帮助程序，在服务器插件（例如 `server/plugins/db.ts`）中实现附加迁移：
 
-<AnnotatedCode id="doc-block-1nc5pb9" title={"附加迁移插件"} filename="server/plugins/db.ts" language="ts" code={"import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);"} annotations={[
-  {
-    "lines": "6-7",
-    "label": "仅添加剂",
-    "note": "`ADD COLUMN IF NOT EXISTS` 可以安全地重新运行并且永远不会丢失数据。重命名看起来像 drop+create 为 Drizzle，所以改为添加然后迁移。"
-  },
-  {
-    "lines": "13-16",
-    "label": "方言门控",
-    "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features."
-  },
-  {
-    "lines": "19",
-    "label": "每个应用程序版本表",
-    "note": "每个应用程序都会跟踪自己的应用版本，因此迁移在重新启动和实例之间是幂等的。"
+<AnnotatedCode
+  id="doc-block-1nc5pb9"
+  title={"附加迁移插件"}
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
-]} />
+  annotations={[
+    {
+      lines: "6-7",
+      label: "仅添加剂",
+      note: "`ADD COLUMN IF NOT EXISTS` 可以安全地重新运行并且永远不会丢失数据。重命名看起来像 drop+create 为 Drizzle，所以改为添加然后迁移。",
+    },
+    {
+      lines: "13-16",
+      label: "方言门控",
+      note: "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features.",
+    },
+    {
+      lines: "19",
+      label: "每个应用程序版本表",
+      note: "每个应用程序都会跟踪自己的应用版本，因此迁移在重新启动和实例之间是幂等的。",
+    },
+  ]}
+/>
 
 ## 环境变量 {#environment-variables}
 

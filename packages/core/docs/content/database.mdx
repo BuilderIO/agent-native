@@ -104,55 +104,62 @@ export const tasks = table("tasks", {
 
 The `tasks` table above defines the same columns on every backend:
 
-<DataModel id="doc-block-14e70da" title="The tasks table" summary={"Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."} entities={[
-  {
-    "id": "tasks",
-    "name": "tasks",
-    "note": "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true,
-        "nullable": false
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "priority",
-        "type": "integer",
-        "nullable": false,
-        "note": "default 0"
-      },
-      {
-        "name": "weight",
-        "type": "real",
-        "nullable": true
-      },
-      {
-        "name": "done",
-        "type": "integer (boolean mode)",
-        "nullable": false,
-        "note": "default false; maps to a Postgres boolean"
-      },
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "enables data scoping"
-      },
-      {
-        "name": "created_at",
-        "type": "text",
-        "nullable": false,
-        "note": "default now()"
-      }
-    ]
+<DataModel
+  id="doc-block-14e70da"
+  title="The tasks table"
+  summary={
+    "Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
   }
-]} />
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "weight",
+          type: "real",
+          nullable: true,
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
 
 Never import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` directly. Always use `@agent-native/core/db/schema`.
 
@@ -206,23 +213,32 @@ All database schema updates must be **strictly additive**.
 
 Instead of pushing directly, schema changes should be applied via SQL migrations executed at application startup. Implement additive migrations within a server plugin (e.g., `server/plugins/db.ts`) by invoking the framework's `runMigrations()` helper:
 
-<AnnotatedCode id="doc-block-zaaj7e" title="An additive migration plugin" filename="server/plugins/db.ts" language="ts" code={"import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);"} annotations={[
-  {
-    "lines": "6-7",
-    "label": "Additive only",
-    "note": "`ADD COLUMN IF NOT EXISTS` is safe to re-run and never drops data. Renames look like drop+create to Drizzle, so add-then-migrate instead."
-  },
-  {
-    "lines": "13-16",
-    "label": "Dialect gating",
-    "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features."
-  },
-  {
-    "lines": "19",
-    "label": "Per-app version table",
-    "note": "Each app tracks its own applied versions so migrations are idempotent across restarts and instances."
+<AnnotatedCode
+  id="doc-block-zaaj7e"
+  title="An additive migration plugin"
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
-]} />
+  annotations={[
+    {
+      lines: "6-7",
+      label: "Additive only",
+      note: "`ADD COLUMN IF NOT EXISTS` is safe to re-run and never drops data. Renames look like drop+create to Drizzle, so add-then-migrate instead.",
+    },
+    {
+      lines: "13-16",
+      label: "Dialect gating",
+      note: "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features.",
+    },
+    {
+      lines: "19",
+      label: "Per-app version table",
+      note: "Each app tracks its own applied versions so migrations are idempotent across restarts and instances.",
+    },
+  ]}
+/>
 
 ## Environment Variables {#environment-variables}
 

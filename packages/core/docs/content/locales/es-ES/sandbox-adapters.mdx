@@ -51,24 +51,29 @@ Mantener el contrato restringido significa que un adaptador remoto hereda la mis
 
 La costura se encuentra en el núcleo en `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (el contrato), `index.ts` (selección: `getSandboxAdapter()` / `registerSandboxAdapter()`) y `local-child-process-adapter.ts` (el valor predeterminado). Está cableado en el paquete por `run-code.ts`; un host conecta un backend diferente a través del asistente de registro `index.ts` (o, para un backend Docker, a través del [blueprint](/docs/blueprint-installer) que edita estos archivos directamente).
 
-<FileTree id="doc-block-e16klt" title={"El punto de unión del sandbox en core"} title="packages/core/src/coding-tools/sandbox/" entries={[
-  {
-    "path": "adapter.ts",
-    "note": "El contrato SandboxAdapter (SandboxRunRequest / SandboxRunResult)"
-  },
-  {
-    "path": "index.ts",
-    "note": "Selección: getSandboxAdapter() / registerSandboxAdapter()"
-  },
-  {
-    "path": "local-child-process-adapter.ts",
-    "note": "Backend predeterminado: proceso hijo de Node bloqueado"
-  },
-  {
-    "path": "../run-code.ts",
-    "note": "Conecta ese punto; no cambia al sustituir backends"
-  }
-]} />
+<FileTree
+  id="doc-block-e16klt"
+  title={"El punto de unión del sandbox en core"}
+  title="packages/core/src/coding-tools/sandbox/"
+  entries={[
+    {
+      path: "adapter.ts",
+      note: "El contrato SandboxAdapter (SandboxRunRequest / SandboxRunResult)",
+    },
+    {
+      path: "index.ts",
+      note: "Selección: getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "local-child-process-adapter.ts",
+      note: "Backend predeterminado: proceso hijo de Node bloqueado",
+    },
+    {
+      path: "../run-code.ts",
+      note: "Conecta ese punto; no cambia al sustituir backends",
+    },
+  ]}
+/>
 
 Cada backend implementa `SandboxAdapter`:
 

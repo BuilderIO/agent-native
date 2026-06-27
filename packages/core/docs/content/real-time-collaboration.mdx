@@ -624,7 +624,7 @@ Key properties:
 
 <Callout id="doc-block-45stvr" tone="risk">
 
-**Same-region simultaneous rewrite is last-write-wins.** If the agent rewrites a passage while a human has unsaved edits in the *exact same region*, the lead-client snapshot can clobber the in-flight human edit. Edits in different regions always merge cleanly via the CRDT. For structured documents, use granular server-side merge to sidestep this entirely.
+**Same-region simultaneous rewrite is last-write-wins.** If the agent rewrites a passage while a human has unsaved edits in the _exact same region_, the lead-client snapshot can clobber the in-flight human edit. Edits in different regions always merge cleanly via the CRDT. For structured documents, use granular server-side merge to sidestep this entirely.
 
 </Callout>
 

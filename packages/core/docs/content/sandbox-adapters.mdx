@@ -51,24 +51,29 @@ Keeping the contract narrow means a remote adapter inherits the same security po
 
 The seam lives in core at `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (the contract), `index.ts` (selection: `getSandboxAdapter()` / `registerSandboxAdapter()`), and `local-child-process-adapter.ts` (the default). It is wired in-package by `run-code.ts`; a host plugs in a different backend through the `index.ts` registration helper (or, for a Docker backend, via the [blueprint](/docs/blueprint-installer) that edits these files directly).
 
-<FileTree id="doc-block-b1k8n3" title="The sandbox seam in core" title="packages/core/src/coding-tools/sandbox/" entries={[
-  {
-    "path": "adapter.ts",
-    "note": "the SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)"
-  },
-  {
-    "path": "index.ts",
-    "note": "selection: getSandboxAdapter() / registerSandboxAdapter()"
-  },
-  {
-    "path": "local-child-process-adapter.ts",
-    "note": "the default backend — locked-down Node child process"
-  },
-  {
-    "path": "../run-code.ts",
-    "note": "wires the seam; never changes when you swap backends"
-  }
-]} />
+<FileTree
+  id="doc-block-b1k8n3"
+  title="The sandbox seam in core"
+  title="packages/core/src/coding-tools/sandbox/"
+  entries={[
+    {
+      path: "adapter.ts",
+      note: "the SandboxAdapter contract (SandboxRunRequest / SandboxRunResult)",
+    },
+    {
+      path: "index.ts",
+      note: "selection: getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "local-child-process-adapter.ts",
+      note: "the default backend — locked-down Node child process",
+    },
+    {
+      path: "../run-code.ts",
+      note: "wires the seam; never changes when you swap backends",
+    },
+  ]}
+/>
 
 Every backend implements `SandboxAdapter`:
 

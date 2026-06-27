@@ -8,7 +8,12 @@ description: "Faça perguntas analíticas em inglês simples e receba gráficos 
 Faça perguntas analíticas em inglês simples e receba gráficos e painéis de volta. O agente se conecta ao BigQuery, GA4, Amplitude, ao coletor de eventos primário integrado, HubSpot, Jira e uma dúzia de outras fontes, escreve a consulta para você, valida-a e renderiza a resposta como um gráfico, tabela ou painel de painel salvo.
 
 <WireframeBlock id="doc-block-1wcp66i">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Templates Agent-Native</h1><p class='wf-muted' style='margin:0'>Adoção e engajamento nas últimas 12 semanas.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Usuários ativos semanais</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>Novas inscrições</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Receita MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Usuários ativos semanais</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Receita ao longo do tempo</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Inscrições por origem</strong><br/><small class='wf-muted'>O gráfico inferior começa abaixo dos gráficos principais.</small></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Templates Agent-Native</h1><p class='wf-muted' style='margin:0'>Adoção e engajamento nas últimas 12 semanas.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Usuários ativos semanais</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>Novas inscrições</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Receita MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Usuários ativos semanais</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Receita ao longo do tempo</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Inscrições por origem</strong><br/><small class='wf-muted'>O gráfico inferior começa abaixo dos gráficos principais.</small></div></div>"
+    }
+  />
 </WireframeBlock>
 
 É um substituto de código aberto para Amplitude, Mixpanel e Looker — para equipes que desejam possuir o código, as consultas e os dados.
@@ -159,105 +164,113 @@ o cliente de login de baixo escopo permanece separado dos clientes de integraç�
 
 Tabelas principais (consulte `templates/analytics/server/db/schema.ts`):
 
-<DataModel id="doc-block-12lqbu7" title={"Modelo de dados analíticos"} summary={"Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."} entities={[
-  {
-    "id": "dashboards",
-    "name": "dashboards",
-    "note": "Painéis Explorer e SQL",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "kind",
-        "type": "text",
-        "note": "\"explorer\" or \"sql\""
-      },
-      {
-        "name": "config",
-        "type": "text",
-        "note": "JSON correspondente a SqlDashboardConfig"
-      }
-    ]
-  },
-  {
-    "id": "dashboard_views",
-    "name": "dashboard_views",
-    "note": "Predefinições de filtros salvas por painel",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "dashboard_id",
-        "type": "text",
-        "fk": "dashboards.id"
-      }
-    ]
-  },
-  {
-    "id": "analyses",
-    "name": "analyses",
-    "note": "Investigações ad hoc reexecutáveis",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "question",
-        "type": "text"
-      },
-      {
-        "name": "instructions",
-        "type": "text",
-        "note": "Execute novamente as etapas"
-      },
-      {
-        "name": "dataSources",
-        "type": "text",
-        "note": "Fontes tocadas"
-      },
-      {
-        "name": "resultMarkdown",
-        "type": "text"
-      },
-      {
-        "name": "resultData",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "bigquery_cache",
-    "name": "bigquery_cache",
-    "note": "Cache de resultados codificado por hash SQL",
-    "fields": [
-      {
-        "name": "sql_hash",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "bytes_processed",
-        "type": "integer"
-      }
-    ]
+<DataModel
+  id="doc-block-12lqbu7"
+  title={"Modelo de dados analíticos"}
+  summary={
+    "Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
   }
-]} relations={[
-  {
-    "from": "dashboards",
-    "to": "dashboard_views",
-    "kind": "1-n",
-    "label": "saved views"
-  }
-]} />
+  entities={[
+    {
+      id: "dashboards",
+      name: "dashboards",
+      note: "Painéis Explorer e SQL",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: '"explorer" or "sql"',
+        },
+        {
+          name: "config",
+          type: "text",
+          note: "JSON correspondente a SqlDashboardConfig",
+        },
+      ],
+    },
+    {
+      id: "dashboard_views",
+      name: "dashboard_views",
+      note: "Predefinições de filtros salvas por painel",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "dashboard_id",
+          type: "text",
+          fk: "dashboards.id",
+        },
+      ],
+    },
+    {
+      id: "analyses",
+      name: "analyses",
+      note: "Investigações ad hoc reexecutáveis",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "question",
+          type: "text",
+        },
+        {
+          name: "instructions",
+          type: "text",
+          note: "Execute novamente as etapas",
+        },
+        {
+          name: "dataSources",
+          type: "text",
+          note: "Fontes tocadas",
+        },
+        {
+          name: "resultMarkdown",
+          type: "text",
+        },
+        {
+          name: "resultData",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "bigquery_cache",
+      name: "bigquery_cache",
+      note: "Cache de resultados codificado por hash SQL",
+      fields: [
+        {
+          name: "sql_hash",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "bytes_processed",
+          type: "integer",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "dashboards",
+      to: "dashboard_views",
+      kind: "1-n",
+      label: "saved views",
+    },
+  ]}
+/>
 
 Mais tabelas de compartilhamento por recurso (`dashboard_shares`, `analysis_shares`) e tabelas organizacionais (`organizations`, `org_members`, `org_invitations`) fornecidas por `@agent-native/core/org`. O dicionário de dados reside na tabela `settings` da estrutura sob chaves com escopo definido.
 

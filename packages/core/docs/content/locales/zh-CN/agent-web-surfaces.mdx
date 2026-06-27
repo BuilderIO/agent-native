@@ -76,24 +76,33 @@ description: "使公共路线可爬行、可读、可引用，并可选择由代
 
 <Callout id="doc-block-s50w8y" tone="warning">
 
-**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action *and* `publicMcp: true` on the app.
+**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action _and_ `publicMcp: true` on the app.
 
 </Callout>
 
 要通过公共代理协议公开操作，该操作必须选择加入：
 
-<AnnotatedCode id="doc-block-9dsk7z" title={"在公共表面上选择一项安全行动"} filename="actions/search-docs.ts" language="ts" code={"export default defineAction({\n  description: \"搜索 published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"搜索 published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});"} annotations={[
-  {
-    "lines": "4",
-    "label": "明确选择加入",
-    "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are."
-  },
-  {
-    "lines": "5-7",
-    "label": "自我描述安全性",
-    "note": "将其标记为只读，声明它是否需要身份验证，并标记它是否是重要的。除非策略明确允许，否则公共 MCP 排除 consequential/write 操作。"
+<AnnotatedCode
+  id="doc-block-9dsk7z"
+  title={"在公共表面上选择一项安全行动"}
+  filename="actions/search-docs.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "搜索 published docs",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: "搜索 published docs",\n  },\n  run: async (args) => {\n    // ...\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "4",
+      label: "明确选择加入",
+      note: "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are.",
+    },
+    {
+      lines: "5-7",
+      label: "自我描述安全性",
+      note: "将其标记为只读，声明它是否需要身份验证，并标记它是否是重要的。除非策略明确允许，否则公共 MCP 排除 consequential/write 操作。",
+    },
+  ]}
+/>
 
 `agentWeb.publicMcp` 默认情况下保持 `false`。启用公共 MCP 时，服务器应仅公开 actions 和 `publicAgent.expose === true`，并且仍应排除后续或写入 actions，除非操作和身份验证策略明确允许它们。
 

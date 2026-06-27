@@ -113,33 +113,42 @@ Drives the sidebar checklist — returns each step's id, title, methods, require
 
 ### 從範本新增步驟
 
-<AnnotatedCode id="doc-block-knlnkd" title={"註冊自訂入門步驟"} filename="server/plugins/my-onboarding.ts" language="ts" code={"import { defineNitroPlugin } from \"@agent-native/core/server\";\nimport { registerOnboardingStep } from \"@agent-native/core/onboarding\";\nimport { listOAuthAccounts } from \"@agent-native/core/oauth-tokens\";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: \"gmail\",\n    order: 100,\n    title: \"Connect Gmail\",\n    description: \"Grant read/send access so the agent can work with email.\",\n    methods: [\n      {\n        id: \"oauth\",\n        kind: \"link\",\n        primary: true,\n        label: \"Sign in with Google\",\n        payload: { url: \"/_agent-native/google/auth-url?scope=mail\", external: false },\n      },\n      {\n        id: \"delegate\",\n        kind: \"agent-task\",\n        label: \"Let the agent set it up\",\n        badge: \"beta\",\n        payload: { prompt: \"Walk me through connecting Gmail. Set env vars as needed.\" },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts(\"google\");\n      return accounts.length > 0;\n    },\n  });\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "自動安裝",
-    "note": "從 Nitro 外掛註冊 - 此框架處理渲染、完成跟蹤和解除。"
-  },
-  {
-    "lines": "7",
-    "label": "穩定ID",
-    "note": "預設載入後使用相同的 `id` 重新註冊會覆蓋內建步驟。"
-  },
-  {
-    "lines": "12-19",
-    "label": "主要方法",
-    "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow."
-  },
-  {
-    "lines": "20-26",
-    "label": "委托路徑",
-    "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt."
-  },
-  {
-    "lines": "28-31",
-    "label": "竣工檢查",
-    "note": "`isComplete` 在伺服器端執行。 OAuth 權杖位於 `oauth_tokens` 儲存中 - 檢查它，而不是 `process.env.GMAIL_REFRESH_TOKEN`。"
+<AnnotatedCode
+  id="doc-block-knlnkd"
+  title={"註冊自訂入門步驟"}
+  filename="server/plugins/my-onboarding.ts"
+  language="ts"
+  code={
+    'import { defineNitroPlugin } from "@agent-native/core/server";\nimport { registerOnboardingStep } from "@agent-native/core/onboarding";\nimport { listOAuthAccounts } from "@agent-native/core/oauth-tokens";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: "gmail",\n    order: 100,\n    title: "Connect Gmail",\n    description: "Grant read/send access so the agent can work with email.",\n    methods: [\n      {\n        id: "oauth",\n        kind: "link",\n        primary: true,\n        label: "Sign in with Google",\n        payload: { url: "/_agent-native/google/auth-url?scope=mail", external: false },\n      },\n      {\n        id: "delegate",\n        kind: "agent-task",\n        label: "Let the agent set it up",\n        badge: "beta",\n        payload: { prompt: "Walk me through connecting Gmail. Set env vars as needed." },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts("google");\n      return accounts.length > 0;\n    },\n  });\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "自動安裝",
+      note: "從 Nitro 外掛註冊 - 此框架處理渲染、完成跟蹤和解除。",
+    },
+    {
+      lines: "7",
+      label: "穩定ID",
+      note: "預設載入後使用相同的 `id` 重新註冊會覆蓋內建步驟。",
+    },
+    {
+      lines: "12-19",
+      label: "主要方法",
+      note: '`primary: true` marks the big CTA. `kind: "link"` sends the user into the OAuth flow.',
+    },
+    {
+      lines: "20-26",
+      label: "委托路徑",
+      note: '`kind: "agent-task"` 會把設定工作連同提示交給代理聊天。',
+    },
+    {
+      lines: "28-31",
+      label: "竣工檢查",
+      note: "`isComplete` 在伺服器端執行。 OAuth 權杖位於 `oauth_tokens` 儲存中 - 檢查它，而不是 `process.env.GMAIL_REFRESH_TOKEN`。",
+    },
+  ]}
+/>
 
 ### 在入職檢查中檢查工作區連線
 

@@ -13,28 +13,37 @@ Los trabajos se encuentran en [workspace](/docs/workspace) en `jobs/<name>.md`: 
 
 ## Un archivo de trabajo {#job-file}
 
-<AnnotatedCode id="doc-block-uik2tb" title="jobs/morning-digest.md" filename="jobs/morning-digest.md" language="markdown" code={"---\nschedule: \"0 7 * * *\"\nenabled: true\nrunAs: creator\n---\n\n# Resumen matutino\n\nSummarize los correos electrónicos recibidos durante la noche. Agrupar por dominio del remitente.\nPin los 3 hilos principales que parecen necesitar una respuesta hoy a la etiqueta\n\"Necesita respuesta\". Borradores de respuestas para aquellos que sean obvios."} annotations={[
-  {
-    "lines": "2",
-    "label": "cuando",
-    "note": "Cron estándar de 5 campos: `0 7 * * *` es todos los días a las 07:00."
-  },
-  {
-    "lines": "3",
-    "label": "interruptor de pausa",
-    "note": "Flip to `false` to stop the job without deleting it."
-  },
-  {
-    "lines": "4",
-    "label": "Identidad",
-    "note": "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key."
-  },
-  {
-    "lines": "7-12",
-    "label": "el aviso",
-    "note": "El cuerpo es solo un mensaje: el agente lo ejecuta en cada disparo con todas sus herramientas normales y el contexto del espacio de trabajo."
+<AnnotatedCode
+  id="doc-block-uik2tb"
+  title="jobs/morning-digest.md"
+  filename="jobs/morning-digest.md"
+  language="markdown"
+  code={
+    '---\nschedule: "0 7 * * *"\nenabled: true\nrunAs: creator\n---\n\n# Resumen matutino\n\nSummarize los correos electrónicos recibidos durante la noche. Agrupar por dominio del remitente.\nPin los 3 hilos principales que parecen necesitar una respuesta hoy a la etiqueta\n"Necesita respuesta". Borradores de respuestas para aquellos que sean obvios.'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "cuando",
+      note: "Cron estándar de 5 campos: `0 7 * * *` es todos los días a las 07:00.",
+    },
+    {
+      lines: "3",
+      label: "interruptor de pausa",
+      note: "Flip to `false` to stop the job without deleting it.",
+    },
+    {
+      lines: "4",
+      label: "Identidad",
+      note: "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key.",
+    },
+    {
+      lines: "7-12",
+      label: "el aviso",
+      note: "El cuerpo es solo un mensaje: el agente lo ejecuta en cada disparo con todas sus herramientas normales y el contexto del espacio de trabajo.",
+    },
+  ]}
+/>
 
 Eso es todo. El cuerpo es un mensaje que el agente ejecuta en cada disparo programado. El agente tiene acceso a las mismas herramientas y contexto de espacio de trabajo que tiene en un chat interactivo: actions, skills, memoria, servidores MCP conectados, subagentes.
 

@@ -8,7 +8,12 @@ description: "用于动态图形、产品演示和动态文本的程序化视频
 一个程序化视频工作室，用于制作动态图形、产品演示和动态文本视频，这些视频很难手动设置关键帧。要求代理“显示 6 秒的徽标，并在 2 秒后淡入”，它就会构建动画。调整时间、缓动和相机在时间轴上的移动，然后渲染到 MP4 或 WebM。
 
 <WireframeBlock id="doc-block-1s0qknv">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo 展示</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion 预览</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>新轨道</button></div><div class='wf-box'>标题淡入 · 0-48 帧</div><div class='wf-box'>Logo 缩放 · 48-120 帧</div><div class='wf-box'>镜头推进 · 72-144 帧</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo 展示</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion 预览</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>新轨道</button></div><div class='wf-box'>标题淡入 · 0-48 帧</div><div class='wf-box'>Logo 缩放 · 48-120 帧</div><div class='wf-box'>镜头推进 · 72-144 帧</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 当您打开工作室时，您将在主屏幕上看到作品列表。单击其中一个，您会在顶部看到一个播放器，在底部看到一个时间线，在右侧看到一个属性面板。代理始终知道您打开了哪个组合。
@@ -96,113 +101,121 @@ pnpm dev
 
 服务器端架构位于 `templates/videos/server/db/schema.ts` 中：
 
-<DataModel id="doc-block-xr3usw" title={"视频数据模型"} summary={"SQL支持的组合以及设计系统和可嵌套文件夹，每个文件夹都有一个框架共享表。"} entities={[
-  {
-    "id": "compositions",
-    "name": "compositions",
-    "note": "User-created compositions and overrides; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "type",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "完整组合 JSON 斑点"
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      },
-      {
-        "name": "updated_at",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "design_systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens; ownableColumns",
-    "fields": [
-      {
-        "name": "data",
-        "type": "text",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "folders",
-    "note": "Nestable folders; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "name",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "folder_memberships",
-    "name": "folder_memberships",
-    "note": "多对多加入",
-    "fields": [
-      {
-        "name": "folder_id",
-        "type": "text",
-        "fk": "folders.id"
-      },
-      {
-        "name": "composition_id",
-        "type": "text",
-        "fk": "compositions.id"
-      }
-    ]
+<DataModel
+  id="doc-block-xr3usw"
+  title={"视频数据模型"}
+  summary={
+    "SQL支持的组合以及设计系统和可嵌套文件夹，每个文件夹都有一个框架共享表。"
   }
-]} relations={[
-  {
-    "from": "folders",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "members"
-  },
-  {
-    "from": "compositions",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "in folders"
-  }
-]} />
+  entities={[
+    {
+      id: "compositions",
+      name: "compositions",
+      note: "User-created compositions and overrides; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "完整组合 JSON 斑点",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "Nestable folders; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "folder_memberships",
+      name: "folder_memberships",
+      note: "多对多加入",
+      fields: [
+        {
+          name: "folder_id",
+          type: "text",
+          fk: "folders.id",
+        },
+        {
+          name: "composition_id",
+          type: "text",
+          fk: "compositions.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "folders",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "members",
+    },
+    {
+      from: "compositions",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "in folders",
+    },
+  ]}
+/>
 
 每个表还有一个由 `createSharesTable()` 生成的匹配框架份额表（`composition_shares`、`design_system_shares`、`folder_shares`）。
 

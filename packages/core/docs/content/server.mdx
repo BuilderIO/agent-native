@@ -103,23 +103,32 @@ in an action so the UI and agent share the same capability.
 
 Actions mounted by the framework automatically run with request context. Custom routes do not. If a custom route reads or writes ownable resources, load the session and wrap the work:
 
-<AnnotatedCode id="doc-block-z4ll" title="Scoping a custom route to the request user" filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "Custom routes have no auto-context",
-    "note": "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user."
-  },
-  {
-    "lines": "12-13",
-    "label": "Establish request context",
-    "note": "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work."
-  },
-  {
-    "lines": "18-19",
-    "label": "Scope ownable reads",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-z4ll"
+  title="Scoping a custom route to the request user"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "Custom routes have no auto-context",
+      note: "Unlike actions, a file route must load the session itself and fail closed when there is no authenticated user.",
+    },
+    {
+      lines: "12-13",
+      label: "Establish request context",
+      note: "`runWithRequestContext` makes the user/org available to scoping helpers for the duration of the work.",
+    },
+    {
+      lines: "18-19",
+      label: "Scope ownable reads",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`, so custom routes import it from the template (`../../db/index.js`), not from `@agent-native/core/db`; see [Database — Where the DB Client Lives](/docs/database#db-client). Do not run unscoped `db.select().from(ownableTable)` in custom routes.
 

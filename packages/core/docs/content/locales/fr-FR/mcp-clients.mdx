@@ -102,23 +102,32 @@ Créez `mcp.config.json` à la racine de votre espace de travail (ou à la racin
 
 La forme est petite : une carte `servers` saisie par identifiant de serveur, où chaque entrée est soit un lanceur stdio (`command` + `args` + `env` en option), soit une entrée `{ "type": "http", "url", "headers" }` distante.
 
-<AnnotatedCode id="doc-block-1pp7ldh" title={"mcp.config.json, annoté"} filename="mcp.config.json" language="jsonc" code={"{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}"} annotations={[
-  {
-    "lines": "3",
-    "label": "Identifiant du serveur",
-    "note": "La clé devient le préfixe de l'outil : les outils de ce serveur apparaissent sous la forme `mcp__claude-in-chrome__*` dans le registre de l'agent, ils ne peuvent donc pas entrer en collision avec les actions de votre modèle."
-  },
-  {
-    "lines": "4-6",
-    "label": "stdio launcher",
-    "note": "`command` + `args` génèrent un binaire local. Les serveurs Stdio sont destinés au **développement local** : ils ne sont pas opérationnels dans les environnements d'exécution Edge."
-  },
-  {
-    "lines": "6",
-    "label": "Environnement du processus",
-    "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens."
+<AnnotatedCode
+  id="doc-block-1pp7ldh"
+  title={"mcp.config.json, annoté"}
+  filename="mcp.config.json"
+  language="jsonc"
+  code={
+    '{\n  "$schema": "https://agent-native.com/schema/mcp.config.json",\n  "servers": {\n    "claude-in-chrome": {\n      "command": "claude-in-chrome-mcp",\n      "args": [],\n      "env": { "LOG_LEVEL": "info" }\n    },\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "/Users/me/projects"]\n    }\n  }\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "3",
+      label: "Identifiant du serveur",
+      note: "La clé devient le préfixe de l'outil : les outils de ce serveur apparaissent sous la forme `mcp__claude-in-chrome__*` dans le registre de l'agent, ils ne peuvent donc pas entrer en collision avec les actions de votre modèle.",
+    },
+    {
+      lines: "4-6",
+      label: "stdio launcher",
+      note: "`command` + `args` génèrent un binaire local. Les serveurs Stdio sont destinés au **développement local** : ils ne sont pas opérationnels dans les environnements d'exécution Edge.",
+    },
+    {
+      lines: "6",
+      label: "Environnement du processus",
+      note: "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens.",
+    },
+  ]}
+/>
 
 Au prochain démarrage de l'application, vous verrez :
 

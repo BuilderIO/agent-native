@@ -89,55 +89,62 @@ export const tasks = table("tasks", {
 
 يحدد الجدول `tasks` أعلاه نفس الأعمدة في كل واجهة خلفية:
 
-<DataModel id="doc-block-1a2kyld" title={"جدول المهام"} summary={"يُعرّف مرة واحدة باستخدام مساعدات framework؛ ويُختار dialect في وقت التشغيل من DATABASE_URL."} entities={[
-  {
-    "id": "tasks",
-    "name": "tasks",
-    "note": "جدول نطاق العمل. أضف owner_email (أو ...ownableColumns()) كي يقيّد scoping على مستوى SQL الصفوف بالمستخدم authenticated.",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true,
-        "nullable": false
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "priority",
-        "type": "integer",
-        "nullable": false,
-        "note": "default 0"
-      },
-      {
-        "name": "weight",
-        "type": "real",
-        "nullable": true
-      },
-      {
-        "name": "done",
-        "type": "integer (boolean mode)",
-        "nullable": false,
-        "note": "default false; maps to a Postgres boolean"
-      },
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "enables data scoping"
-      },
-      {
-        "name": "created_at",
-        "type": "text",
-        "nullable": false,
-        "note": "default now()"
-      }
-    ]
+<DataModel
+  id="doc-block-1a2kyld"
+  title={"جدول المهام"}
+  summary={
+    "يُعرّف مرة واحدة باستخدام مساعدات framework؛ ويُختار dialect في وقت التشغيل من DATABASE_URL."
   }
-]} />
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "جدول نطاق العمل. أضف owner_email (أو ...ownableColumns()) كي يقيّد scoping على مستوى SQL الصفوف بالمستخدم authenticated.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "weight",
+          type: "real",
+          nullable: true,
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
 
 لا تقم مطلقًا بالاستيراد من `drizzle-orm/sqlite-core` أو `drizzle-orm/pg-core` مباشرةً. استخدم دائمًا `@agent-native/core/db/schema`.
 
@@ -191,23 +198,32 @@ Raw SQL ليس رمز التطبيق الافتراضي API. استخدمه فق
 
 بدلاً من الدفع مباشرة، يجب تطبيق تغييرات المخطط عبر عمليات ترحيل SQL التي يتم تنفيذها عند بدء تشغيل التطبيق. قم بتنفيذ عمليات الترحيل الإضافية داخل مكون إضافي للخادم (على سبيل المثال، `server/plugins/db.ts`) عن طريق استدعاء مساعد `runMigrations()` الخاص بإطار العمل:
 
-<AnnotatedCode id="doc-block-nygfg2" title={"البرنامج المساعد الهجرة المضافة"} filename="server/plugins/db.ts" language="ts" code={"import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);"} annotations={[
-  {
-    "lines": "6-7",
-    "label": "مادة مضافة فقط",
-    "note": "`ADD COLUMN IF NOT EXISTS` آمن لإعادة التشغيل ولا يسقط البيانات أبدًا. تبدو عمليات إعادة التسمية على شكل إسقاط + إنشاء إلى Drizzle، لذا قم بالإضافة ثم الترحيل بدلاً من ذلك."
-  },
-  {
-    "lines": "13-16",
-    "label": "بوابة اللهجة",
-    "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features."
-  },
-  {
-    "lines": "19",
-    "label": "جدول الإصدارات لكل تطبيق",
-    "note": "يتتبع كل تطبيق الإصدارات المطبقة الخاصة به بحيث تكون عمليات الترحيل غير فعالة عبر عمليات إعادة التشغيل والمثيلات."
+<AnnotatedCode
+  id="doc-block-nygfg2"
+  title={"البرنامج المساعد الهجرة المضافة"}
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
-]} />
+  annotations={[
+    {
+      lines: "6-7",
+      label: "مادة مضافة فقط",
+      note: "`ADD COLUMN IF NOT EXISTS` آمن لإعادة التشغيل ولا يسقط البيانات أبدًا. تبدو عمليات إعادة التسمية على شكل إسقاط + إنشاء إلى Drizzle، لذا قم بالإضافة ثم الترحيل بدلاً من ذلك.",
+    },
+    {
+      lines: "13-16",
+      label: "بوابة اللهجة",
+      note: "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features.",
+    },
+    {
+      lines: "19",
+      label: "جدول الإصدارات لكل تطبيق",
+      note: "يتتبع كل تطبيق الإصدارات المطبقة الخاصة به بحيث تكون عمليات الترحيل غير فعالة عبر عمليات إعادة التشغيل والمثيلات.",
+    },
+  ]}
+/>
 
 ## متغيرات البيئة {#environment-variables}
 

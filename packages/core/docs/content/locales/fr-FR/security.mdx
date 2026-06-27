@@ -188,33 +188,38 @@ export const projects = table("projects", {
 });
 ```
 
-<DataModel id="doc-block-19f5mow" title="What ownableColumns() adds" summary="Les trois colonnes qui rendent une table sensible aux locataires et partageable." entities={[
-  {
-    "id": "ownable",
-    "name": "ownable resource",
-    "note": "Any table that spreads ...ownableColumns()",
-    "fields": [
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "Creator. Auto-filled by write actions; auto-injected on INSERT."
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true,
-        "note": "Organisation active du propriétaire au moment de la création. Pilote les contrôles de visibilité de l’organisation."
-      },
-      {
-        "name": "visibility",
-        "type": "enum",
-        "nullable": false,
-        "note": "privé | org | public – valeur par défaut grossière, par défaut privée."
-      }
-    ]
-  }
-]} />
+<DataModel
+  id="doc-block-19f5mow"
+  title="What ownableColumns() adds"
+  summary="Les trois colonnes qui rendent une table sensible aux locataires et partageable."
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads ...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "Organisation active du propriétaire au moment de la création. Pilote les contrôles de visibilité de l’organisation.",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "privé | org | public – valeur par défaut grossière, par défaut privée.",
+        },
+      ],
+    },
+  ]}
+/>
 
 ### Protections d'accès dans actions {#access-guards}
 

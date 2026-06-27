@@ -31,7 +31,12 @@ Agent auf die gleiche Weise.
 ```
 
 <WireframeBlock id="doc-block-13e4f0r">
-<Screen surface="desktop" html={"<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Plan fuer Checkout-Redesign</h1><div style='flex:1'></div><button>Teilen</button><button class='primary'>Genehmigen</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Aktuelles Wireframe</div><div class='wf-box'>Vorgeschlagenes Wireframe</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementierungsplan</strong><div class='wf-box'>Entscheidung: bestehende Checkout-Shell beibehalten</div><div class='wf-box'>Annotierte Code-Einfuehrung</div><div class='wf-box'>Offene Fragen</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Kommentare</strong><div class='wf-box'>Pin am primaeren CTA</div><div class='wf-box'>Frage an den Agenten</div><div class='wf-box'>Geklaerte Copy-Notiz</div><button class='primary'>Feedback zurueckgeben</button></aside></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Plan fuer Checkout-Redesign</h1><div style='flex:1'></div><button>Teilen</button><button class='primary'>Genehmigen</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>Aktuelles Wireframe</div><div class='wf-box'>Vorgeschlagenes Wireframe</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>Implementierungsplan</strong><div class='wf-box'>Entscheidung: bestehende Checkout-Shell beibehalten</div><div class='wf-box'>Annotierte Code-Einfuehrung</div><div class='wf-box'>Offene Fragen</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Kommentare</strong><div class='wf-box'>Pin am primaeren CTA</div><div class='wf-box'>Frage an den Agenten</div><div class='wf-box'>Geklaerte Copy-Notiz</div><button class='primary'>Feedback zurueckgeben</button></aside></div>"
+    }
+  />
 </WireframeBlock>
 
 Es gibt zwei Möglichkeiten, in Pläne einzusteigen:
@@ -392,277 +397,285 @@ Schema befindet sich in `templates/plan/server/db/schema.ts`. Kerntabellen:
 | `plan_guest_mints` | Ratenbegrenzungsdatensätze für die Ausstellung von Gastsitzungen                                                                                                                                                            |
 | `plan_assets`      | Inline-Bild-Assets werden als Base64 gespeichert (Fallback, wenn kein Upload-Anbieter vorhanden ist)                                                                                                                        |
 
-<DataModel id="doc-block-1etdmmd" title="Plan Datenmodell" summary={"Eine Planzeile enthält geordnete Abschnitte sowie Kommentare, Ereignisse, Versionen, Freigaben und Inline-Assets."} entities={[
-  {
-    "id": "plans",
-    "name": "plans",
-    "note": "each plan or recap",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "kind",
-        "type": "enum",
-        "note": "planen | rekapitulieren"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "hosted_plan_id",
-        "type": "text",
-        "nullable": true,
-        "note": "hosted_plan_url paired"
-      },
-      {
-        "name": "source_url",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "deleted_at",
-        "type": "timestamp",
-        "nullable": true,
-        "note": "soft delete; deleted_by paired"
-      }
-    ]
-  },
-  {
-    "id": "plan_sections",
-    "name": "plan_sections",
-    "note": "ordered sections within a plan",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      },
-      {
-        "name": "type",
-        "type": "text"
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "body",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "html",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "sort_order",
-        "type": "integer"
-      },
-      {
-        "name": "created_by",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "plan_comments",
-    "name": "plan_comments",
-    "note": "threaded comments",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      },
-      {
-        "name": "kind",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "anchor",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "message",
-        "type": "text"
-      },
-      {
-        "name": "resolution_target",
-        "type": "text",
-        "nullable": true,
-        "note": "agent | human | null"
-      },
-      {
-        "name": "mentions_json",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "resolved_by",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "plan_events",
-    "name": "plan_events",
-    "note": "audit log of agent/human events",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      }
-    ]
-  },
-  {
-    "id": "plan_versions",
-    "name": "plan_versions",
-    "note": "point-in-time snapshots",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      }
-    ]
-  },
-  {
-    "id": "plan_shares",
-    "name": "plan_shares",
-    "note": "per-principal grants",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "Zuschauer | Herausgeber | Administrator"
-      }
-    ]
-  },
-  {
-    "id": "plan_guest_mints",
-    "name": "plan_guest_mints",
-    "note": "rate-limit records for guest session issuance",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      }
-    ]
-  },
-  {
-    "id": "plan_assets",
-    "name": "plan_assets",
-    "note": "inline image assets as base64",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      }
-    ]
+<DataModel
+  id="doc-block-1etdmmd"
+  title="Plan Datenmodell"
+  summary={
+    "Eine Planzeile enthält geordnete Abschnitte sowie Kommentare, Ereignisse, Versionen, Freigaben und Inline-Assets."
   }
-]} relations={[
-  {
-    "from": "plans",
-    "to": "plan_sections",
-    "kind": "1-n",
-    "label": "has sections"
-  },
-  {
-    "from": "plans",
-    "to": "plan_comments",
-    "kind": "1-n",
-    "label": "has comments"
-  },
-  {
-    "from": "plans",
-    "to": "plan_events",
-    "kind": "1-n",
-    "label": "has events"
-  },
-  {
-    "from": "plans",
-    "to": "plan_versions",
-    "kind": "1-n",
-    "label": "has versions"
-  },
-  {
-    "from": "plans",
-    "to": "plan_shares",
-    "kind": "1-n",
-    "label": "has shares"
-  },
-  {
-    "from": "plans",
-    "to": "plan_assets",
-    "kind": "1-n",
-    "label": "has assets"
-  }
-]} />
+  entities={[
+    {
+      id: "plans",
+      name: "plans",
+      note: "each plan or recap",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "kind",
+          type: "enum",
+          note: "planen | rekapitulieren",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "hosted_plan_id",
+          type: "text",
+          nullable: true,
+          note: "hosted_plan_url paired",
+        },
+        {
+          name: "source_url",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "deleted_at",
+          type: "timestamp",
+          nullable: true,
+          note: "soft delete; deleted_by paired",
+        },
+      ],
+    },
+    {
+      id: "plan_sections",
+      name: "plan_sections",
+      note: "ordered sections within a plan",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "body",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "html",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "sort_order",
+          type: "integer",
+        },
+        {
+          name: "created_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_comments",
+      name: "plan_comments",
+      note: "threaded comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "anchor",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "message",
+          type: "text",
+        },
+        {
+          name: "resolution_target",
+          type: "text",
+          nullable: true,
+          note: "agent | human | null",
+        },
+        {
+          name: "mentions_json",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "resolved_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_events",
+      name: "plan_events",
+      note: "audit log of agent/human events",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_versions",
+      name: "plan_versions",
+      note: "point-in-time snapshots",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_shares",
+      name: "plan_shares",
+      note: "per-principal grants",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "Zuschauer | Herausgeber | Administrator",
+        },
+      ],
+    },
+    {
+      id: "plan_guest_mints",
+      name: "plan_guest_mints",
+      note: "rate-limit records for guest session issuance",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+      ],
+    },
+    {
+      id: "plan_assets",
+      name: "plan_assets",
+      note: "inline image assets as base64",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "plans",
+      to: "plan_sections",
+      kind: "1-n",
+      label: "has sections",
+    },
+    {
+      from: "plans",
+      to: "plan_comments",
+      kind: "1-n",
+      label: "has comments",
+    },
+    {
+      from: "plans",
+      to: "plan_events",
+      kind: "1-n",
+      label: "has events",
+    },
+    {
+      from: "plans",
+      to: "plan_versions",
+      kind: "1-n",
+      label: "has versions",
+    },
+    {
+      from: "plans",
+      to: "plan_shares",
+      kind: "1-n",
+      label: "has shares",
+    },
+    {
+      from: "plans",
+      to: "plan_assets",
+      kind: "1-n",
+      label: "has assets",
+    },
+  ]}
+/>
 
 ### Schlüssel actions
 

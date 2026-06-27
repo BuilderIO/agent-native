@@ -8,7 +8,12 @@ description: "Posez des questions d'analyse dans un anglais simple, récupérez 
 Posez des questions d'analyse dans un anglais simple, récupérez des graphiques et des tableaux de bord. L'agent se connecte à BigQuery, GA4, Amplitude, le collecteur d'événements propriétaire intégré, HubSpot, Jira et une douzaine d'autres sources, écrit la requête pour vous, la valide et affiche la réponse sous forme de graphique, de tableau ou de panneau de tableau de bord enregistré.
 
 <WireframeBlock id="doc-block-1af9kv7">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Templates Agent-Native</h1><p class='wf-muted' style='margin:0'>Adoption et engagement sur les 12 dernières semaines.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Utilisateurs actifs hebdomadaires</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>Nouvelles inscriptions</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR de revenus</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Utilisateurs actifs hebdomadaires</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenus dans le temps</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Inscriptions par source</strong><br/><small class='wf-muted'>Le graphique inférieur commence sous les graphiques principaux.</small></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Templates Agent-Native</h1><p class='wf-muted' style='margin:0'>Adoption et engagement sur les 12 dernières semaines.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Utilisateurs actifs hebdomadaires</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>Nouvelles inscriptions</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR de revenus</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Utilisateurs actifs hebdomadaires</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenus dans le temps</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Inscriptions par source</strong><br/><small class='wf-muted'>Le graphique inférieur commence sous les graphiques principaux.</small></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Il s'agit d'un remplacement open source d'Amplitude, Mixpanel et Looker, destiné aux équipes qui souhaitent posséder le code, les requêtes et les données.
@@ -159,105 +164,113 @@ Le client de connexion à faible portée reste distinct des clients d'intégrati
 
 Tableaux de base (voir `templates/analytics/server/db/schema.ts`) :
 
-<DataModel id="doc-block-1kot9n2" title={"Modèle de données Analytics"} summary={"Les dashboards et analyses sont les ressources ; vues, partages et cache de requêtes s’y rattachent. Les tables d’organisation viennent de @agent-native/core/org."} entities={[
-  {
-    "id": "dashboards",
-    "name": "dashboards",
-    "note": "Tableaux de bord Explorer et SQL",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "kind",
-        "type": "text",
-        "note": "\"explorer\" or \"sql\""
-      },
-      {
-        "name": "config",
-        "type": "text",
-        "note": "JSON correspondant à SqlDashboardConfig"
-      }
-    ]
-  },
-  {
-    "id": "dashboard_views",
-    "name": "dashboard_views",
-    "note": "Préréglages de filtres enregistrés par tableau de bord",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "dashboard_id",
-        "type": "text",
-        "fk": "dashboards.id"
-      }
-    ]
-  },
-  {
-    "id": "analyses",
-    "name": "analyses",
-    "note": "Enquêtes ad hoc réexécutables",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "question",
-        "type": "text"
-      },
-      {
-        "name": "instructions",
-        "type": "text",
-        "note": "Réexécuter les étapes"
-      },
-      {
-        "name": "dataSources",
-        "type": "text",
-        "note": "Sources touchées"
-      },
-      {
-        "name": "resultMarkdown",
-        "type": "text"
-      },
-      {
-        "name": "resultData",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "bigquery_cache",
-    "name": "bigquery_cache",
-    "note": "Cache des résultats saisi par le hachage SQL",
-    "fields": [
-      {
-        "name": "sql_hash",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "bytes_processed",
-        "type": "integer"
-      }
-    ]
+<DataModel
+  id="doc-block-1kot9n2"
+  title={"Modèle de données Analytics"}
+  summary={
+    "Les dashboards et analyses sont les ressources ; vues, partages et cache de requêtes s’y rattachent. Les tables d’organisation viennent de @agent-native/core/org."
   }
-]} relations={[
-  {
-    "from": "dashboards",
-    "to": "dashboard_views",
-    "kind": "1-n",
-    "label": "saved views"
-  }
-]} />
+  entities={[
+    {
+      id: "dashboards",
+      name: "dashboards",
+      note: "Tableaux de bord Explorer et SQL",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: '"explorer" or "sql"',
+        },
+        {
+          name: "config",
+          type: "text",
+          note: "JSON correspondant à SqlDashboardConfig",
+        },
+      ],
+    },
+    {
+      id: "dashboard_views",
+      name: "dashboard_views",
+      note: "Préréglages de filtres enregistrés par tableau de bord",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "dashboard_id",
+          type: "text",
+          fk: "dashboards.id",
+        },
+      ],
+    },
+    {
+      id: "analyses",
+      name: "analyses",
+      note: "Enquêtes ad hoc réexécutables",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "question",
+          type: "text",
+        },
+        {
+          name: "instructions",
+          type: "text",
+          note: "Réexécuter les étapes",
+        },
+        {
+          name: "dataSources",
+          type: "text",
+          note: "Sources touchées",
+        },
+        {
+          name: "resultMarkdown",
+          type: "text",
+        },
+        {
+          name: "resultData",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "bigquery_cache",
+      name: "bigquery_cache",
+      note: "Cache des résultats saisi par le hachage SQL",
+      fields: [
+        {
+          name: "sql_hash",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "bytes_processed",
+          type: "integer",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "dashboards",
+      to: "dashboard_views",
+      kind: "1-n",
+      label: "saved views",
+    },
+  ]}
+/>
 
 Plus les tables de partage par ressource (`dashboard_shares`, `analysis_shares`) et les tables d'organisation (`organizations`, `org_members`, `org_invitations`) fournies par `@agent-native/core/org`. Le dictionnaire de données se trouve dans la table `settings` du framework sous les clés de portée.
 

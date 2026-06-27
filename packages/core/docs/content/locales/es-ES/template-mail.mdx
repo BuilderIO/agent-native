@@ -8,7 +8,12 @@ description: "Un cliente de correo electrónico impulsado por agentes. Conecte s
 Un cliente de correo electrónico impulsado por agentes. Conecte su cuenta Gmail y el agente podrá leer, redactar, enviar y organizar el correo electrónico por usted, además de una bandeja de entrada rápida con teclado que puede manejar usted mismo. Piensa en Superhumano, pero el agente es un ciudadano de primera clase y el código base es tuyo.
 
 <WireframeBlock id="doc-block-bpy60t">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Bandeja de entrada 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Buscar'></span><span data-icon='edit' aria-label='Redactar'></span><span data-icon='bell' aria-label='Notificar'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Paula Méndez</strong><span><strong>Lanzamiento del T3</strong> — recursos finales listos para revisión</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Facturación de Acme</strong><span>Tu factura mensual está lista</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marco Tang</span><span>Hallazgos de investigación del flujo de incorporación</span><span>Ayer</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR listo para revisión</span><span>Ayer</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Incidencia ENG-1287 asignada a ti</span><span>2 may</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Resumen semanal de pagos</span><span>29 abr</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Nueva reserva confirmada</span><span>28 abr</span></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Bandeja de entrada 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Buscar'></span><span data-icon='edit' aria-label='Redactar'></span><span data-icon='bell' aria-label='Notificar'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Paula Méndez</strong><span><strong>Lanzamiento del T3</strong> — recursos finales listos para revisión</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Facturación de Acme</strong><span>Tu factura mensual está lista</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marco Tang</span><span>Hallazgos de investigación del flujo de incorporación</span><span>Ayer</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR listo para revisión</span><span>Ayer</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Incidencia ENG-1287 asignada a ti</span><span>2 may</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Resumen semanal de pagos</span><span>29 abr</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Nueva reserva confirmada</span><span>28 abr</span></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Cuando abres la aplicación, la bandeja de entrada del teclado y la vista del hilo permanecen enfocadas en el correo mismo. El agente siempre sabe en qué vista se encuentra y qué hilo tiene abierto, por lo que puede decir "archivar esto" o "redactar un rechazo amistoso" sin explicar qué es "esto".
@@ -153,119 +158,127 @@ Cuando se conecta una cuenta de Google, el correo electrónico se encuentra en G
 
 Los correos electrónicos que fluyen a través del API tienen la forma `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
 
-<DataModel id="doc-block-1250khn" title="Tablas SQL de Mail" summary={"El correo electrónico en sí vive en Gmail. Las tablas SQL contienen lo que Gmail no contiene: borradores en cola, eventos de seguimiento de envío y tokens OAuth. La configuración y el estado efímero se encuentran en las tiendas de configuración y estado_aplicación."} entities={[
-  {
-    "id": "queued_email_drafts",
-    "name": "queued_email_drafts",
-    "note": "Borradores de compañero/Slack en espera de revisión del propietario",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "assignedTo",
-        "type": "string",
-        "note": "org member who reviews/sends"
-      },
-      {
-        "name": "subject",
-        "type": "string"
-      },
-      {
-        "name": "body",
-        "type": "markdown"
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "review at /draft-queue/<id>"
-      }
-    ]
-  },
-  {
-    "id": "email_tracking",
-    "name": "email_tracking",
-    "note": "Eventos de píxeles abiertos para mensajes enviados",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "messageId",
-        "type": "string"
-      },
-      {
-        "name": "openedAt",
-        "type": "datetime"
-      }
-    ]
-  },
-  {
-    "id": "email_link_tracking",
-    "name": "email_link_tracking",
-    "note": "Eventos de clic en enlace para mensajes enviados",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "messageId",
-        "type": "string",
-        "fk": "email_tracking.messageId"
-      },
-      {
-        "name": "url",
-        "type": "string"
-      },
-      {
-        "name": "clickedAt",
-        "type": "datetime"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "Tabla marco: una fila por cuenta Google conectada",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "provider",
-        "type": "string",
-        "note": "\"google\""
-      },
-      {
-        "name": "accountEmail",
-        "type": "string"
-      },
-      {
-        "name": "accessToken",
-        "type": "string"
-      },
-      {
-        "name": "refreshToken",
-        "type": "string"
-      }
-    ]
+<DataModel
+  id="doc-block-1250khn"
+  title="Tablas SQL de Mail"
+  summary={
+    "El correo electrónico en sí vive en Gmail. Las tablas SQL contienen lo que Gmail no contiene: borradores en cola, eventos de seguimiento de envío y tokens OAuth. La configuración y el estado efímero se encuentran en las tiendas de configuración y estado_aplicación."
   }
-]} relations={[
-  {
-    "from": "email_tracking",
-    "to": "email_link_tracking",
-    "kind": "1-n",
-    "label": "click events"
-  }
-]} />
+  entities={[
+    {
+      id: "queued_email_drafts",
+      name: "queued_email_drafts",
+      note: "Borradores de compañero/Slack en espera de revisión del propietario",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "assignedTo",
+          type: "string",
+          note: "org member who reviews/sends",
+        },
+        {
+          name: "subject",
+          type: "string",
+        },
+        {
+          name: "body",
+          type: "markdown",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "review at /draft-queue/<id>",
+        },
+      ],
+    },
+    {
+      id: "email_tracking",
+      name: "email_tracking",
+      note: "Eventos de píxeles abiertos para mensajes enviados",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "messageId",
+          type: "string",
+        },
+        {
+          name: "openedAt",
+          type: "datetime",
+        },
+      ],
+    },
+    {
+      id: "email_link_tracking",
+      name: "email_link_tracking",
+      note: "Eventos de clic en enlace para mensajes enviados",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "messageId",
+          type: "string",
+          fk: "email_tracking.messageId",
+        },
+        {
+          name: "url",
+          type: "string",
+        },
+        {
+          name: "clickedAt",
+          type: "datetime",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "Tabla marco: una fila por cuenta Google conectada",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "provider",
+          type: "string",
+          note: '"google"',
+        },
+        {
+          name: "accountEmail",
+          type: "string",
+        },
+        {
+          name: "accessToken",
+          type: "string",
+        },
+        {
+          name: "refreshToken",
+          type: "string",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "email_tracking",
+      to: "email_link_tracking",
+      kind: "1-n",
+      label: "click events",
+    },
+  ]}
+/>
 
 Rutas en el UI:
 

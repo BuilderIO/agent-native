@@ -10,7 +10,12 @@ description: "最小限のチャットファーストのエージェントネイ
 ブラウザー UI を使用しない最小のアクションのみのランタイムが必要な場合は、[Pure-Agent Apps](/docs/pure-agent-apps) から始めてください。完成したドメイン プロダクトの形状が必要な場合は、[Calendar](/docs/template-calendar)、[Mail](/docs/template-mail)、[Content](/docs/template-content)、[Forms](/docs/template-forms)、[Analytics](/docs/template-analytics)、または別のドメイン テンプレートから開始してください。
 
 <WireframeBlock id="doc-block-12k6jf8">
-<Screen surface="desktop" html={"<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。actions、コンポーネント、ページ、ジョブ、独自バックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>何をお手伝いできますか？</h1><p class='wf-muted' style='margin:10px 0 0'>何でもチャットできます。actions、コンポーネント、ページ、ジョブ、独自バックエンドを追加できます。</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>エージェントにメッセージ...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 ## 何が入っているのか {#whats-in-it}
@@ -71,28 +76,32 @@ npx @agent-native/core@latest create my-agent --headless
   ここに提案、空の状態、コンポーザー、または周囲のレイアウトを入力します。
 - `AGENTS.md` は、組み込みエージェントにこのアプリ内での動作方法を指示します。
 
-<FileTree id="doc-block-3lypxq" title={"Chat テンプレートのレイアウト"} entries={[
-  {
-    "path": "actions/hello.ts",
-    "note": "1 つの example action; 置き換えるか横に actions を追加"
-  },
-  {
-    "path": "actions/view-screen.ts",
-    "note": "エージェントが読む標準 context action"
-  },
-  {
-    "path": "actions/navigate.ts",
-    "note": "標準 navigation action"
-  },
-  {
-    "path": "app/routes/_index.tsx",
-    "note": "フルページの chat 画面を描画; suggestions、empty state、composer を編集"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "組み込みエージェントが読む chat-first のガイダンス"
-  }
-]} />
+<FileTree
+  id="doc-block-3lypxq"
+  title={"Chat テンプレートのレイアウト"}
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "1 つの example action; 置き換えるか横に actions を追加",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "エージェントが読む標準 context action",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "標準 navigation action",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "フルページの chat 画面を描画; suggestions、empty state、composer を編集",
+    },
+    {
+      path: "AGENTS.md",
+      note: "組み込みエージェントが読む chat-first のガイダンス",
+    },
+  ]}
+/>
 
 チャット ページは意図的に薄くされています。
 

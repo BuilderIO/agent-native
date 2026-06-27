@@ -159,23 +159,32 @@ Claude 코드와 같은 도구가 강력하다고 느끼는 이유는 모델이 
 
 에이전트 기반 앱을 구축하거나 확장하는 경우 중심 패턴은 다음과 같습니다. 앱의 모든 작업은 한 번 정의되어 에이전트와 UI 모두에서 사용할 수 있는 **작업**입니다.
 
-<AnnotatedCode id="doc-block-1t9ytb6" title={"한 번 정의된 하나의 작업"} filename="actions/reply-to-email.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "도구 표면",
-    "note": "`description`는 이를 도구로 호출할 시기를 결정하기 위해 에이전트가 읽는 것입니다."
-  },
-  {
-    "lines": "6",
-    "label": "타입 계약",
-    "note": "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A 등 **모든** 표면의 입력을 검증합니다."
-  },
-  {
-    "lines": "7-10",
-    "label": "하나의 구현",
-    "note": "`run` 본문은 단일 정보 소스입니다. UI 버튼과 에이전트 도구 모두 이를 정확하게 실행합니다."
+<AnnotatedCode
+  id="doc-block-1t9ytb6"
+  title={"한 번 정의된 하나의 작업"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app\'s server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "도구 표면",
+      note: "`description`는 이를 도구로 호출할 시기를 결정하기 위해 에이전트가 읽는 것입니다.",
+    },
+    {
+      lines: "6",
+      label: "타입 계약",
+      note: "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A 등 **모든** 표면의 입력을 검증합니다.",
+    },
+    {
+      lines: "7-10",
+      label: "하나의 구현",
+      note: "`run` 본문은 단일 정보 소스입니다. UI 버튼과 에이전트 도구 모두 이를 정확하게 실행합니다.",
+    },
+  ]}
+/>
 
 ```tsx
 // In any React component — same action, called from a button

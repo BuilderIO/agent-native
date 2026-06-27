@@ -185,36 +185,43 @@ instructions/legal-review-policy.md
 
 كل سطح من هذه الأسطح — `AGENTS.md`، skills، الذاكرة، الوكلاء المخصصون، خوادم MCP — هو نفس شكل المورد الأساسي: `path` + `scope` + `content`، ويتم التعامل معه وحله بنفس الطريقة.
 
-<DataModel id="doc-block-1wpj00w" title={"نموذج موارد مساحة العمل"} summary={"يدعم شكل مورد واحد كل ملف مساحة عمل. يقوم وقت التشغيل بمفاتيحه حسب المسار والنطاق ويحل القيمة الفعالة عند القراءة."} entities={[
-  {
-    "id": "resource",
-    "name": "workspace resource",
-    "note": "ملف واحد في مساحة عمل المستخدم - التعليمات، أو المهارة، أو الذاكرة، أو الوكيل، أو تكوين MCP، أو المهمة.",
-    "fields": [
-      {
-        "name": "path",
-        "type": "string",
-        "note": "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md"
-      },
-      {
-        "name": "scope",
-        "type": "workspace | shared | personal",
-        "note": "في أي مستوى يعيش هذا الصف"
-      },
-      {
-        "name": "owner",
-        "type": "string",
-        "nullable": true,
-        "note": "u:<email> for personal scope"
-      },
-      {
-        "name": "content",
-        "type": "text",
-        "note": "Markdown / JSON / YAML الجسم"
-      }
-    ]
+<DataModel
+  id="doc-block-1wpj00w"
+  title={"نموذج موارد مساحة العمل"}
+  summary={
+    "يدعم شكل مورد واحد كل ملف مساحة عمل. يقوم وقت التشغيل بمفاتيحه حسب المسار والنطاق ويحل القيمة الفعالة عند القراءة."
   }
-]} />
+  entities={[
+    {
+      id: "resource",
+      name: "workspace resource",
+      note: "ملف واحد في مساحة عمل المستخدم - التعليمات، أو المهارة، أو الذاكرة، أو الوكيل، أو تكوين MCP، أو المهمة.",
+      fields: [
+        {
+          name: "path",
+          type: "string",
+          note: "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md",
+        },
+        {
+          name: "scope",
+          type: "workspace | shared | personal",
+          note: "في أي مستوى يعيش هذا الصف",
+        },
+        {
+          name: "owner",
+          type: "string",
+          nullable: true,
+          note: "u:<email> for personal scope",
+        },
+        {
+          name: "content",
+          type: "text",
+          note: "Markdown / JSON / YAML الجسم",
+        },
+      ],
+    },
+  ]}
+/>
 
 ## Skills {#skills}
 
@@ -232,27 +239,36 @@ Skills هي ملفات موارد Markdown ضمن مسار `skills/` (يفضل `
 
 يستخدم الوكلاء المخصصون المادة الأمامية YAML بالإضافة إلى تعليمات Markdown:
 
-<AnnotatedCode id="doc-block-hipquw" title={"ملف تعريف وكيل مخصص"} filename="agents/design.md" language="markdown" code={"---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# الدور\n\nأنت وكيل تصميم مركّز.\n\n## المسؤوليات\n\n- مراجعة التخطيطات وتدفقات التفاعل\n- اقتراح اتجاه مرئي أقوى\n- كن موجزًا وصاحب رأي"} annotations={[
-  {
-    "lines": "2",
-    "label": "@mention handle",
-    "note": "`name` هو ما يظهر في القائمة المنسدلة `@` وما يفوضه الوكيل الرئيسي."
-  },
-  {
-    "lines": "3-4",
-    "label": "متى يتم التفويض",
-    "note": "`description` هو ما يقرأه المنسق ليقرر أن ملف التعريف هذا يناسب المهمة."
-  },
-  {
-    "lines": "5",
-    "label": "نموذج",
-    "note": "`inherit` يعيد استخدام نموذج الوكيل الرئيسي. يتم التجاوز فقط عندما يحتاج ملف التعريف بوضوح إلى ملف تعريف مختلف."
-  },
-  {
-    "lines": "6",
-    "note": "`tools: inherit` في الوقت الحالي — الحقل محجوز لسياسات الأدوات المستقبلية لكل وكيل."
+<AnnotatedCode
+  id="doc-block-hipquw"
+  title={"ملف تعريف وكيل مخصص"}
+  filename="agents/design.md"
+  language="markdown"
+  code={
+    "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# الدور\n\nأنت وكيل تصميم مركّز.\n\n## المسؤوليات\n\n- مراجعة التخطيطات وتدفقات التفاعل\n- اقتراح اتجاه مرئي أقوى\n- كن موجزًا وصاحب رأي"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "@mention handle",
+      note: "`name` هو ما يظهر في القائمة المنسدلة `@` وما يفوضه الوكيل الرئيسي.",
+    },
+    {
+      lines: "3-4",
+      label: "متى يتم التفويض",
+      note: "`description` هو ما يقرأه المنسق ليقرر أن ملف التعريف هذا يناسب المهمة.",
+    },
+    {
+      lines: "5",
+      label: "نموذج",
+      note: "`inherit` يعيد استخدام نموذج الوكيل الرئيسي. يتم التجاوز فقط عندما يحتاج ملف التعريف بوضوح إلى ملف تعريف مختلف.",
+    },
+    {
+      lines: "6",
+      note: "`tools: inherit` في الوقت الحالي — الحقل محجوز لسياسات الأدوات المستقبلية لكل وكيل.",
+    },
+  ]}
+/>
 
 الاصطلاحات الموصى بها:
 

@@ -58,86 +58,94 @@ await upsertWorkspaceConnectionGrant({
 });
 ```
 
-<DataModel id="doc-block-inpw6j" title={"कनेक्शन मॉडल"} summary={"A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."} entities={[
-  {
-    "id": "conn",
-    "name": "workspace_connections",
-    "note": "नामांकित प्रदाता खाता। कभी भी गुप्त मूल्यों का भंडारण नहीं करता।",
-    "fields": [
-      {
-        "name": "id",
-        "type": "string",
-        "pk": true,
-        "note": "e.g. acme-slack"
-      },
-      {
-        "name": "provider",
-        "type": "string",
-        "note": "स्थिर प्रदाता आईडी, उदा. ढीला"
-      },
-      {
-        "name": "label",
-        "type": "string"
-      },
-      {
-        "name": "accountId",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "accountLabel",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "status",
-        "type": "string",
-        "note": "e.g. connected"
-      },
-      {
-        "name": "scopes",
-        "type": "string[]",
-        "nullable": true
-      },
-      {
-        "name": "config",
-        "type": "json",
-        "nullable": true,
-        "note": "सुरक्षित, गैर-गुप्त कॉन्फ़िगरेशन"
-      },
-      {
-        "name": "credentialRefs",
-        "type": "json",
-        "nullable": true,
-        "note": "pointers to vault keys, e.g. { key, scope }"
-      }
-    ]
-  },
-  {
-    "id": "grant",
-    "name": "workspace_connection_grants",
-    "note": "कनेक्शन का उपयोग करने के लिए प्रति-ऐप अनुमति।",
-    "fields": [
-      {
-        "name": "connectionId",
-        "type": "string",
-        "fk": "conn.id"
-      },
-      {
-        "name": "appId",
-        "type": "string",
-        "note": "उदा. मस्तिष्क, विश्लेषण"
-      }
-    ]
+<DataModel
+  id="doc-block-inpw6j"
+  title={"कनेक्शन मॉडल"}
+  summary={
+    "A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
   }
-]} relations={[
-  {
-    "from": "conn",
-    "to": "grant",
-    "kind": "1-n",
-    "label": "grants apps"
-  }
-]} />
+  entities={[
+    {
+      id: "conn",
+      name: "workspace_connections",
+      note: "नामांकित प्रदाता खाता। कभी भी गुप्त मूल्यों का भंडारण नहीं करता।",
+      fields: [
+        {
+          name: "id",
+          type: "string",
+          pk: true,
+          note: "e.g. acme-slack",
+        },
+        {
+          name: "provider",
+          type: "string",
+          note: "स्थिर प्रदाता आईडी, उदा. ढीला",
+        },
+        {
+          name: "label",
+          type: "string",
+        },
+        {
+          name: "accountId",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "accountLabel",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "status",
+          type: "string",
+          note: "e.g. connected",
+        },
+        {
+          name: "scopes",
+          type: "string[]",
+          nullable: true,
+        },
+        {
+          name: "config",
+          type: "json",
+          nullable: true,
+          note: "सुरक्षित, गैर-गुप्त कॉन्फ़िगरेशन",
+        },
+        {
+          name: "credentialRefs",
+          type: "json",
+          nullable: true,
+          note: "pointers to vault keys, e.g. { key, scope }",
+        },
+      ],
+    },
+    {
+      id: "grant",
+      name: "workspace_connection_grants",
+      note: "कनेक्शन का उपयोग करने के लिए प्रति-ऐप अनुमति।",
+      fields: [
+        {
+          name: "connectionId",
+          type: "string",
+          fk: "conn.id",
+        },
+        {
+          name: "appId",
+          type: "string",
+          note: "उदा. मस्तिष्क, विश्लेषण",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "conn",
+      to: "grant",
+      kind: "1-n",
+      label: "grants apps",
+    },
+  ]}
+/>
 
 ### ऐप्स क्या कॉल करते हैं
 

@@ -80,28 +80,37 @@ Ne créez pas de compétence lorsque :
 
 Chaque compétence est un fichier Markdown avec le thème principal YAML :
 
-<AnnotatedCode id="doc-block-106dwvf" title={"Anatomie d'un SKILL.md"} filename=".agents/skills/project-imports/SKILL.md" language="markdown" code={"---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"} annotations={[
-  {
-    "lines": "2",
-    "label": "Clé de découverte",
-    "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`."
-  },
-  {
-    "lines": "3-5",
-    "label": "Le déclencheur",
-    "note": "Ce `description` est le **seul** texte toujours en contexte. Faites-le indiquer précisément *quand* la compétence s'applique."
-  },
-  {
-    "lines": "9-14",
-    "label": "Les règles d'abord",
-    "note": "Commencez par la règle stricte et le pourquoi ; l’agent ne lit le corps que lorsque la tâche correspond."
-  },
-  {
-    "lines": "27-30",
-    "label": "Lien croisé",
-    "note": "Pointez sur les compétences associées afin que l'agent puisse les enchaîner au lieu de rediriger les conseils."
+<AnnotatedCode
+  id="doc-block-106dwvf"
+  title={"Anatomie d'un SKILL.md"}
+  filename=".agents/skills/project-imports/SKILL.md"
+  language="markdown"
+  code={
+    "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "Clé de découverte",
+      note: "The `name` matches the folder; it is how the skill is invoked as `/project-imports`.",
+    },
+    {
+      lines: "3-5",
+      label: "Le déclencheur",
+      note: "Ce `description` est le **seul** texte toujours en contexte. Faites-le indiquer précisément *quand* la compétence s'applique.",
+    },
+    {
+      lines: "9-14",
+      label: "Les règles d'abord",
+      note: "Commencez par la règle stricte et le pourquoi ; l’agent ne lit le corps que lorsque la tâche correspond.",
+    },
+    {
+      lines: "27-30",
+      label: "Lien croisé",
+      note: "Pointez sur les compétences associées afin que l'agent puisse les enchaîner au lieu de rediriger les conseils.",
+    },
+  ]}
+/>
 
 Les frontmatters `name` et `description` sont utilisés par le système d'outils de l'agent pour la découverte de compétences. La description doit indiquer quand la compétence se déclenche – être précis sur les situations.
 

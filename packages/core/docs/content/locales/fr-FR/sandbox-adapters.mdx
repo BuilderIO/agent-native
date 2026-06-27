@@ -51,24 +51,29 @@ En gardant le contrat étroit, un adaptateur distant hérite de la même posture
 
 La couture réside dans le noyau de `packages/core/src/coding-tools/sandbox/` : `adapter.ts` (le contrat), `index.ts` (sélection : `getSandboxAdapter()` / `registerSandboxAdapter()`) et `local-child-process-adapter.ts` (la valeur par défaut). Il est câblé dans l'emballage par `run-code.ts` ; un hôte connecte un backend différent via l'assistant d'enregistrement `index.ts` (ou, pour un backend Docker, via le [blueprint](/docs/blueprint-installer) qui édite directement ces fichiers).
 
-<FileTree id="doc-block-3psb7l" title="Le point de jonction du sandbox dans core" title="packages/core/src/coding-tools/sandbox/" entries={[
-  {
-    "path": "adapter.ts",
-    "note": "Le contrat SandboxAdapter (SandboxRunRequest / SandboxRunResult)"
-  },
-  {
-    "path": "index.ts",
-    "note": "Sélection : getSandboxAdapter() / registerSandboxAdapter()"
-  },
-  {
-    "path": "local-child-process-adapter.ts",
-    "note": "Backend par défaut : processus enfant Node verrouillé"
-  },
-  {
-    "path": "../run-code.ts",
-    "note": "Relie ce point ; ne change jamais quand vous remplacez les backends"
-  }
-]} />
+<FileTree
+  id="doc-block-3psb7l"
+  title="Le point de jonction du sandbox dans core"
+  title="packages/core/src/coding-tools/sandbox/"
+  entries={[
+    {
+      path: "adapter.ts",
+      note: "Le contrat SandboxAdapter (SandboxRunRequest / SandboxRunResult)",
+    },
+    {
+      path: "index.ts",
+      note: "Sélection : getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "local-child-process-adapter.ts",
+      note: "Backend par défaut : processus enfant Node verrouillé",
+    },
+    {
+      path: "../run-code.ts",
+      note: "Relie ce point ; ne change jamais quand vous remplacez les backends",
+    },
+  ]}
+/>
 
 Chaque backend implémente `SandboxAdapter` :
 

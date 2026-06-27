@@ -8,7 +8,12 @@ description: "استديو فيديو برمجي للرسومات المتحرك
 استوديو فيديو برمجي لنوع الرسومات المتحركة والعروض التوضيحية للمنتج ومقاطع الفيديو النصية الحركية التي تمثل صعوبة في استخدام الإطارات الرئيسية يدويًا. اطلب من الوكيل "إظهار شعار مدته 6 ثوانٍ يتلاشى خلال ثانيتين" وسيقوم بإنشاء الرسوم المتحركة. اضبط التوقيت والتخفيف وتحركات الكاميرا على مخطط زمني، ثم اعرضها على MP4 أو WebM.
 
 <WireframeBlock id="doc-block-1ogac6">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>إظهار الشعار</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>معاينة Remotion</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>مسار جديد</button></div><div class='wf-box'>تلاشي العنوان · الإطارات 0-48</div><div class='wf-box'>تكبير الشعار · الإطارات 48-120</div><div class='wf-box'>دفع الكاميرا · الإطارات 72-144</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>إظهار الشعار</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>معاينة Remotion</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>مسار جديد</button></div><div class='wf-box'>تلاشي العنوان · الإطارات 0-48</div><div class='wf-box'>تكبير الشعار · الإطارات 48-120</div><div class='wf-box'>دفع الكاميرا · الإطارات 72-144</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 عند فتح الاستوديو، سترى قائمة من المقطوعات الموسيقية على الشاشة الرئيسية. انقر فوق أحدها وستحصل على لاعب في الأعلى، ومخطط زمني في الأسفل، ولوحة خصائص على اليمين. يعرف الوكيل دائمًا التركيبة التي قمت بفتحها.
@@ -96,113 +101,121 @@ pnpm dev
 
 مخطط جانب الخادم موجود في `templates/videos/server/db/schema.ts`:
 
-<DataModel id="doc-block-3960iy" title={"نموذج بيانات الفيديو"} summary={"SQL المؤلفات المدعومة بالإضافة إلى أنظمة التصميم والمجلدات المتداخلة، كل منها مزود بجدول مشاركات إطار العمل."} entities={[
-  {
-    "id": "compositions",
-    "name": "compositions",
-    "note": "User-created compositions and overrides; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "type",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "التركيبة الكاملة JSON blob"
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      },
-      {
-        "name": "updated_at",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "design_systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens; ownableColumns",
-    "fields": [
-      {
-        "name": "data",
-        "type": "text",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "folders",
-    "note": "Nestable folders; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "name",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "folder_memberships",
-    "name": "folder_memberships",
-    "note": "انضمام متعدد إلى متعدد",
-    "fields": [
-      {
-        "name": "folder_id",
-        "type": "text",
-        "fk": "folders.id"
-      },
-      {
-        "name": "composition_id",
-        "type": "text",
-        "fk": "compositions.id"
-      }
-    ]
+<DataModel
+  id="doc-block-3960iy"
+  title={"نموذج بيانات الفيديو"}
+  summary={
+    "SQL المؤلفات المدعومة بالإضافة إلى أنظمة التصميم والمجلدات المتداخلة، كل منها مزود بجدول مشاركات إطار العمل."
   }
-]} relations={[
-  {
-    "from": "folders",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "members"
-  },
-  {
-    "from": "compositions",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "in folders"
-  }
-]} />
+  entities={[
+    {
+      id: "compositions",
+      name: "compositions",
+      note: "User-created compositions and overrides; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "التركيبة الكاملة JSON blob",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "Nestable folders; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "folder_memberships",
+      name: "folder_memberships",
+      note: "انضمام متعدد إلى متعدد",
+      fields: [
+        {
+          name: "folder_id",
+          type: "text",
+          fk: "folders.id",
+        },
+        {
+          name: "composition_id",
+          type: "text",
+          fk: "compositions.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "folders",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "members",
+    },
+    {
+      from: "compositions",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "in folders",
+    },
+  ]}
+/>
 
 يحتوي كل جدول أيضًا على جدول مشاركات إطار عمل مطابق (`composition_shares`، `design_system_shares`، `folder_shares`) من إنتاج `createSharesTable()`.
 

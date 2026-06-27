@@ -191,28 +191,37 @@ await setClientAppState(
 
 يجب أن يحتوي كل قالب على إجراء `view-screen`. فهو يقرأ حالة التنقل والاختيار، ويجلب البيانات ذات الصلة، ويعيد لقطة لما يراه المستخدم. هذه هي عيون الوكيل.
 
-<AnnotatedCode id="doc-block-thv3k6" title={"شاشة العرض - عيون الوكيل"} filename="actions/view-screen.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});"} annotations={[
-  {
-    "lines": "10-11",
-    "label": "سطح الأداة",
-    "note": "يقرأ الوكيل هذا الوصف ليعرف أنه يمكنه الاتصال بـ `view-screen` لرؤية واجهة المستخدم الحالية."
-  },
-  {
-    "lines": "13",
-    "label": "http: خطأ",
-    "note": "الإجراء الداخلي — لم يتم الكشف عنه عبر HTTP. الوكيل و `pnpm action` يسمونه، وليس المتصفح."
-  },
-  {
-    "lines": "15-16",
-    "label": "قراءة الدولة",
-    "note": "يسحب المفاتيح `navigation` و`selection` خفيفة الوزن التي كتبتها واجهة المستخدم."
-  },
-  {
-    "lines": "23-37",
-    "label": "هيدرات",
-    "note": "يحول هذه المعرفات إلى سجلات **حديثة** مباشرة من SQL، بحيث يتحقق الوكيل من الكائن المباشر قبل التصرف."
+<AnnotatedCode
+  id="doc-block-thv3k6"
+  title={"شاشة العرض - عيون الوكيل"}
+  filename="actions/view-screen.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { readAppState } from "@agent-native/core/application-state";\nimport { eq, inArray } from "drizzle-orm";\nimport { z } from "zod";\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description:\n    "See what the user is currently looking at on screen.",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState("navigation")) as any;\n    const selection = (await readAppState("selection")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === "inbox") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === "email.messages") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return "No application state found. Is the app running?";\n    }\n    return screen;\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10-11",
+      label: "سطح الأداة",
+      note: "يقرأ الوكيل هذا الوصف ليعرف أنه يمكنه الاتصال بـ `view-screen` لرؤية واجهة المستخدم الحالية.",
+    },
+    {
+      lines: "13",
+      label: "http: خطأ",
+      note: "الإجراء الداخلي — لم يتم الكشف عنه عبر HTTP. الوكيل و `pnpm action` يسمونه، وليس المتصفح.",
+    },
+    {
+      lines: "15-16",
+      label: "قراءة الدولة",
+      note: "يسحب المفاتيح `navigation` و`selection` خفيفة الوزن التي كتبتها واجهة المستخدم.",
+    },
+    {
+      lines: "23-37",
+      label: "هيدرات",
+      note: "يحول هذه المعرفات إلى سجلات **حديثة** مباشرة من SQL، بحيث يتحقق الوكيل من الكائن المباشر قبل التصرف.",
+    },
+  ]}
+/>
 
 يجب على الوكيل الاتصال بـ `pnpm action view-screen` قبل التصرف على UI الحالي. هذا هو التقليد الصعب عبر جميع القوالب. عند إضافة ميزات جديدة، قم بتحديث `view-screen` لإرجاع البيانات الخاصة بالعرض الجديد وأي شكل تحديد جديد.
 

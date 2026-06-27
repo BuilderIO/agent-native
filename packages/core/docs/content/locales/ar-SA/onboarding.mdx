@@ -113,33 +113,42 @@ Drives the sidebar checklist — returns each step's id, title, methods, require
 
 ### إضافة خطوة من القالب
 
-<AnnotatedCode id="doc-block-icnf07" title={"تسجيل خطوة تأهيل مخصصة"} filename="server/plugins/my-onboarding.ts" language="ts" code={"import { defineNitroPlugin } from \"@agent-native/core/server\";\nimport { registerOnboardingStep } from \"@agent-native/core/onboarding\";\nimport { listOAuthAccounts } from \"@agent-native/core/oauth-tokens\";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: \"gmail\",\n    order: 100,\n    title: \"Connect Gmail\",\n    description: \"Grant read/send access so the agent can work with email.\",\n    methods: [\n      {\n        id: \"oauth\",\n        kind: \"link\",\n        primary: true,\n        label: \"Sign in with Google\",\n        payload: { url: \"/_agent-native/google/auth-url?scope=mail\", external: false },\n      },\n      {\n        id: \"delegate\",\n        kind: \"agent-task\",\n        label: \"Let the agent set it up\",\n        badge: \"beta\",\n        payload: { prompt: \"Walk me through connecting Gmail. Set env vars as needed.\" },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts(\"google\");\n      return accounts.length > 0;\n    },\n  });\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "مثبتة تلقائيًا",
-    "note": "قم بالتسجيل من مكون إضافي Nitro - يعالج إطار العمل العرض وتتبع الإكمال والفصل."
-  },
-  {
-    "lines": "7",
-    "label": "معرف المكدس",
-    "note": "إعادة التسجيل بنفس `id` بعد تحميل الإعدادات الافتراضية يتجاوز خطوة مضمنة."
-  },
-  {
-    "lines": "12-19",
-    "label": "الطريقة الأساسية",
-    "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow."
-  },
-  {
-    "lines": "20-26",
-    "label": "مسار التفويض",
-    "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt."
-  },
-  {
-    "lines": "28-31",
-    "label": "التحقق من الإكمال",
-    "note": "`isComplete` يعمل من جانب الخادم. رموز OAuth موجودة في متجر `oauth_tokens` - تحقق منها، وليس `process.env.GMAIL_REFRESH_TOKEN`."
+<AnnotatedCode
+  id="doc-block-icnf07"
+  title={"تسجيل خطوة تأهيل مخصصة"}
+  filename="server/plugins/my-onboarding.ts"
+  language="ts"
+  code={
+    'import { defineNitroPlugin } from "@agent-native/core/server";\nimport { registerOnboardingStep } from "@agent-native/core/onboarding";\nimport { listOAuthAccounts } from "@agent-native/core/oauth-tokens";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: "gmail",\n    order: 100,\n    title: "Connect Gmail",\n    description: "Grant read/send access so the agent can work with email.",\n    methods: [\n      {\n        id: "oauth",\n        kind: "link",\n        primary: true,\n        label: "Sign in with Google",\n        payload: { url: "/_agent-native/google/auth-url?scope=mail", external: false },\n      },\n      {\n        id: "delegate",\n        kind: "agent-task",\n        label: "Let the agent set it up",\n        badge: "beta",\n        payload: { prompt: "Walk me through connecting Gmail. Set env vars as needed." },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts("google");\n      return accounts.length > 0;\n    },\n  });\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "مثبتة تلقائيًا",
+      note: "قم بالتسجيل من مكون إضافي Nitro - يعالج إطار العمل العرض وتتبع الإكمال والفصل.",
+    },
+    {
+      lines: "7",
+      label: "معرف المكدس",
+      note: "إعادة التسجيل بنفس `id` بعد تحميل الإعدادات الافتراضية يتجاوز خطوة مضمنة.",
+    },
+    {
+      lines: "12-19",
+      label: "الطريقة الأساسية",
+      note: '`primary: true` marks the big CTA. `kind: "link"` sends the user into the OAuth flow.',
+    },
+    {
+      lines: "20-26",
+      label: "مسار التفويض",
+      note: '`kind: "agent-task"` يسلّم الإعداد إلى دردشة الوكيل مع مطالبة.',
+    },
+    {
+      lines: "28-31",
+      label: "التحقق من الإكمال",
+      note: "`isComplete` يعمل من جانب الخادم. رموز OAuth موجودة في متجر `oauth_tokens` - تحقق منها، وليس `process.env.GMAIL_REFRESH_TOKEN`.",
+    },
+  ]}
+/>
 
 ### التحقق من اتصالات مساحة العمل أثناء الإعداد
 

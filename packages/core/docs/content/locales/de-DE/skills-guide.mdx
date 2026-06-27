@@ -80,28 +80,37 @@ Erstellen Sie keinen Skill, wenn:
 
 Jeder Skill ist eine Markdown-Datei mit YAML-Frontmatter:
 
-<AnnotatedCode id="doc-block-lecze5" title="Anatomie eines SKILL.md" filename=".agents/skills/project-imports/SKILL.md" language="markdown" code={"---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"} annotations={[
-  {
-    "lines": "2",
-    "label": "Entdeckungsschlüssel",
-    "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`."
-  },
-  {
-    "lines": "3-5",
-    "label": "Der Auslöser",
-    "note": "Dieses `description` ist der **einzige** Text, der immer im Kontext steht. Geben Sie genau an, wann die Fertigkeit angewendet wird."
-  },
-  {
-    "lines": "9-14",
-    "label": "Regeln zuerst",
-    "note": "Beginnen Sie mit der harten Regel und dem Warum; der Agent liest den Body erst, wenn die Aufgabe passt."
-  },
-  {
-    "lines": "27-30",
-    "label": "Quervernetzung",
-    "note": "Zeigen Sie auf verwandte Fähigkeiten, damit der Agent sie verketten kann, anstatt die Anleitung erneut abzuleiten."
+<AnnotatedCode
+  id="doc-block-lecze5"
+  title="Anatomie eines SKILL.md"
+  filename=".agents/skills/project-imports/SKILL.md"
+  language="markdown"
+  code={
+    "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "Entdeckungsschlüssel",
+      note: "The `name` matches the folder; it is how the skill is invoked as `/project-imports`.",
+    },
+    {
+      lines: "3-5",
+      label: "Der Auslöser",
+      note: "Dieses `description` ist der **einzige** Text, der immer im Kontext steht. Geben Sie genau an, wann die Fertigkeit angewendet wird.",
+    },
+    {
+      lines: "9-14",
+      label: "Regeln zuerst",
+      note: "Beginnen Sie mit der harten Regel und dem Warum; der Agent liest den Body erst, wenn die Aufgabe passt.",
+    },
+    {
+      lines: "27-30",
+      label: "Quervernetzung",
+      note: "Zeigen Sie auf verwandte Fähigkeiten, damit der Agent sie verketten kann, anstatt die Anleitung erneut abzuleiten.",
+    },
+  ]}
+/>
 
 Die Frontmatter `name` und `description` werden vom Toolsystem des Agenten zur Fähigkeitserkennung verwendet. In der Beschreibung sollte angegeben werden, wann der Skill ausgelöst wird – geben Sie die Situationen genau an.
 

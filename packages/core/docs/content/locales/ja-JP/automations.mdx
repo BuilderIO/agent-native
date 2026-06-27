@@ -39,28 +39,37 @@ description: "自然言語条件を使用したイベントトリガーおよび
 
 3 番目のパス (`resourcePut` 経由で `jobs/<name>.md` ファイルを手動で書き込む) は、[recurring jobs](/docs/recurring-jobs#creating) の場合とまったく同じように機能します。イベント駆動型オートメーションの場合は、以下のイベント トリガー フロントマターを同じファイルに追加します。イベントトリガージョブは、`schedule: ""` を設定し、`triggerType: event`、`event` 名、およびオプションの `condition` を提供します。
 
-<AnnotatedCode id="doc-block-1towuwt" title={"イベントトリガーの自動化"} filename="jobs/slack-on-builder-booking.md" language="markdown" code={"---\nschedule: \"\"\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: \"attendee email ends with @builder.io\"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}."} annotations={[
-  {
-    "lines": "2",
-    "label": "クロンなし",
-    "note": "Event triggers set `schedule` to `\"\"` — the cron field stays empty."
-  },
-  {
-    "lines": "4-5",
-    "label": "トリガー",
-    "note": "`triggerType: event` に `event` という名前を追加すると、このオートメーションがバスにサブスクライブされます。"
-  },
-  {
-    "lines": "6",
-    "label": "ゲート",
-    "note": "オプションの自然言語 `condition` 。ディスパッチ前にペイロードに対して Haiku によって評価されます。"
-  },
-  {
-    "lines": "12",
-    "label": "サーバー側の秘密",
-    "note": "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context."
+<AnnotatedCode
+  id="doc-block-1towuwt"
+  title={"イベントトリガーの自動化"}
+  filename="jobs/slack-on-builder-booking.md"
+  language="markdown"
+  code={
+    '---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: "attendee email ends with @builder.io"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}.'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "クロンなし",
+      note: 'イベントトリガーは `schedule` を `""` に設定し、cron フィールドは空のままにします。',
+    },
+    {
+      lines: "4-5",
+      label: "トリガー",
+      note: "`triggerType: event` に `event` という名前を追加すると、このオートメーションがバスにサブスクライブされます。",
+    },
+    {
+      lines: "6",
+      label: "ゲート",
+      note: "オプションの自然言語 `condition` 。ディスパッチ前にペイロードに対して Haiku によって評価されます。",
+    },
+    {
+      lines: "12",
+      label: "サーバー側の秘密",
+      note: "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context.",
+    },
+  ]}
+/>
 
 ## 自動化の最前線 {#frontmatter}
 

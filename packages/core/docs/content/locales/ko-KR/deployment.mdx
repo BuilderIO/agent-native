@@ -70,24 +70,28 @@ npx @agent-native/core@latest deploy --preset vercel
 
 `npx @agent-native/core@latest build`를 실행하면 Nitro는 클라이언트 SPA와 서버 API를 모두 `.output/`에 빌드합니다.
 
-<FileTree id="doc-block-10l1yl6" title={"빌드 출력"} entries={[
-  {
-    "path": ".output/",
-    "note": "자체 포함: 어떤 환경에든 복사해 실행"
-  },
-  {
-    "path": ".output/public/",
-    "note": "빌드된 SPA(정적 assets)"
-  },
-  {
-    "path": ".output/server/index.mjs",
-    "note": "서버 entry point"
-  },
-  {
-    "path": ".output/server/chunks/",
-    "note": "서버 코드 chunks"
-  }
-]} />
+<FileTree
+  id="doc-block-10l1yl6"
+  title={"빌드 출력"}
+  entries={[
+    {
+      path: ".output/",
+      note: "자체 포함: 어떤 환경에든 복사해 실행",
+    },
+    {
+      path: ".output/public/",
+      note: "빌드된 SPA(정적 assets)",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "서버 entry point",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "서버 코드 chunks",
+    },
+  ]}
+/>
 
 출력은 독립적입니다. `.output/`를 임의의 환경에 복사하고 실행하세요.
 

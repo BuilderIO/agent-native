@@ -20,20 +20,24 @@ Building from scratch? The only choice up front is whether you want a UI —
 everything after (writing instructions, adding skills, defining actions, running
 the agent) is the same either way.
 
-<FileTree id="doc-block-1up18cp" title="A basic Agent-Native agent" entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "always-on instructions: purpose, rules, tone, and the map of what the agent can do"
-  },
-  {
-    "path": ".agents/skills/customer-research/SKILL.md",
-    "note": "a reusable playbook the agent loads when the task matches"
-  },
-  {
-    "path": "actions/summarize-week.ts",
-    "note": "typed code the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks can run"
-  }
-]} />
+<FileTree
+  id="doc-block-1up18cp"
+  title="A basic Agent-Native agent"
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "always-on instructions: purpose, rules, tone, and the map of what the agent can do",
+    },
+    {
+      path: ".agents/skills/customer-research/SKILL.md",
+      note: "a reusable playbook the agent loads when the task matches",
+    },
+    {
+      path: "actions/summarize-week.ts",
+      note: "typed code the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks can run",
+    },
+  ]}
+/>
 
 This is true whether you start with a chat UI, a headless agent, or a full app.
 The UI changes the surface; instructions, skills, and actions give the agent its
@@ -80,33 +84,42 @@ From here on, the two are identical.
 An action is one operation your agent — and your UI — can call. Both scaffolds
 ship with this example:
 
-<AnnotatedCode id="doc-block-1aert37" title="Your first action" filename="actions/hello.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Say hello from the local agent.\",\n  schema: z.object({\n    name: z.string().default(\"world\"),\n  }),\n  http: { method: \"GET\" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "Tool description",
-    "note": "The agent reads `description` to decide when to call this as a tool."
-  },
-  {
-    "lines": "6-8",
-    "label": "Typed contract",
-    "note": "One zod `schema` validates input from every surface — agent, UI, HTTP, MCP, and A2A."
-  },
-  {
-    "lines": "9",
-    "label": "HTTP verb",
-    "note": "Opt this action into an auto-mounted HTTP endpoint."
-  },
-  {
-    "lines": "10",
-    "label": "Read-only",
-    "note": "`readOnly` marks the action as safe to call without approval and cacheable for queries."
-  },
-  {
-    "lines": "11-13",
-    "label": "One implementation",
-    "note": "The `run` body is the single source of truth that every surface executes."
+<AnnotatedCode
+  id="doc-block-1aert37"
+  title="Your first action"
+  filename="actions/hello.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Say hello from the local agent.",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "Tool description",
+      note: "The agent reads `description` to decide when to call this as a tool.",
+    },
+    {
+      lines: "6-8",
+      label: "Typed contract",
+      note: "One zod `schema` validates input from every surface — agent, UI, HTTP, MCP, and A2A.",
+    },
+    {
+      lines: "9",
+      label: "HTTP verb",
+      note: "Opt this action into an auto-mounted HTTP endpoint.",
+    },
+    {
+      lines: "10",
+      label: "Read-only",
+      note: "`readOnly` marks the action as safe to call without approval and cacheable for queries.",
+    },
+    {
+      lines: "11-13",
+      label: "One implementation",
+      note: "The `run` body is the single source of truth that every surface executes.",
+    },
+  ]}
+/>
 
 Replace `hello` with the first real operation in your domain. You define it once;
 every surface picks it up.

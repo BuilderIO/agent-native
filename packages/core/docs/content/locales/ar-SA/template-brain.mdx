@@ -27,7 +27,12 @@ Brain عبارة عن دردشة شركة نظيفة مدعومة بالذاكر
 ```
 
 <WireframeBlock id="doc-block-1uh7c1t">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>اسأل ذاكرة الشركة</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='بحث'></span><strong style='flex:1'>لماذا اخترنا التسعير حسب الاستخدام؟</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>اختار الفريق التسعير حسب الاستخدام بعد أن أظهرت التجارب أن عدد المقاعد يقلل من قيمة الأتمتة.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>RFC للتسعير</span><span class='wf-pill'>استعادة الإطلاق</span><span class='wf-pill'>ملاحظات المبيعات</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>الخط الزمني للمصادر</strong><div class='wf-box'>3 مايو · تم تسجيل القرار</div><div class='wf-box'>8 مايو · تمت إضافة دليل العميل</div><div class='wf-box'>12 مايو · تمت الموافقة على الملاحظة القانونية</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>اسأل ذاكرة الشركة</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='بحث'></span><strong style='flex:1'>لماذا اخترنا التسعير حسب الاستخدام؟</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>اختار الفريق التسعير حسب الاستخدام بعد أن أظهرت التجارب أن عدد المقاعد يقلل من قيمة الأتمتة.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>RFC للتسعير</span><span class='wf-pill'>استعادة الإطلاق</span><span class='wf-pill'>ملاحظات المبيعات</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>الخط الزمني للمصادر</strong><div class='wf-box'>3 مايو · تم تسجيل القرار</div><div class='wf-box'>8 مايو · تمت إضافة دليل العميل</div><div class='wf-box'>12 مايو · تمت الموافقة على الملاحظة القانونية</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 عند فتح التطبيق، يكون **السؤال** في المقدمة والوسط — حيث تتم مراجعة الدردشة النظيفة
@@ -149,221 +154,229 @@ Postgres، وNeon، وD1، وTurso، والمضيفون المشابهون. تع
 | `brain_sync_runs`        | سجل تدقيق المزامنة - الموفر، الحالة، الإحصائيات JSON، الخطأ، الطوابع الزمنية للبدء/الانتهاء                                                                |
 | `brain_ingest_queue`     | قائمة انتظار التقطير الخلفية - التشغيل، الحالة، الأولوية، عدد مرات إعادة المحاولة، `run_after`                                                             |
 
-<DataModel id="doc-block-xt9gsl" title={"نموذج بيانات الدماغ"} summary={"Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."} entities={[
-  {
-    "id": "sources",
-    "name": "brain_sources",
-    "note": "تكوين الموصل",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "provider",
-        "type": "text",
-        "note": "slack / granola / github / clips / webhook"
-      },
-      {
-        "name": "ingest_token_hash",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "last_synced_at",
-        "type": "timestamp",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "source_shares",
-    "name": "brain_source_shares",
-    "note": "viewer / editor / admin",
-    "fields": [
-      {
-        "name": "source_id",
-        "type": "id",
-        "fk": "brain_sources.id"
-      }
-    ]
-  },
-  {
-    "id": "captures",
-    "name": "brain_raw_captures",
-    "note": "الحمولات الأولية التي تم استيعابها",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "source_id",
-        "type": "id",
-        "fk": "brain_sources.id"
-      },
-      {
-        "name": "external_id",
-        "type": "text",
-        "note": "dedupe key"
-      },
-      {
-        "name": "content_hash",
-        "type": "text"
-      },
-      {
-        "name": "kind",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "knowledge",
-    "name": "brain_knowledge",
-    "note": "الإدخالات الذرية المقطرة",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "kind",
-        "type": "text",
-        "note": "decision / fact / process"
-      },
-      {
-        "name": "topic",
-        "type": "text"
-      },
-      {
-        "name": "entities",
-        "type": "json"
-      },
-      {
-        "name": "confidence",
-        "type": "real"
-      },
-      {
-        "name": "publish_tier",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "knowledge_shares",
-    "name": "brain_knowledge_shares",
-    "fields": [
-      {
-        "name": "knowledge_id",
-        "type": "id",
-        "fk": "brain_knowledge.id"
-      }
-    ]
-  },
-  {
-    "id": "proposals",
-    "name": "brain_proposals",
-    "note": "عناصر المراجعة المعلقة",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "op",
-        "type": "text",
-        "note": "create / update / archive"
-      }
-    ]
-  },
-  {
-    "id": "proposal_shares",
-    "name": "brain_proposal_shares",
-    "fields": [
-      {
-        "name": "proposal_id",
-        "type": "id",
-        "fk": "brain_proposals.id"
-      }
-    ]
-  },
-  {
-    "id": "sync_runs",
-    "name": "brain_sync_runs",
-    "note": "سجل تدقيق المزامنة",
-    "fields": [
-      {
-        "name": "source_id",
-        "type": "id",
-        "fk": "brain_sources.id"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "stats",
-        "type": "json"
-      }
-    ]
-  },
-  {
-    "id": "ingest_queue",
-    "name": "brain_ingest_queue",
-    "note": "قائمة انتظار التقطير في الخلفية",
-    "fields": [
-      {
-        "name": "operation",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "priority",
-        "type": "int"
-      },
-      {
-        "name": "run_after",
-        "type": "timestamp",
-        "nullable": true
-      }
-    ]
+<DataModel
+  id="doc-block-xt9gsl"
+  title={"نموذج بيانات الدماغ"}
+  summary={
+    "Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
   }
-]} relations={[
-  {
-    "from": "sources",
-    "to": "captures",
-    "kind": "1-n",
-    "label": "ingested into"
-  },
-  {
-    "from": "knowledge",
-    "to": "captures",
-    "kind": "n-n",
-    "label": "evidence"
-  },
-  {
-    "from": "knowledge",
-    "to": "proposals",
-    "kind": "1-n",
-    "label": "gated by"
-  },
-  {
-    "from": "sources",
-    "to": "sync_runs",
-    "kind": "1-n",
-    "label": "audited by"
-  }
-]} />
+  entities={[
+    {
+      id: "sources",
+      name: "brain_sources",
+      note: "تكوين الموصل",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "provider",
+          type: "text",
+          note: "slack / granola / github / clips / webhook",
+        },
+        {
+          name: "ingest_token_hash",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "last_synced_at",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "source_shares",
+      name: "brain_source_shares",
+      note: "viewer / editor / admin",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+      ],
+    },
+    {
+      id: "captures",
+      name: "brain_raw_captures",
+      note: "الحمولات الأولية التي تم استيعابها",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "external_id",
+          type: "text",
+          note: "dedupe key",
+        },
+        {
+          name: "content_hash",
+          type: "text",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge",
+      name: "brain_knowledge",
+      note: "الإدخالات الذرية المقطرة",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: "decision / fact / process",
+        },
+        {
+          name: "topic",
+          type: "text",
+        },
+        {
+          name: "entities",
+          type: "json",
+        },
+        {
+          name: "confidence",
+          type: "real",
+        },
+        {
+          name: "publish_tier",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge_shares",
+      name: "brain_knowledge_shares",
+      fields: [
+        {
+          name: "knowledge_id",
+          type: "id",
+          fk: "brain_knowledge.id",
+        },
+      ],
+    },
+    {
+      id: "proposals",
+      name: "brain_proposals",
+      note: "عناصر المراجعة المعلقة",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "op",
+          type: "text",
+          note: "create / update / archive",
+        },
+      ],
+    },
+    {
+      id: "proposal_shares",
+      name: "brain_proposal_shares",
+      fields: [
+        {
+          name: "proposal_id",
+          type: "id",
+          fk: "brain_proposals.id",
+        },
+      ],
+    },
+    {
+      id: "sync_runs",
+      name: "brain_sync_runs",
+      note: "سجل تدقيق المزامنة",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "stats",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "ingest_queue",
+      name: "brain_ingest_queue",
+      note: "قائمة انتظار التقطير في الخلفية",
+      fields: [
+        {
+          name: "operation",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "priority",
+          type: "int",
+        },
+        {
+          name: "run_after",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "sources",
+      to: "captures",
+      kind: "1-n",
+      label: "ingested into",
+    },
+    {
+      from: "knowledge",
+      to: "captures",
+      kind: "n-n",
+      label: "evidence",
+    },
+    {
+      from: "knowledge",
+      to: "proposals",
+      kind: "1-n",
+      label: "gated by",
+    },
+    {
+      from: "sources",
+      to: "sync_runs",
+      kind: "1-n",
+      label: "audited by",
+    },
+  ]}
+/>
 
 ### مفتاح actions
 
@@ -426,8 +439,6 @@ URL كلتقطير خام قبل التقطير.
     "description": "Missing or invalid ingest bearer token"
   }
 ]}>
-
-
 
 </Endpoint>
 

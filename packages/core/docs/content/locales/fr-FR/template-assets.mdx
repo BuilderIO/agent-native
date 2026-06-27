@@ -8,7 +8,12 @@ description: "Un gestionnaire d'actifs numériques natif et un service de géné
 Assets est un espace de travail natif pour les agents permettant de créer et de gérer des médias cohérents avec la marque. Il organise les téléchargements et les résultats générés dans des bibliothèques et des dossiers, permet aux équipes de collecter des exemples de héros de blog, de diagrammes, de pages de destination, de photos de produits, de vidéos et de logos, puis achemine la génération via le chat de l'agent afin que chaque élément puisse être examiné et affiné.
 
 <WireframeBlock id="doc-block-1119ncv">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Marque de lancement</h1><span class='wf-pill accent'>Héros de blog</span><span class='wf-pill'>Visuels produit</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Créer des médias de marque</strong><div class='wf-box'>Trois options de hero de page d’accueil utilisant le logo approuvé et les références produit.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Export web</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Bloc hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Jeu de références</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo sûr</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Marque de lancement</h1><span class='wf-pill accent'>Héros de blog</span><span class='wf-pill'>Visuels produit</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Créer des médias de marque</strong><div class='wf-box'>Trois options de hero de page d’accueil utilisant le logo approuvé et les références produit.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Export web</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Bloc hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Jeu de références</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo sûr</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Lorsque vous ouvrez l'application, la bibliothèque sélectionnée, l'invite, les références et les candidats générés restent dans un seul espace de travail. L'agent peut parcourir, rechercher, générer, affiner et exporter chaque actif via le même actions que le UI.
@@ -127,236 +132,244 @@ Remarque : les noms de table SQL conservent l'ancien préfixe `image_*` datant 
 | `image_assets`                   | L'enregistrement de l'élément : type de média, rôle, statut, titre/description/texte alternatif, invite, modèle, dimensions, type MIME, clés d'objet/vignette et lignée                                                                           |
 | `image_generation_runs`          | Le journal d'audit de génération : invite, invite compilée, modèle, références, statut, erreurs et `source` (`chat` / `ui` / `a2a`) qui l'a déclenché                                                                                             |
 
-<DataModel id="doc-block-6r1pfn" title={"Modèle de données Assets"} summary={"Les bibliothèques sont le conteneur possédé ; collections, dossiers et presets les organisent. Les sessions pilotent la génération et le choix ; les assets et les runs conservent la sortie et le journal d’audit. Les noms de table gardent le préfixe historique image_* mais couvrent tous les médias."} entities={[
-  {
-    "id": "library",
-    "name": "image_libraries",
-    "note": "Conteneur propriétaire de premier niveau",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "logo_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      },
-      {
-        "name": "archived",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "library_shares",
-    "name": "image_library_shares",
-    "note": "Tableau des partages du framework",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "role",
-        "type": "text",
-        "note": "viewer / editor / admin"
-      }
-    ]
-  },
-  {
-    "id": "collections",
-    "name": "image_collections",
-    "note": "Groupements Style/category",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "prompt_template",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "asset_folders",
-    "note": "Dossiers emboîtables",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "parent_id",
-        "type": "id",
-        "fk": "asset_folders.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "presets",
-    "name": "image_generation_presets",
-    "note": "Recettes de génération enregistrées",
-    "fields": [
-      {
-        "name": "media_type",
-        "type": "text"
-      },
-      {
-        "name": "prompt_template",
-        "type": "text"
-      },
-      {
-        "name": "model",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "image_generation_sessions",
-    "note": "Générer et choisir itérativement",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "active_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "session_items",
-    "name": "image_generation_session_items",
-    "note": "Actifs du candidat dans une session",
-    "fields": [
-      {
-        "name": "session_id",
-        "type": "id",
-        "fk": "image_generation_sessions.id"
-      },
-      {
-        "name": "asset_id",
-        "type": "id",
-        "fk": "image_assets.id"
-      },
-      {
-        "name": "role",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "assets",
-    "name": "image_assets",
-    "note": "Le dossier d'actif",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "media_type",
-        "type": "text",
-        "note": "image / video"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "prompt",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "object_key",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "runs",
-    "name": "image_generation_runs",
-    "note": "Journal d'audit de génération",
-    "fields": [
-      {
-        "name": "model",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "note": "chat / ui / a2a"
-      }
-    ]
+<DataModel
+  id="doc-block-6r1pfn"
+  title={"Modèle de données Assets"}
+  summary={
+    "Les bibliothèques sont le conteneur possédé ; collections, dossiers et presets les organisent. Les sessions pilotent la génération et le choix ; les assets et les runs conservent la sortie et le journal d’audit. Les noms de table gardent le préfixe historique image_* mais couvrent tous les médias."
   }
-]} relations={[
-  {
-    "from": "library",
-    "to": "collections",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "folders",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "assets",
-    "kind": "1-n"
-  },
-  {
-    "from": "sessions",
-    "to": "session_items",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "library_shares",
-    "kind": "1-n"
-  }
-]} />
+  entities={[
+    {
+      id: "library",
+      name: "image_libraries",
+      note: "Conteneur propriétaire de premier niveau",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "logo_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+        {
+          name: "archived",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "library_shares",
+      name: "image_library_shares",
+      note: "Tableau des partages du framework",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "collections",
+      name: "image_collections",
+      note: "Groupements Style/category",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "asset_folders",
+      note: "Dossiers emboîtables",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "parent_id",
+          type: "id",
+          fk: "asset_folders.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "presets",
+      name: "image_generation_presets",
+      note: "Recettes de génération enregistrées",
+      fields: [
+        {
+          name: "media_type",
+          type: "text",
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+        },
+        {
+          name: "model",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "image_generation_sessions",
+      note: "Générer et choisir itérativement",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "active_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "session_items",
+      name: "image_generation_session_items",
+      note: "Actifs du candidat dans une session",
+      fields: [
+        {
+          name: "session_id",
+          type: "id",
+          fk: "image_generation_sessions.id",
+        },
+        {
+          name: "asset_id",
+          type: "id",
+          fk: "image_assets.id",
+        },
+        {
+          name: "role",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "assets",
+      name: "image_assets",
+      note: "Le dossier d'actif",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "media_type",
+          type: "text",
+          note: "image / video",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "prompt",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "object_key",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "runs",
+      name: "image_generation_runs",
+      note: "Journal d'audit de génération",
+      fields: [
+        {
+          name: "model",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          note: "chat / ui / a2a",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "library",
+      to: "collections",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "folders",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "assets",
+      kind: "1-n",
+    },
+    {
+      from: "sessions",
+      to: "session_items",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "library_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
 
 ### Le personnaliser
 

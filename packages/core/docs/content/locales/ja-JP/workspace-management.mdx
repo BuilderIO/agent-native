@@ -47,24 +47,28 @@ main                         ← production
 
 コード ガバナンスは、リポジトリ ルートにあるいくつかのファイルによって構成されます。
 
-<FileTree id="doc-block-r4hiho" title={"repo 内のガバナンス設定"} entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "変更パスごとに reviewers を自動割り当て"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "app ごとに PR へ自動ラベル付け"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Workspace レベル: 広範な review"
-  },
-  {
-    "path": "package.json",
-    "note": "Workspace レベル: platform team が所有"
-  }
-]} />
+<FileTree
+  id="doc-block-r4hiho"
+  title={"repo 内のガバナンス設定"}
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "変更パスごとに reviewers を自動割り当て",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "app ごとに PR へ自動ラベル付け",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Workspace レベル: 広範な review",
+    },
+    {
+      path: "package.json",
+      note: "Workspace レベル: platform team が所有",
+    },
+  ]}
+/>
 
 GitHub の CODEOWNERS ファイルは、変更されたファイルに基づいてレビュー担当者を PR に自動的に割り当てます。リポジトリのルートに `.github/CODEOWNERS` を作成します。
 

@@ -113,33 +113,42 @@ Drives the sidebar checklist — returns each step's id, title, methods, require
 
 ### टेम्पलेट से एक चरण जोड़ना
 
-<AnnotatedCode id="doc-block-kly1t5" title={"एक कस्टम ऑनबोर्डिंग चरण पंजीकृत करना"} filename="server/plugins/my-onboarding.ts" language="ts" code={"import { defineNitroPlugin } from \"@agent-native/core/server\";\nimport { registerOnboardingStep } from \"@agent-native/core/onboarding\";\nimport { listOAuthAccounts } from \"@agent-native/core/oauth-tokens\";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: \"gmail\",\n    order: 100,\n    title: \"Connect Gmail\",\n    description: \"Grant read/send access so the agent can work with email.\",\n    methods: [\n      {\n        id: \"oauth\",\n        kind: \"link\",\n        primary: true,\n        label: \"Sign in with Google\",\n        payload: { url: \"/_agent-native/google/auth-url?scope=mail\", external: false },\n      },\n      {\n        id: \"delegate\",\n        kind: \"agent-task\",\n        label: \"Let the agent set it up\",\n        badge: \"beta\",\n        payload: { prompt: \"Walk me through connecting Gmail. Set env vars as needed.\" },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts(\"google\");\n      return accounts.length > 0;\n    },\n  });\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "ऑटो-माउंटेड",
-    "note": "Nitro प्लगइन से रजिस्टर करें - फ्रेमवर्क रेंडरिंग, पूर्णता ट्रैकिंग और बर्खास्तगी को संभालता है।"
-  },
-  {
-    "lines": "7",
-    "label": "स्टैक आईडी",
-    "note": "डिफ़ॉल्ट लोड के बाद उसी `id` के साथ पुनः पंजीकरण करना एक अंतर्निहित चरण को ओवरराइड करता है।"
-  },
-  {
-    "lines": "12-19",
-    "label": "प्राथमिक विधि",
-    "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow."
-  },
-  {
-    "lines": "20-26",
-    "label": "प्रतिनिधि पथ",
-    "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt."
-  },
-  {
-    "lines": "28-31",
-    "label": "समापन जांच",
-    "note": "`isComplete` सर्वर-साइड चलता है। OAuth टोकन `oauth_tokens` स्टोर में रहते हैं - इसे जांचें, `process.env.GMAIL_REFRESH_TOKEN` नहीं।"
+<AnnotatedCode
+  id="doc-block-kly1t5"
+  title={"एक कस्टम ऑनबोर्डिंग चरण पंजीकृत करना"}
+  filename="server/plugins/my-onboarding.ts"
+  language="ts"
+  code={
+    'import { defineNitroPlugin } from "@agent-native/core/server";\nimport { registerOnboardingStep } from "@agent-native/core/onboarding";\nimport { listOAuthAccounts } from "@agent-native/core/oauth-tokens";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: "gmail",\n    order: 100,\n    title: "Connect Gmail",\n    description: "Grant read/send access so the agent can work with email.",\n    methods: [\n      {\n        id: "oauth",\n        kind: "link",\n        primary: true,\n        label: "Sign in with Google",\n        payload: { url: "/_agent-native/google/auth-url?scope=mail", external: false },\n      },\n      {\n        id: "delegate",\n        kind: "agent-task",\n        label: "Let the agent set it up",\n        badge: "beta",\n        payload: { prompt: "Walk me through connecting Gmail. Set env vars as needed." },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts("google");\n      return accounts.length > 0;\n    },\n  });\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "ऑटो-माउंटेड",
+      note: "Nitro प्लगइन से रजिस्टर करें - फ्रेमवर्क रेंडरिंग, पूर्णता ट्रैकिंग और बर्खास्तगी को संभालता है।",
+    },
+    {
+      lines: "7",
+      label: "स्टैक आईडी",
+      note: "डिफ़ॉल्ट लोड के बाद उसी `id` के साथ पुनः पंजीकरण करना एक अंतर्निहित चरण को ओवरराइड करता है।",
+    },
+    {
+      lines: "12-19",
+      label: "प्राथमिक विधि",
+      note: '`primary: true` marks the big CTA. `kind: "link"` sends the user into the OAuth flow.',
+    },
+    {
+      lines: "20-26",
+      label: "प्रतिनिधि पथ",
+      note: '`kind: "agent-task"` सेटअप को एक प्रॉम्प्ट के साथ एजेंट चैट को सौंपता है।',
+    },
+    {
+      lines: "28-31",
+      label: "समापन जांच",
+      note: "`isComplete` सर्वर-साइड चलता है। OAuth टोकन `oauth_tokens` स्टोर में रहते हैं - इसे जांचें, `process.env.GMAIL_REFRESH_TOKEN` नहीं।",
+    },
+  ]}
+/>
 
 ### ऑनबोर्डिंग में कार्यक्षेत्र कनेक्शन की जाँच करना
 

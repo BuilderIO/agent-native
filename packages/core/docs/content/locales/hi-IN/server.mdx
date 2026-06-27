@@ -103,23 +103,32 @@ export default defineAction({
 
 फ़्रेमवर्क द्वारा माउंट किया गया Actions स्वचालित रूप से अनुरोध संदर्भ के साथ चलता है। कस्टम मार्ग नहीं हैं. यदि कोई कस्टम रूट स्वामित्व योग्य संसाधनों को पढ़ता या लिखता है, तो सत्र लोड करें और कार्य को लपेटें:
 
-<AnnotatedCode id="doc-block-2lwds8" title={"अनुरोध उपयोगकर्ता के लिए एक कस्टम मार्ग का दायरा"} filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectसाझा करेंs));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "कस्टम मार्गों में कोई ऑटो-संदर्भ नहीं है",
-    "note": "क्रियाओं के विपरीत, फ़ाइल रूट को सत्र स्वयं लोड करना होगा और कोई प्रमाणित उपयोगकर्ता न होने पर बंद हो जाना चाहिए।"
-  },
-  {
-    "lines": "12-13",
-    "label": "अनुरोध संदर्भ स्थापित करें",
-    "note": "`runWithRequestContext` कार्य की अवधि के लिए स्कोपिंग सहायकों को user/org उपलब्ध कराता है।"
-  },
-  {
-    "lines": "18-19",
-    "label": "स्वामित्व योग्य पढ़ने का दायरा",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-2lwds8"
+  title={"अनुरोध उपयोगकर्ता के लिए एक कस्टम मार्ग का दायरा"}
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectसाझा करेंs));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "कस्टम मार्गों में कोई ऑटो-संदर्भ नहीं है",
+      note: "क्रियाओं के विपरीत, फ़ाइल रूट को सत्र स्वयं लोड करना होगा और कोई प्रमाणित उपयोगकर्ता न होने पर बंद हो जाना चाहिए।",
+    },
+    {
+      lines: "12-13",
+      label: "अनुरोध संदर्भ स्थापित करें",
+      note: "`runWithRequestContext` कार्य की अवधि के लिए स्कोपिंग सहायकों को user/org उपलब्ध कराता है।",
+    },
+    {
+      lines: "18-19",
+      label: "स्वामित्व योग्य पढ़ने का दायरा",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `server/db/index.ts` में `createGetDb(schema)` के माध्यम से प्रति ऐप `getDb` बनाया जाता है, इसलिए कस्टम रूट इसे टेम्पलेट (`../../db/index.js`) से आयात करते हैं, `@agent-native/core/db` से नहीं; [Database — Where the DB Client Lives](/docs/database#db-client) देखें। कस्टम मार्गों में बिना दायरे वाले `db.select().from(ownableTable)` को न चलाएं।
 

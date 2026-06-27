@@ -8,7 +8,12 @@ description: "평이한 영어로 분석 질문을 하고 차트와 대시보드
 평이한 영어로 분석 질문을 하고 차트와 대시보드를 다시 받아보세요. 에이전트는 BigQuery, GA4, Amplitude, 내장된 자사 이벤트 수집기, HubSpot, Jira 및 기타 12개 소스에 연결하여 쿼리를 작성하고 검증한 후 답변을 차트, 테이블 또는 저장된 대시보드 패널로 렌더링합니다.
 
 <WireframeBlock id="doc-block-180uf40">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native 템플릿</h1><p class='wf-muted' style='margin:0'>지난 12주간의 도입과 참여도.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>주간 활성 사용자</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>신규 가입</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR 매출</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>주간 활성 사용자</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>시간에 따른 매출</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>소스별 가입</strong><br/><small class='wf-muted'>아래 차트는 기본 차트 아래에서 시작됩니다.</small></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native 템플릿</h1><p class='wf-muted' style='margin:0'>지난 12주간의 도입과 참여도.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>주간 활성 사용자</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>신규 가입</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR 매출</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>주간 활성 사용자</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>시간에 따른 매출</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>소스별 가입</strong><br/><small class='wf-muted'>아래 차트는 기본 차트 아래에서 시작됩니다.</small></div></div>"
+    }
+  />
 </WireframeBlock>
 
 코드, 쿼리 및 데이터를 소유하려는 팀을 위한 Amplitude, Mixpanel 및 Looker를 대체하는 오픈 소스입니다.
@@ -159,105 +164,113 @@ GCP 콘솔 → APIs & 서비스 → 자격 증명 → OAuth 클라이언트 ID, 
 
 핵심 테이블(`templates/analytics/server/db/schema.ts` 참조):
 
-<DataModel id="doc-block-40bwis" title={"분석 데이터 모델"} summary={"Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."} entities={[
-  {
-    "id": "dashboards",
-    "name": "dashboards",
-    "note": "탐색기 및 SQL 대시보드",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "kind",
-        "type": "text",
-        "note": "\"explorer\" or \"sql\""
-      },
-      {
-        "name": "config",
-        "type": "text",
-        "note": "JSON 일치 SqlDashboardConfig"
-      }
-    ]
-  },
-  {
-    "id": "dashboard_views",
-    "name": "dashboard_views",
-    "note": "대시보드당 저장된 필터 사전 설정",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "dashboard_id",
-        "type": "text",
-        "fk": "dashboards.id"
-      }
-    ]
-  },
-  {
-    "id": "analyses",
-    "name": "analyses",
-    "note": "재실행 가능한 임시 조사",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "question",
-        "type": "text"
-      },
-      {
-        "name": "instructions",
-        "type": "text",
-        "note": "단계 다시 실행"
-      },
-      {
-        "name": "dataSources",
-        "type": "text",
-        "note": "터치한 소스"
-      },
-      {
-        "name": "resultMarkdown",
-        "type": "text"
-      },
-      {
-        "name": "resultData",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "bigquery_cache",
-    "name": "bigquery_cache",
-    "note": "SQL 해시로 키가 지정된 결과 캐시",
-    "fields": [
-      {
-        "name": "sql_hash",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "bytes_processed",
-        "type": "integer"
-      }
-    ]
+<DataModel
+  id="doc-block-40bwis"
+  title={"분석 데이터 모델"}
+  summary={
+    "Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
   }
-]} relations={[
-  {
-    "from": "dashboards",
-    "to": "dashboard_views",
-    "kind": "1-n",
-    "label": "saved views"
-  }
-]} />
+  entities={[
+    {
+      id: "dashboards",
+      name: "dashboards",
+      note: "탐색기 및 SQL 대시보드",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: '"explorer" or "sql"',
+        },
+        {
+          name: "config",
+          type: "text",
+          note: "JSON 일치 SqlDashboardConfig",
+        },
+      ],
+    },
+    {
+      id: "dashboard_views",
+      name: "dashboard_views",
+      note: "대시보드당 저장된 필터 사전 설정",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "dashboard_id",
+          type: "text",
+          fk: "dashboards.id",
+        },
+      ],
+    },
+    {
+      id: "analyses",
+      name: "analyses",
+      note: "재실행 가능한 임시 조사",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "question",
+          type: "text",
+        },
+        {
+          name: "instructions",
+          type: "text",
+          note: "단계 다시 실행",
+        },
+        {
+          name: "dataSources",
+          type: "text",
+          note: "터치한 소스",
+        },
+        {
+          name: "resultMarkdown",
+          type: "text",
+        },
+        {
+          name: "resultData",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "bigquery_cache",
+      name: "bigquery_cache",
+      note: "SQL 해시로 키가 지정된 결과 캐시",
+      fields: [
+        {
+          name: "sql_hash",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "bytes_processed",
+          type: "integer",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "dashboards",
+      to: "dashboard_views",
+      kind: "1-n",
+      label: "saved views",
+    },
+  ]}
+/>
 
 또한 `@agent-native/core/org`에서 제공하는 리소스별 공유 테이블(`dashboard_shares`, `analysis_shares`) 및 조직 테이블(`organizations`, `org_members`, `org_invitations`)도 있습니다. 데이터 사전은 범위가 지정된 키 아래 프레임워크의 `settings` 테이블에 있습니다.
 

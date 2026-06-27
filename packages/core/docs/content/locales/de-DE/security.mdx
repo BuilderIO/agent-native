@@ -188,33 +188,40 @@ export const projects = table("projects", {
 });
 ```
 
-<DataModel id="doc-block-z688wd" title="What ownableColumns() adds" summary={"Die drei Spalten, die eine Tabelle mandantenfähig und gemeinsam nutzbar machen."} entities={[
-  {
-    "id": "ownable",
-    "name": "ownable resource",
-    "note": "Any table that spreads ...ownableColumns()",
-    "fields": [
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "Creator. Auto-filled by write actions; auto-injected on INSERT."
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true,
-        "note": "Aktive Organisation des Eigentümers bei der Erstellung. Fördert Sichtbarkeitsprüfungen der Organisation."
-      },
-      {
-        "name": "visibility",
-        "type": "enum",
-        "nullable": false,
-        "note": "privat | org | public – grobe Standardeinstellung, standardmäßig privat."
-      }
-    ]
+<DataModel
+  id="doc-block-z688wd"
+  title="What ownableColumns() adds"
+  summary={
+    "Die drei Spalten, die eine Tabelle mandantenfähig und gemeinsam nutzbar machen."
   }
-]} />
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads ...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "Aktive Organisation des Eigentümers bei der Erstellung. Fördert Sichtbarkeitsprüfungen der Organisation.",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "privat | org | public – grobe Standardeinstellung, standardmäßig privat.",
+        },
+      ],
+    },
+  ]}
+/>
 
 ### Zugriffsschutz in actions {#access-guards}
 

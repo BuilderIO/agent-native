@@ -19,20 +19,24 @@ Von Grund auf neu bauen? Die einzige Wahl im Voraus ist, ob Sie einen UI möchte
 alles danach (Anweisungen schreiben, skills hinzufügen, actions definieren, ausführen
 der Agent) ist in beiden Fällen gleich.
 
-<FileTree id="doc-block-1m1bjf2" title="Ein einfacher Agent-Native-Agent" entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "Immer aktive Anweisungen: Zweck, Regeln, Ton und Karte dessen, was der Agent tun kann"
-  },
-  {
-    "path": ".agents/skills/customer-research/SKILL.md",
-    "note": "Ein wiederverwendbares Playbook, das der Agent lädt, wenn die Aufgabe passt"
-  },
-  {
-    "path": "actions/summarize-week.ts",
-    "note": "Typisierter Code, den Agent, UI, CLI, HTTP, MCP, A2A, Jobs und Webhooks ausführen können"
-  }
-]} />
+<FileTree
+  id="doc-block-1m1bjf2"
+  title="Ein einfacher Agent-Native-Agent"
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "Immer aktive Anweisungen: Zweck, Regeln, Ton und Karte dessen, was der Agent tun kann",
+    },
+    {
+      path: ".agents/skills/customer-research/SKILL.md",
+      note: "Ein wiederverwendbares Playbook, das der Agent lädt, wenn die Aufgabe passt",
+    },
+    {
+      path: "actions/summarize-week.ts",
+      note: "Typisierter Code, den Agent, UI, CLI, HTTP, MCP, A2A, Jobs und Webhooks ausführen können",
+    },
+  ]}
+/>
 
 Dies gilt unabhängig davon, ob Sie mit einem Chat-Oberfläche, einem Headless-Agenten oder einer vollständigen App beginnen.
 Der UI verändert die Oberfläche; Anweisungen, skills und actions geben dem Agenten seine
@@ -79,33 +83,42 @@ Von hier an sind die beiden identisch.
 Eine Aktion ist ein Vorgang, den Ihr Agent – und Ihr UI – aufrufen kann. Beide Gerüste
 Versenden Sie mit diesem Beispiel:
 
-<AnnotatedCode id="doc-block-lcwfj3" title="Deine erste Action" filename="actions/hello.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Sage Hallo vom lokalen Agenten.\",\n  schema: z.object({\n    name: z.string().default(\"world\"),\n  }),\n  http: { method: \"GET\" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "Tool-Beschreibung",
-    "note": "Der Agent liest `description`, um zu entscheiden, wann er dies als Tool aufruft."
-  },
-  {
-    "lines": "6-8",
-    "label": "Typisierter Vertrag",
-    "note": "Ein zod-`schema` validiert Eingaben von jeder Oberfläche: Agent, UI, HTTP, MCP und A2A."
-  },
-  {
-    "lines": "9",
-    "label": "HTTP-Verb",
-    "note": "Schalte diese Action für einen automatisch eingebundenen HTTP-Endpunkt frei."
-  },
-  {
-    "lines": "10",
-    "label": "Schreibgeschützt",
-    "note": "`readOnly` markiert die Action als ohne Genehmigung sicher aufrufbar und für Abfragen cachebar."
-  },
-  {
-    "lines": "11-13",
-    "label": "Eine Implementierung",
-    "note": "Der `run`-Block ist die einzige Wahrheit, die jede Oberfläche ausführt."
+<AnnotatedCode
+  id="doc-block-lcwfj3"
+  title="Deine erste Action"
+  filename="actions/hello.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Sage Hallo vom lokalen Agenten.",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "Tool-Beschreibung",
+      note: "Der Agent liest `description`, um zu entscheiden, wann er dies als Tool aufruft.",
+    },
+    {
+      lines: "6-8",
+      label: "Typisierter Vertrag",
+      note: "Ein zod-`schema` validiert Eingaben von jeder Oberfläche: Agent, UI, HTTP, MCP und A2A.",
+    },
+    {
+      lines: "9",
+      label: "HTTP-Verb",
+      note: "Schalte diese Action für einen automatisch eingebundenen HTTP-Endpunkt frei.",
+    },
+    {
+      lines: "10",
+      label: "Schreibgeschützt",
+      note: "`readOnly` markiert die Action als ohne Genehmigung sicher aufrufbar und für Abfragen cachebar.",
+    },
+    {
+      lines: "11-13",
+      label: "Eine Implementierung",
+      note: "Der `run`-Block ist die einzige Wahrheit, die jede Oberfläche ausführt.",
+    },
+  ]}
+/>
 
 Ersetzen Sie `hello` durch den ersten echten Vorgang in Ihrer Domäne. Sie definieren es einmal;
 Jede Oberfläche nimmt es auf.

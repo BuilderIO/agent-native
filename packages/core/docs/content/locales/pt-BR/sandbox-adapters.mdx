@@ -51,24 +51,29 @@ Manter o contrato restrito significa que um adaptador remoto herda a mesma postu
 
 A costura reside no núcleo em `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (o contrato), `index.ts` (seleção: `getSandboxAdapter()` / `registerSandboxAdapter()`) e `local-child-process-adapter.ts` (o padrão). Ele é conectado no pacote por `run-code.ts`; um host conecta um back-end diferente por meio do auxiliar de registro `index.ts` (ou, para um back-end do Docker, por meio do [blueprint](/docs/blueprint-installer) que edita esses arquivos diretamente).
 
-<FileTree id="doc-block-1j5ataj" title={"A junção do sandbox no core"} title="packages/core/src/coding-tools/sandbox/" entries={[
-  {
-    "path": "adapter.ts",
-    "note": "O contrato SandboxAdapter (SandboxRunRequest / SandboxRunResult)"
-  },
-  {
-    "path": "index.ts",
-    "note": "Seleção: getSandboxAdapter() / registerSandboxAdapter()"
-  },
-  {
-    "path": "local-child-process-adapter.ts",
-    "note": "O backend padrão: processo filho Node bloqueado"
-  },
-  {
-    "path": "../run-code.ts",
-    "note": "Conecta a junção; nunca muda quando você troca backends"
-  }
-]} />
+<FileTree
+  id="doc-block-1j5ataj"
+  title={"A junção do sandbox no core"}
+  title="packages/core/src/coding-tools/sandbox/"
+  entries={[
+    {
+      path: "adapter.ts",
+      note: "O contrato SandboxAdapter (SandboxRunRequest / SandboxRunResult)",
+    },
+    {
+      path: "index.ts",
+      note: "Seleção: getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "local-child-process-adapter.ts",
+      note: "O backend padrão: processo filho Node bloqueado",
+    },
+    {
+      path: "../run-code.ts",
+      note: "Conecta a junção; nunca muda quando você troca backends",
+    },
+  ]}
+/>
 
 Cada backend implementa `SandboxAdapter`:
 

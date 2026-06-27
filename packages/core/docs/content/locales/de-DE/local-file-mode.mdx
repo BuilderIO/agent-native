@@ -57,56 +57,60 @@ in SQL Zeilen oder lokale Dateien.
 
 Ein Inhaltsarbeitsbereich kann so klein sein:
 
-<FileTree id="doc-block-1kxxc5j" title="Ein Content-Workspace-Repo" entries={[
-  {
-    "path": "agent-native.json",
-    "note": "Deklariert, welche Ordner Content-Roots sind und welche Arten sie haben"
-  },
-  {
-    "path": "docs/",
-    "note": "Content-Root: erscheint in der Sidebar als Seiten"
-  },
-  {
-    "path": "docs/getting-started.mdx"
-  },
-  {
-    "path": "docs/guides/custom-components.mdx"
-  },
-  {
-    "path": "blog/",
-    "note": "Content-Root"
-  },
-  {
-    "path": "blog/launch-post.mdx"
-  },
-  {
-    "path": "resources/",
-    "note": "Content-Root"
-  },
-  {
-    "path": "resources/messaging/positioning.md"
-  },
-  {
-    "path": "components/",
-    "note": "KEIN Content-Root: Preview-Komponentenbibliothek, die MDX importieren kann"
-  },
-  {
-    "path": "components/FrameworkTabs.tsx"
-  },
-  {
-    "path": "components/Callout.tsx"
-  },
-  {
-    "path": "extensions/",
-    "note": "KEIN Content-Root: lokale Extension-Bibliothek (sandboxed Widgets)"
-  },
-  {
-    "path": "extensions/doc-status/extension.json"
-  },
-  {
-    "path": "extensions/doc-status/index.html"
-  }
-]} />
+<FileTree
+  id="doc-block-1kxxc5j"
+  title="Ein Content-Workspace-Repo"
+  entries={[
+    {
+      path: "agent-native.json",
+      note: "Deklariert, welche Ordner Content-Roots sind und welche Arten sie haben",
+    },
+    {
+      path: "docs/",
+      note: "Content-Root: erscheint in der Sidebar als Seiten",
+    },
+    {
+      path: "docs/getting-started.mdx",
+    },
+    {
+      path: "docs/guides/custom-components.mdx",
+    },
+    {
+      path: "blog/",
+      note: "Content-Root",
+    },
+    {
+      path: "blog/launch-post.mdx",
+    },
+    {
+      path: "resources/",
+      note: "Content-Root",
+    },
+    {
+      path: "resources/messaging/positioning.md",
+    },
+    {
+      path: "components/",
+      note: "KEIN Content-Root: Preview-Komponentenbibliothek, die MDX importieren kann",
+    },
+    {
+      path: "components/FrameworkTabs.tsx",
+    },
+    {
+      path: "components/Callout.tsx",
+    },
+    {
+      path: "extensions/",
+      note: "KEIN Content-Root: lokale Extension-Bibliothek (sandboxed Widgets)",
+    },
+    {
+      path: "extensions/doc-status/extension.json",
+    },
+    {
+      path: "extensions/doc-status/index.html",
+    },
+  ]}
+/>
 
 Im lokalen Dateimodus zeigt die Inhaltsseitenleiste `docs/`, `blog/` und
 `resources/` Bäume als Seiten. Wenn Sie `docs/getting-started.mdx` auswählen, wird das geöffnet

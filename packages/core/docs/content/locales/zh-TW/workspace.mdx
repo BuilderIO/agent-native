@@ -185,36 +185,43 @@ instructions/legal-review-policy.md
 
 這些表面中的每一個 - `AGENTS.md`、skills、記憶、自訂代理、MCP 伺服器 - 都是相同的底層資源形狀：`path` + `scope` + `content`，以相同的方式尋址和解析。
 
-<DataModel id="doc-block-nilj9i" title={"工作區資源模型"} summary={"一種資源形狀支援每個工作區檔案。執行時按路徑和範圍對其進行鍵控，並解析讀取時的有效值。"} entities={[
-  {
-    "id": "resource",
-    "name": "workspace resource",
-    "note": "使用者工作區中的單一檔案 - 說明、技能、記憶、代理、MCP 設定或作業。",
-    "fields": [
-      {
-        "name": "path",
-        "type": "string",
-        "note": "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md"
-      },
-      {
-        "name": "scope",
-        "type": "workspace | shared | personal",
-        "note": "該行位於哪一層"
-      },
-      {
-        "name": "owner",
-        "type": "string",
-        "nullable": true,
-        "note": "u:<email> for personal scope"
-      },
-      {
-        "name": "content",
-        "type": "text",
-        "note": "Markdown / JSON / YAML 內文"
-      }
-    ]
+<DataModel
+  id="doc-block-nilj9i"
+  title={"工作區資源模型"}
+  summary={
+    "一種資源形狀支援每個工作區檔案。執行時按路徑和範圍對其進行鍵控，並解析讀取時的有效值。"
   }
-]} />
+  entities={[
+    {
+      id: "resource",
+      name: "workspace resource",
+      note: "使用者工作區中的單一檔案 - 說明、技能、記憶、代理、MCP 設定或作業。",
+      fields: [
+        {
+          name: "path",
+          type: "string",
+          note: "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md",
+        },
+        {
+          name: "scope",
+          type: "workspace | shared | personal",
+          note: "該行位於哪一層",
+        },
+        {
+          name: "owner",
+          type: "string",
+          nullable: true,
+          note: "u:<email> for personal scope",
+        },
+        {
+          name: "content",
+          type: "text",
+          note: "Markdown / JSON / YAML 內文",
+        },
+      ],
+    },
+  ]}
+/>
 
 ## Skills {#skills}
 
@@ -232,27 +239,36 @@ Skills 是 `skills/` 路徑（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 自訂代理使用 YAML frontmatter 加上 Markdown 指令：
 
-<AnnotatedCode id="doc-block-tnf0r5" title={"自訂代理設定檔案"} filename="agents/design.md" language="markdown" code={"---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# 角色\n\n您是一名專注的設計代理。\n\n##職責\n\n-審查布局和互動流程\n-提出更強的視覺方向\n-簡潔且有主見"} annotations={[
-  {
-    "lines": "2",
-    "label": "@mention handle",
-    "note": "`name` 是 `@` 下拉清單中顯示的內容，也是主代理委托的內容。"
-  },
-  {
-    "lines": "3-4",
-    "label": "何時委托",
-    "note": "`description` 是協調器讀取的內容，以確定此設定檔案適合工作。"
-  },
-  {
-    "lines": "5",
-    "label": "型號",
-    "note": "`inherit` 重用主代理的模型。僅當設定檔案明確需要不同的設定檔案時才覆蓋。"
-  },
-  {
-    "lines": "6",
-    "note": "`tools: inherit` 目前 - 該欄位是為未來的每代理工具策略保留的。"
+<AnnotatedCode
+  id="doc-block-tnf0r5"
+  title={"自訂代理設定檔案"}
+  filename="agents/design.md"
+  language="markdown"
+  code={
+    "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# 角色\n\n您是一名專注的設計代理。\n\n##職責\n\n-審查布局和互動流程\n-提出更強的視覺方向\n-簡潔且有主見"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "@mention handle",
+      note: "`name` 是 `@` 下拉清單中顯示的內容，也是主代理委托的內容。",
+    },
+    {
+      lines: "3-4",
+      label: "何時委托",
+      note: "`description` 是協調器讀取的內容，以確定此設定檔案適合工作。",
+    },
+    {
+      lines: "5",
+      label: "型號",
+      note: "`inherit` 重用主代理的模型。僅當設定檔案明確需要不同的設定檔案時才覆蓋。",
+    },
+    {
+      lines: "6",
+      note: "`tools: inherit` 目前 - 該欄位是為未來的每代理工具策略保留的。",
+    },
+  ]}
+/>
 
 推薦約定：
 

@@ -39,28 +39,37 @@ Automations appear in the settings panel. Users can view, enable/disable, and de
 
 The third path — writing the `jobs/<name>.md` file by hand via `resourcePut` — works exactly as it does for [recurring jobs](/docs/recurring-jobs#creating). For an event-driven automation you add the event-trigger frontmatter below to that same file. An event-triggered job sets `schedule: ""` and supplies `triggerType: event`, an `event` name, and an optional `condition`:
 
-<AnnotatedCode id="doc-block-8al47d" title="An event-triggered automation" filename="jobs/slack-on-builder-booking.md" language="markdown" code={"---\nschedule: \"\"\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: \"attendee email ends with @builder.io\"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}."} annotations={[
-  {
-    "lines": "2",
-    "label": "No cron",
-    "note": "Event triggers set `schedule` to `\"\"` — the cron field stays empty."
-  },
-  {
-    "lines": "4-5",
-    "label": "The trigger",
-    "note": "`triggerType: event` plus the `event` name subscribes this automation to the bus."
-  },
-  {
-    "lines": "6",
-    "label": "Gate",
-    "note": "An optional natural-language `condition`, evaluated by Haiku against the payload before dispatch."
-  },
-  {
-    "lines": "12",
-    "label": "Server-side secret",
-    "note": "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context."
+<AnnotatedCode
+  id="doc-block-8al47d"
+  title="An event-triggered automation"
+  filename="jobs/slack-on-builder-booking.md"
+  language="markdown"
+  code={
+    '---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: "attendee email ends with @builder.io"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}.'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "No cron",
+      note: 'Event triggers set `schedule` to `""` — the cron field stays empty.',
+    },
+    {
+      lines: "4-5",
+      label: "The trigger",
+      note: "`triggerType: event` plus the `event` name subscribes this automation to the bus.",
+    },
+    {
+      lines: "6",
+      label: "Gate",
+      note: "An optional natural-language `condition`, evaluated by Haiku against the payload before dispatch.",
+    },
+    {
+      lines: "12",
+      label: "Server-side secret",
+      note: "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context.",
+    },
+  ]}
+/>
 
 ## Automation frontmatter {#frontmatter}
 

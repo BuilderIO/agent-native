@@ -47,24 +47,28 @@ main                         ← production
 
 कोड गवर्नेंस को रेपो रूट पर कुछ फाइलों द्वारा कॉन्फ़िगर किया गया है:
 
-<FileTree id="doc-block-1e5pgfh" title={"repo में governance config"} entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "बदले गए path के अनुसार reviewers auto-assign करता है"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "app के अनुसार PRs पर labels auto-apply करता है"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Workspace-level: broad review"
-  },
-  {
-    "path": "package.json",
-    "note": "Workspace-level: platform team ownership"
-  }
-]} />
+<FileTree
+  id="doc-block-1e5pgfh"
+  title={"repo में governance config"}
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "बदले गए path के अनुसार reviewers auto-assign करता है",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "app के अनुसार PRs पर labels auto-apply करता है",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Workspace-level: broad review",
+    },
+    {
+      path: "package.json",
+      note: "Workspace-level: platform team ownership",
+    },
+  ]}
+/>
 
 GitHub की CODEOWNERS फ़ाइल स्वचालित रूप से समीक्षकों को पीआर को सौंपती है, जिसके आधार पर फ़ाइलें बदली जाती हैं। रेपो रूट पर `.github/CODEOWNERS` बनाएं:
 

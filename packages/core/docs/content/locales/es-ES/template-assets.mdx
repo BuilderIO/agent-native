@@ -8,7 +8,12 @@ description: "Un administrador de activos digitales nativo del agente y un servi
 Assets es un espacio de trabajo nativo del agente para crear y gestionar medios coherentes con la marca. Organiza las cargas y los resultados generados en bibliotecas y carpetas, permite a los equipos recopilar ejemplos de héroes de blogs, diagramas, páginas de destino, fotografías de productos, vídeos y logotipos, y luego dirige la generación a través del chat del agente para que cada activo pueda revisarse y perfeccionarse.
 
 <WireframeBlock id="doc-block-1u8zywa">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Marca de lanzamiento</h1><span class='wf-pill accent'>Héroes de blog</span><span class='wf-pill'>Imágenes de producto</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Crear medios de marca</strong><div class='wf-box'>Tres opciones de hero para la página principal usando el logo aprobado y referencias de producto.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Exportación web</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Sección hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Conjunto de referencias</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo seguro</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Marca de lanzamiento</h1><span class='wf-pill accent'>Héroes de blog</span><span class='wf-pill'>Imágenes de producto</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Crear medios de marca</strong><div class='wf-box'>Tres opciones de hero para la página principal usando el logo aprobado y referencias de producto.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>Exportación web</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>Sección hero A</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Conjunto de referencias</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>Logo seguro</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Cuando abre la aplicación, la biblioteca seleccionada, el mensaje, las referencias y los candidatos generados permanecen en un solo espacio de trabajo. El agente puede explorar, buscar, generar, refinar y exportar cada activo a través del mismo actions que utiliza el UI.
@@ -127,236 +132,244 @@ Nota: los nombres de las tablas SQL mantienen el prefijo `image_*` heredado de c
 | `image_assets`                   | El registro de activo: tipo de medio, función, estado, título/descripción/texto alternativo, mensaje, modelo, dimensiones, tipo MIME, claves de objeto/miniatura y linaje                                                   |
 | `image_generation_runs`          | El registro de auditoría de generación: mensaje, mensaje compilado, modelo, referencias, estado, errores y el `source` (`chat` / `ui` / `a2a`) que lo activó                                                                |
 
-<DataModel id="doc-block-114ulf7" title="Modelo de datos Assets" summary={"Las bibliotecas son el contenedor con propietario; colecciones, carpetas y presets las organizan. Las sesiones impulsan generar-y-elegir; los assets y runs guardan la salida y el registro de auditoría. Los nombres de tabla conservan el prefijo heredado image_* pero cubren todos los medios."} entities={[
-  {
-    "id": "library",
-    "name": "image_libraries",
-    "note": "Contenedor de propiedad de nivel superior",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "logo_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      },
-      {
-        "name": "archived",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "library_shares",
-    "name": "image_library_shares",
-    "note": "Tabla de acciones del marco",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "role",
-        "type": "text",
-        "note": "viewer / editor / admin"
-      }
-    ]
-  },
-  {
-    "id": "collections",
-    "name": "image_collections",
-    "note": "Agrupaciones Style/category",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "prompt_template",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "asset_folders",
-    "note": "Carpetas encajables",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "parent_id",
-        "type": "id",
-        "fk": "asset_folders.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "presets",
-    "name": "image_generation_presets",
-    "note": "Recetas de generación guardada",
-    "fields": [
-      {
-        "name": "media_type",
-        "type": "text"
-      },
-      {
-        "name": "prompt_template",
-        "type": "text"
-      },
-      {
-        "name": "model",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "image_generation_sessions",
-    "note": "Generar y elegir iterativo",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "active_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "session_items",
-    "name": "image_generation_session_items",
-    "note": "Activos candidatos en una sesión",
-    "fields": [
-      {
-        "name": "session_id",
-        "type": "id",
-        "fk": "image_generation_sessions.id"
-      },
-      {
-        "name": "asset_id",
-        "type": "id",
-        "fk": "image_assets.id"
-      },
-      {
-        "name": "role",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "assets",
-    "name": "image_assets",
-    "note": "El registro de activos",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "media_type",
-        "type": "text",
-        "note": "image / video"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "prompt",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "object_key",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "runs",
-    "name": "image_generation_runs",
-    "note": "Registro de auditoría de generación",
-    "fields": [
-      {
-        "name": "model",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "note": "chat / ui / a2a"
-      }
-    ]
+<DataModel
+  id="doc-block-114ulf7"
+  title="Modelo de datos Assets"
+  summary={
+    "Las bibliotecas son el contenedor con propietario; colecciones, carpetas y presets las organizan. Las sesiones impulsan generar-y-elegir; los assets y runs guardan la salida y el registro de auditoría. Los nombres de tabla conservan el prefijo heredado image_* pero cubren todos los medios."
   }
-]} relations={[
-  {
-    "from": "library",
-    "to": "collections",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "folders",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "assets",
-    "kind": "1-n"
-  },
-  {
-    "from": "sessions",
-    "to": "session_items",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "library_shares",
-    "kind": "1-n"
-  }
-]} />
+  entities={[
+    {
+      id: "library",
+      name: "image_libraries",
+      note: "Contenedor de propiedad de nivel superior",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "logo_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+        {
+          name: "archived",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "library_shares",
+      name: "image_library_shares",
+      note: "Tabla de acciones del marco",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "collections",
+      name: "image_collections",
+      note: "Agrupaciones Style/category",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "asset_folders",
+      note: "Carpetas encajables",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "parent_id",
+          type: "id",
+          fk: "asset_folders.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "presets",
+      name: "image_generation_presets",
+      note: "Recetas de generación guardada",
+      fields: [
+        {
+          name: "media_type",
+          type: "text",
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+        },
+        {
+          name: "model",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "image_generation_sessions",
+      note: "Generar y elegir iterativo",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "active_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "session_items",
+      name: "image_generation_session_items",
+      note: "Activos candidatos en una sesión",
+      fields: [
+        {
+          name: "session_id",
+          type: "id",
+          fk: "image_generation_sessions.id",
+        },
+        {
+          name: "asset_id",
+          type: "id",
+          fk: "image_assets.id",
+        },
+        {
+          name: "role",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "assets",
+      name: "image_assets",
+      note: "El registro de activos",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "media_type",
+          type: "text",
+          note: "image / video",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "prompt",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "object_key",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "runs",
+      name: "image_generation_runs",
+      note: "Registro de auditoría de generación",
+      fields: [
+        {
+          name: "model",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          note: "chat / ui / a2a",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "library",
+      to: "collections",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "folders",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "assets",
+      kind: "1-n",
+    },
+    {
+      from: "sessions",
+      to: "session_items",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "library_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
 
 ### Personalizarlo
 

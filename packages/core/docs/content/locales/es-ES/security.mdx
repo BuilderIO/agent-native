@@ -188,33 +188,38 @@ export const projects = table("projects", {
 });
 ```
 
-<DataModel id="doc-block-1e2bdss" title="What ownableColumns() adds" summary="Las tres columnas que hacen que una tabla sea compatible con los inquilinos y se pueda compartir." entities={[
-  {
-    "id": "ownable",
-    "name": "ownable resource",
-    "note": "Any table that spreads ...ownableColumns()",
-    "fields": [
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "Creator. Auto-filled by write actions; auto-injected on INSERT."
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true,
-        "note": "Organización activa del propietario en el momento de la creación. Impulsa las comprobaciones de visibilidad de la organización."
-      },
-      {
-        "name": "visibility",
-        "type": "enum",
-        "nullable": false,
-        "note": "privado | organización | público: valor predeterminado aproximado, el valor predeterminado es privado."
-      }
-    ]
-  }
-]} />
+<DataModel
+  id="doc-block-1e2bdss"
+  title="What ownableColumns() adds"
+  summary="Las tres columnas que hacen que una tabla sea compatible con los inquilinos y se pueda compartir."
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads ...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "Organización activa del propietario en el momento de la creación. Impulsa las comprobaciones de visibilidad de la organización.",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "privado | organización | público: valor predeterminado aproximado, el valor predeterminado es privado.",
+        },
+      ],
+    },
+  ]}
+/>
 
 ### Guardias de acceso en actions {#access-guards}
 

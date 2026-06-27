@@ -8,7 +8,12 @@ description: "أداة إنشاء النماذج الأصلية للوكيل —
 Forms عبارة عن أداة إنشاء نماذج أصلية للوكيل. قم بوصف النموذج الذي تريده، وقم بتحسينه في المحرر، وانشر نموذجًا عامًا يخزن عمليات الإرسال في قاعدة بيانات SQL الخاصة بك.
 
 <WireframeBlock id="doc-block-1mnhgpt">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>الاشتراك التجريبي</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>يشارك</button><button class='primary'>إلغاء النشر</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>يحرر</span><span class='wf-pill'>النتائج 187</span><span class='wf-pill'>إعدادات</span><span class='wf-pill'>التكامل</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>الاشتراك التجريبي</h2><p class='wf-muted' style='margin:0'>احجز مكانًا في مجموعة البيتا الخاصة القادمة.</p><div class='wf-card'><strong>الاسم الكامل</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>البريد الإلكتروني للعمل</strong><input value='you@company.com'/></div><div class='wf-card'><strong>دورك</strong><input value='Select...'/></div><div class='wf-card'><strong>حجم الفريق</strong><input value='Select...'/></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>الاشتراك التجريبي</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>يشارك</button><button class='primary'>إلغاء النشر</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>يحرر</span><span class='wf-pill'>النتائج 187</span><span class='wf-pill'>إعدادات</span><span class='wf-pill'>التكامل</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>الاشتراك التجريبي</h2><p class='wf-muted' style='margin:0'>احجز مكانًا في مجموعة البيتا الخاصة القادمة.</p><div class='wf-card'><strong>الاسم الكامل</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>البريد الإلكتروني للعمل</strong><input value='you@company.com'/></div><div class='wf-card'><strong>دورك</strong><input value='Select...'/></div><div class='wf-card'><strong>حجم الفريق</strong><input value='Select...'/></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 عند فتح التطبيق، ترى النماذج والمحرر الحالي والمعاينة المباشرة. يمكن للوكيل إنشاء نموذج من موجه، وتحديث تسميات الحقول وخياراتها، وتغيير التحقق من الصحة، وتوصيل وجهات الإرسال باستخدام نفس actions الذي يستخدمه UI.
@@ -91,140 +96,148 @@ npx @agent-native/core@latest create my-platform
 
 يتم تعريف الأشكال `fields` و`settings` JSON في `templates/forms/shared/types.ts` (`FormField`، `FormSettings`). تتم إزالة الإعدادات الخاصة بالمالك مثل خطاف الويب التكاملي URL والأصول المسموح بها قبل أن تصل أي بيانات إلى صفحة التعبئة العامة عبر `toPublicFormSettings`.
 
-<DataModel id="doc-block-qazfqj" title={"نموذج بيانات النماذج"} summary={"ثلاث جداول. الحقول وعمليات التكامل عبارة عن أعمدة JSON في النماذج، لذا فإن تعديلات الوكيل عبارة عن تصحيحات جراحية بدلاً من تغييرات الصفوف عبر الجدول."} entities={[
-  {
-    "id": "forms",
-    "name": "forms",
-    "note": "A form definition (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "string"
-      },
-      {
-        "name": "description",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "note": "unique; public URL"
-      },
-      {
-        "name": "fields",
-        "type": "json",
-        "note": "FormField[] — جميع أنواع الحقول"
-      },
-      {
-        "name": "settings",
-        "type": "json",
-        "note": "إعدادات النموذج — عمليات التكامل، وما إلى ذلك."
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "مسودة | نشرت | مغلق"
-      },
-      {
-        "name": "deleted_at",
-        "type": "datetime",
-        "nullable": true,
-        "note": "soft delete"
-      },
-      {
-        "name": "owner_email",
-        "type": "string"
-      },
-      {
-        "name": "org_id",
-        "type": "id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "responses",
-    "name": "responses",
-    "note": "إرسال واحد لكل صف",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "form_id",
-        "type": "id",
-        "fk": "forms.id"
-      },
-      {
-        "name": "data",
-        "type": "json",
-        "note": "{ fieldId: value }"
-      },
-      {
-        "name": "submitted_at",
-        "type": "datetime"
-      },
-      {
-        "name": "ip",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "submitter_email",
-        "type": "string",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "form_shares",
-    "name": "form_shares",
-    "note": "جدول مشاركات إطار العمل — المبادئ الأساسية للأدوار لكل نموذج",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "form_id",
-        "type": "id",
-        "fk": "forms.id"
-      },
-      {
-        "name": "principal",
-        "type": "string",
-        "note": "user or org"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "عارض | محرر | admin"
-      }
-    ]
+<DataModel
+  id="doc-block-qazfqj"
+  title={"نموذج بيانات النماذج"}
+  summary={
+    "ثلاث جداول. الحقول وعمليات التكامل عبارة عن أعمدة JSON في النماذج، لذا فإن تعديلات الوكيل عبارة عن تصحيحات جراحية بدلاً من تغييرات الصفوف عبر الجدول."
   }
-]} relations={[
-  {
-    "from": "forms",
-    "to": "responses",
-    "kind": "1-n",
-    "label": "has responses"
-  },
-  {
-    "from": "forms",
-    "to": "form_shares",
-    "kind": "1-n",
-    "label": "has share grants"
-  }
-]} />
+  entities={[
+    {
+      id: "forms",
+      name: "forms",
+      note: "A form definition (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "unique; public URL",
+        },
+        {
+          name: "fields",
+          type: "json",
+          note: "FormField[] — جميع أنواع الحقول",
+        },
+        {
+          name: "settings",
+          type: "json",
+          note: "إعدادات النموذج — عمليات التكامل، وما إلى ذلك.",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "مسودة | نشرت | مغلق",
+        },
+        {
+          name: "deleted_at",
+          type: "datetime",
+          nullable: true,
+          note: "soft delete",
+        },
+        {
+          name: "owner_email",
+          type: "string",
+        },
+        {
+          name: "org_id",
+          type: "id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "responses",
+      name: "responses",
+      note: "إرسال واحد لكل صف",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "{ fieldId: value }",
+        },
+        {
+          name: "submitted_at",
+          type: "datetime",
+        },
+        {
+          name: "ip",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "submitter_email",
+          type: "string",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "form_shares",
+      name: "form_shares",
+      note: "جدول مشاركات إطار العمل — المبادئ الأساسية للأدوار لكل نموذج",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "عارض | محرر | admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "forms",
+      to: "responses",
+      kind: "1-n",
+      label: "has responses",
+    },
+    {
+      from: "forms",
+      to: "form_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
 
 ### مفتاح actions
 

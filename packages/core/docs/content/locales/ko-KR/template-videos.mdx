@@ -8,7 +8,12 @@ description: "모션 그래픽, 제품 데모 및 키네틱 텍스트를 위한 
 손으로 키프레임을 지정하기 어려운 모션 그래픽, 제품 데모 및 키네틱 텍스트 비디오를 위한 프로그래밍 방식 비디오 스튜디오입니다. 에이전트에게 "2초에 페이드 인되는 6초 로고 표시"를 요청하면 애니메이션이 빌드됩니다. 타임라인에서 타이밍, 이징, 카메라 이동을 조정한 다음 MP4 또는 WebM으로 렌더링하세요.
 
 <WireframeBlock id="doc-block-a5hm32">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>로고 공개</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion 미리보기</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>새 트랙</button></div><div class='wf-box'>제목 페이드 · 0-48프레임</div><div class='wf-box'>로고 스케일 · 48-120프레임</div><div class='wf-box'>카메라 푸시 · 72-144프레임</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>로고 공개</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion 미리보기</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>새 트랙</button></div><div class='wf-box'>제목 페이드 · 0-48프레임</div><div class='wf-box'>로고 스케일 · 48-120프레임</div><div class='wf-box'>카메라 푸시 · 72-144프레임</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 스튜디오를 열면 홈 화면에 작곡 목록이 표시됩니다. 하나를 클릭하면 상단에 플레이어, 하단에 타임라인, 오른쪽에 속성 패널이 표시됩니다. 에이전트는 항상 귀하가 어떤 구성을 열었는지 알고 있습니다.
@@ -96,113 +101,121 @@ pnpm dev
 
 서버 측 스키마는 `templates/videos/server/db/schema.ts`에 있습니다:
 
-<DataModel id="doc-block-1eyyoi5" title={"비디오 데이터 모델"} summary={"SQL 지원 컴포지션과 디자인 시스템, 중첩 가능한 폴더가 있으며 각각 프레임워크 공유 테이블이 있습니다."} entities={[
-  {
-    "id": "compositions",
-    "name": "compositions",
-    "note": "User-created compositions and overrides; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "type",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "전체 구성 JSON blob"
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      },
-      {
-        "name": "updated_at",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "design_systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens; ownableColumns",
-    "fields": [
-      {
-        "name": "data",
-        "type": "text",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "folders",
-    "note": "Nestable folders; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "name",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "folder_memberships",
-    "name": "folder_memberships",
-    "note": "다대다 조인",
-    "fields": [
-      {
-        "name": "folder_id",
-        "type": "text",
-        "fk": "folders.id"
-      },
-      {
-        "name": "composition_id",
-        "type": "text",
-        "fk": "compositions.id"
-      }
-    ]
+<DataModel
+  id="doc-block-1eyyoi5"
+  title={"비디오 데이터 모델"}
+  summary={
+    "SQL 지원 컴포지션과 디자인 시스템, 중첩 가능한 폴더가 있으며 각각 프레임워크 공유 테이블이 있습니다."
   }
-]} relations={[
-  {
-    "from": "folders",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "members"
-  },
-  {
-    "from": "compositions",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "in folders"
-  }
-]} />
+  entities={[
+    {
+      id: "compositions",
+      name: "compositions",
+      note: "User-created compositions and overrides; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "전체 구성 JSON blob",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "Nestable folders; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "folder_memberships",
+      name: "folder_memberships",
+      note: "다대다 조인",
+      fields: [
+        {
+          name: "folder_id",
+          type: "text",
+          fk: "folders.id",
+        },
+        {
+          name: "composition_id",
+          type: "text",
+          fk: "compositions.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "folders",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "members",
+    },
+    {
+      from: "compositions",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "in folders",
+    },
+  ]}
+/>
 
 각 테이블에는 `createSharesTable()`에서 생성된 일치하는 프레임워크 공유 테이블(`composition_shares`, `design_system_shares`, `folder_shares`)도 있습니다.
 

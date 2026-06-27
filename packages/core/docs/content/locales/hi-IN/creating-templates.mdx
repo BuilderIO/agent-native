@@ -39,69 +39,74 @@ npx @agent-native/core@latest create my-platform
 
 प्रत्येक टेम्प्लेट समान व्यापक लेआउट का अनुसरण करता है:
 
-<FileTree id="doc-block-339wig" title={"Template project की संरचना"} title="my-template/" entries={[
-  {
-    "path": "app/",
-    "note": "React फ्रंट एंड सतह"
-  },
-  {
-    "path": "app/root.tsx",
-    "note": "HTML shell और providers"
-  },
-  {
-    "path": "app/routes/",
-    "note": "React Router की file routes"
-  },
-  {
-    "path": "app/components/",
-    "note": "Template की UI"
-  },
-  {
-    "path": "app/hooks/",
-    "note": "UI state और data hooks"
-  },
-  {
-    "path": "actions/",
-    "note": "defineAction operations: single source of truth"
-  },
-  {
-    "path": "server/db/schema.ts",
-    "note": "Drizzle स्कीमा परिभाषा"
-  },
-  {
-    "path": "server/plugins/db.ts",
-    "note": "additive migrations केवल जोड़ने वाली"
-  },
-  {
-    "path": "server/plugins/",
-    "note": "startup integrations setup"
-  },
-  {
-    "path": "server/routes/api/",
-    "note": "custom routes केवल तब जब actions पर्याप्त न हों"
-  },
-  {
-    "path": "shared/types.ts",
-    "note": "shared client/server type definitions"
-  },
-  {
-    "path": ".agents/skills/",
-    "note": "<skill>/SKILL.md: जटिल workflows के लिए agent guidance"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "template-specific agent निर्देश"
-  },
-  {
-    "path": "package.json"
-  },
-  {
-    "path": "react-router.config.ts"
-  },
-  {
-    "path": "vite.config.ts"
-  }
-]} />
+<FileTree
+  id="doc-block-339wig"
+  title={"Template project की संरचना"}
+  title="my-template/"
+  entries={[
+    {
+      path: "app/",
+      note: "React फ्रंट एंड सतह",
+    },
+    {
+      path: "app/root.tsx",
+      note: "HTML shell और providers",
+    },
+    {
+      path: "app/routes/",
+      note: "React Router की file routes",
+    },
+    {
+      path: "app/components/",
+      note: "Template की UI",
+    },
+    {
+      path: "app/hooks/",
+      note: "UI state और data hooks",
+    },
+    {
+      path: "actions/",
+      note: "defineAction operations: single source of truth",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle स्कीमा परिभाषा",
+    },
+    {
+      path: "server/plugins/db.ts",
+      note: "additive migrations केवल जोड़ने वाली",
+    },
+    {
+      path: "server/plugins/",
+      note: "startup integrations setup",
+    },
+    {
+      path: "server/routes/api/",
+      note: "custom routes केवल तब जब actions पर्याप्त न हों",
+    },
+    {
+      path: "shared/types.ts",
+      note: "shared client/server type definitions",
+    },
+    {
+      path: ".agents/skills/",
+      note: "<skill>/SKILL.md: जटिल workflows के लिए agent guidance",
+    },
+    {
+      path: "AGENTS.md",
+      note: "template-specific agent निर्देश",
+    },
+    {
+      path: "package.json",
+    },
+    {
+      path: "react-router.config.ts",
+    },
+    {
+      path: "vite.config.ts",
+    },
+  ]}
+/>
 
 एप्लिकेशन स्थिति के लिए `data/` निर्देशिका न जोड़ें। टिकाऊ ऐप डेटा SQL में है, और UI इसे actions या टाइप किए गए सर्वर हैंडलर के माध्यम से पढ़ता है।
 
@@ -181,27 +186,36 @@ export default runMigrations(
 
 क्रियाएँ ऐप व्यवहार के लिए सत्य का एकमात्र स्रोत है। एजेंट उन्हें टूल के रूप में कॉल करता है, फ्रंटएंड उन्हें हुक के माध्यम से कॉल करता है, और अन्य ऐप्स MCP/A2A के माध्यम से उन तक पहुंच सकते हैं।
 
-<AnnotatedCode id="doc-block-82uqv6" title="actions/create-project.ts" filename="actions/create-project.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});"} annotations={[
-  {
-    "lines": "2",
-    "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`."
-  },
-  {
-    "lines": "8",
-    "label": "उपकरण सतह",
-    "note": "`description` वह है जिसे एजेंट यह तय करने के लिए पढ़ता है कि इस क्रिया को टूल के रूप में कब कॉल करना है।"
-  },
-  {
-    "lines": "9-11",
-    "label": "टाइप किया हुआ अनुबंध",
-    "note": "एक zod `schema` agent, UI, HTTP, MCP और A2A से आने वाले input को validate करता है।"
-  },
-  {
-    "lines": "18-19",
-    "label": "दायरा लिखें",
-    "note": "`ctx` से `ownerEmail` / `orgId` स्टांप करें ताकि पंक्ति साझा करने और पहुंच जांच के लिए सही ढंग से दायरा हो।"
+<AnnotatedCode
+  id="doc-block-82uqv6"
+  title="actions/create-project.ts"
+  filename="actions/create-project.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { getDb } from "../server/db/index.js";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\nimport * as schema from "../server/db/schema";\n\nexport default defineAction({\n  description: "Create a project.",\n  schema: z.object({\n    title: z.string().min(1).describe("Project title"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      note: "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`.",
+    },
+    {
+      lines: "8",
+      label: "उपकरण सतह",
+      note: "`description` वह है जिसे एजेंट यह तय करने के लिए पढ़ता है कि इस क्रिया को टूल के रूप में कब कॉल करना है।",
+    },
+    {
+      lines: "9-11",
+      label: "टाइप किया हुआ अनुबंध",
+      note: "एक zod `schema` agent, UI, HTTP, MCP और A2A से आने वाले input को validate करता है।",
+    },
+    {
+      lines: "18-19",
+      label: "दायरा लिखें",
+      note: "`ctx` से `ownerEmail` / `orgId` स्टांप करें ताकि पंक्ति साझा करने और पहुंच जांच के लिए सही ढंग से दायरा हो।",
+    },
+  ]}
+/>
 
 केवल पढ़ने के लिए actions के लिए `http: { method: "GET" }` या `readOnly: true` का उपयोग करें। `parallelSafe: true` का उपयोग केवल actions को म्यूट करने के लिए करें जो समान-टर्न टूल कॉल के साथ-साथ चलने के लिए सुरक्षित हैं। उच्च-विस्फोट-त्रिज्या actions के लिए `toolCallable: false` का उपयोग करें जिसे सैंडबॉक्स वाले टूल से नहीं चलना चाहिए।
 

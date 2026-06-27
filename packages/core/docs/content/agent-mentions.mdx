@@ -118,23 +118,32 @@ Remote A2A agents still use JSON manifests:
 
 Templates can register custom mention providers to add domain-specific mentionable items beyond agents and files. A mention provider implements the `MentionProvider` interface:
 
-<AnnotatedCode id="doc-block-159gm13" title="A custom MentionProvider" filename="server/mentions/contacts.ts" language="ts" code={"import type { MentionProvider } from \"@agent-native/core/server\";\n\nconst contactsProvider: MentionProvider = {\n  id: \"contacts\",\n  label: \"Contacts\",\n\n  // Search for mentionable items\n  async search(query: string) {\n    const contacts = await db.query.contacts.findMany({\n      where: like(contacts.name, `%${query}%`),\n      limit: 10,\n    });\n    return contacts.map((c) => ({\n      id: c.id,\n      label: c.name,\n      description: c.email,\n      type: \"contact\",\n    }));\n  },\n\n  // Resolve a mention into context for the agent\n  async resolve(id: string) {\n    const contact = await db.query.contacts.findFirst({\n      where: eq(contacts.id, id),\n    });\n    return {\n      type: \"context\",\n      text: `Contact: ${contact.name} (${contact.email})`,\n    };\n  },\n};"} annotations={[
-  {
-    "lines": "4-5",
-    "label": "Identity",
-    "note": "`id` namespaces the provider; `label` is the section heading shown in the `@` popover."
-  },
-  {
-    "lines": "8-9",
-    "label": "search",
-    "note": "Runs as the user types after `@`. Return up to a handful of matches as `{ id, label, description, type }`."
-  },
-  {
-    "lines": "23-24",
-    "label": "resolve",
-    "note": "Called when the message is sent. Turns a picked id into `{ type: \"context\", text }` that is injected into the agent's context."
+<AnnotatedCode
+  id="doc-block-159gm13"
+  title="A custom MentionProvider"
+  filename="server/mentions/contacts.ts"
+  language="ts"
+  code={
+    'import type { MentionProvider } from "@agent-native/core/server";\n\nconst contactsProvider: MentionProvider = {\n  id: "contacts",\n  label: "Contacts",\n\n  // Search for mentionable items\n  async search(query: string) {\n    const contacts = await db.query.contacts.findMany({\n      where: like(contacts.name, `%${query}%`),\n      limit: 10,\n    });\n    return contacts.map((c) => ({\n      id: c.id,\n      label: c.name,\n      description: c.email,\n      type: "contact",\n    }));\n  },\n\n  // Resolve a mention into context for the agent\n  async resolve(id: string) {\n    const contact = await db.query.contacts.findFirst({\n      where: eq(contacts.id, id),\n    });\n    return {\n      type: "context",\n      text: `Contact: ${contact.name} (${contact.email})`,\n    };\n  },\n};'
   }
-]} />
+  annotations={[
+    {
+      lines: "4-5",
+      label: "Identity",
+      note: "`id` namespaces the provider; `label` is the section heading shown in the `@` popover.",
+    },
+    {
+      lines: "8-9",
+      label: "search",
+      note: "Runs as the user types after `@`. Return up to a handful of matches as `{ id, label, description, type }`.",
+    },
+    {
+      lines: "23-24",
+      label: "resolve",
+      note: 'Called when the message is sent. Turns a picked id into `{ type: "context", text }` that is injected into the agent\'s context.',
+    },
+  ]}
+/>
 
 Register providers in the agent-chat plugin configuration:
 

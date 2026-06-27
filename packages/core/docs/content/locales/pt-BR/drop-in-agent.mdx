@@ -40,33 +40,42 @@ A configuração mais comum é uma barra lateral que abre à direita em qualquer
 Envolva seu layout raiz existente com `<AgentSidebar>`; seja lá o que você passar
 as crianças ficam na área principal do aplicativo. O chat do agente é o painel lateral.
 
-<AnnotatedCode id="doc-block-406m1h" title={"Envolvendo o layout raiz com <AgentSidebar>"} filename="app/root.tsx" language="tsx" code={"import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"Como posso ajudar?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}"} annotations={[
-  {
-    "lines": "6",
-    "label": "Invólucro",
-    "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area."
-  },
-  {
-    "lines": "8-12",
-    "label": "Inicia prompts",
-    "note": "`suggestions` renderiza como chips clicáveis ​​no chat vazio."
-  },
-  {
-    "lines": "13",
-    "label": "Chips sensíveis ao contexto",
-    "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default."
-  },
-  {
-    "lines": "18-20",
-    "label": "Botão de alternância",
-    "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel."
-  },
-  {
-    "lines": "22-24",
-    "label": "Seu aplicativo",
-    "note": "`<Outlet/>` (your routes) renders in the main area, untouched."
+<AnnotatedCode
+  id="doc-block-406m1h"
+  title={"Envolvendo o layout raiz com <AgentSidebar>"}
+  filename="app/root.tsx"
+  language="tsx"
+  code={
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="Como posso ajudar?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "Invólucro",
+      note: "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area.",
+    },
+    {
+      lines: "8-12",
+      label: "Inicia prompts",
+      note: "`suggestions` renderiza como chips clicáveis ​​no chat vazio.",
+    },
+    {
+      lines: "13",
+      label: "Chips sensíveis ao contexto",
+      note: '`dynamicSuggestions` merges screen-aware prompts (e.g. "Summarize this selection") with your static ones. On by default.',
+    },
+    {
+      lines: "18-20",
+      label: "Botão de alternância",
+      note: "Put `<AgentToggleButton />` anywhere in your header to open and close the panel.",
+    },
+    {
+      lines: "22-24",
+      label: "Seu aplicativo",
+      note: "`<Outlet/>` (your routes) renders in the main area, untouched.",
+    },
+  ]}
+/>
 
 É isso. O usuário agora tem um agente alternável em cada página – com histórico de bate-papo, guia da área de trabalho, terminal CLI, entrada de voz e modo de tela cheia. O estado persiste durante as recargas via `localStorage`.
 

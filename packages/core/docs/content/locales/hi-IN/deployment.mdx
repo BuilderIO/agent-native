@@ -70,24 +70,28 @@ npx @agent-native/core@latest deploy --preset vercel
 
 जब आप `npx @agent-native/core@latest build` चलाते हैं, तो Nitro क्लाइंट SPA और सर्वर API दोनों को `.output/` में बनाता है:
 
-<FileTree id="doc-block-j0q747" title={"आउटपुट बनाएं files"} entries={[
-  {
-    "path": ".output/",
-    "note": "self-contained: किसी भी environment में copy करके चलाएँ"
-  },
-  {
-    "path": ".output/public/",
-    "note": "built SPA और static assets"
-  },
-  {
-    "path": ".output/server/index.mjs",
-    "note": "server entry point file"
-  },
-  {
-    "path": ".output/server/chunks/",
-    "note": "server code chunk files"
-  }
-]} />
+<FileTree
+  id="doc-block-j0q747"
+  title={"आउटपुट बनाएं files"}
+  entries={[
+    {
+      path: ".output/",
+      note: "self-contained: किसी भी environment में copy करके चलाएँ",
+    },
+    {
+      path: ".output/public/",
+      note: "built SPA और static assets",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "server entry point file",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "server code chunk files",
+    },
+  ]}
+/>
 
 आउटपुट स्व-निहित है - `.output/` को किसी भी वातावरण में कॉपी करें और इसे चलाएं।
 

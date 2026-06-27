@@ -31,20 +31,24 @@ Les applications Headless peuvent exécuter la même boucle application-agent de
 Chaque application native d'agent possède les mêmes éléments de base d'agent, que
 la surface du produit est sans tête, avec conversation d'abord ou UI complète :
 
-<FileTree id="doc-block-ey1lgj" title="Guidage et comportement" entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "Instructions toujours actives : objectif, règles de base, clés d'état, index des actions, index des skills"
-  },
-  {
-    "path": ".agents/skills/<name>/SKILL.md",
-    "note": "Comportement réutilisable : étapes de workflow, politiques, exemples, références et listes à faire/ne pas faire"
-  },
-  {
-    "path": "actions/<name>.ts",
-    "note": "Capacité exécutable : opération typée exposée à l'agent, UI, CLI, HTTP, MCP, A2A, jobs et webhooks"
-  }
-]} />
+<FileTree
+  id="doc-block-ey1lgj"
+  title="Guidage et comportement"
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "Instructions toujours actives : objectif, règles de base, clés d'état, index des actions, index des skills",
+    },
+    {
+      path: ".agents/skills/<name>/SKILL.md",
+      note: "Comportement réutilisable : étapes de workflow, politiques, exemples, références et listes à faire/ne pas faire",
+    },
+    {
+      path: "actions/<name>.ts",
+      note: "Capacité exécutable : opération typée exposée à l'agent, UI, CLI, HTTP, MCP, A2A, jobs et webhooks",
+    },
+  ]}
+/>
 
 | Bloc de base     | Utilisez-le pour                                                                                                                                 | Chargé quand                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
@@ -91,74 +95,81 @@ Les magasins Core SQL sont créés automatiquement et disponibles dans chaque mo
 - `oauth_tokens` — Identifiants OAuth
 - `sessions` — sessions d'authentification
 
-<DataModel id="doc-block-1cx7jgd" title="Magasins principaux SQL" summary={"Créés automatiquement dans chaque modèle : l'agent et l'interface utilisateur les lisent et les écrivent."} entities={[
-  {
-    "id": "application_state",
-    "name": "application_state",
-    "note": "État éphémère de l'interface utilisateur que l'agent lit pour le contexte",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true,
-        "note": "par ex. 'navigation'"
-      },
-      {
-        "name": "value",
-        "type": "json",
-        "note": "affichage, sélection, brouillons"
-      }
-    ]
-  },
-  {
-    "id": "settings",
-    "name": "settings",
-    "note": "Configuration clé-valeur persistante",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "value",
-        "type": "json"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "Identifiants OAuth",
-    "fields": [
-      {
-        "name": "provider",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "token",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "sessions",
-    "note": "Sessions d'authentification",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "userId",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-1cx7jgd"
+  title="Magasins principaux SQL"
+  summary={
+    "Créés automatiquement dans chaque modèle : l'agent et l'interface utilisateur les lisent et les écrivent."
   }
-]} />
+  entities={[
+    {
+      id: "application_state",
+      name: "application_state",
+      note: "État éphémère de l'interface utilisateur que l'agent lit pour le contexte",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+          note: "par ex. 'navigation'",
+        },
+        {
+          name: "value",
+          type: "json",
+          note: "affichage, sélection, brouillons",
+        },
+      ],
+    },
+    {
+      id: "settings",
+      name: "settings",
+      note: "Configuration clé-valeur persistante",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "value",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "Identifiants OAuth",
+      fields: [
+        {
+          name: "provider",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "token",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "sessions",
+      note: "Sessions d'authentification",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "userId",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+/>
 
 ```ts
 // Drizzle schema for domain data

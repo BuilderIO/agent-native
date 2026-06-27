@@ -102,23 +102,32 @@ Erstellen Sie `mcp.config.json` in Ihrem Workspace-Root (oder in einem einzelnen
 
 Die Form ist klein: eine nach Server-ID verschlüsselte `servers`-Karte, wobei jeder Eintrag entweder ein Standard-Launcher (`command` + `args` + optional `env`) oder ein entfernter `{ "type": "http", "url", "headers" }`-Eintrag ist.
 
-<AnnotatedCode id="doc-block-d2d2xn" title="mcp.config.json, kommentiert" filename="mcp.config.json" language="jsonc" code={"{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}"} annotations={[
-  {
-    "lines": "3",
-    "label": "Server-ID",
-    "note": "Der Schlüssel wird zum Tool-Präfix: Die Tools dieses Servers werden in der Registrierung des Agenten als `mcp__claude-in-chrome__*` angezeigt, sodass sie nicht mit den Aktionen Ihrer Vorlage kollidieren können."
-  },
-  {
-    "lines": "4-6",
-    "label": "stdio launcher",
-    "note": "`command` + `args` erzeugen eine lokale Binärdatei. Stdio-Server sind für die **lokale Entwicklung** gedacht – sie sind in Edge-Laufzeiten ein No-Op."
-  },
-  {
-    "lines": "6",
-    "label": "Prozessumgebung",
-    "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens."
+<AnnotatedCode
+  id="doc-block-d2d2xn"
+  title="mcp.config.json, kommentiert"
+  filename="mcp.config.json"
+  language="jsonc"
+  code={
+    '{\n  "$schema": "https://agent-native.com/schema/mcp.config.json",\n  "servers": {\n    "claude-in-chrome": {\n      "command": "claude-in-chrome-mcp",\n      "args": [],\n      "env": { "LOG_LEVEL": "info" }\n    },\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "/Users/me/projects"]\n    }\n  }\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "3",
+      label: "Server-ID",
+      note: "Der Schlüssel wird zum Tool-Präfix: Die Tools dieses Servers werden in der Registrierung des Agenten als `mcp__claude-in-chrome__*` angezeigt, sodass sie nicht mit den Aktionen Ihrer Vorlage kollidieren können.",
+    },
+    {
+      lines: "4-6",
+      label: "stdio launcher",
+      note: "`command` + `args` erzeugen eine lokale Binärdatei. Stdio-Server sind für die **lokale Entwicklung** gedacht – sie sind in Edge-Laufzeiten ein No-Op.",
+    },
+    {
+      lines: "6",
+      label: "Prozessumgebung",
+      note: "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens.",
+    },
+  ]}
+/>
 
 Beim nächsten App-Start sehen Sie:
 

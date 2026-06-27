@@ -10,7 +10,12 @@ Chat est le point de départ de base d'une application native pour agent. Il vou
 Si vous souhaitez le plus petit environnement d'exécution d'action uniquement sans navigateur UI, commencez par [Pure-Agent Apps](/docs/pure-agent-apps). Si vous souhaitez une forme de produit de domaine fini, commencez par [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) ou un autre modèle de domaine.
 
 <WireframeBlock id="doc-block-19iybib">
-<Screen surface="desktop" html={"<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Comment puis-je aider ?</h1><p class='wf-muted' style='margin:10px 0 0'>Discutez de tout. Ajoutez actions, composants, pages, jobs ou votre propre backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Écrire à l’agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Comment puis-je aider ?</h1><p class='wf-muted' style='margin:10px 0 0'>Discutez de tout. Ajoutez actions, composants, pages, jobs ou votre propre backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Écrire à l’agent...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 ## Qu'est-ce qu'il y a dedans {#whats-in-it}
@@ -71,28 +76,32 @@ npx @agent-native/core@latest create my-agent --headless
   suggestions, état vide, compositeur ou mise en page environnante ici.
 - `AGENTS.md` indique à l'agent intégré comment travailler dans cette application.
 
-<FileTree id="doc-block-vb34d0" title={"Structure du modèle Chat"} entries={[
-  {
-    "path": "actions/hello.ts",
-    "note": "L'action d'exemple ; remplacez-la ou ajoutez des actions à côté"
-  },
-  {
-    "path": "actions/view-screen.ts",
-    "note": "Action de contexte standard que l'agent lit"
-  },
-  {
-    "path": "actions/navigate.ts",
-    "note": "Action de navigation standard"
-  },
-  {
-    "path": "app/routes/_index.tsx",
-    "note": "Rend la surface de chat pleine page ; modifiez suggestions, état vide et composer"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "Guidage orienté chat lu par l'agent intégré"
-  }
-]} />
+<FileTree
+  id="doc-block-vb34d0"
+  title={"Structure du modèle Chat"}
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "L'action d'exemple ; remplacez-la ou ajoutez des actions à côté",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "Action de contexte standard que l'agent lit",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "Action de navigation standard",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "Rend la surface de chat pleine page ; modifiez suggestions, état vide et composer",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Guidage orienté chat lu par l'agent intégré",
+    },
+  ]}
+/>
 
 La page de discussion est intentionnellement fine :
 

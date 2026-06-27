@@ -8,7 +8,12 @@ description: "An agent-native HTML prototyping studio — generate, refine, prev
 Design is an agent-native HTML prototyping studio. Instead of a layered drawing canvas, the agent generates complete self-contained Alpine/Tailwind HTML prototypes, renders them in an iframe, and lets you refine the result with prompts and tweak controls.
 
 <WireframeBlock id="doc-block-1c2i95a">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Generated HTML prototype</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Generated HTML prototype</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 When you open the app, the generated prototype is the center of the workspace, with preview modes, prompt revisions, and export controls close at hand. Everything the agent produces is real HTML you can refine, export, or hand off.
@@ -82,183 +87,191 @@ All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schem
 | `design_systems`                         | Reusable brand tokens — `data` (colors/typography/spacing), `assets`, `custom_instructions`, and an `is_default` flag                            |
 | `design_shares` / `design_system_shares` | Framework shares tables mapping principals (users or orgs) to roles (viewer, editor, admin)                                                      |
 
-<DataModel id="doc-block-1hb5m0c" title="Design data model" summary={"A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."} entities={[
-  {
-    "id": "designs",
-    "name": "designs",
-    "note": "A design project (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "description",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "project_type",
-        "type": "text",
-        "note": "prototype / other"
-      },
-      {
-        "name": "data",
-        "type": "json",
-        "note": "starts as {}"
-      },
-      {
-        "name": "design_system_id",
-        "type": "id",
-        "fk": "design_systems.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "files",
-    "name": "design_files",
-    "note": "Files in a design",
-    "fields": [
-      {
-        "name": "design_id",
-        "type": "id",
-        "fk": "designs.id"
-      },
-      {
-        "name": "filename",
-        "type": "text"
-      },
-      {
-        "name": "content",
-        "type": "text"
-      },
-      {
-        "name": "file_type",
-        "type": "text",
-        "note": "defaults to html"
-      }
-    ]
-  },
-  {
-    "id": "versions",
-    "name": "design_versions",
-    "note": "History / rollback",
-    "fields": [
-      {
-        "name": "design_id",
-        "type": "id",
-        "fk": "designs.id"
-      },
-      {
-        "name": "snapshot",
-        "type": "json"
-      },
-      {
-        "name": "label",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "data",
-        "type": "json",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "design_shares",
-    "name": "design_shares",
-    "note": "Framework shares table",
-    "fields": [
-      {
-        "name": "design_id",
-        "type": "id",
-        "fk": "designs.id"
-      },
-      {
-        "name": "role",
-        "type": "text",
-        "note": "viewer / editor / admin"
-      }
-    ]
-  },
-  {
-    "id": "system_shares",
-    "name": "design_system_shares",
-    "note": "Framework shares table",
-    "fields": [
-      {
-        "name": "design_system_id",
-        "type": "id",
-        "fk": "design_systems.id"
-      },
-      {
-        "name": "role",
-        "type": "text",
-        "note": "viewer / editor / admin"
-      }
-    ]
+<DataModel
+  id="doc-block-1hb5m0c"
+  title="Design data model"
+  summary={
+    "A design owns its files and versioned snapshots, and optionally links a reusable design system. Both designs and systems are ownable, each with a framework shares table."
   }
-]} relations={[
-  {
-    "from": "designs",
-    "to": "files",
-    "kind": "1-n"
-  },
-  {
-    "from": "designs",
-    "to": "versions",
-    "kind": "1-n"
-  },
-  {
-    "from": "systems",
-    "to": "designs",
-    "kind": "1-n",
-    "label": "applied to"
-  },
-  {
-    "from": "designs",
-    "to": "design_shares",
-    "kind": "1-n"
-  },
-  {
-    "from": "systems",
-    "to": "system_shares",
-    "kind": "1-n"
-  }
-]} />
+  entities={[
+    {
+      id: "designs",
+      name: "designs",
+      note: "A design project (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "project_type",
+          type: "text",
+          note: "prototype / other",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "starts as {}",
+        },
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "files",
+      name: "design_files",
+      note: "Files in a design",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "filename",
+          type: "text",
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "file_type",
+          type: "text",
+          note: "defaults to html",
+        },
+      ],
+    },
+    {
+      id: "versions",
+      name: "design_versions",
+      note: "History / rollback",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "snapshot",
+          type: "json",
+        },
+        {
+          name: "label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "systems",
+      name: "design_systems",
+      note: "Reusable brand tokens (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "design_shares",
+      name: "design_shares",
+      note: "Framework shares table",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "system_shares",
+      name: "design_system_shares",
+      note: "Framework shares table",
+      fields: [
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "designs",
+      to: "files",
+      kind: "1-n",
+    },
+    {
+      from: "designs",
+      to: "versions",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "designs",
+      kind: "1-n",
+      label: "applied to",
+    },
+    {
+      from: "designs",
+      to: "design_shares",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "system_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
 
 A design project is a shell until it has content: `create-design` makes an empty row (`data: "{}"`), then `generate-design` writes the actual standalone HTML/JSX files. The generated artifact, the editable source, and every export all come from the same HTML, so there is no separate "AI mockup" format to translate. A linked design system supplies tokens and `custom_instructions` that the agent honors on every generation pass.
 

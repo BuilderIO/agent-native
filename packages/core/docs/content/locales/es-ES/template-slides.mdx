@@ -8,7 +8,12 @@ description: "Genere presentaciones a partir de un mensaje, edítelas visualment
 Genere presentaciones completas a partir de un mensaje, edite diapositivas visualmente y presente en pantalla completa. Pídale al agente "una presentación de 10 diapositivas para un servicio de suscripción de café" y observe cómo se transmite diapositiva por diapositiva al editor en segundos. Un reemplazo de código abierto para Google Slides, Pitch y PowerPoint.
 
 <WireframeBlock id="doc-block-19dzcqp">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Actualización del consejo del T3</h1><span class='wf-pill accent'>Diapositiva de título</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>Compartir</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Actualización del consejo del T3</strong><br/><small>Maya Chen · directora ejecutiva</small><div style='height:46px'></div><span class='wf-pill'>Impulso del producto</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Esquema de la diapositiva</strong><div class='wf-box'>1 Título</div><div class='wf-box'>2 Orden del día</div><div class='wf-box'>3 Métricas</div><div class='wf-box'>4 Enviado</div></div><div class='wf-card' style='flex:1'><strong>Notas del presentador</strong><p class='wf-muted' style='margin:8px 0 0'>Abrir con el progreso del lanzamiento y la historia de retención.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Título</div><div class='wf-box'>2 Orden del día</div><div class='wf-box'>3 Métricas</div><div class='wf-box'>4 Enviado</div><div class='wf-box'>5 Riesgos</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Actualización del consejo del T3</h1><span class='wf-pill accent'>Diapositiva de título</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>Compartir</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Actualización del consejo del T3</strong><br/><small>Maya Chen · directora ejecutiva</small><div style='height:46px'></div><span class='wf-pill'>Impulso del producto</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>Esquema de la diapositiva</strong><div class='wf-box'>1 Título</div><div class='wf-box'>2 Orden del día</div><div class='wf-box'>3 Métricas</div><div class='wf-box'>4 Enviado</div></div><div class='wf-card' style='flex:1'><strong>Notas del presentador</strong><p class='wf-muted' style='margin:8px 0 0'>Abrir con el progreso del lanzamiento y la historia de retención.</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 Título</div><div class='wf-box'>2 Orden del día</div><div class='wf-box'>3 Métricas</div><div class='wf-box'>4 Enviado</div><div class='wf-box'>5 Riesgos</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Cuando abre una plataforma, el lienzo de diapositivas, el esquema, las notas y la tira de película permanecen en una superficie del editor mientras el agente aún puede crear, revisar y navegar por las diapositivas a través de actions.
@@ -108,185 +113,193 @@ El agente puede incrustar una vista previa de diapositivas en vivo directamente 
 
 Todos los datos de la plataforma se encuentran en SQL a través de Drizzle ORM. Esquema: `templates/slides/server/db/schema.ts`.
 
-<DataModel id="doc-block-1a4c35p" title="Modelo de datos Slides" summary={"Un deck posee sus diapositivas como JSON en decks.data; comentarios, versiones, compartidos y sistemas de diseño cuelgan de él."} entities={[
-  {
-    "id": "decks",
-    "name": "decks",
-    "note": "Slides live as JSON in data; carries ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true,
-        "note": "e.g. deck-1712345-abc"
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "JSON: { title, slides: [{ id, content, layout }] }"
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      },
-      {
-        "name": "updated_at",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "slide_comments",
-    "name": "slide_comments",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "deck_id",
-        "type": "text",
-        "fk": "decks.id"
-      },
-      {
-        "name": "slide_id",
-        "type": "text",
-        "note": "Desliza el comentario sigue vivo"
-      },
-      {
-        "name": "thread_id",
-        "type": "text",
-        "note": "Enhebrado"
-      },
-      {
-        "name": "parent_id",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "content",
-        "type": "text"
-      },
-      {
-        "name": "quoted_text",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "author_email",
-        "type": "text"
-      },
-      {
-        "name": "author_name",
-        "type": "text"
-      },
-      {
-        "name": "resolved",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "deck_versions",
-    "name": "deck_versions",
-    "note": "Instantáneas de un momento dado para restaurar",
-    "fields": [
-      {
-        "name": "deck_id",
-        "type": "text",
-        "fk": "decks.id"
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "Cubierta completa JSON"
-      },
-      {
-        "name": "change_label",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "design_systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens; ownableColumns",
-    "fields": [
-      {
-        "name": "data",
-        "type": "text",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "deck_share_links",
-    "name": "deck_share_links",
-    "note": "Instantáneas de enlaces compartidos públicos persistentes",
-    "fields": [
-      {
-        "name": "token",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "slides",
-        "type": "text",
-        "note": "Instantánea JSON de diapositivas"
-      },
-      {
-        "name": "aspect_ratio",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-1a4c35p"
+  title="Modelo de datos Slides"
+  summary={
+    "Un deck posee sus diapositivas como JSON en decks.data; comentarios, versiones, compartidos y sistemas de diseño cuelgan de él."
   }
-]} relations={[
-  {
-    "from": "decks",
-    "to": "slide_comments",
-    "kind": "1-n",
-    "label": "comments"
-  },
-  {
-    "from": "decks",
-    "to": "deck_versions",
-    "kind": "1-n",
-    "label": "snapshots"
-  }
-]} />
+  entities={[
+    {
+      id: "decks",
+      name: "decks",
+      note: "Slides live as JSON in data; carries ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          note: "e.g. deck-1712345-abc",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "JSON: { title, slides: [{ id, content, layout }] }",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "slide_comments",
+      name: "slide_comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "slide_id",
+          type: "text",
+          note: "Desliza el comentario sigue vivo",
+        },
+        {
+          name: "thread_id",
+          type: "text",
+          note: "Enhebrado",
+        },
+        {
+          name: "parent_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "quoted_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "author_email",
+          type: "text",
+        },
+        {
+          name: "author_name",
+          type: "text",
+        },
+        {
+          name: "resolved",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_versions",
+      name: "deck_versions",
+      note: "Instantáneas de un momento dado para restaurar",
+      fields: [
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "Cubierta completa JSON",
+        },
+        {
+          name: "change_label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_share_links",
+      name: "deck_share_links",
+      note: "Instantáneas de enlaces compartidos públicos persistentes",
+      fields: [
+        {
+          name: "token",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "slides",
+          type: "text",
+          note: "Instantánea JSON de diapositivas",
+        },
+        {
+          name: "aspect_ratio",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "decks",
+      to: "slide_comments",
+      kind: "1-n",
+      label: "comments",
+    },
+    {
+      from: "decks",
+      to: "deck_versions",
+      kind: "1-n",
+      label: "snapshots",
+    },
+  ]}
+/>
 
 Las tablas de recursos compartidos del marco (`deck_shares`, `design_system_shares`) asignan principales a funciones de visor/editor/administrador por recurso.
 

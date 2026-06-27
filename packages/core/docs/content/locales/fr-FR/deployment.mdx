@@ -70,24 +70,28 @@ Le déploiement indépendant par application est toujours pris en charge – j
 
 Lorsque vous exécutez `npx @agent-native/core@latest build`, Nitro crée à la fois le client SPA et le serveur API dans `.output/` :
 
-<FileTree id="doc-block-vciop0" title="Sortie de build" entries={[
-  {
-    "path": ".output/",
-    "note": "Autonome : copiez vers n'importe quel environnement et exécutez"
-  },
-  {
-    "path": ".output/public/",
-    "note": "SPA buildée (assets statiques)"
-  },
-  {
-    "path": ".output/server/index.mjs",
-    "note": "Point d'entrée serveur"
-  },
-  {
-    "path": ".output/server/chunks/",
-    "note": "Chunks de code serveur"
-  }
-]} />
+<FileTree
+  id="doc-block-vciop0"
+  title="Sortie de build"
+  entries={[
+    {
+      path: ".output/",
+      note: "Autonome : copiez vers n'importe quel environnement et exécutez",
+    },
+    {
+      path: ".output/public/",
+      note: "SPA buildée (assets statiques)",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "Point d'entrée serveur",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "Chunks de code serveur",
+    },
+  ]}
+/>
 
 La sortie est autonome : copiez `.output/` dans n'importe quel environnement et exécutez-le.
 

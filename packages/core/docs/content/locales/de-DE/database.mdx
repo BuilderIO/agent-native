@@ -89,55 +89,62 @@ export const tasks = table("tasks", {
 
 Die obige `tasks`-Tabelle definiert die gleichen Spalten auf jedem Backend:
 
-<DataModel id="doc-block-1p5aazr" title="Die Aufgabentabelle" summary={"Einmal mit den Framework-Helfern definiert; der Dialekt wird zur Laufzeit aus DATABASE_URL gewählt."} entities={[
-  {
-    "id": "tasks",
-    "name": "tasks",
-    "note": "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true,
-        "nullable": false
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "priority",
-        "type": "integer",
-        "nullable": false,
-        "note": "default 0"
-      },
-      {
-        "name": "weight",
-        "type": "real",
-        "nullable": true
-      },
-      {
-        "name": "done",
-        "type": "integer (boolean mode)",
-        "nullable": false,
-        "note": "default false; maps to a Postgres boolean"
-      },
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "enables data scoping"
-      },
-      {
-        "name": "created_at",
-        "type": "text",
-        "nullable": false,
-        "note": "default now()"
-      }
-    ]
+<DataModel
+  id="doc-block-1p5aazr"
+  title="Die Aufgabentabelle"
+  summary={
+    "Einmal mit den Framework-Helfern definiert; der Dialekt wird zur Laufzeit aus DATABASE_URL gewählt."
   }
-]} />
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "weight",
+          type: "real",
+          nullable: true,
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
 
 Niemals direkt aus `drizzle-orm/sqlite-core` oder `drizzle-orm/pg-core` importieren. Verwenden Sie immer `@agent-native/core/db/schema`.
 
@@ -191,23 +198,32 @@ Alle Aktualisierungen des Datenbankschemas müssen **streng additiv** erfolgen.
 
 Anstatt direkt zu pushen, sollten Schemaänderungen über SQL-Migrationen angewendet werden, die beim Anwendungsstart ausgeführt werden. Implementieren Sie additive Migrationen innerhalb eines Server-Plugins (z. B. `server/plugins/db.ts`), indem Sie den `runMigrations()`-Helper des Frameworks aufrufen:
 
-<AnnotatedCode id="doc-block-pr2qs" title="Ein additives Migrations-Plugin" filename="server/plugins/db.ts" language="ts" code={"import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);"} annotations={[
-  {
-    "lines": "6-7",
-    "label": "Nur Zusatzstoff",
-    "note": "`ADD COLUMN IF NOT EXISTS` kann sicher erneut ausgeführt werden und löscht niemals Daten. Umbenennungen sehen wie „Drop+Create“ in „Drizzle“ aus, also fügen Sie stattdessen „Hinzufügen und dann migrieren“ hinzu."
-  },
-  {
-    "lines": "13-16",
-    "label": "Dialekt-Gating",
-    "note": "Übergeben Sie ein nach Dialekt indiziertes Objekt, um je Backend anderes SQL auszuführen. Machen Sie den anderen Schlüssel für reine Postgres- oder reine SQLite-Funktionen zu einem No-op (`SELECT 1`)."
-  },
-  {
-    "lines": "19",
-    "label": "Versionstabelle pro App",
-    "note": "Jede App verfolgt ihre eigenen angewendeten Versionen, sodass Migrationen über Neustarts und Instanzen hinweg idempotent sind."
+<AnnotatedCode
+  id="doc-block-pr2qs"
+  title="Ein additives Migrations-Plugin"
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
-]} />
+  annotations={[
+    {
+      lines: "6-7",
+      label: "Nur Zusatzstoff",
+      note: "`ADD COLUMN IF NOT EXISTS` kann sicher erneut ausgeführt werden und löscht niemals Daten. Umbenennungen sehen wie „Drop+Create“ in „Drizzle“ aus, also fügen Sie stattdessen „Hinzufügen und dann migrieren“ hinzu.",
+    },
+    {
+      lines: "13-16",
+      label: "Dialekt-Gating",
+      note: "Übergeben Sie ein nach Dialekt indiziertes Objekt, um je Backend anderes SQL auszuführen. Machen Sie den anderen Schlüssel für reine Postgres- oder reine SQLite-Funktionen zu einem No-op (`SELECT 1`).",
+    },
+    {
+      lines: "19",
+      label: "Versionstabelle pro App",
+      note: "Jede App verfolgt ihre eigenen angewendeten Versionen, sodass Migrationen über Neustarts und Instanzen hinweg idempotent sind.",
+    },
+  ]}
+/>
 
 ## Umgebungsvariablen {#environment-variables}
 

@@ -14,18 +14,27 @@ description: "उच्च-परिणाम वाली कार्रवा
 
 `needsApproval` को `defineAction` पर सेट करें। यह एक बूलियन या विधेय को स्वीकार करता है:
 
-<AnnotatedCode id="doc-block-1ia1amd" title={"एक परिणामी कार्रवाई गेटिंग"} filename="actions/send-email.ts" language="ts" code={"export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});"} annotations={[
-  {
-    "lines": "10",
-    "label": "पूरी सड़क",
-    "note": "एक झंडा. इसके सत्य होने और कॉल अस्वीकृत होने पर, लूप `run` से पहले बंद हो जाता है - मॉडल कभी भी अपने आप साइड इफेक्ट तक नहीं पहुंचता है।"
-  },
-  {
-    "lines": "11-13",
-    "label": "run() is untouched",
-    "note": "हैंडलर वही रहता है। अनुमोदन इसके चारों ओर लूप द्वारा लागू किया जाता है, `run` के अंदर किसी चीज़ द्वारा नहीं।"
+<AnnotatedCode
+  id="doc-block-1ia1amd"
+  title={"एक परिणामी कार्रवाई गेटिंग"}
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10",
+      label: "पूरी सड़क",
+      note: "एक झंडा. इसके सत्य होने और कॉल अस्वीकृत होने पर, लूप `run` से पहले बंद हो जाता है - मॉडल कभी भी अपने आप साइड इफेक्ट तक नहीं पहुंचता है।",
+    },
+    {
+      lines: "11-13",
+      label: "run() is untouched",
+      note: "हैंडलर वही रहता है। अनुमोदन इसके चारों ओर लूप द्वारा लागू किया जाता है, `run` के अंदर किसी चीज़ द्वारा नहीं।",
+    },
+  ]}
+/>
 
 - **`needsApproval: true`** - हमेशा अनुमोदन की आवश्यकता होती है।
 - **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** - केवल तभी अनुमोदन की आवश्यकता होती है जब विधेय सत्य हो। गेट सशर्त, उदा. केवल बाहरी प्राप्तकर्ताओं के लिए या केवल एक डॉलर सीमा से ऊपर के लिए:

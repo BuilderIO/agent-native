@@ -8,7 +8,12 @@ description: "わかりやすい英語で分析に関する質問をし、グラ
 平易な英語で分析に関する質問をし、グラフやダッシュボードを取得します。エージェントは、BigQuery、GA4、Amplitude、組み込みのファーストパーティ イベント コレクター、HubSpot、Jira、その他多数のソースに接続し、クエリを作成して検証し、回答をグラフ、表、または保存されたダッシュボード パネルとしてレンダリングします。
 
 <WireframeBlock id="doc-block-a54aud">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Nativeテンプレート</h1><p class='wf-muted' style='margin:0'>過去12週間の導入とエンゲージメント。</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>週次アクティブユーザー</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>新規登録</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR 収益</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>週次アクティブユーザー</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>収益の推移</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>流入元別の登録</strong><br/><small class='wf-muted'>下段のチャートはメインチャートの下から始まります。</small></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Nativeテンプレート</h1><p class='wf-muted' style='margin:0'>過去12週間の導入とエンゲージメント。</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>週次アクティブユーザー</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>新規登録</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR 収益</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>週次アクティブユーザー</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>収益の推移</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>流入元別の登録</strong><br/><small class='wf-muted'>下段のチャートはメインチャートの下から始まります。</small></div></div>"
+    }
+  />
 </WireframeBlock>
 
 これは、コード、クエリ、データを所有したいチーム向けの、Amplitude、Mixpanel、Looker に代わるオープンソースです。
@@ -159,105 +164,113 @@ GCP コンソール → API とサービス → 認証情報 → OAuth クライ
 
 コア テーブル (`templates/analytics/server/db/schema.ts` を参照):
 
-<DataModel id="doc-block-3y2ry6" title={"分析データモデル"} summary={"Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."} entities={[
-  {
-    "id": "dashboards",
-    "name": "dashboards",
-    "note": "Explorer および SQL ダッシュボード",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "kind",
-        "type": "text",
-        "note": "\"explorer\" or \"sql\""
-      },
-      {
-        "name": "config",
-        "type": "text",
-        "note": "JSON が SqlDashboardConfig に一致"
-      }
-    ]
-  },
-  {
-    "id": "dashboard_views",
-    "name": "dashboard_views",
-    "note": "ダッシュボードごとに保存されたフィルター プリセット",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "dashboard_id",
-        "type": "text",
-        "fk": "dashboards.id"
-      }
-    ]
-  },
-  {
-    "id": "analyses",
-    "name": "analyses",
-    "note": "再実行可能なアドホック調査",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "question",
-        "type": "text"
-      },
-      {
-        "name": "instructions",
-        "type": "text",
-        "note": "ステップを再実行する"
-      },
-      {
-        "name": "dataSources",
-        "type": "text",
-        "note": "触れた情報源"
-      },
-      {
-        "name": "resultMarkdown",
-        "type": "text"
-      },
-      {
-        "name": "resultData",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "bigquery_cache",
-    "name": "bigquery_cache",
-    "note": "SQL ハッシュをキーとした結果キャッシュ",
-    "fields": [
-      {
-        "name": "sql_hash",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "bytes_processed",
-        "type": "integer"
-      }
-    ]
+<DataModel
+  id="doc-block-3y2ry6"
+  title={"分析データモデル"}
+  summary={
+    "Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
   }
-]} relations={[
-  {
-    "from": "dashboards",
-    "to": "dashboard_views",
-    "kind": "1-n",
-    "label": "saved views"
-  }
-]} />
+  entities={[
+    {
+      id: "dashboards",
+      name: "dashboards",
+      note: "Explorer および SQL ダッシュボード",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: '"explorer" or "sql"',
+        },
+        {
+          name: "config",
+          type: "text",
+          note: "JSON が SqlDashboardConfig に一致",
+        },
+      ],
+    },
+    {
+      id: "dashboard_views",
+      name: "dashboard_views",
+      note: "ダッシュボードごとに保存されたフィルター プリセット",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "dashboard_id",
+          type: "text",
+          fk: "dashboards.id",
+        },
+      ],
+    },
+    {
+      id: "analyses",
+      name: "analyses",
+      note: "再実行可能なアドホック調査",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "question",
+          type: "text",
+        },
+        {
+          name: "instructions",
+          type: "text",
+          note: "ステップを再実行する",
+        },
+        {
+          name: "dataSources",
+          type: "text",
+          note: "触れた情報源",
+        },
+        {
+          name: "resultMarkdown",
+          type: "text",
+        },
+        {
+          name: "resultData",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "bigquery_cache",
+      name: "bigquery_cache",
+      note: "SQL ハッシュをキーとした結果キャッシュ",
+      fields: [
+        {
+          name: "sql_hash",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "bytes_processed",
+          type: "integer",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "dashboards",
+      to: "dashboard_views",
+      kind: "1-n",
+      label: "saved views",
+    },
+  ]}
+/>
 
 さらに、`@agent-native/core/org` によって提供されるリソースごとの共有テーブル (`dashboard_shares`、`analysis_shares`) と組織テーブル (`organizations`、`org_members`、`org_invitations`)。データ ディクショナリは、スコープ付きキーの下のフレームワークの `settings` テーブルに存在します。
 

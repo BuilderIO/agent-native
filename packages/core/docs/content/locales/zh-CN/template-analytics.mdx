@@ -8,7 +8,12 @@ description: "用简单的英语提出分析问题，获取图表和仪表板。
 用简单的英语提出分析问题，获取图表和仪表板。该代理连接到 BigQuery、GA4、Amplitude、内置第一方事件收集器、HubSpot、Jira 和十几个其他源，为您编写查询、验证查询，并将答案呈现为图表、表格或保存的仪表板面板。
 
 <WireframeBlock id="doc-block-1ejxx9a">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native 模板</h1><p class='wf-muted' style='margin:0'>过去 12 周的采用率和参与度。</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>每周活跃用户</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>新增注册</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR 收入</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>每周活跃用户</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>收入趋势</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>按来源划分的注册</strong><br/><small class='wf-muted'>下方图表位于主图表下方。</small></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native 模板</h1><p class='wf-muted' style='margin:0'>过去 12 周的采用率和参与度。</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>每周活跃用户</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>新增注册</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR 收入</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>每周活跃用户</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>收入趋势</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>按来源划分的注册</strong><br/><small class='wf-muted'>下方图表位于主图表下方。</small></div></div>"
+    }
+  />
 </WireframeBlock>
 
 它是 Amplitude、Mixpanel 和 Looker 的开源替代品——适合想要拥有代码、查询和数据的团队。
@@ -159,105 +164,113 @@ GCP 控制台 → API 和服务 → 凭证 → OAuth 客户端 ID，并首选
 
 核心表（参见`templates/analytics/server/db/schema.ts`）：
 
-<DataModel id="doc-block-11qa6mc" title={"分析数据模型"} summary={"Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."} entities={[
-  {
-    "id": "dashboards",
-    "name": "dashboards",
-    "note": "资源管理器和 SQL 仪表板",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "kind",
-        "type": "text",
-        "note": "\"explorer\" or \"sql\""
-      },
-      {
-        "name": "config",
-        "type": "text",
-        "note": "JSON 匹配 SqlDashboardConfig"
-      }
-    ]
-  },
-  {
-    "id": "dashboard_views",
-    "name": "dashboard_views",
-    "note": "每个仪表板保存的过滤器预设",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "dashboard_id",
-        "type": "text",
-        "fk": "dashboards.id"
-      }
-    ]
-  },
-  {
-    "id": "analyses",
-    "name": "analyses",
-    "note": "可重新运行的临时调查",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "question",
-        "type": "text"
-      },
-      {
-        "name": "instructions",
-        "type": "text",
-        "note": "重新运行步骤"
-      },
-      {
-        "name": "dataSources",
-        "type": "text",
-        "note": "接触的来源"
-      },
-      {
-        "name": "resultMarkdown",
-        "type": "text"
-      },
-      {
-        "name": "resultData",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "bigquery_cache",
-    "name": "bigquery_cache",
-    "note": "结果缓存由 SQL 哈希键控",
-    "fields": [
-      {
-        "name": "sql_hash",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "bytes_processed",
-        "type": "integer"
-      }
-    ]
+<DataModel
+  id="doc-block-11qa6mc"
+  title={"分析数据模型"}
+  summary={
+    "Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
   }
-]} relations={[
-  {
-    "from": "dashboards",
-    "to": "dashboard_views",
-    "kind": "1-n",
-    "label": "saved views"
-  }
-]} />
+  entities={[
+    {
+      id: "dashboards",
+      name: "dashboards",
+      note: "资源管理器和 SQL 仪表板",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: '"explorer" or "sql"',
+        },
+        {
+          name: "config",
+          type: "text",
+          note: "JSON 匹配 SqlDashboardConfig",
+        },
+      ],
+    },
+    {
+      id: "dashboard_views",
+      name: "dashboard_views",
+      note: "每个仪表板保存的过滤器预设",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "dashboard_id",
+          type: "text",
+          fk: "dashboards.id",
+        },
+      ],
+    },
+    {
+      id: "analyses",
+      name: "analyses",
+      note: "可重新运行的临时调查",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "question",
+          type: "text",
+        },
+        {
+          name: "instructions",
+          type: "text",
+          note: "重新运行步骤",
+        },
+        {
+          name: "dataSources",
+          type: "text",
+          note: "接触的来源",
+        },
+        {
+          name: "resultMarkdown",
+          type: "text",
+        },
+        {
+          name: "resultData",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "bigquery_cache",
+      name: "bigquery_cache",
+      note: "结果缓存由 SQL 哈希键控",
+      fields: [
+        {
+          name: "sql_hash",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "bytes_processed",
+          type: "integer",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "dashboards",
+      to: "dashboard_views",
+      kind: "1-n",
+      label: "saved views",
+    },
+  ]}
+/>
 
 加上 `@agent-native/core/org` 提供的每个资源共享表（`dashboard_shares`、`analysis_shares`）和组织表（`organizations`、`org_members`、`org_invitations`）。数据字典位于框架的 `settings` 表中的作用域键下。
 

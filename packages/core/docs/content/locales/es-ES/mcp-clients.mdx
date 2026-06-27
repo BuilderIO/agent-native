@@ -102,23 +102,32 @@ Cree `mcp.config.json` en la raíz de su espacio de trabajo (o en la raíz de un
 
 La forma es pequeña: un mapa `servers` codificado por ID de servidor, donde cada entrada es un iniciador estándar (`command` + `args` + `env` opcional) o una entrada remota `{ "type": "http", "url", "headers" }`.
 
-<AnnotatedCode id="doc-block-1pgiyn1" title="mcp.config.json, anotado" filename="mcp.config.json" language="jsonc" code={"{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}"} annotations={[
-  {
-    "lines": "3",
-    "label": "identificación del servidor",
-    "note": "La clave se convierte en el prefijo de la herramienta: las herramientas de este servidor aparecen como `mcp__claude-in-chrome__*` en el registro del agente, por lo que no pueden colisionar con las acciones de su plantilla."
-  },
-  {
-    "lines": "4-6",
-    "label": "stdio launcher",
-    "note": "`command` + `args` generan un binario local. Los servidores Stdio están destinados al **desarrollo local**; no son operativos en los tiempos de ejecución perimetrales."
-  },
-  {
-    "lines": "6",
-    "label": "entorno de proceso",
-    "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens."
+<AnnotatedCode
+  id="doc-block-1pgiyn1"
+  title="mcp.config.json, anotado"
+  filename="mcp.config.json"
+  language="jsonc"
+  code={
+    '{\n  "$schema": "https://agent-native.com/schema/mcp.config.json",\n  "servers": {\n    "claude-in-chrome": {\n      "command": "claude-in-chrome-mcp",\n      "args": [],\n      "env": { "LOG_LEVEL": "info" }\n    },\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "/Users/me/projects"]\n    }\n  }\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "3",
+      label: "identificación del servidor",
+      note: "La clave se convierte en el prefijo de la herramienta: las herramientas de este servidor aparecen como `mcp__claude-in-chrome__*` en el registro del agente, por lo que no pueden colisionar con las acciones de su plantilla.",
+    },
+    {
+      lines: "4-6",
+      label: "stdio launcher",
+      note: "`command` + `args` generan un binario local. Los servidores Stdio están destinados al **desarrollo local**; no son operativos en los tiempos de ejecución perimetrales.",
+    },
+    {
+      lines: "6",
+      label: "entorno de proceso",
+      note: "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens.",
+    },
+  ]}
+/>
 
 En el siguiente inicio de la aplicación verás:
 

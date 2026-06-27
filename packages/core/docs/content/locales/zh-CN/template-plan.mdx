@@ -31,7 +31,12 @@ Codex、Claude 代码、Markdown 或将实施计划粘贴到结构化中
 ```
 
 <WireframeBlock id="doc-block-gnscq3">
-<Screen surface="desktop" html={"<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>结账改版计划</h1><div style='flex:1'></div><button>分享</button><button class='primary'>批准</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>当前线框图</div><div class='wf-box'>拟议线框图</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>实施计划</strong><div class='wf-box'>决策：保留现有结账外壳</div><div class='wf-box'>带注释的代码演练</div><div class='wf-box'>开放问题</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>评论</strong><div class='wf-box'>主 CTA 上的标注</div><div class='wf-box'>给代理的问题</div><div class='wf-box'>已解决的文案备注</div><button class='primary'>交回反馈</button></aside></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>结账改版计划</h1><div style='flex:1'></div><button>分享</button><button class='primary'>批准</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>当前线框图</div><div class='wf-box'>拟议线框图</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>实施计划</strong><div class='wf-box'>决策：保留现有结账外壳</div><div class='wf-box'>带注释的代码演练</div><div class='wf-box'>开放问题</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>评论</strong><div class='wf-box'>主 CTA 上的标注</div><div class='wf-box'>给代理的问题</div><div class='wf-box'>已解决的文案备注</div><button class='primary'>交回反馈</button></aside></div>"
+    }
+  />
 </WireframeBlock>
 
 有两种方式进入计划：
@@ -392,277 +397,283 @@ pnpm dev
 | `plan_guest_mints` | 访客会话发放限速记录                                                                                                                                                              |
 | `plan_assets`      | 内嵌图像资源存储为base64（没有上传提供商时的回退）                                                                                                                                |
 
-<DataModel id="doc-block-1imuwd1" title={"规划数据模型"} summary={"一个计划行拥有有序部分以及评论、事件、版本、共享和内联资产。"} entities={[
-  {
-    "id": "plans",
-    "name": "plans",
-    "note": "each plan or recap",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "kind",
-        "type": "enum",
-        "note": "计划|回顾"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "hosted_plan_id",
-        "type": "text",
-        "nullable": true,
-        "note": "hosted_plan_url paired"
-      },
-      {
-        "name": "source_url",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "deleted_at",
-        "type": "timestamp",
-        "nullable": true,
-        "note": "soft delete; deleted_by paired"
-      }
-    ]
-  },
-  {
-    "id": "plan_sections",
-    "name": "plan_sections",
-    "note": "ordered sections within a plan",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      },
-      {
-        "name": "type",
-        "type": "text"
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "body",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "html",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "sort_order",
-        "type": "integer"
-      },
-      {
-        "name": "created_by",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "plan_comments",
-    "name": "plan_comments",
-    "note": "threaded comments",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      },
-      {
-        "name": "kind",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "anchor",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "message",
-        "type": "text"
-      },
-      {
-        "name": "resolution_target",
-        "type": "text",
-        "nullable": true,
-        "note": "agent | human | null"
-      },
-      {
-        "name": "mentions_json",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "resolved_by",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "plan_events",
-    "name": "plan_events",
-    "note": "audit log of agent/human events",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      }
-    ]
-  },
-  {
-    "id": "plan_versions",
-    "name": "plan_versions",
-    "note": "point-in-time snapshots",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      }
-    ]
-  },
-  {
-    "id": "plan_shares",
-    "name": "plan_shares",
-    "note": "per-principal grants",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "观众|编辑|行政"
-      }
-    ]
-  },
-  {
-    "id": "plan_guest_mints",
-    "name": "plan_guest_mints",
-    "note": "rate-limit records for guest session issuance",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      }
-    ]
-  },
-  {
-    "id": "plan_assets",
-    "name": "plan_assets",
-    "note": "inline image assets as base64",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      }
-    ]
-  }
-]} relations={[
-  {
-    "from": "plans",
-    "to": "plan_sections",
-    "kind": "1-n",
-    "label": "has sections"
-  },
-  {
-    "from": "plans",
-    "to": "plan_comments",
-    "kind": "1-n",
-    "label": "has comments"
-  },
-  {
-    "from": "plans",
-    "to": "plan_events",
-    "kind": "1-n",
-    "label": "has events"
-  },
-  {
-    "from": "plans",
-    "to": "plan_versions",
-    "kind": "1-n",
-    "label": "has versions"
-  },
-  {
-    "from": "plans",
-    "to": "plan_shares",
-    "kind": "1-n",
-    "label": "has shares"
-  },
-  {
-    "from": "plans",
-    "to": "plan_assets",
-    "kind": "1-n",
-    "label": "has assets"
-  }
-]} />
+<DataModel
+  id="doc-block-1imuwd1"
+  title={"规划数据模型"}
+  summary={"一个计划行拥有有序部分以及评论、事件、版本、共享和内联资产。"}
+  entities={[
+    {
+      id: "plans",
+      name: "plans",
+      note: "each plan or recap",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "kind",
+          type: "enum",
+          note: "计划|回顾",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "hosted_plan_id",
+          type: "text",
+          nullable: true,
+          note: "hosted_plan_url paired",
+        },
+        {
+          name: "source_url",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "deleted_at",
+          type: "timestamp",
+          nullable: true,
+          note: "soft delete; deleted_by paired",
+        },
+      ],
+    },
+    {
+      id: "plan_sections",
+      name: "plan_sections",
+      note: "ordered sections within a plan",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "body",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "html",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "sort_order",
+          type: "integer",
+        },
+        {
+          name: "created_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_comments",
+      name: "plan_comments",
+      note: "threaded comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "anchor",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "message",
+          type: "text",
+        },
+        {
+          name: "resolution_target",
+          type: "text",
+          nullable: true,
+          note: "agent | human | null",
+        },
+        {
+          name: "mentions_json",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "resolved_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_events",
+      name: "plan_events",
+      note: "audit log of agent/human events",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_versions",
+      name: "plan_versions",
+      note: "point-in-time snapshots",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_shares",
+      name: "plan_shares",
+      note: "per-principal grants",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "观众|编辑|行政",
+        },
+      ],
+    },
+    {
+      id: "plan_guest_mints",
+      name: "plan_guest_mints",
+      note: "rate-limit records for guest session issuance",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+      ],
+    },
+    {
+      id: "plan_assets",
+      name: "plan_assets",
+      note: "inline image assets as base64",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "plans",
+      to: "plan_sections",
+      kind: "1-n",
+      label: "has sections",
+    },
+    {
+      from: "plans",
+      to: "plan_comments",
+      kind: "1-n",
+      label: "has comments",
+    },
+    {
+      from: "plans",
+      to: "plan_events",
+      kind: "1-n",
+      label: "has events",
+    },
+    {
+      from: "plans",
+      to: "plan_versions",
+      kind: "1-n",
+      label: "has versions",
+    },
+    {
+      from: "plans",
+      to: "plan_shares",
+      kind: "1-n",
+      label: "has shares",
+    },
+    {
+      from: "plans",
+      to: "plan_assets",
+      kind: "1-n",
+      label: "has assets",
+    },
+  ]}
+/>
 
 ### 密钥actions
 

@@ -47,24 +47,28 @@ Nicht jeder, der Änderungen vornehmen muss, ist mit Git vertraut. [Builder.io](
 
 Code Governance wird durch eine Handvoll Dateien im Repo-Stammverzeichnis konfiguriert:
 
-<FileTree id="doc-block-u2qjg2" title="Governance-Konfiguration im Repo" entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "Weist Reviewer automatisch je geändertem Pfad zu"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "Labelt PRs automatisch nach App"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Workspace-Ebene: breite Review"
-  },
-  {
-    "path": "package.json",
-    "note": "Workspace-Ebene: im Besitz des Plattformteams"
-  }
-]} />
+<FileTree
+  id="doc-block-u2qjg2"
+  title="Governance-Konfiguration im Repo"
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "Weist Reviewer automatisch je geändertem Pfad zu",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "Labelt PRs automatisch nach App",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Workspace-Ebene: breite Review",
+    },
+    {
+      path: "package.json",
+      note: "Workspace-Ebene: im Besitz des Plattformteams",
+    },
+  ]}
+/>
 
 Die CODEOWNERS-Datei von GitHub weist Prüfer automatisch PRs zu, basierend auf den geänderten Dateien. Erstellen Sie `.github/CODEOWNERS` im Repo-Root:
 

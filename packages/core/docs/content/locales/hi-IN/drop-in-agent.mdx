@@ -40,33 +40,42 @@ description: "एजेंट चैट + वर्कस्पेस को <Ag
 अपने मौजूदा रूट लेआउट को `<AgentSidebar>` के साथ लपेटें; जिसे भी आप
 बच्चे मुख्य ऐप क्षेत्र में रहते हैं। एजेंट चैट साइड पैनल है।
 
-<AnnotatedCode id="doc-block-5cav6f" title={"रूट लेआउट को <AgentSidebar> के साथ लपेटना"} filename="app/root.tsx" language="tsx" code={"import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"मैं कैसे मदद कर सकता हूं?\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}"} annotations={[
-  {
-    "lines": "6",
-    "label": "आवरण",
-    "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area."
-  },
-  {
-    "lines": "8-12",
-    "label": "संकेत प्रारंभ करता है",
-    "note": "`suggestions` खाली चैट पर क्लिक करने योग्य चिप्स के रूप में प्रस्तुत करें।"
-  },
-  {
-    "lines": "13",
-    "label": "संदर्भ-जागरूक चिप्स",
-    "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default."
-  },
-  {
-    "lines": "18-20",
-    "label": "टॉगल बटन",
-    "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel."
-  },
-  {
-    "lines": "22-24",
-    "label": "आपका ऐप",
-    "note": "`<Outlet/>` (your routes) renders in the main area, untouched."
+<AnnotatedCode
+  id="doc-block-5cav6f"
+  title={"रूट लेआउट को <AgentSidebar> के साथ लपेटना"}
+  filename="app/root.tsx"
+  language="tsx"
+  code={
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="मैं कैसे मदद कर सकता हूं?"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "आवरण",
+      note: "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area.",
+    },
+    {
+      lines: "8-12",
+      label: "संकेत प्रारंभ करता है",
+      note: "`suggestions` खाली चैट पर क्लिक करने योग्य चिप्स के रूप में प्रस्तुत करें।",
+    },
+    {
+      lines: "13",
+      label: "संदर्भ-जागरूक चिप्स",
+      note: '`dynamicSuggestions` merges screen-aware prompts (e.g. "Summarize this selection") with your static ones. On by default.',
+    },
+    {
+      lines: "18-20",
+      label: "टॉगल बटन",
+      note: "Put `<AgentToggleButton />` anywhere in your header to open and close the panel.",
+    },
+    {
+      lines: "22-24",
+      label: "आपका ऐप",
+      note: "`<Outlet/>` (your routes) renders in the main area, untouched.",
+    },
+  ]}
+/>
 
 बस इतना ही। उपयोगकर्ता के पास अब प्रत्येक पृष्ठ पर एक टॉगल करने योग्य एजेंट है - चैट इतिहास, कार्यक्षेत्र टैब, CLI टर्मिनल, वॉयस इनपुट और एक फुलस्क्रीन मोड के साथ। स्थिति `localStorage` के माध्यम से पुनः लोड करने पर बनी रहती है।
 

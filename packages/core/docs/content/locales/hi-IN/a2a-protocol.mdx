@@ -190,23 +190,31 @@ JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `ta
 
 संदेशों में टाइप किए गए भाग होते हैं - पाठ, संरचित डेटा और फ़ाइलें सभी एक संदेश में यात्रा कर सकते हैं:
 
-<AnnotatedCode id="doc-block-w4jzyy" title={"टाइप किए गए भागों के साथ A2A संदेश"} language="json" code={"{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}"} annotations={[
-  {
-    "lines": "4",
-    "label": "text part",
-    "note": "एजेंट द्वारा पढ़ा जाने वाला सादा प्राकृतिक-भाषा निर्देश।"
-  },
-  {
-    "lines": "5",
-    "label": "data part",
-    "note": "संरचित JSON तर्क - उदा. एक तिथि सीमा - संकेत के साथ पारित की गई।"
-  },
-  {
-    "lines": "6-9",
-    "label": "file part",
-    "note": "नाम, `mimeType`, और बेस64 `bytes` द्वारा एक फ़ाइल संलग्न करें।"
+<AnnotatedCode
+  id="doc-block-w4jzyy"
+  title={"टाइप किए गए भागों के साथ A2A संदेश"}
+  language="json"
+  code={
+    '{\n  "role": "user",\n  "parts": [\n    { "type": "text", "text": "Show signups by source" },\n    { "type": "data", "data": { "dateRange": "last-30d" } },\n    {\n      "type": "file",\n      "file": { "name": "report.csv", "mimeType": "text/csv", "bytes": "..." }\n    }\n  ]\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "4",
+      label: "text part",
+      note: "एजेंट द्वारा पढ़ा जाने वाला सादा प्राकृतिक-भाषा निर्देश।",
+    },
+    {
+      lines: "5",
+      label: "data part",
+      note: "संरचित JSON तर्क - उदा. एक तिथि सीमा - संकेत के साथ पारित की गई।",
+    },
+    {
+      lines: "6-9",
+      label: "file part",
+      note: "नाम, `mimeType`, और बेस64 `bytes` द्वारा एक फ़ाइल संलग्न करें।",
+    },
+  ]}
+/>
 
 ## क्लाइंट {#client}
 

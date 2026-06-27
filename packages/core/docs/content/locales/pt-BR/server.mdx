@@ -103,23 +103,32 @@ em uma ação para que UI e o agente compartilhem a mesma capacidade.
 
 Actions montado pela estrutura é executado automaticamente com contexto de solicitação. Rotas personalizadas não. Se uma rota personalizada lê ou grava recursos proprietários, carregue a sessão e finalize o trabalho:
 
-<AnnotatedCode id="doc-block-x5gayj" title={"Escopo de uma rota personalizada para o usuário da solicitação"} filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectCompartilhars));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "Rotas personalizadas não têm contexto automático",
-    "note": "Ao contrário das ações, uma rota de arquivo deve carregar a própria sessão e falhar ao fechar quando não houver usuário autenticado."
-  },
-  {
-    "lines": "12-13",
-    "label": "Estabelecer contexto de solicitação",
-    "note": "`runWithRequestContext` disponibiliza o user/org para ajudantes de escopo durante o trabalho."
-  },
-  {
-    "lines": "18-19",
-    "label": "Leituras de propriedade do escopo",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-x5gayj"
+  title={"Escopo de uma rota personalizada para o usuário da solicitação"}
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectCompartilhars));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "Rotas personalizadas não têm contexto automático",
+      note: "Ao contrário das ações, uma rota de arquivo deve carregar a própria sessão e falhar ao fechar quando não houver usuário autenticado.",
+    },
+    {
+      lines: "12-13",
+      label: "Estabelecer contexto de solicitação",
+      note: "`runWithRequestContext` disponibiliza o user/org para ajudantes de escopo durante o trabalho.",
+    },
+    {
+      lines: "18-19",
+      label: "Leituras de propriedade do escopo",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `getDb` é criado por aplicativo via `createGetDb(schema)` em `server/db/index.ts`, portanto, rotas personalizadas importam-no do modelo (`../../db/index.js`), não de `@agent-native/core/db`; veja [Database — Where the DB Client Lives](/docs/database#db-client). Não execute `db.select().from(ownableTable)` sem escopo em rotas personalizadas.
 

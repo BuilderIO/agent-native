@@ -9,7 +9,12 @@ search: "سجلات متصفح Clips، سجلات المطورين، سجلات 
 تطبيق يلتقط كل شيء: تسجيلات الشاشة، وملاحظات الاجتماع من التقويم الخاص بك، والإملاء الصوتي مع الاستمرار على Fn. يقوم الوكيل بنسخ كل ذلك، وعناوينه، وتلخيصه، وفهرسته - ثم يتيح لك أن تطلب "العثور على المقطع الذي ناقشنا فيه خطة الطرح" والبحث عبر كل نص قمت بإنشائه على الإطلاق.
 
 <WireframeBlock id="doc-block-1f2wfe4">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>مقاطع هندسية</h1><span class='wf-pill accent'>مكتبة</span><span class='wf-pill'>الاجتماعات</span><span class='wf-pill'>الإملاء</span><div style='flex:1'></div><button>يستورد</button><button class='primary'>سِجِلّ</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>مراجعة OKR</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>مسار الإعداد</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>إعادة إنتاج الخطأ</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>وكيل قابل للقراءة</span><span>النص والإطارات جاهزة لروابط المشاركة</span><div style='flex:1'></div><button>يشارك</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>بحث النص</strong><div class='wf-box'>الفصل المطابق 03:12 · مخاطر الطرح وتسليم المالك</div><div class='wf-box'>ملخص الاجتماع وبنود العمل</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>مقاطع هندسية</h1><span class='wf-pill accent'>مكتبة</span><span class='wf-pill'>الاجتماعات</span><span class='wf-pill'>الإملاء</span><div style='flex:1'></div><button>يستورد</button><button class='primary'>سِجِلّ</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>مراجعة OKR</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>مسار الإعداد</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>إعادة إنتاج الخطأ</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>وكيل قابل للقراءة</span><span>النص والإطارات جاهزة لروابط المشاركة</span><div style='flex:1'></div><button>يشارك</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>بحث النص</strong><div class='wf-box'>الفصل المطابق 03:12 · مخاطر الطرح وتسليم المالك</div><div class='wf-box'>ملخص الاجتماع وبنود العمل</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 فكر على غرار Loom + Granola + Wispr Flow المدمجة في تطبيق واحد - ولكن الوكيل هو محرر من الدرجة الأولى عبر كل سطح، والتسجيلات والاجتماعات والإملاءات ملكك، وليس بائع SaaS. تجعل Clips أيضًا التسجيلات المشتركة قابلة للقراءة من قبل الوكيل: قم بلصق رابط مشاركة Clips عادي في الوكيل ويمكنه "سماع" النص كنص و"رؤية" إطارات الشاشة ذات الطوابع الزمنية كصور - لا حاجة إلى فيديو أولي. تعمل ميزة عرض الإطار في أي وكيل قادر على التقاط الصور (ChatGPT، Claude Code، Cursor، Codex)؛ لا تزال محادثات الويب النصية فقط تحصل على النص الكامل ويمكن أن تأخذ إطارًا تقوم بتحميله.
@@ -122,8 +127,6 @@ Returns clip metadata, transcript status, chapters, CTAs, recommended frames, an
   }
 ]}>
 
-
-
 </Endpoint>
 
 <Endpoint id="doc-block-1rwcmzz" title={"إطار في طابع زمني"} method="GET" path="/api/agent-frame.jpg" summary={"إطار JPEG مستخرج من الفيديو بطابع زمني للفيديو الأصلي"} params={[
@@ -147,8 +150,6 @@ Returns clip metadata, transcript status, chapters, CTAs, recommended frames, an
     "description": "image/jpeg frame"
   }
 ]}>
-
-
 
 </Endpoint>
 
@@ -267,156 +268,164 @@ Clips عبارة عن قالب أكبر حجمًا يحتوي على مسجل أ
 
 تعيش جميع البيانات في SQL عبر Drizzle ORM. المخطط: `templates/clips/server/db/schema.ts`. تحمل التسجيلات والاجتماعات والإملاءات وحسابات التقويم والمفردات معيار `ownableColumns` ولها جدول مشاركات إطار عمل مطابق، لذا يتم إدخالها في نموذج المشاركة لكل مستخدم / لكل مؤسسة.
 
-<DataModel id="doc-block-lu79or" title={"نموذج البيانات الأساسية للمقاطع"} summary={"recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"} entities={[
-  {
-    "id": "recordings",
-    "name": "recordings",
-    "note": "Core resource; source of truth for media. ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "video_url",
-        "type": "text",
-        "note": "plus format / size / duration / thumbnails"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "edits_json",
-        "type": "text",
-        "note": "تعديلات غير مدمرة"
-      },
-      {
-        "name": "chapters_json",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "password",
-        "type": "text",
-        "nullable": true,
-        "note": "الخصوصية: كلمة المرور / انتهاء الصلاحية"
-      }
-    ]
-  },
-  {
-    "id": "recording_transcripts",
-    "name": "recording_transcripts",
-    "note": "قم بالتقسيم بحيث يتم عرض طرق عرض المكتبة والنص بسرعة",
-    "fields": [
-      {
-        "name": "recording_id",
-        "type": "text",
-        "fk": "recordings.id"
-      },
-      {
-        "name": "segments_json",
-        "type": "text",
-        "note": "{ startMs, endMs, text }"
-      },
-      {
-        "name": "full_text",
-        "type": "text"
-      },
-      {
-        "name": "language",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "clips_meetings",
-    "name": "clips_meetings",
-    "note": "Calendar-sourced or ad-hoc; owns a recording",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "recording_id",
-        "type": "text",
-        "fk": "recordings.id",
-        "nullable": true
-      },
-      {
-        "name": "summary_md",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "bullets_json",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "action_items_json",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "clips_dictations",
-    "name": "clips_dictations",
-    "note": "Push-to-talk dictation history; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "full_text",
-        "type": "text",
-        "note": "الخام"
-      },
-      {
-        "name": "cleaned_text",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "note": "فريق الجبهة الوطنية، وما إلى ذلك."
-      },
-      {
-        "name": "target_app",
-        "type": "text",
-        "nullable": true
-      }
-    ]
+<DataModel
+  id="doc-block-lu79or"
+  title={"نموذج البيانات الأساسية للمقاطع"}
+  summary={
+    "recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
   }
-]} relations={[
-  {
-    "from": "recordings",
-    "to": "recording_transcripts",
-    "kind": "1-1",
-    "label": "transcript"
-  },
-  {
-    "from": "recordings",
-    "to": "clips_meetings",
-    "kind": "1-1",
-    "label": "captured by"
-  }
-]} />
+  entities={[
+    {
+      id: "recordings",
+      name: "recordings",
+      note: "Core resource; source of truth for media. ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "video_url",
+          type: "text",
+          note: "plus format / size / duration / thumbnails",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "edits_json",
+          type: "text",
+          note: "تعديلات غير مدمرة",
+        },
+        {
+          name: "chapters_json",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "password",
+          type: "text",
+          nullable: true,
+          note: "الخصوصية: كلمة المرور / انتهاء الصلاحية",
+        },
+      ],
+    },
+    {
+      id: "recording_transcripts",
+      name: "recording_transcripts",
+      note: "قم بالتقسيم بحيث يتم عرض طرق عرض المكتبة والنص بسرعة",
+      fields: [
+        {
+          name: "recording_id",
+          type: "text",
+          fk: "recordings.id",
+        },
+        {
+          name: "segments_json",
+          type: "text",
+          note: "{ startMs, endMs, text }",
+        },
+        {
+          name: "full_text",
+          type: "text",
+        },
+        {
+          name: "language",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "clips_meetings",
+      name: "clips_meetings",
+      note: "Calendar-sourced or ad-hoc; owns a recording",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "recording_id",
+          type: "text",
+          fk: "recordings.id",
+          nullable: true,
+        },
+        {
+          name: "summary_md",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "bullets_json",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "action_items_json",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "clips_dictations",
+      name: "clips_dictations",
+      note: "Push-to-talk dictation history; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "full_text",
+          type: "text",
+          note: "الخام",
+        },
+        {
+          name: "cleaned_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "source",
+          type: "text",
+          note: "فريق الجبهة الوطنية، وما إلى ذلك.",
+        },
+        {
+          name: "target_app",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "recordings",
+      to: "recording_transcripts",
+      kind: "1-1",
+      label: "transcript",
+    },
+    {
+      from: "recordings",
+      to: "clips_meetings",
+      kind: "1-1",
+      label: "captured by",
+    },
+  ]}
+/>
 
 | الجدول                                          | ما يحمله                                                                                                                                                                                                 |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -45,45 +45,49 @@ El CLI muestra un selector múltiple de cada plantilla propia. Elija tantos como
 
 Obtienes un monorepo pnpm con el paquete compartido privado, un `package.json` raíz que conecta el descubrimiento del espacio de trabajo, un `.env` compartido y un subdirectorio por aplicación que hayas elegido:
 
-<FileTree id="doc-block-hhvnz2" title="Un workspace generado" entries={[
-  {
-    "path": "package.json",
-    "note": "Declara agent-native.workspaceCore"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "packages: [\"packages/*\", \"apps/*\"]"
-  },
-  {
-    "path": ".env.example",
-    "note": "ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ... compartidos"
-  },
-  {
-    "path": "packages/shared/",
-    "note": "@my-company-platform/shared"
-  },
-  {
-    "path": "packages/shared/src/server/",
-    "note": "Overrides de plugins solo cuando haga falta"
-  },
-  {
-    "path": "packages/shared/src/client/",
-    "note": "Código React compartido solo cuando haga falta"
-  },
-  {
-    "path": "packages/shared/AGENTS.md",
-    "note": "Instrucciones para todo el workspace"
-  },
-  {
-    "path": "apps/mail/"
-  },
-  {
-    "path": "apps/calendar/"
-  },
-  {
-    "path": "apps/forms/"
-  }
-]} />
+<FileTree
+  id="doc-block-hhvnz2"
+  title="Un workspace generado"
+  entries={[
+    {
+      path: "package.json",
+      note: "Declara agent-native.workspaceCore",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: 'packages: ["packages/*", "apps/*"]',
+    },
+    {
+      path: ".env.example",
+      note: "ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ... compartidos",
+    },
+    {
+      path: "packages/shared/",
+      note: "@my-company-platform/shared",
+    },
+    {
+      path: "packages/shared/src/server/",
+      note: "Overrides de plugins solo cuando haga falta",
+    },
+    {
+      path: "packages/shared/src/client/",
+      note: "Código React compartido solo cuando haga falta",
+    },
+    {
+      path: "packages/shared/AGENTS.md",
+      note: "Instrucciones para todo el workspace",
+    },
+    {
+      path: "apps/mail/",
+    },
+    {
+      path: "apps/calendar/",
+    },
+    {
+      path: "apps/forms/",
+    },
+  ]}
+/>
 
 Luego arrancalo:
 

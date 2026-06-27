@@ -190,23 +190,31 @@ JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `ta
 
 メッセージには入力された部分が含まれます。テキスト、構造化データ、ファイルはすべて 1 つのメッセージ内で送信できます。
 
-<AnnotatedCode id="doc-block-v8glbz" title={"型付き部分を含む A2A メッセージ"} language="json" code={"{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}"} annotations={[
-  {
-    "lines": "4",
-    "label": "text part",
-    "note": "エージェントが読む単純な自然言語の指示。"
-  },
-  {
-    "lines": "5",
-    "label": "data part",
-    "note": "構造化された JSON 引数 - e.g。日付範囲 — プロンプトと一緒に渡されます。"
-  },
-  {
-    "lines": "6-9",
-    "label": "file part",
-    "note": "`mimeType` および Base64 `bytes` という名前でファイルを添付します。"
+<AnnotatedCode
+  id="doc-block-v8glbz"
+  title={"型付き部分を含む A2A メッセージ"}
+  language="json"
+  code={
+    '{\n  "role": "user",\n  "parts": [\n    { "type": "text", "text": "Show signups by source" },\n    { "type": "data", "data": { "dateRange": "last-30d" } },\n    {\n      "type": "file",\n      "file": { "name": "report.csv", "mimeType": "text/csv", "bytes": "..." }\n    }\n  ]\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "4",
+      label: "text part",
+      note: "エージェントが読む単純な自然言語の指示。",
+    },
+    {
+      lines: "5",
+      label: "data part",
+      note: "構造化された JSON 引数 - e.g。日付範囲 — プロンプトと一緒に渡されます。",
+    },
+    {
+      lines: "6-9",
+      label: "file part",
+      note: "`mimeType` および Base64 `bytes` という名前でファイルを添付します。",
+    },
+  ]}
+/>
 
 ## クライアント {#client}
 

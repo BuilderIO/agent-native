@@ -102,23 +102,32 @@ Chrome DevTools 默认使用 `--autoConnect`。它附加到符合条件的正在
 
 形状很小：由服务器 ID 键入的 `servers` 映射，其中每个条目都是 stdio 启动器（`command` + `args` + 可选的 `env`）或远程 `{ "type": "http", "url", "headers" }` 条目。
 
-<AnnotatedCode id="doc-block-13gmzwb" title={"mcp.config.json，带注释"} filename="mcp.config.json" language="jsonc" code={"{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}"} annotations={[
-  {
-    "lines": "3",
-    "label": "服务器ID",
-    "note": "键成为工具前缀：该服务器的工具在代理的注册表中显示为 `mcp__claude-in-chrome__*`，因此它们不会与模板的操作发生冲突。"
-  },
-  {
-    "lines": "4-6",
-    "label": "stdio launcher",
-    "note": "`command` + `args` 生成本地二进制文件。 Stdio 服务器旨在用于**本地开发**- 它们在边缘运行时中是无操作的。"
-  },
-  {
-    "lines": "6",
-    "label": "进程环境",
-    "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens."
+<AnnotatedCode
+  id="doc-block-13gmzwb"
+  title={"mcp.config.json，带注释"}
+  filename="mcp.config.json"
+  language="jsonc"
+  code={
+    '{\n  "$schema": "https://agent-native.com/schema/mcp.config.json",\n  "servers": {\n    "claude-in-chrome": {\n      "command": "claude-in-chrome-mcp",\n      "args": [],\n      "env": { "LOG_LEVEL": "info" }\n    },\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "/Users/me/projects"]\n    }\n  }\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "3",
+      label: "服务器ID",
+      note: "键成为工具前缀：该服务器的工具在代理的注册表中显示为 `mcp__claude-in-chrome__*`，因此它们不会与模板的操作发生冲突。",
+    },
+    {
+      lines: "4-6",
+      label: "stdio launcher",
+      note: "`command` + `args` 生成本地二进制文件。 Stdio 服务器旨在用于**本地开发**- 它们在边缘运行时中是无操作的。",
+    },
+    {
+      lines: "6",
+      label: "进程环境",
+      note: "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens.",
+    },
+  ]}
+/>
 
 在下一次应用程序启动时，您将看到：
 

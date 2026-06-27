@@ -191,28 +191,37 @@ await setClientAppState(
 
 每个模板都应该有一个 `view-screen` 操作。它读取导航和选择状态，获取相关数据，并返回用户所看到内容的快照。这是特工的眼睛。
 
-<AnnotatedCode id="doc-block-1lxelj5" title={"查看屏幕 — 特工的眼睛"} filename="actions/view-screen.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});"} annotations={[
-  {
-    "lines": "10-11",
-    "label": "工具表面",
-    "note": "代理读取此描述，知道它可以调用 `view-screen` 来查看当前的 UI。"
-  },
-  {
-    "lines": "13",
-    "label": "http: false",
-    "note": "内部操作 - 未通过 HTTP 暴露。代理和 `pnpm action` 调用它，而不是浏览器。"
-  },
-  {
-    "lines": "15-16",
-    "label": "读取状态",
-    "note": "拉取 UI 编写的轻量级 `navigation` 和 `selection` 键。"
-  },
-  {
-    "lines": "23-37",
-    "label": "水合物",
-    "note": "将这些 ID 直接从 SQL 转换为**新鲜**记录，以便代理在执行操作之前验证活动对象。"
+<AnnotatedCode
+  id="doc-block-1lxelj5"
+  title={"查看屏幕 — 特工的眼睛"}
+  filename="actions/view-screen.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { readAppState } from "@agent-native/core/application-state";\nimport { eq, inArray } from "drizzle-orm";\nimport { z } from "zod";\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description:\n    "See what the user is currently looking at on screen.",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState("navigation")) as any;\n    const selection = (await readAppState("selection")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === "inbox") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === "email.messages") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return "No application state found. Is the app running?";\n    }\n    return screen;\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10-11",
+      label: "工具表面",
+      note: "代理读取此描述，知道它可以调用 `view-screen` 来查看当前的 UI。",
+    },
+    {
+      lines: "13",
+      label: "http: false",
+      note: "内部操作 - 未通过 HTTP 暴露。代理和 `pnpm action` 调用它，而不是浏览器。",
+    },
+    {
+      lines: "15-16",
+      label: "读取状态",
+      note: "拉取 UI 编写的轻量级 `navigation` 和 `selection` 键。",
+    },
+    {
+      lines: "23-37",
+      label: "水合物",
+      note: "将这些 ID 直接从 SQL 转换为**新鲜**记录，以便代理在执行操作之前验证活动对象。",
+    },
+  ]}
+/>
 
 代理应在对当前 UI 进行操作之前调用 `pnpm action view-screen`。这是所有模板的硬约定。添加新功能时，更新 `view-screen` 以返回新视图和任何新选择形状的数据。
 

@@ -811,6 +811,8 @@ const rawLiteralAllowPatterns = [
   /^(?:GET|POST|PUT|PATCH|DELETE)\s+\/[^\s]+$/,
   /^\/[_a-zA-Z0-9./:$*?-]+$/,
   /^[$A-Z_a-z][$\w]*\(\)$/,
+  /^[\w.-]+:\s*\[[^\]]+\]$/,
+  /^"[^"]+"(?:\s+or\s+"[^"]+")+$/,
   /^(?=.*[a-z])(?=.*[A-Z])[$A-Z_a-z][$\w]*$/,
   /^[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)+$/,
   /^https?:\/\//,

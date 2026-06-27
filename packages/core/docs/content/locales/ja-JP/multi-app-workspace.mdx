@@ -45,45 +45,49 @@ CLI には、すべてのファーストパーティ テンプレートの複数
 
 プライベート共有パッケージを含む pnpm モノリポジトリ、ワークスペース検出を接続するルート `package.json`、共有 `.env`、選択したアプリごとに 1 つのサブディレクトリを取得します。
 
-<FileTree id="doc-block-y17o35" title={"生成された workspace"} entries={[
-  {
-    "path": "package.json",
-    "note": "agent-native.workspaceCore を宣言"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "packages: [\"packages/*\", \"apps/*\"]"
-  },
-  {
-    "path": ".env.example",
-    "note": "共有の ANTHROPIC_API_KEY、A2A_SECRET、DATABASE_URL、..."
-  },
-  {
-    "path": "packages/shared/",
-    "note": "@my-company-platform/shared"
-  },
-  {
-    "path": "packages/shared/src/server/",
-    "note": "必要な場合のみ plugin overrides"
-  },
-  {
-    "path": "packages/shared/src/client/",
-    "note": "必要な場合のみ共有 React コード"
-  },
-  {
-    "path": "packages/shared/AGENTS.md",
-    "note": "workspace 全体の指示"
-  },
-  {
-    "path": "apps/mail/"
-  },
-  {
-    "path": "apps/calendar/"
-  },
-  {
-    "path": "apps/forms/"
-  }
-]} />
+<FileTree
+  id="doc-block-y17o35"
+  title={"生成された workspace"}
+  entries={[
+    {
+      path: "package.json",
+      note: "agent-native.workspaceCore を宣言",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: 'packages: ["packages/*", "apps/*"]',
+    },
+    {
+      path: ".env.example",
+      note: "共有の ANTHROPIC_API_KEY、A2A_SECRET、DATABASE_URL、...",
+    },
+    {
+      path: "packages/shared/",
+      note: "@my-company-platform/shared",
+    },
+    {
+      path: "packages/shared/src/server/",
+      note: "必要な場合のみ plugin overrides",
+    },
+    {
+      path: "packages/shared/src/client/",
+      note: "必要な場合のみ共有 React コード",
+    },
+    {
+      path: "packages/shared/AGENTS.md",
+      note: "workspace 全体の指示",
+    },
+    {
+      path: "apps/mail/",
+    },
+    {
+      path: "apps/calendar/",
+    },
+    {
+      path: "apps/forms/",
+    },
+  ]}
+/>
 
 次に、ブートします。
 

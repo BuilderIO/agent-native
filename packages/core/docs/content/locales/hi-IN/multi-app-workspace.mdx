@@ -45,45 +45,49 @@ CLI प्रत्येक प्रथम-पक्ष टेम्पले�
 
 आपको निजी साझा पैकेज के साथ एक pnpm मोनोरेपो मिलता है, एक रूट `package.json` जो कार्यक्षेत्र खोज को तार-तार करता है, एक साझा `.env`, और आपके द्वारा चुने गए प्रत्येक ऐप के लिए एक उप-निर्देशिका:
 
-<FileTree id="doc-block-rzs3d7" title={"एक scaffolded workspace"} entries={[
-  {
-    "path": "package.json",
-    "note": "agent-native.workspaceCore घोषित करता है"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "packages: [\"packages/*\", \"apps/*\"]"
-  },
-  {
-    "path": ".env.example",
-    "note": "shared env vars: ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ..."
-  },
-  {
-    "path": "packages/shared/",
-    "note": "@my-company-platform/shared"
-  },
-  {
-    "path": "packages/shared/src/server/",
-    "note": "plugin overrides केवल ज़रूरत होने पर"
-  },
-  {
-    "path": "packages/shared/src/client/",
-    "note": "shared React code केवल ज़रूरत होने पर"
-  },
-  {
-    "path": "packages/shared/AGENTS.md",
-    "note": "workspace-wide निर्देश"
-  },
-  {
-    "path": "apps/mail/"
-  },
-  {
-    "path": "apps/calendar/"
-  },
-  {
-    "path": "apps/forms/"
-  }
-]} />
+<FileTree
+  id="doc-block-rzs3d7"
+  title={"एक scaffolded workspace"}
+  entries={[
+    {
+      path: "package.json",
+      note: "agent-native.workspaceCore घोषित करता है",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: 'packages: ["packages/*", "apps/*"]',
+    },
+    {
+      path: ".env.example",
+      note: "shared env vars: ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ...",
+    },
+    {
+      path: "packages/shared/",
+      note: "@my-company-platform/shared",
+    },
+    {
+      path: "packages/shared/src/server/",
+      note: "plugin overrides केवल ज़रूरत होने पर",
+    },
+    {
+      path: "packages/shared/src/client/",
+      note: "shared React code केवल ज़रूरत होने पर",
+    },
+    {
+      path: "packages/shared/AGENTS.md",
+      note: "workspace-wide निर्देश",
+    },
+    {
+      path: "apps/mail/",
+    },
+    {
+      path: "apps/calendar/",
+    },
+    {
+      path: "apps/forms/",
+    },
+  ]}
+/>
 
 फिर इसे बूट करें:
 

@@ -45,45 +45,49 @@ O CLI mostra um seletor de seleção múltipla de cada modelo original. Escolha 
 
 Você obtém um monorepo pnpm com o pacote compartilhado privado, um `package.json` raiz que conecta a descoberta do espaço de trabalho, um `.env` compartilhado e um subdiretório por aplicativo escolhido:
 
-<FileTree id="doc-block-vhde85" title="Um workspace gerado" entries={[
-  {
-    "path": "package.json",
-    "note": "Declara agent-native.workspaceCore"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "packages: [\"packages/*\", \"apps/*\"]"
-  },
-  {
-    "path": ".env.example",
-    "note": "ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ... compartilhados"
-  },
-  {
-    "path": "packages/shared/",
-    "note": "@my-company-platform/shared"
-  },
-  {
-    "path": "packages/shared/src/server/",
-    "note": "Overrides de plugin somente quando necessário"
-  },
-  {
-    "path": "packages/shared/src/client/",
-    "note": "Código React compartilhado somente quando necessário"
-  },
-  {
-    "path": "packages/shared/AGENTS.md",
-    "note": "Instruções para todo o workspace"
-  },
-  {
-    "path": "apps/mail/"
-  },
-  {
-    "path": "apps/calendar/"
-  },
-  {
-    "path": "apps/forms/"
-  }
-]} />
+<FileTree
+  id="doc-block-vhde85"
+  title="Um workspace gerado"
+  entries={[
+    {
+      path: "package.json",
+      note: "Declara agent-native.workspaceCore",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: 'packages: ["packages/*", "apps/*"]',
+    },
+    {
+      path: ".env.example",
+      note: "ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ... compartilhados",
+    },
+    {
+      path: "packages/shared/",
+      note: "@my-company-platform/shared",
+    },
+    {
+      path: "packages/shared/src/server/",
+      note: "Overrides de plugin somente quando necessário",
+    },
+    {
+      path: "packages/shared/src/client/",
+      note: "Código React compartilhado somente quando necessário",
+    },
+    {
+      path: "packages/shared/AGENTS.md",
+      note: "Instruções para todo o workspace",
+    },
+    {
+      path: "apps/mail/",
+    },
+    {
+      path: "apps/calendar/",
+    },
+    {
+      path: "apps/forms/",
+    },
+  ]}
+/>
 
 Então inicialize:
 

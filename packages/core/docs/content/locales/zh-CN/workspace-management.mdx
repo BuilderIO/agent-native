@@ -47,24 +47,28 @@ main                         ← production
 
 代码治理由存储库根目录中的几个文件配置：
 
-<FileTree id="doc-block-tx5dd3" title={"repo 中的治理配置"} entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "按变更路径自动分配 reviewers"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "按 app 自动给 PR 加标签"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Workspace 级别：宽范围 review"
-  },
-  {
-    "path": "package.json",
-    "note": "Workspace 级别：平台团队负责"
-  }
-]} />
+<FileTree
+  id="doc-block-tx5dd3"
+  title={"repo 中的治理配置"}
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "按变更路径自动分配 reviewers",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "按 app 自动给 PR 加标签",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Workspace 级别：宽范围 review",
+    },
+    {
+      path: "package.json",
+      note: "Workspace 级别：平台团队负责",
+    },
+  ]}
+/>
 
 GitHub 的 CODEOWNERS 文件会根据更改的文件自动将审阅者分配给 PR。在存储库根目录创建 `.github/CODEOWNERS`：
 

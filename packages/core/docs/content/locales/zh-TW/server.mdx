@@ -103,23 +103,32 @@ export default defineAction({
 
 Actions 由框架自動安裝並與請求脈絡一起執行。自訂路由則不然。如果自訂路由讀取或寫入可擁有的資源，則載入工作階段並包裝工作：
 
-<AnnotatedCode id="doc-block-6bqbwo" title={"將自訂路由範圍限定為請求使用者"} filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project分享s));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "自訂路由沒有自動脈絡",
-    "note": "與操作不同，檔案路由必須載入工作階段本身，並且在沒有經過驗證的使用者時無法關閉。"
-  },
-  {
-    "lines": "12-13",
-    "label": "建立請求脈絡",
-    "note": "`runWithRequestContext` 使 user/org 在工作期間可供範圍界定助手使用。"
-  },
-  {
-    "lines": "18-19",
-    "label": "範圍可擁有的讀取",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-6bqbwo"
+  title={"將自訂路由範圍限定為請求使用者"}
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project分享s));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "自訂路由沒有自動脈絡",
+      note: "與操作不同，檔案路由必須載入工作階段本身，並且在沒有經過驗證的使用者時無法關閉。",
+    },
+    {
+      lines: "12-13",
+      label: "建立請求脈絡",
+      note: "`runWithRequestContext` 使 user/org 在工作期間可供範圍界定助手使用。",
+    },
+    {
+      lines: "18-19",
+      label: "範圍可擁有的讀取",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `getDb`是透過`server/db/index.ts`中的`createGetDb(schema)`為每個應用程式建立的，因此自訂路由從範本（`../../db/index.js`）匯入，而不是從`@agent-native/core/db`匯入；見[Database — Where the DB Client Lives](/docs/database#db-client)。不要在自訂路由中執行無作用域的 `db.select().from(ownableTable)`。
 

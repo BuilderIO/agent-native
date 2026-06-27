@@ -103,23 +103,32 @@ UI와 에이전트는 동일한 기능을 공유합니다.
 
 프레임워크에 의해 마운트된 Actions는 요청 컨텍스트와 함께 자동으로 실행됩니다. 사용자 지정 경로는 그렇지 않습니다. 사용자 정의 경로가 소유 가능한 리소스를 읽거나 쓰는 경우 세션을 로드하고 작업을 래핑합니다.
 
-<AnnotatedCode id="doc-block-fumg8t" title={"요청 사용자에 대한 커스텀 경로 범위 지정"} filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project공유s));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "커스텀 경로에는 자동 컨텍스트가 없습니다.",
-    "note": "작업과 달리 파일 경로는 세션 자체를 로드해야 하며 인증된 사용자가 없으면 실패 처리됩니다."
-  },
-  {
-    "lines": "12-13",
-    "label": "요청 컨텍스트 설정",
-    "note": "`runWithRequestContext`은 작업 기간 동안 범위 지정 도우미가 user/org을 사용할 수 있도록 합니다."
-  },
-  {
-    "lines": "18-19",
-    "label": "범위 소유 가능 읽기",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-fumg8t"
+  title={"요청 사용자에 대한 커스텀 경로 범위 지정"}
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.project공유s));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "커스텀 경로에는 자동 컨텍스트가 없습니다.",
+      note: "작업과 달리 파일 경로는 세션 자체를 로드해야 하며 인증된 사용자가 없으면 실패 처리됩니다.",
+    },
+    {
+      lines: "12-13",
+      label: "요청 컨텍스트 설정",
+      note: "`runWithRequestContext`은 작업 기간 동안 범위 지정 도우미가 user/org을 사용할 수 있도록 합니다.",
+    },
+    {
+      lines: "18-19",
+      label: "범위 소유 가능 읽기",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `getDb`는 ​​`server/db/index.ts`의 `createGetDb(schema)`를 통해 앱별로 생성되므로 사용자 지정 경로는 `@agent-native/core/db`가 아닌 템플릿(`../../db/index.js`)에서 가져옵니다. [Database — Where the DB Client Lives](/docs/database#db-client)를 참조하세요. 사용자 지정 경로에서 범위가 지정되지 않은 `db.select().from(ownableTable)`를 실행하지 마세요.
 

@@ -47,24 +47,28 @@ main                         ← production
 
 코드 거버넌스는 저장소 루트에 있는 소수의 파일로 구성됩니다.
 
-<FileTree id="doc-block-1sgyun7" title={"repo의 거버넌스 설정"} entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "변경된 경로별로 reviewers를 자동 지정"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "app별로 PR에 labels 자동 적용"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Workspace 수준: 폭넓은 review"
-  },
-  {
-    "path": "package.json",
-    "note": "Workspace 수준: platform team 소유"
-  }
-]} />
+<FileTree
+  id="doc-block-1sgyun7"
+  title={"repo의 거버넌스 설정"}
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "변경된 경로별로 reviewers를 자동 지정",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "app별로 PR에 labels 자동 적용",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Workspace 수준: 폭넓은 review",
+    },
+    {
+      path: "package.json",
+      note: "Workspace 수준: platform team 소유",
+    },
+  ]}
+/>
 
 GitHub의 CODEOWNERS 파일은 변경된 파일을 기반으로 검토자를 PR에 자동 할당합니다. 저장소 루트에 `.github/CODEOWNERS`를 생성합니다.
 

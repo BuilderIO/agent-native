@@ -103,23 +103,32 @@ export default defineAction({
 
 يتم تشغيل Actions المثبت بواسطة إطار العمل تلقائيًا مع سياق الطلب. الطرق المخصصة لا تفعل ذلك. إذا كان المسار المخصص يقرأ الموارد القابلة للملكية أو يكتبها، فقم بتحميل الجلسة ولف العمل:
 
-<AnnotatedCode id="doc-block-4dn1vt" title={"تحديد نطاق مسار مخصص لمستخدم الطلب"} filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectمشاركةs));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "لا تحتوي المسارات المخصصة على سياق تلقائي",
-    "note": "على عكس الإجراءات، يجب أن يقوم مسار الملف بتحميل الجلسة نفسها ويفشل في الإغلاق في حالة عدم وجود مستخدم تمت مصادقته."
-  },
-  {
-    "lines": "12-13",
-    "label": "إنشاء سياق الطلب",
-    "note": "`runWithRequestContext` يجعل user/org متاحًا لمساعدي تحديد النطاق طوال مدة العمل."
-  },
-  {
-    "lines": "18-19",
-    "label": "نطاق القراءات القابلة للامتلاك",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-4dn1vt"
+  title={"تحديد نطاق مسار مخصص لمستخدم الطلب"}
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectمشاركةs));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "لا تحتوي المسارات المخصصة على سياق تلقائي",
+      note: "على عكس الإجراءات، يجب أن يقوم مسار الملف بتحميل الجلسة نفسها ويفشل في الإغلاق في حالة عدم وجود مستخدم تمت مصادقته.",
+    },
+    {
+      lines: "12-13",
+      label: "إنشاء سياق الطلب",
+      note: "`runWithRequestContext` يجعل user/org متاحًا لمساعدي تحديد النطاق طوال مدة العمل.",
+    },
+    {
+      lines: "18-19",
+      label: "نطاق القراءات القابلة للامتلاك",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 يتم إنشاء `getDb` لكل تطبيق عبر `createGetDb(schema)` في `server/db/index.ts`، لذلك تقوم المسارات المخصصة باستيراده من القالب (`../../db/index.js`), وليس من `@agent-native/core/db`؛ انظر [Database — Where the DB Client Lives](/docs/database#db-client). لا تقم بتشغيل `db.select().from(ownableTable)` غير النطاق في المسارات المخصصة.
 

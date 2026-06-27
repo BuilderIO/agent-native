@@ -191,28 +191,37 @@ await setClientAppState(
 
 すべてのテンプレートには `view-screen` アクションが必要です。ナビゲーションと選択状態を読み取り、関連データをフェッチし、ユーザーに表示されているもののスナップショットを返します。これはエージェントの目です。
 
-<AnnotatedCode id="doc-block-1s7nvvi" title={"ビュースクリーン — エージェントの目"} filename="actions/view-screen.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});"} annotations={[
-  {
-    "lines": "10-11",
-    "label": "工具表面",
-    "note": "エージェントはこの説明を読んで、`view-screen` を呼び出して現在の UI を確認できることを知ります。"
-  },
-  {
-    "lines": "13",
-    "label": "http: false",
-    "note": "内部アクション — HTTP では公開されません。ブラウザではなく、エージェントと `pnpm action` がそれを呼び出します。"
-  },
-  {
-    "lines": "15-16",
-    "label": "読み取り状態",
-    "note": "UI が作成した軽量の `navigation` キーと `selection` キーを取得します。"
-  },
-  {
-    "lines": "23-37",
-    "label": "水分補給",
-    "note": "これらの ID を SQL から直接**新鮮**レコードに変換するため、エージェントは動作する前にライブ オブジェクトを確認します。"
+<AnnotatedCode
+  id="doc-block-1s7nvvi"
+  title={"ビュースクリーン — エージェントの目"}
+  filename="actions/view-screen.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { readAppState } from "@agent-native/core/application-state";\nimport { eq, inArray } from "drizzle-orm";\nimport { z } from "zod";\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description:\n    "See what the user is currently looking at on screen.",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState("navigation")) as any;\n    const selection = (await readAppState("selection")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === "inbox") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === "email.messages") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return "No application state found. Is the app running?";\n    }\n    return screen;\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10-11",
+      label: "工具表面",
+      note: "エージェントはこの説明を読んで、`view-screen` を呼び出して現在の UI を確認できることを知ります。",
+    },
+    {
+      lines: "13",
+      label: "http: false",
+      note: "内部アクション — HTTP では公開されません。ブラウザではなく、エージェントと `pnpm action` がそれを呼び出します。",
+    },
+    {
+      lines: "15-16",
+      label: "読み取り状態",
+      note: "UI が作成した軽量の `navigation` キーと `selection` キーを取得します。",
+    },
+    {
+      lines: "23-37",
+      label: "水分補給",
+      note: "これらの ID を SQL から直接**新鮮**レコードに変換するため、エージェントは動作する前にライブ オブジェクトを確認します。",
+    },
+  ]}
+/>
 
 エージェントは、現在の UI で動作する前に、`pnpm action view-screen` を呼び出す必要があります。これは、すべてのテンプレートにわたる厳格な規則です。新しいフィーチャを追加するときは、新しいビューと新しい選択形状のデータを返すように `view-screen` を更新します。
 

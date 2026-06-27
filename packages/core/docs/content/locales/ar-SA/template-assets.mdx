@@ -8,7 +8,12 @@ description: "مدير أصول رقمية أصلي للوكيل وخدمة إن
 الأصول عبارة عن مساحة عمل أصلية للوكيل لإنشاء الوسائط المتوافقة مع العلامة التجارية وإدارتها. فهو ينظم التحميلات والنتائج التي تم إنشاؤها في المكتبات والمجلدات، ويتيح للفرق جمع الأمثلة لأبطال المدونات والرسوم البيانية والصفحات المقصودة ولقطات المنتج ومقاطع الفيديو والشعارات، ثم توجيه عملية الإنشاء عبر دردشة الوكيل حتى يمكن مراجعة كل أصل وتحسينه.
 
 <WireframeBlock id="doc-block-1iutams">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>علامة الإطلاق</h1><span class='wf-pill accent'>صور hero للمدونة</span><span class='wf-pill'>صور المنتج</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>إنشاء وسائط العلامة</strong><div class='wf-box'>ثلاثة خيارات hero للصفحة الرئيسية باستخدام الشعار المعتمد ومراجع المنتج.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>تصدير الويب</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>البطل أ</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>مجموعة المراجع</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>آمن للشعار</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>علامة الإطلاق</h1><span class='wf-pill accent'>صور hero للمدونة</span><span class='wf-pill'>صور المنتج</span><span class='wf-pill'>Logos</span><div style='flex:1'></div><button>Upload</button><button class='primary'>Generate</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>إنشاء وسائط العلامة</strong><div class='wf-box'>ثلاثة خيارات hero للصفحة الرئيسية باستخدام الشعار المعتمد ومراجع المنتج.</div><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>4 references</span><span class='wf-pill'>16:9</span><span class='wf-pill'>تصدير الويب</span></div></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px;flex:1'><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill accent'>البطل أ</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>مجموعة المراجع</span></div><div class='wf-card' style='display:flex;align-items:end;min-height:130px'><span class='wf-pill'>آمن للشعار</span></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(4,1fr);gap:8px'><div class='wf-box'>Use</div><div class='wf-box'>Refine</div><div class='wf-box'>Compare</div><div class='wf-box'>Export</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 عند فتح التطبيق، تظل المكتبة المحددة والموجه والمراجع والمرشحون الذين تم إنشاؤهم في مساحة عمل واحدة. يمكن للوكيل تصفح كل الأصول والبحث فيها وإنشاءها وتحسينها وتصديرها من خلال نفس actions الذي يستخدمه UI.
@@ -127,236 +132,244 @@ npx @agent-native/core@latest create my-assets --standalone --template assets
 | `image_assets`                   | سجل الأصول - نوع الوسائط، والدور، والحالة، والعنوان/الوصف/النص البديل، والموجه، والنموذج، والأبعاد، ونوع MIME، ومفاتيح الكائن/الصور المصغرة، والنسب                                     |
 | `image_generation_runs`          | سجل تدقيق الإنشاء - المطالبة، والموجهات المجمعة، والنموذج، والمراجع، والحالة، والأخطاء، و`source` (`chat` / `ui` / `a2a`) التي أدت إلى تشغيله                                           |
 
-<DataModel id="doc-block-zk2tbs" title={"نموذج بيانات الأصول"} summary={"Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."} entities={[
-  {
-    "id": "library",
-    "name": "image_libraries",
-    "note": "حاوية ذات مستوى أعلى قابلة للامتلاك",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "logo_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      },
-      {
-        "name": "archived",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "library_shares",
-    "name": "image_library_shares",
-    "note": "جدول مشاركات الإطار",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "role",
-        "type": "text",
-        "note": "viewer / editor / admin"
-      }
-    ]
-  },
-  {
-    "id": "collections",
-    "name": "image_collections",
-    "note": "Style/category المجموعات",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "style_brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "prompt_template",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "asset_folders",
-    "note": "المجلدات المتداخلة",
-    "fields": [
-      {
-        "name": "library_id",
-        "type": "id",
-        "fk": "image_libraries.id"
-      },
-      {
-        "name": "parent_id",
-        "type": "id",
-        "fk": "asset_folders.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "presets",
-    "name": "image_generation_presets",
-    "note": "وصفات الجيل المحفوظة",
-    "fields": [
-      {
-        "name": "media_type",
-        "type": "text"
-      },
-      {
-        "name": "prompt_template",
-        "type": "text"
-      },
-      {
-        "name": "model",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "image_generation_sessions",
-    "note": "إنشاء واختيار تكراري",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "active_asset_id",
-        "type": "id",
-        "fk": "image_assets.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "session_items",
-    "name": "image_generation_session_items",
-    "note": "الأصول المرشحة في الجلسة",
-    "fields": [
-      {
-        "name": "session_id",
-        "type": "id",
-        "fk": "image_generation_sessions.id"
-      },
-      {
-        "name": "asset_id",
-        "type": "id",
-        "fk": "image_assets.id"
-      },
-      {
-        "name": "role",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "assets",
-    "name": "image_assets",
-    "note": "سجل الأصول",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "media_type",
-        "type": "text",
-        "note": "image / video"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "prompt",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "object_key",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "runs",
-    "name": "image_generation_runs",
-    "note": "سجل تدقيق الإنشاء",
-    "fields": [
-      {
-        "name": "model",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "note": "chat / ui / a2a"
-      }
-    ]
+<DataModel
+  id="doc-block-zk2tbs"
+  title={"نموذج بيانات الأصول"}
+  summary={
+    "Libraries are the ownable container; collections, folders, and presets organize them. Sessions drive generate-and-choose; assets and runs hold output and the audit log. Table names keep the legacy image_* prefix but cover all media."
   }
-]} relations={[
-  {
-    "from": "library",
-    "to": "collections",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "folders",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "assets",
-    "kind": "1-n"
-  },
-  {
-    "from": "sessions",
-    "to": "session_items",
-    "kind": "1-n"
-  },
-  {
-    "from": "library",
-    "to": "library_shares",
-    "kind": "1-n"
-  }
-]} />
+  entities={[
+    {
+      id: "library",
+      name: "image_libraries",
+      note: "حاوية ذات مستوى أعلى قابلة للامتلاك",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "logo_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+        {
+          name: "archived",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "library_shares",
+      name: "image_library_shares",
+      note: "جدول مشاركات الإطار",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "collections",
+      name: "image_collections",
+      note: "Style/category المجموعات",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "style_brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "asset_folders",
+      note: "المجلدات المتداخلة",
+      fields: [
+        {
+          name: "library_id",
+          type: "id",
+          fk: "image_libraries.id",
+        },
+        {
+          name: "parent_id",
+          type: "id",
+          fk: "asset_folders.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "presets",
+      name: "image_generation_presets",
+      note: "وصفات الجيل المحفوظة",
+      fields: [
+        {
+          name: "media_type",
+          type: "text",
+        },
+        {
+          name: "prompt_template",
+          type: "text",
+        },
+        {
+          name: "model",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "image_generation_sessions",
+      note: "إنشاء واختيار تكراري",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "active_asset_id",
+          type: "id",
+          fk: "image_assets.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "session_items",
+      name: "image_generation_session_items",
+      note: "الأصول المرشحة في الجلسة",
+      fields: [
+        {
+          name: "session_id",
+          type: "id",
+          fk: "image_generation_sessions.id",
+        },
+        {
+          name: "asset_id",
+          type: "id",
+          fk: "image_assets.id",
+        },
+        {
+          name: "role",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "assets",
+      name: "image_assets",
+      note: "سجل الأصول",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "media_type",
+          type: "text",
+          note: "image / video",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "prompt",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "object_key",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "runs",
+      name: "image_generation_runs",
+      note: "سجل تدقيق الإنشاء",
+      fields: [
+        {
+          name: "model",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          note: "chat / ui / a2a",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "library",
+      to: "collections",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "folders",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "assets",
+      kind: "1-n",
+    },
+    {
+      from: "sessions",
+      to: "session_items",
+      kind: "1-n",
+    },
+    {
+      from: "library",
+      to: "library_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
 
 ### تخصيصه
 

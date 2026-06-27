@@ -39,28 +39,37 @@ Automações aparecem no painel de configurações. Os usuários podem visualiza
 
 O terceiro caminho — escrever o arquivo `jobs/<name>.md` manualmente via `resourcePut` — funciona exatamente como para [recurring jobs](/docs/recurring-jobs#creating). Para uma automação orientada a eventos, você adiciona o frontmatter do acionador de eventos abaixo ao mesmo arquivo. Um trabalho acionado por evento define `schedule: ""` e fornece `triggerType: event`, um nome `event` e um `condition` opcional:
 
-<AnnotatedCode id="doc-block-1f9juqd" title={"Uma automação acionada por evento"} filename="jobs/slack-on-builder-booking.md" language="markdown" code={"---\nschedule: \"\"\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: \"attendee email ends with @builder.io\"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}."} annotations={[
-  {
-    "lines": "2",
-    "label": "Sem cron",
-    "note": "Event triggers set `schedule` to `\"\"` — the cron field stays empty."
-  },
-  {
-    "lines": "4-5",
-    "label": "O gatilho",
-    "note": "`triggerType: event` mais o nome `event` inscreve esta automação no barramento."
-  },
-  {
-    "lines": "6",
-    "label": "Portão",
-    "note": "Um `condition` de linguagem natural opcional, avaliado por Haiku em relação à carga útil antes do envio."
-  },
-  {
-    "lines": "12",
-    "label": "Segredo do lado do servidor",
-    "note": "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context."
+<AnnotatedCode
+  id="doc-block-1f9juqd"
+  title={"Uma automação acionada por evento"}
+  filename="jobs/slack-on-builder-booking.md"
+  language="markdown"
+  code={
+    '---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: "attendee email ends with @builder.io"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}.'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "Sem cron",
+      note: 'Os gatilhos de evento definem `schedule` como `""`; o campo cron fica vazio.',
+    },
+    {
+      lines: "4-5",
+      label: "O gatilho",
+      note: "`triggerType: event` mais o nome `event` inscreve esta automação no barramento.",
+    },
+    {
+      lines: "6",
+      label: "Portão",
+      note: "Um `condition` de linguagem natural opcional, avaliado por Haiku em relação à carga útil antes do envio.",
+    },
+    {
+      lines: "12",
+      label: "Segredo do lado do servidor",
+      note: "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context.",
+    },
+  ]}
+/>
 
 ## Frontmatter de automação {#frontmatter}
 

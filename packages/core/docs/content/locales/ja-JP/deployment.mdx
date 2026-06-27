@@ -70,24 +70,28 @@ npx @agent-native/core@latest deploy --preset vercel
 
 `npx @agent-native/core@latest build` を実行すると、Nitro はクライアント SPA とサーバー API の両方を `.output/` に構築します。
 
-<FileTree id="doc-block-nwhf4w" title={"ビルド出力"} entries={[
-  {
-    "path": ".output/",
-    "note": "自己完結: どの環境にもコピーして実行可能"
-  },
-  {
-    "path": ".output/public/",
-    "note": "ビルド済み SPA（静的 assets）"
-  },
-  {
-    "path": ".output/server/index.mjs",
-    "note": "サーバー entry point"
-  },
-  {
-    "path": ".output/server/chunks/",
-    "note": "サーバーコード chunks"
-  }
-]} />
+<FileTree
+  id="doc-block-nwhf4w"
+  title={"ビルド出力"}
+  entries={[
+    {
+      path: ".output/",
+      note: "自己完結: どの環境にもコピーして実行可能",
+    },
+    {
+      path: ".output/public/",
+      note: "ビルド済み SPA（静的 assets）",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "サーバー entry point",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "サーバーコード chunks",
+    },
+  ]}
+/>
 
 出力は自己完結型です。`.output/` を任意の環境にコピーして実行します。
 

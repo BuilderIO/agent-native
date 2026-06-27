@@ -58,86 +58,94 @@ await upsertWorkspaceConnectionGrant({
 });
 ```
 
-<DataModel id="doc-block-qk1tdq" title={"連線模型"} summary={"A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."} entities={[
-  {
-    "id": "conn",
-    "name": "workspace_connections",
-    "note": "指定的提供者帳戶。從不儲存秘密值。",
-    "fields": [
-      {
-        "name": "id",
-        "type": "string",
-        "pk": true,
-        "note": "e.g. acme-slack"
-      },
-      {
-        "name": "provider",
-        "type": "string",
-        "note": "穩定的提供者 ID，e.g。松弛"
-      },
-      {
-        "name": "label",
-        "type": "string"
-      },
-      {
-        "name": "accountId",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "accountLabel",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "status",
-        "type": "string",
-        "note": "e.g. connected"
-      },
-      {
-        "name": "scopes",
-        "type": "string[]",
-        "nullable": true
-      },
-      {
-        "name": "config",
-        "type": "json",
-        "nullable": true,
-        "note": "安全、非秘密設定"
-      },
-      {
-        "name": "credentialRefs",
-        "type": "json",
-        "nullable": true,
-        "note": "pointers to vault keys, e.g. { key, scope }"
-      }
-    ]
-  },
-  {
-    "id": "grant",
-    "name": "workspace_connection_grants",
-    "note": "每個應用程式使用連線的權限。",
-    "fields": [
-      {
-        "name": "connectionId",
-        "type": "string",
-        "fk": "conn.id"
-      },
-      {
-        "name": "appId",
-        "type": "string",
-        "note": "e.g。大腦、分析"
-      }
-    ]
+<DataModel
+  id="doc-block-qk1tdq"
+  title={"連線模型"}
+  summary={
+    "A connection records safe provider metadata and credentialRefs (pointers, not secrets). Each grant unlocks one app — one connection, many grants."
   }
-]} relations={[
-  {
-    "from": "conn",
-    "to": "grant",
-    "kind": "1-n",
-    "label": "grants apps"
-  }
-]} />
+  entities={[
+    {
+      id: "conn",
+      name: "workspace_connections",
+      note: "指定的提供者帳戶。從不儲存秘密值。",
+      fields: [
+        {
+          name: "id",
+          type: "string",
+          pk: true,
+          note: "e.g. acme-slack",
+        },
+        {
+          name: "provider",
+          type: "string",
+          note: "穩定的提供者 ID，e.g。松弛",
+        },
+        {
+          name: "label",
+          type: "string",
+        },
+        {
+          name: "accountId",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "accountLabel",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "status",
+          type: "string",
+          note: "e.g. connected",
+        },
+        {
+          name: "scopes",
+          type: "string[]",
+          nullable: true,
+        },
+        {
+          name: "config",
+          type: "json",
+          nullable: true,
+          note: "安全、非秘密設定",
+        },
+        {
+          name: "credentialRefs",
+          type: "json",
+          nullable: true,
+          note: "pointers to vault keys, e.g. { key, scope }",
+        },
+      ],
+    },
+    {
+      id: "grant",
+      name: "workspace_connection_grants",
+      note: "每個應用程式使用連線的權限。",
+      fields: [
+        {
+          name: "connectionId",
+          type: "string",
+          fk: "conn.id",
+        },
+        {
+          name: "appId",
+          type: "string",
+          note: "e.g。大腦、分析",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "conn",
+      to: "grant",
+      kind: "1-n",
+      label: "grants apps",
+    },
+  ]}
+/>
 
 ### 呼叫哪些應用
 

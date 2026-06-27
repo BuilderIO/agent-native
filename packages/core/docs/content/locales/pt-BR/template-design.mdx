@@ -8,7 +8,12 @@ description: "Um estúdio de prototipagem HTML nativo do agente: gere, refine, v
 Design é um estúdio de prototipagem HTML nativo do agente. Em vez de uma tela de desenho em camadas, o agente gera protótipos Alpine/Tailwind HTML completos e independentes, renderiza-os em um iframe e permite refinar o resultado com prompts e ajustes de controles.
 
 <WireframeBlock id="doc-block-1jklvnj">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Página de lançamento do produto</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Protótipo HTML gerado</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Deixe o hero mais denso e o CTA mais claro.</span><div style='flex:1'></div><button class='primary'>Aplicar revisão</button></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Página de lançamento do produto</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Protótipo HTML gerado</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Deixe o hero mais denso e o CTA mais claro.</span><div style='flex:1'></div><button class='primary'>Aplicar revisão</button></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Quando você abre o aplicativo, o protótipo gerado é o centro da área de trabalho, com modos de visualização, revisões imediatas e controles de exportação à mão. Tudo o que o agente produz é HTML real que você pode refinar, exportar ou entregar.
@@ -82,183 +87,191 @@ Todos os dados residem em SQL com Drizzle ORM. Esquema: `templates/design/server
 | `design_systems`                         | Tokens de marca reutilizáveis — `data` (cores/tipografia/espaçamento), `assets`, `custom_instructions` e uma sinalização `is_default`         |
 | `design_shares` / `design_system_shares` | O Framework compartilha tabelas mapeando principais (usuários ou organizações) para funções (visualizador, editor, administrador)             |
 
-<DataModel id="doc-block-1hvfun7" title="Projetar modelo de dados" summary={"Um design possui seus arquivos e instantâneos versionados e, opcionalmente, vincula um sistema de design reutilizável. Tanto os designs quanto os sistemas podem ser adquiridos, cada um com uma tabela de compartilhamentos da estrutura."} entities={[
-  {
-    "id": "designs",
-    "name": "designs",
-    "note": "A design project (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "description",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "project_type",
-        "type": "text",
-        "note": "prototype / other"
-      },
-      {
-        "name": "data",
-        "type": "json",
-        "note": "starts as {}"
-      },
-      {
-        "name": "design_system_id",
-        "type": "id",
-        "fk": "design_systems.id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "files",
-    "name": "design_files",
-    "note": "Arquivos em um desenho",
-    "fields": [
-      {
-        "name": "design_id",
-        "type": "id",
-        "fk": "designs.id"
-      },
-      {
-        "name": "filename",
-        "type": "text"
-      },
-      {
-        "name": "content",
-        "type": "text"
-      },
-      {
-        "name": "file_type",
-        "type": "text",
-        "note": "defaults to html"
-      }
-    ]
-  },
-  {
-    "id": "versions",
-    "name": "design_versions",
-    "note": "Histórico/reversão",
-    "fields": [
-      {
-        "name": "design_id",
-        "type": "id",
-        "fk": "designs.id"
-      },
-      {
-        "name": "snapshot",
-        "type": "json"
-      },
-      {
-        "name": "label",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "data",
-        "type": "json",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "design_shares",
-    "name": "design_shares",
-    "note": "Tabela de compartilhamentos da estrutura",
-    "fields": [
-      {
-        "name": "design_id",
-        "type": "id",
-        "fk": "designs.id"
-      },
-      {
-        "name": "role",
-        "type": "text",
-        "note": "viewer / editor / admin"
-      }
-    ]
-  },
-  {
-    "id": "system_shares",
-    "name": "design_system_shares",
-    "note": "Tabela de compartilhamentos da estrutura",
-    "fields": [
-      {
-        "name": "design_system_id",
-        "type": "id",
-        "fk": "design_systems.id"
-      },
-      {
-        "name": "role",
-        "type": "text",
-        "note": "viewer / editor / admin"
-      }
-    ]
+<DataModel
+  id="doc-block-1hvfun7"
+  title="Projetar modelo de dados"
+  summary={
+    "Um design possui seus arquivos e instantâneos versionados e, opcionalmente, vincula um sistema de design reutilizável. Tanto os designs quanto os sistemas podem ser adquiridos, cada um com uma tabela de compartilhamentos da estrutura."
   }
-]} relations={[
-  {
-    "from": "designs",
-    "to": "files",
-    "kind": "1-n"
-  },
-  {
-    "from": "designs",
-    "to": "versions",
-    "kind": "1-n"
-  },
-  {
-    "from": "systems",
-    "to": "designs",
-    "kind": "1-n",
-    "label": "applied to"
-  },
-  {
-    "from": "designs",
-    "to": "design_shares",
-    "kind": "1-n"
-  },
-  {
-    "from": "systems",
-    "to": "system_shares",
-    "kind": "1-n"
-  }
-]} />
+  entities={[
+    {
+      id: "designs",
+      name: "designs",
+      note: "A design project (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "description",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "project_type",
+          type: "text",
+          note: "prototype / other",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "starts as {}",
+        },
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "files",
+      name: "design_files",
+      note: "Arquivos em um desenho",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "filename",
+          type: "text",
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "file_type",
+          type: "text",
+          note: "defaults to html",
+        },
+      ],
+    },
+    {
+      id: "versions",
+      name: "design_versions",
+      note: "Histórico/reversão",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "snapshot",
+          type: "json",
+        },
+        {
+          name: "label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "systems",
+      name: "design_systems",
+      note: "Reusable brand tokens (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "design_shares",
+      name: "design_shares",
+      note: "Tabela de compartilhamentos da estrutura",
+      fields: [
+        {
+          name: "design_id",
+          type: "id",
+          fk: "designs.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+    {
+      id: "system_shares",
+      name: "design_system_shares",
+      note: "Tabela de compartilhamentos da estrutura",
+      fields: [
+        {
+          name: "design_system_id",
+          type: "id",
+          fk: "design_systems.id",
+        },
+        {
+          name: "role",
+          type: "text",
+          note: "viewer / editor / admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "designs",
+      to: "files",
+      kind: "1-n",
+    },
+    {
+      from: "designs",
+      to: "versions",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "designs",
+      kind: "1-n",
+      label: "applied to",
+    },
+    {
+      from: "designs",
+      to: "design_shares",
+      kind: "1-n",
+    },
+    {
+      from: "systems",
+      to: "system_shares",
+      kind: "1-n",
+    },
+  ]}
+/>
 
 Um projeto de design é um shell até ter conteúdo: `create-design` cria uma linha vazia (`data: "{}"`) e, em seguida, `generate-design` grava os arquivos HTML/JSX independentes reais. O artefato gerado, a fonte editável e todas as exportações vêm do mesmo HTML, portanto, não há um formato de "maquete de IA" separado para traduzir. Um sistema de design vinculado fornece tokens e `custom_instructions` que o agente honra em cada passagem de geração.
 

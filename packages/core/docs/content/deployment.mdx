@@ -70,24 +70,28 @@ Per-app independent deploy is still supported — just `cd apps/<name> && npx @a
 
 When you run `npx @agent-native/core@latest build`, Nitro builds both the client SPA and the server API into `.output/`:
 
-<FileTree id="doc-block-1vbo81" title="Build output" entries={[
-  {
-    "path": ".output/",
-    "note": "self-contained — copy to any environment and run"
-  },
-  {
-    "path": ".output/public/",
-    "note": "built SPA (static assets)"
-  },
-  {
-    "path": ".output/server/index.mjs",
-    "note": "server entry point"
-  },
-  {
-    "path": ".output/server/chunks/",
-    "note": "server code chunks"
-  }
-]} />
+<FileTree
+  id="doc-block-1vbo81"
+  title="Build output"
+  entries={[
+    {
+      path: ".output/",
+      note: "self-contained — copy to any environment and run",
+    },
+    {
+      path: ".output/public/",
+      note: "built SPA (static assets)",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "server entry point",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "server code chunks",
+    },
+  ]}
+/>
 
 The output is self-contained — copy `.output/` to any environment and run it.
 

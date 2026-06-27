@@ -10,7 +10,12 @@ description: "최소 채팅 우선 에이전트 기본 앱: 내구성 있는 채
 브라우저 UI 없이 가장 작은 작업 전용 런타임을 원한다면 [Pure-Agent Apps](/docs/pure-agent-apps)로 시작하세요. 완성된 도메인 제품 형태를 원한다면 [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) 또는 다른 도메인 템플릿에서 시작하세요.
 
 <WireframeBlock id="doc-block-ljnm1j">
-<Screen surface="desktop" html={"<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>무엇을 도와드릴까요?</h1><p class='wf-muted' style='margin:10px 0 0'>무엇이든 채팅하세요. actions, 컴포넌트, 페이지, 작업 또는 자체 백엔드를 추가하세요.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>에이전트에게 메시지...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>무엇을 도와드릴까요?</h1><p class='wf-muted' style='margin:10px 0 0'>무엇이든 채팅하세요. actions, 컴포넌트, 페이지, 작업 또는 자체 백엔드를 추가하세요.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>에이전트에게 메시지...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 ## 그 내용 {#whats-in-it}
@@ -71,28 +76,32 @@ npx @agent-native/core@latest create my-agent --headless
   제안, 빈 상태, 작곡가 또는 주변 레이아웃이 여기에 있습니다.
 - `AGENTS.md`는 내장 에이전트에게 이 앱 내에서 작업하는 방법을 알려줍니다.
 
-<FileTree id="doc-block-9fl54l" title={"Chat 템플릿 레이아웃"} entries={[
-  {
-    "path": "actions/hello.ts",
-    "note": "하나의 예시 action; 교체하거나 옆에 actions 추가"
-  },
-  {
-    "path": "actions/view-screen.ts",
-    "note": "에이전트가 읽는 표준 context action"
-  },
-  {
-    "path": "actions/navigate.ts",
-    "note": "표준 navigation action"
-  },
-  {
-    "path": "app/routes/_index.tsx",
-    "note": "전체 페이지 chat 화면을 렌더링; suggestions, empty state, composer 편집"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "내장 에이전트가 읽는 chat-first 지침"
-  }
-]} />
+<FileTree
+  id="doc-block-9fl54l"
+  title={"Chat 템플릿 레이아웃"}
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "하나의 예시 action; 교체하거나 옆에 actions 추가",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "에이전트가 읽는 표준 context action",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "표준 navigation action",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "전체 페이지 chat 화면을 렌더링; suggestions, empty state, composer 편집",
+    },
+    {
+      path: "AGENTS.md",
+      note: "내장 에이전트가 읽는 chat-first 지침",
+    },
+  ]}
+/>
 
 채팅 페이지는 의도적으로 얇습니다.
 

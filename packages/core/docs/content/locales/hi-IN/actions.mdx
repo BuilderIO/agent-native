@@ -79,23 +79,32 @@ actions के आसपास, कार्रवाई के लिए को
 
 ## किसी क्रिया को परिभाषित करना {#defining}
 
-<AnnotatedCode id="doc-block-b271zy" title={"किसी क्रिया की शारीरिक रचना"} filename="actions/reply-to-email.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "टूल सतह",
-    "note": "`description` वह पाठ है जिसे एजेंट यह तय करने के लिए पढ़ता है कि इसे कब कॉल करना है। हर फ़ील्ड की `.describe()` कॉल JSON Schema में भी जाती है।"
-  },
-  {
-    "lines": "6-9",
-    "label": "टाइप किया हुआ अनुबंध",
-    "note": "एक schema **हर** सतह से आने वाले input को validate करता है और model के लिए JSON Schema में बदलता है। अमान्य input कभी `run` तक नहीं पहुंचते।"
-  },
-  {
-    "lines": "10-13",
-    "label": "एक कार्यान्वयन",
-    "note": "`run` का मुख्य भाग ही भरोसेमंद स्रोत है — UI बटन और एजेंट टूल दोनों यही चलाते हैं।"
+<AnnotatedCode
+  id="doc-block-b271zy"
+  title={"किसी क्रिया की शारीरिक रचना"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "टूल सतह",
+      note: "`description` वह पाठ है जिसे एजेंट यह तय करने के लिए पढ़ता है कि इसे कब कॉल करना है। हर फ़ील्ड की `.describe()` कॉल JSON Schema में भी जाती है।",
+    },
+    {
+      lines: "6-9",
+      label: "टाइप किया हुआ अनुबंध",
+      note: "एक schema **हर** सतह से आने वाले input को validate करता है और model के लिए JSON Schema में बदलता है। अमान्य input कभी `run` तक नहीं पहुंचते।",
+    },
+    {
+      lines: "10-13",
+      label: "एक कार्यान्वयन",
+      note: "`run` का मुख्य भाग ही भरोसेमंद स्रोत है — UI बटन और एजेंट टूल दोनों यही चलाते हैं।",
+    },
+  ]}
+/>
 
 बस इतना ही। फ्रेमवर्क `actions/` में प्रत्येक फ़ाइल को स्वतः खोजता है और उन्हें स्टार्टअप पर माउंट करता है।
 

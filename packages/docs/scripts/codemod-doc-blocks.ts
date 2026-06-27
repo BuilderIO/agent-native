@@ -7,8 +7,7 @@ import {
   registerLibraryBlockConfigs,
   serializeSpecBlock,
   type BlockSpec,
-} from "@agent-native/core/blocks/server";
-
+} from "../../core/src/client/blocks/server";
 import { isDocSourceFile } from "../lib/docs-source";
 
 const DOCS_CONTENT_ROOT = resolve(

@@ -40,33 +40,42 @@ description: "قم بتثبيت دردشة الوكيل + مساحة العمل 
 قم بلف تخطيط الجذر الموجود لديك باستخدام `<AgentSidebar>`؛ مهما تم تمريره كـ
 يبقى الأطفال في منطقة التطبيق الرئيسية. دردشة الوكيل هي اللوحة الجانبية.
 
-<AnnotatedCode id="doc-block-1nt1prb" title={"تغليف تخطيط الجذر بـ <AgentSidebar>"} filename="app/root.tsx" language="tsx" code={"import { Outlet } from \"react-router\";\nimport { AgentSidebar, AgentToggleButton } from \"@agent-native/core/client\";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText=\"كيف يمكنني المساعدة؟\"\n      suggestions={[\n        \"Summarize my inbox\",\n        \"Draft a reply to the latest email\",\n        \"Show me yesterday's signup numbers\",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position=\"right\"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}"} annotations={[
-  {
-    "lines": "6",
-    "label": "المجمع",
-    "note": "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area."
-  },
-  {
-    "lines": "8-12",
-    "label": "يبدأ تشغيل المطالبات",
-    "note": "يتم عرض `suggestions` كشرائح قابلة للنقر في الدردشة الفارغة."
-  },
-  {
-    "lines": "13",
-    "label": "شرائح تدرك السياق",
-    "note": "`dynamicSuggestions` merges screen-aware prompts (e.g. \"Summarize this selection\") with your static ones. On by default."
-  },
-  {
-    "lines": "18-20",
-    "label": "زر التبديل",
-    "note": "Put `<AgentToggleButton />` anywhere in your header to open and close the panel."
-  },
-  {
-    "lines": "22-24",
-    "label": "تطبيقك",
-    "note": "`<Outlet/>` (your routes) renders in the main area, untouched."
+<AnnotatedCode
+  id="doc-block-1nt1prb"
+  title={"تغليف تخطيط الجذر بـ <AgentSidebar>"}
+  filename="app/root.tsx"
+  language="tsx"
+  code={
+    'import { Outlet } from "react-router";\nimport { AgentSidebar, AgentToggleButton } from "@agent-native/core/client";\n\nexport default function Root() {\n  return (\n    <AgentSidebar\n      emptyStateText="كيف يمكنني المساعدة؟"\n      suggestions={[\n        "Summarize my inbox",\n        "Draft a reply to the latest email",\n        "Show me yesterday\'s signup numbers",\n      ]}\n      dynamicSuggestions\n      defaultSidebarWidth={420}\n      position="right"\n    >\n      <header>\n        <AgentToggleButton />\n      </header>\n\n      <main>\n        <Outlet />\n      </main>\n    </AgentSidebar>\n  );\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "المجمع",
+      note: "`<AgentSidebar>` wraps your whole layout. It adds the toggleable side panel; everything you pass as children stays in the main app area.",
+    },
+    {
+      lines: "8-12",
+      label: "يبدأ تشغيل المطالبات",
+      note: "يتم عرض `suggestions` كشرائح قابلة للنقر في الدردشة الفارغة.",
+    },
+    {
+      lines: "13",
+      label: "شرائح تدرك السياق",
+      note: '`dynamicSuggestions` merges screen-aware prompts (e.g. "Summarize this selection") with your static ones. On by default.',
+    },
+    {
+      lines: "18-20",
+      label: "زر التبديل",
+      note: "Put `<AgentToggleButton />` anywhere in your header to open and close the panel.",
+    },
+    {
+      lines: "22-24",
+      label: "تطبيقك",
+      note: "`<Outlet/>` (your routes) renders in the main area, untouched.",
+    },
+  ]}
+/>
 
 هذا كل شيء. أصبح لدى المستخدم الآن وكيل قابل للتبديل في كل صفحة - مع سجل الدردشة، وعلامة تبويب مساحة العمل، ومحطة CLI، والإدخال الصوتي، ووضع ملء الشاشة. تستمر الحالة عبر عمليات إعادة التحميل عبر `localStorage`.
 

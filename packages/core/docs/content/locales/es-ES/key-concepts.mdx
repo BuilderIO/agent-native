@@ -31,20 +31,24 @@ Las aplicaciones headless pueden ejecutar el mismo bucle de producción de aplic
 Cada aplicación nativa del agente tiene los mismos componentes básicos del agente, independientemente de si
 la superficie del producto es headless, chat-first o UI completo:
 
-<FileTree id="doc-block-huel4g" title={"Guía y comportamiento"} entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "Instrucciones siempre activas: propósito, reglas principales, claves de estado, índice de actions e índice de skills"
-  },
-  {
-    "path": ".agents/skills/<name>/SKILL.md",
-    "note": "Comportamiento reutilizable: pasos de workflow, políticas, ejemplos, referencias y listas de qué hacer y no hacer"
-  },
-  {
-    "path": "actions/<name>.ts",
-    "note": "Capacidad ejecutable: operación tipada expuesta al agente, UI, CLI, HTTP, MCP, A2A, jobs y webhooks"
-  }
-]} />
+<FileTree
+  id="doc-block-huel4g"
+  title={"Guía y comportamiento"}
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "Instrucciones siempre activas: propósito, reglas principales, claves de estado, índice de actions e índice de skills",
+    },
+    {
+      path: ".agents/skills/<name>/SKILL.md",
+      note: "Comportamiento reutilizable: pasos de workflow, políticas, ejemplos, referencias y listas de qué hacer y no hacer",
+    },
+    {
+      path: "actions/<name>.ts",
+      note: "Capacidad ejecutable: operación tipada expuesta al agente, UI, CLI, HTTP, MCP, A2A, jobs y webhooks",
+    },
+  ]}
+/>
 
 | Bloque de creación | Úsalo para                                                                                                                        | Cargado cuando                                                           |
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -91,74 +95,81 @@ Las tiendas principales SQL se crean automáticamente y están disponibles en ca
 - `oauth_tokens` — Credenciales OAuth
 - `sessions` — sesiones de autenticación
 
-<DataModel id="doc-block-1azg8h5" title="Tiendas principales SQL" summary={"Creado automáticamente en cada plantilla: el agente y la interfaz de usuario los leen y escriben."} entities={[
-  {
-    "id": "application_state",
-    "name": "application_state",
-    "note": "Estado de la interfaz de usuario efímero que el agente lee para conocer el contexto",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true,
-        "note": "p.ej. 'navegación'"
-      },
-      {
-        "name": "value",
-        "type": "json",
-        "note": "vista, selección, borradores"
-      }
-    ]
-  },
-  {
-    "id": "settings",
-    "name": "settings",
-    "note": "Configuración de valor-clave persistente",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "value",
-        "type": "json"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "Credenciales OAuth",
-    "fields": [
-      {
-        "name": "provider",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "token",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "sessions",
-    "note": "Sesiones de autenticación",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "userId",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-1azg8h5"
+  title="Tiendas principales SQL"
+  summary={
+    "Creado automáticamente en cada plantilla: el agente y la interfaz de usuario los leen y escriben."
   }
-]} />
+  entities={[
+    {
+      id: "application_state",
+      name: "application_state",
+      note: "Estado de la interfaz de usuario efímero que el agente lee para conocer el contexto",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+          note: "p.ej. 'navegación'",
+        },
+        {
+          name: "value",
+          type: "json",
+          note: "vista, selección, borradores",
+        },
+      ],
+    },
+    {
+      id: "settings",
+      name: "settings",
+      note: "Configuración de valor-clave persistente",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "value",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "Credenciales OAuth",
+      fields: [
+        {
+          name: "provider",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "token",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "sessions",
+      note: "Sesiones de autenticación",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "userId",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+/>
 
 ```ts
 // Drizzle schema for domain data

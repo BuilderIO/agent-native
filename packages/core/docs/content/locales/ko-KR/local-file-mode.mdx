@@ -57,56 +57,60 @@ SQL 행 또는 로컬 파일
 
 콘텐츠 작업공간은 다음과 같이 작을 수 있습니다:
 
-<FileTree id="doc-block-xk1uma" title="Content workspace repo" entries={[
-  {
-    "path": "agent-native.json",
-    "note": "어떤 폴더가 콘텐츠 루트인지와 그 종류를 선언"
-  },
-  {
-    "path": "docs/",
-    "note": "콘텐츠 루트: 사이드바에 페이지로 표시"
-  },
-  {
-    "path": "docs/getting-started.mdx"
-  },
-  {
-    "path": "docs/guides/custom-components.mdx"
-  },
-  {
-    "path": "blog/",
-    "note": "콘텐츠 루트"
-  },
-  {
-    "path": "blog/launch-post.mdx"
-  },
-  {
-    "path": "resources/",
-    "note": "콘텐츠 루트"
-  },
-  {
-    "path": "resources/messaging/positioning.md"
-  },
-  {
-    "path": "components/",
-    "note": "콘텐츠 루트 아님: MDX가 import할 수 있는 preview 컴포넌트 라이브러리"
-  },
-  {
-    "path": "components/FrameworkTabs.tsx"
-  },
-  {
-    "path": "components/Callout.tsx"
-  },
-  {
-    "path": "extensions/",
-    "note": "콘텐츠 루트 아님: 로컬 extension 라이브러리(sandboxed widgets)"
-  },
-  {
-    "path": "extensions/doc-status/extension.json"
-  },
-  {
-    "path": "extensions/doc-status/index.html"
-  }
-]} />
+<FileTree
+  id="doc-block-xk1uma"
+  title="Content workspace repo"
+  entries={[
+    {
+      path: "agent-native.json",
+      note: "어떤 폴더가 콘텐츠 루트인지와 그 종류를 선언",
+    },
+    {
+      path: "docs/",
+      note: "콘텐츠 루트: 사이드바에 페이지로 표시",
+    },
+    {
+      path: "docs/getting-started.mdx",
+    },
+    {
+      path: "docs/guides/custom-components.mdx",
+    },
+    {
+      path: "blog/",
+      note: "콘텐츠 루트",
+    },
+    {
+      path: "blog/launch-post.mdx",
+    },
+    {
+      path: "resources/",
+      note: "콘텐츠 루트",
+    },
+    {
+      path: "resources/messaging/positioning.md",
+    },
+    {
+      path: "components/",
+      note: "콘텐츠 루트 아님: MDX가 import할 수 있는 preview 컴포넌트 라이브러리",
+    },
+    {
+      path: "components/FrameworkTabs.tsx",
+    },
+    {
+      path: "components/Callout.tsx",
+    },
+    {
+      path: "extensions/",
+      note: "콘텐츠 루트 아님: 로컬 extension 라이브러리(sandboxed widgets)",
+    },
+    {
+      path: "extensions/doc-status/extension.json",
+    },
+    {
+      path: "extensions/doc-status/index.html",
+    },
+  ]}
+/>
 
 로컬 파일 모드에서 콘텐츠 사이드바에는 `docs/`, `blog/` 및
 `resources/` 트리를 페이지로 표시합니다. `docs/getting-started.mdx`를 선택하면 다음이 열립니다.

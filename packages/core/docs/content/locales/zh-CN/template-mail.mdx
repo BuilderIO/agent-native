@@ -8,7 +8,12 @@ description: "代理驱动的电子邮件客户端。连接您的 Gmail，客服
 代理驱动的电子邮件客户端。连接您的 Gmail 帐户，客服人员可以为您阅读、起草、发送和组织电子邮件 - 还有一个您可以自己驾驶的快速、键盘优先的收件箱。想想超人，但代理是一等公民，代码库是你的。
 
 <WireframeBlock id="doc-block-1gy0mfl">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>收件箱 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='搜索'></span><span data-icon='edit' aria-label='撰写'></span><span data-icon='bell' aria-label='通知'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>普丽娅·梅塔</strong><span><strong>第三季度发布</strong> — 最终素材已准备好供审核</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Acme 账单</strong><span>你的月度发票已准备好</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>马库斯·唐</span><span>入门流程 research findings</span><span>昨天</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR 已准备好评审</span><span>昨天</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 已分配给你</span><span>5 月 2 日</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>每周付款摘要</span><span>4 月 29 日</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>新预约已确认</span><span>4 月 28 日</span></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>收件箱 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='搜索'></span><span data-icon='edit' aria-label='撰写'></span><span data-icon='bell' aria-label='通知'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>普丽娅·梅塔</strong><span><strong>第三季度发布</strong> — 最终素材已准备好供审核</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Acme 账单</strong><span>你的月度发票已准备好</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>马库斯·唐</span><span>入门流程 research findings</span><span>昨天</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR 已准备好评审</span><span>昨天</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 已分配给你</span><span>5 月 2 日</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>每周付款摘要</span><span>4 月 29 日</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>新预约已确认</span><span>4 月 28 日</span></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 当您打开应用程序时，键盘优先的收件箱和线程视图将重点关注邮件本身。代理始终知道您处于哪个视图以及您打开了哪个线程，因此您可以说“存档此”或“起草友好拒绝”，而无需解释“此”是什么。
@@ -153,119 +158,127 @@ npx @agent-native/core@latest add-app
 
 流经 API 的电子邮件的形状为 `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`。
 
-<DataModel id="doc-block-u9i9hp" title={"邮件 SQL 表"} summary={"电子邮件本身位于 Gmail 中。 SQL 表包含 Gmail 不包含的内容：排队草稿、发送跟踪事件和 OAuth 令牌。设置和临时状态位于 settings 和 application_state 存储中。"} entities={[
-  {
-    "id": "queued_email_drafts",
-    "name": "queued_email_drafts",
-    "note": "Teammate/Slack-requested 草稿等待所有者审核",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "assignedTo",
-        "type": "string",
-        "note": "org member who reviews/sends"
-      },
-      {
-        "name": "subject",
-        "type": "string"
-      },
-      {
-        "name": "body",
-        "type": "markdown"
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "review at /draft-queue/<id>"
-      }
-    ]
-  },
-  {
-    "id": "email_tracking",
-    "name": "email_tracking",
-    "note": "已发送消息的开放像素事件",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "messageId",
-        "type": "string"
-      },
-      {
-        "name": "openedAt",
-        "type": "datetime"
-      }
-    ]
-  },
-  {
-    "id": "email_link_tracking",
-    "name": "email_link_tracking",
-    "note": "已发送消息的链接单击事件",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "messageId",
-        "type": "string",
-        "fk": "email_tracking.messageId"
-      },
-      {
-        "name": "url",
-        "type": "string"
-      },
-      {
-        "name": "clickedAt",
-        "type": "datetime"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "框架表 — 每个连接的 Google 帐户一行",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "provider",
-        "type": "string",
-        "note": "\"google\""
-      },
-      {
-        "name": "accountEmail",
-        "type": "string"
-      },
-      {
-        "name": "accessToken",
-        "type": "string"
-      },
-      {
-        "name": "refreshToken",
-        "type": "string"
-      }
-    ]
+<DataModel
+  id="doc-block-u9i9hp"
+  title={"邮件 SQL 表"}
+  summary={
+    "电子邮件本身位于 Gmail 中。 SQL 表包含 Gmail 不包含的内容：排队草稿、发送跟踪事件和 OAuth 令牌。设置和临时状态位于 settings 和 application_state 存储中。"
   }
-]} relations={[
-  {
-    "from": "email_tracking",
-    "to": "email_link_tracking",
-    "kind": "1-n",
-    "label": "click events"
-  }
-]} />
+  entities={[
+    {
+      id: "queued_email_drafts",
+      name: "queued_email_drafts",
+      note: "Teammate/Slack-requested 草稿等待所有者审核",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "assignedTo",
+          type: "string",
+          note: "org member who reviews/sends",
+        },
+        {
+          name: "subject",
+          type: "string",
+        },
+        {
+          name: "body",
+          type: "markdown",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "review at /draft-queue/<id>",
+        },
+      ],
+    },
+    {
+      id: "email_tracking",
+      name: "email_tracking",
+      note: "已发送消息的开放像素事件",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "messageId",
+          type: "string",
+        },
+        {
+          name: "openedAt",
+          type: "datetime",
+        },
+      ],
+    },
+    {
+      id: "email_link_tracking",
+      name: "email_link_tracking",
+      note: "已发送消息的链接单击事件",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "messageId",
+          type: "string",
+          fk: "email_tracking.messageId",
+        },
+        {
+          name: "url",
+          type: "string",
+        },
+        {
+          name: "clickedAt",
+          type: "datetime",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "框架表 — 每个连接的 Google 帐户一行",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "provider",
+          type: "string",
+          note: '"google"',
+        },
+        {
+          name: "accountEmail",
+          type: "string",
+        },
+        {
+          name: "accessToken",
+          type: "string",
+        },
+        {
+          name: "refreshToken",
+          type: "string",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "email_tracking",
+      to: "email_link_tracking",
+      kind: "1-n",
+      label: "click events",
+    },
+  ]}
+/>
 
 UI 中的路由：
 

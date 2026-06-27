@@ -1,14 +1,15 @@
+import remarkMdx from "remark-mdx";
+import remarkParse from "remark-parse";
+import remarkStringify from "remark-stringify";
+import { unified } from "unified";
+
 import {
   BlockRegistry,
   createAttrReader,
   parseSpecBlock,
   registerLibraryBlockConfigs,
   type MdxJsxNode,
-} from "@agent-native/core/blocks/server";
-import remarkMdx from "remark-mdx";
-import remarkParse from "remark-parse";
-import remarkStringify from "remark-stringify";
-import { unified } from "unified";
+} from "../../core/src/client/blocks/server";
 
 const BLOCK_TYPE_ALIASES: Record<string, string> = {
   "an-diagram": "diagram",

@@ -80,28 +80,37 @@ Não crie uma habilidade quando:
 
 Cada habilidade é um arquivo Markdown com frontmatter YAML:
 
-<AnnotatedCode id="doc-block-1e4p4a2" title="Anatomia de um SKILL.md" filename=".agents/skills/project-imports/SKILL.md" language="markdown" code={"---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"} annotations={[
-  {
-    "lines": "2",
-    "label": "Chave de descoberta",
-    "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`."
-  },
-  {
-    "lines": "3-5",
-    "label": "O gatilho",
-    "note": "Este `description` é o **único** texto sempre em contexto. Faça com que indique precisamente *quando* a habilidade se aplica."
-  },
-  {
-    "lines": "9-14",
-    "label": "Regras primeiro",
-    "note": "Lead with the hard rule and the why; the agent reads the body only once the task matches."
-  },
-  {
-    "lines": "27-30",
-    "label": "Link cruzado",
-    "note": "Aponte as habilidades relacionadas para que o agente possa encadeá-las em vez de derivar novamente a orientação."
+<AnnotatedCode
+  id="doc-block-1e4p4a2"
+  title="Anatomia de um SKILL.md"
+  filename=".agents/skills/project-imports/SKILL.md"
+  language="markdown"
+  code={
+    "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "Chave de descoberta",
+      note: "The `name` matches the folder; it is how the skill is invoked as `/project-imports`.",
+    },
+    {
+      lines: "3-5",
+      label: "O gatilho",
+      note: "Este `description` é o **único** texto sempre em contexto. Faça com que indique precisamente *quando* a habilidade se aplica.",
+    },
+    {
+      lines: "9-14",
+      label: "Regras primeiro",
+      note: "Lead with the hard rule and the why; the agent reads the body only once the task matches.",
+    },
+    {
+      lines: "27-30",
+      label: "Link cruzado",
+      note: "Aponte as habilidades relacionadas para que o agente possa encadeá-las em vez de derivar novamente a orientação.",
+    },
+  ]}
+/>
 
 Os frontmatter `name` e `description` são usados ​​pelo sistema de ferramentas do agente para descoberta de habilidades. A descrição deve indicar quando a habilidade é acionada. Seja específico sobre as situações.
 

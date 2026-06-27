@@ -70,24 +70,28 @@ npx @agent-native/core@latest deploy --preset vercel
 
 当您运行`npx @agent-native/core@latest build`时，Nitro将客户端SPA和服务器API构建为`.output/`：
 
-<FileTree id="doc-block-15ab21b" title={"构建输出"} entries={[
-  {
-    "path": ".output/",
-    "note": "自包含：复制到任何环境即可运行"
-  },
-  {
-    "path": ".output/public/",
-    "note": "构建后的 SPA（静态 assets）"
-  },
-  {
-    "path": ".output/server/index.mjs",
-    "note": "服务器入口点"
-  },
-  {
-    "path": ".output/server/chunks/",
-    "note": "服务器代码 chunks"
-  }
-]} />
+<FileTree
+  id="doc-block-15ab21b"
+  title={"构建输出"}
+  entries={[
+    {
+      path: ".output/",
+      note: "自包含：复制到任何环境即可运行",
+    },
+    {
+      path: ".output/public/",
+      note: "构建后的 SPA（静态 assets）",
+    },
+    {
+      path: ".output/server/index.mjs",
+      note: "服务器入口点",
+    },
+    {
+      path: ".output/server/chunks/",
+      note: "服务器代码 chunks",
+    },
+  ]}
+/>
 
 输出是独立的 - 将 `.output/` 复制到任何环境并运行它。
 

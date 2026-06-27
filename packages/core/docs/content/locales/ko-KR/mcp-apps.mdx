@@ -54,23 +54,32 @@ export default defineAction({
 });
 ```
 
-<AnnotatedCode id="doc-block-1gmjpde" title={"mcpApp 리소스 구성"} filename="actions/review-draft.ts" language="ts" code={"import { embedApp } from \"@agent-native/core\";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: \"Review draft\",\n      description: \"Open the generated draft in the real Mail compose UI.\",\n      iframeTitle: \"Agent-Native Mail\",\n      openLabel: \"Open in Mail\",\n    }),\n  },\n});"} annotations={[
-  {
-    "lines": "6",
-    "label": "점진적인 향상",
-    "note": "`mcpApp.resource`은 MCP 앱 확장을 지원하는 호스트에 대한 인라인 UI를 광고합니다. 작업의 `link` 빌더도 유지하세요. CLI만 있고 오래된 호스트는 UI 메타데이터를 무시하고 여전히 딥 링크가 필요합니다."
-  },
-  {
-    "lines": "7",
-    "label": "Embed = the link target",
-    "note": "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route."
-  },
-  {
-    "lines": "11",
-    "label": "범용 대체 라벨",
-    "note": "`openLabel` is the visible `\"Open in … →\"` text used as the deep-link escape hatch when a host does not render the inline iframe."
+<AnnotatedCode
+  id="doc-block-1gmjpde"
+  title={"mcpApp 리소스 구성"}
+  filename="actions/review-draft.ts"
+  language="ts"
+  code={
+    'import { embedApp } from "@agent-native/core";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: "Review draft",\n      description: "Open the generated draft in the real Mail compose UI.",\n      iframeTitle: "Agent-Native Mail",\n      openLabel: "Open in Mail",\n    }),\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "점진적인 향상",
+      note: "`mcpApp.resource`은 MCP 앱 확장을 지원하는 호스트에 대한 인라인 UI를 광고합니다. 작업의 `link` 빌더도 유지하세요. CLI만 있고 오래된 호스트는 UI 메타데이터를 무시하고 여전히 딥 링크가 필요합니다.",
+    },
+    {
+      lines: "7",
+      label: "Embed = the link target",
+      note: "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route.",
+    },
+    {
+      lines: "11",
+      label: "범용 대체 라벨",
+      note: '`openLabel`은 호스트가 인라인 iframe을 렌더링하지 않을 때 딥 링크 탈출구로 쓰이는 표시 텍스트 `"Open in … →"`입니다.',
+    },
+  ]}
+/>
 
 MCP 서버는 확장 `io.modelcontextprotocol/ui`를 광고하고, `_meta.ui.resourceUri`와 `_meta["ui/resourceUri"]`를 `tools/list`에 추가하고, ChatGPT 앱 SDK 호환성 메타데이터(`openai/outputTemplate`, 위젯 CSP/설명/접근성)도 내보냅니다. MIME `text/html;profile=mcp-app`를 사용하여 `resources/list`, `resources/templates/list` 및 `resources/read`를 통해 HTML를 노출합니다. stdio 프록시는 라이브 앱에서 해당 리소스 핸들러를 전달하므로 데스크톱 및 CLI 클라이언트는 HTTP 클라이언트와 동일한 리소스를 볼 수 있습니다.
 

@@ -102,23 +102,32 @@ Chrome DevTools डिफ़ॉल्ट रूप से `--autoConnect` का
 
 आकार छोटा है: सर्वर आईडी द्वारा कुंजीबद्ध एक `servers` मानचित्र, जहां प्रत्येक प्रविष्टि या तो एक stdio लॉन्चर (`command` + `args` + वैकल्पिक `env`) या एक दूरस्थ `{ "type": "http", "url", "headers" }` प्रविष्टि है।
 
-<AnnotatedCode id="doc-block-1c9ae56" title={"mcp.config.json, एनोटेट"} filename="mcp.config.json" language="jsonc" code={"{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}"} annotations={[
-  {
-    "lines": "3",
-    "label": "सर्वर आईडी",
-    "note": "कुंजी उपकरण उपसर्ग बन जाती है: इस सर्वर के उपकरण एजेंट की रजिस्ट्री में `mcp__claude-in-chrome__*` के रूप में सामने आते हैं, इसलिए वे 't collide with your template's क्रियाएं कर सकते हैं।"
-  },
-  {
-    "lines": "4-6",
-    "label": "stdio launcher",
-    "note": "`command` + `args` एक स्थानीय बाइनरी उत्पन्न करता है। Stdio सर्वर **स्थानीय विकास** के लिए हैं - वे एज रनटाइम में नो-ऑप हैं।"
-  },
-  {
-    "lines": "6",
-    "label": "प्रक्रिया पर्यावरण",
-    "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens."
+<AnnotatedCode
+  id="doc-block-1c9ae56"
+  title={"mcp.config.json, एनोटेट"}
+  filename="mcp.config.json"
+  language="jsonc"
+  code={
+    '{\n  "$schema": "https://agent-native.com/schema/mcp.config.json",\n  "servers": {\n    "claude-in-chrome": {\n      "command": "claude-in-chrome-mcp",\n      "args": [],\n      "env": { "LOG_LEVEL": "info" }\n    },\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "/Users/me/projects"]\n    }\n  }\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "3",
+      label: "सर्वर आईडी",
+      note: "कुंजी उपकरण उपसर्ग बन जाती है: इस सर्वर के उपकरण एजेंट की रजिस्ट्री में `mcp__claude-in-chrome__*` के रूप में सामने आते हैं, इसलिए वे 't collide with your template's क्रियाएं कर सकते हैं।",
+    },
+    {
+      lines: "4-6",
+      label: "stdio launcher",
+      note: "`command` + `args` एक स्थानीय बाइनरी उत्पन्न करता है। Stdio सर्वर **स्थानीय विकास** के लिए हैं - वे एज रनटाइम में नो-ऑप हैं।",
+    },
+    {
+      lines: "6",
+      label: "प्रक्रिया पर्यावरण",
+      note: "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens.",
+    },
+  ]}
+/>
 
 अगले ऐप प्रारंभ पर आप देखेंगे:
 

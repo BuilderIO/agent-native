@@ -39,28 +39,37 @@ Las automatizaciones aparecen en el panel de configuración. Los usuarios pueden
 
 La tercera ruta (escribir el archivo `jobs/<name>.md` a mano mediante `resourcePut`) funciona exactamente igual que para [recurring jobs](/docs/recurring-jobs#creating). Para una automatización basada en eventos, agregue el frontmatter de activación de eventos a continuación al mismo archivo. Un trabajo desencadenado por evento establece `schedule: ""` y proporciona `triggerType: event`, un nombre de `event` y un `condition` opcional:
 
-<AnnotatedCode id="doc-block-1y316w7" title={"Una automatización activada por eventos"} filename="jobs/slack-on-builder-booking.md" language="markdown" code={"---\nschedule: \"\"\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: \"attendee email ends with @builder.io\"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}."} annotations={[
-  {
-    "lines": "2",
-    "label": "Sin cron",
-    "note": "Event triggers set `schedule` to `\"\"` — the cron field stays empty."
-  },
-  {
-    "lines": "4-5",
-    "label": "El gatillo",
-    "note": "`triggerType: event` más el nombre `event` suscribe esta automatización al bus."
-  },
-  {
-    "lines": "6",
-    "label": "Puerta",
-    "note": "Un `condition` opcional en lenguaje natural, evaluado por Haiku con respecto a la carga útil antes del envío."
-  },
-  {
-    "lines": "12",
-    "label": "Secreto del lado del servidor",
-    "note": "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context."
+<AnnotatedCode
+  id="doc-block-1y316w7"
+  title={"Una automatización activada por eventos"}
+  filename="jobs/slack-on-builder-booking.md"
+  language="markdown"
+  code={
+    '---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: "attendee email ends with @builder.io"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}.'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "Sin cron",
+      note: 'Los disparadores de evento establecen `schedule` en `""`; el campo cron queda vacío.',
+    },
+    {
+      lines: "4-5",
+      label: "El gatillo",
+      note: "`triggerType: event` más el nombre `event` suscribe esta automatización al bus.",
+    },
+    {
+      lines: "6",
+      label: "Puerta",
+      note: "Un `condition` opcional en lenguaje natural, evaluado por Haiku con respecto a la carga útil antes del envío.",
+    },
+    {
+      lines: "12",
+      label: "Secreto del lado del servidor",
+      note: "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context.",
+    },
+  ]}
+/>
 
 ## Antecedentes de la automatización {#frontmatter}
 

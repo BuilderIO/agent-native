@@ -103,23 +103,34 @@ dans une action afin que le UI et l'agent partagent la même capacité.
 
 Actions monté par le framework s'exécute automatiquement avec le contexte de la requête. Les itinéraires personnalisés ne le font pas. Si un itinéraire personnalisé lit ou écrit des ressources propriétaires, chargez la session et terminez le travail :
 
-<AnnotatedCode id="doc-block-wrqlry" title={"Attribution d'un itinéraire personnalisé à l'utilisateur de la demande"} filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectPartagers));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "Les itinéraires personnalisés n'ont pas de contexte automatique",
-    "note": "Contrairement aux actions, une route de fichiers doit charger la session elle-même et échouer lorsqu'il n'y a aucun utilisateur authentifié."
-  },
-  {
-    "lines": "12-13",
-    "label": "Établir le contexte de la demande",
-    "note": "`runWithRequestContext` met l'utilisateur et l'organisation à disposition des aides de portée pendant toute la durée du travail."
-  },
-  {
-    "lines": "18-19",
-    "label": "Lectures appartenant à la portée",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-wrqlry"
+  title={
+    "Attribution d'un itinéraire personnalisé à l'utilisateur de la demande"
   }
-]} />
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectPartagers));\n    },\n  );\n});'
+  }
+  annotations={[
+    {
+      lines: "7-10",
+      label: "Les itinéraires personnalisés n'ont pas de contexte automatique",
+      note: "Contrairement aux actions, une route de fichiers doit charger la session elle-même et échouer lorsqu'il n'y a aucun utilisateur authentifié.",
+    },
+    {
+      lines: "12-13",
+      label: "Établir le contexte de la demande",
+      note: "`runWithRequestContext` met l'utilisateur et l'organisation à disposition des aides de portée pendant toute la durée du travail.",
+    },
+    {
+      lines: "18-19",
+      label: "Lectures appartenant à la portée",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `getDb` est créé par application via `createGetDb(schema)` dans `server/db/index.ts`, donc les itinéraires personnalisés l'importent à partir du modèle (`../../db/index.js`), et non à partir de `@agent-native/core/db` ; voir [Database — Where the DB Client Lives](/docs/database#db-client). N'exécutez pas `db.select().from(ownableTable)` sans portée dans des itinéraires personnalisés.
 

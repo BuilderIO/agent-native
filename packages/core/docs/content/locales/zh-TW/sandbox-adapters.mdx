@@ -51,24 +51,29 @@ Agent-Native 有兩個轉接器接縫，可消除狹窄後面的問題，
 
 接縫位於 `packages/core/src/coding-tools/sandbox/` 的核心 - `adapter.ts`（合約）、`index.ts`（選取：`getSandboxAdapter()` / `registerSandboxAdapter()`）和 `local-child-process-adapter.ts`（預設）。采用`run-code.ts`封裝內接線；主機透過 `index.ts` 註冊助手插入不同的後端（或者，對於 Docker 後端，透過直接編輯這些檔案的 [blueprint](/docs/blueprint-installer)）。
 
-<FileTree id="doc-block-1jf92g2" title={"core 中的 sandbox 接縫"} title="packages/core/src/coding-tools/sandbox/" entries={[
-  {
-    "path": "adapter.ts",
-    "note": "SandboxAdapter 合約（SandboxRunRequest / SandboxRunResult）"
-  },
-  {
-    "path": "index.ts",
-    "note": "選取：getSandboxAdapter() / registerSandboxAdapter()"
-  },
-  {
-    "path": "local-child-process-adapter.ts",
-    "note": "預設後端：受限的 Node 子行程"
-  },
-  {
-    "path": "../run-code.ts",
-    "note": "連線這個接縫；替換 backend 時永遠不變"
-  }
-]} />
+<FileTree
+  id="doc-block-1jf92g2"
+  title={"core 中的 sandbox 接縫"}
+  title="packages/core/src/coding-tools/sandbox/"
+  entries={[
+    {
+      path: "adapter.ts",
+      note: "SandboxAdapter 合約（SandboxRunRequest / SandboxRunResult）",
+    },
+    {
+      path: "index.ts",
+      note: "選取：getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "local-child-process-adapter.ts",
+      note: "預設後端：受限的 Node 子行程",
+    },
+    {
+      path: "../run-code.ts",
+      note: "連線這個接縫；替換 backend 時永遠不變",
+    },
+  ]}
+/>
 
 每個後端都實現 `SandboxAdapter`：
 

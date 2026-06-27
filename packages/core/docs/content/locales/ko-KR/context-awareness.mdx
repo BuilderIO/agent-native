@@ -191,28 +191,37 @@ await setClientAppState(
 
 모든 템플릿에는 `view-screen` 작업이 있어야 합니다. 탐색 및 선택 상태를 읽고, 관련 데이터를 가져오고, 사용자가 보는 내용의 스냅샷을 반환합니다. 상담원의 눈입니다.
 
-<AnnotatedCode id="doc-block-cizhfi" title={"보기 화면 — 에이전트의 눈"} filename="actions/view-screen.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});"} annotations={[
-  {
-    "lines": "10-11",
-    "label": "도구 표면",
-    "note": "에이전트는 이 설명을 읽고 `view-screen`을 호출하여 현재 UI를 볼 수 있는지 확인합니다."
-  },
-  {
-    "lines": "13",
-    "label": "http: false",
-    "note": "내부 작업 - HTTP에 노출되지 않습니다. 브라우저가 아닌 에이전트와 `pnpm action`가 이를 호출합니다."
-  },
-  {
-    "lines": "15-16",
-    "label": "읽기 상태",
-    "note": "UI가 작성한 경량 `navigation` 및 `selection` 키를 가져옵니다."
-  },
-  {
-    "lines": "23-37",
-    "label": "수분을 공급하다",
-    "note": "해당 ID를 SQL에서 바로**신선**레코드로 변환하므로 에이전트는 작업을 수행하기 전에 실제 개체를 확인합니다."
+<AnnotatedCode
+  id="doc-block-cizhfi"
+  title={"보기 화면 — 에이전트의 눈"}
+  filename="actions/view-screen.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { readAppState } from "@agent-native/core/application-state";\nimport { eq, inArray } from "drizzle-orm";\nimport { z } from "zod";\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description:\n    "See what the user is currently looking at on screen.",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState("navigation")) as any;\n    const selection = (await readAppState("selection")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === "inbox") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === "email.messages") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return "No application state found. Is the app running?";\n    }\n    return screen;\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10-11",
+      label: "도구 표면",
+      note: "에이전트는 이 설명을 읽고 `view-screen`을 호출하여 현재 UI를 볼 수 있는지 확인합니다.",
+    },
+    {
+      lines: "13",
+      label: "http: false",
+      note: "내부 작업 - HTTP에 노출되지 않습니다. 브라우저가 아닌 에이전트와 `pnpm action`가 이를 호출합니다.",
+    },
+    {
+      lines: "15-16",
+      label: "읽기 상태",
+      note: "UI가 작성한 경량 `navigation` 및 `selection` 키를 가져옵니다.",
+    },
+    {
+      lines: "23-37",
+      label: "수분을 공급하다",
+      note: "해당 ID를 SQL에서 바로**신선**레코드로 변환하므로 에이전트는 작업을 수행하기 전에 실제 개체를 확인합니다.",
+    },
+  ]}
+/>
 
 에이전트는 현재 UI에 대해 작업을 수행하기 전에 `pnpm action view-screen`를 호출해야 합니다. 이는 모든 템플릿에서 적용되는 엄격한 규칙입니다. 새 기능을 추가할 때 `view-screen`를 업데이트하여 새 보기 및 새 선택 모양에 대한 데이터를 반환합니다.
 

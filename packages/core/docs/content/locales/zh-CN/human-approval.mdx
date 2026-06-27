@@ -14,18 +14,27 @@ description: "在高后果操作运行之前暂停代理 - defineAction 的 need
 
 在 `defineAction` 上设置 `needsApproval`。它接受布尔值或谓词：
 
-<AnnotatedCode id="doc-block-74vggr" title={"限制一项后果性行动"} filename="actions/send-email.ts" language="ts" code={"export default defineAction({\n  description: \"Send an email via Gmail.\",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});"} annotations={[
-  {
-    "lines": "10",
-    "label": "整个大门",
-    "note": "一面旗帜。当它为真且调用未获批准时，循环会在 `run` 之前停止 - 模型本身永远不会达到副作用。"
-  },
-  {
-    "lines": "11-13",
-    "label": "run() is untouched",
-    "note": "处理程序保持不变。批准是由其周围的循环强制执行的，而不是由 `run` 内的任何内容强制执行。"
+<AnnotatedCode
+  id="doc-block-74vggr"
+  title={"限制一项后果性行动"}
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting/queueing is\n  // unaffected — only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10",
+      label: "整个大门",
+      note: "一面旗帜。当它为真且调用未获批准时，循环会在 `run` 之前停止 - 模型本身永远不会达到副作用。",
+    },
+    {
+      lines: "11-13",
+      label: "run() is untouched",
+      note: "处理程序保持不变。批准是由其周围的循环强制执行的，而不是由 `run` 内的任何内容强制执行。",
+    },
+  ]}
+/>
 
 - **`needsApproval: true`** — 始终需要批准。
 - **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** — 仅当谓词返回 true 时才需要批准。有条件地选择门，例如仅适用于外部收件人或仅高于美元阈值：

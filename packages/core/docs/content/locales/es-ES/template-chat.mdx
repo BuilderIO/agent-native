@@ -10,7 +10,12 @@ El chat es el punto de partida básico de la aplicación nativa del agente. Le b
 Si desea el tiempo de ejecución más pequeño de solo acciones sin navegador UI, comience con [Pure-Agent Apps](/docs/pure-agent-apps). Si desea una forma de producto de dominio terminada, comience con [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) u otra plantilla de dominio.
 
 <WireframeBlock id="doc-block-1yw4lnu">
-<Screen surface="desktop" html={"<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>¿Cómo puedo ayudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Habla de cualquier cosa. Añade acciones, componentes, páginas, jobs o tu propio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Escribe al agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>¿Cómo puedo ayudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Habla de cualquier cosa. Añade acciones, componentes, páginas, jobs o tu propio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Escribe al agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 ## ¿Qué contiene? {#whats-in-it}
@@ -71,28 +76,32 @@ Desde allí, copie la ruta `/` de la plantilla de Chat y la lista de subprocesos
   sugerencias, estado vacío, compositor o diseño circundante aquí.
 - `AGENTS.md` le dice al agente integrado cómo trabajar dentro de esta aplicación.
 
-<FileTree id="doc-block-14ngzcm" title="Estructura de la plantilla Chat" entries={[
-  {
-    "path": "actions/hello.ts",
-    "note": "La action de ejemplo; reemplázala o agrega actions junto a ella"
-  },
-  {
-    "path": "actions/view-screen.ts",
-    "note": "Action de contexto estándar que el agente lee"
-  },
-  {
-    "path": "actions/navigate.ts",
-    "note": "Action de navegación estándar"
-  },
-  {
-    "path": "app/routes/_index.tsx",
-    "note": "Renderiza la superficie de chat de página completa; edita sugerencias, estado vacío y composer"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "Guía centrada en chat que lee el agente integrado"
-  }
-]} />
+<FileTree
+  id="doc-block-14ngzcm"
+  title="Estructura de la plantilla Chat"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "La action de ejemplo; reemplázala o agrega actions junto a ella",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "Action de contexto estándar que el agente lee",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "Action de navegación estándar",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "Renderiza la superficie de chat de página completa; edita sugerencias, estado vacío y composer",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Guía centrada en chat que lee el agente integrado",
+    },
+  ]}
+/>
 
 La página de chat es intencionalmente delgada:
 

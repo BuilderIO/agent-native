@@ -185,36 +185,41 @@ Users can edit these memory files directly in the Workspace tab — they're regu
 
 Every one of these surfaces — `AGENTS.md`, skills, memory, custom agents, MCP servers — is the same underlying resource shape: a `path` + `scope` + `content`, addressed and resolved the same way.
 
-<DataModel id="doc-block-1rsm42e" title="The workspace resource model" summary="One resource shape backs every workspace file. The runtime keys it by path and scope and resolves the effective value on read." entities={[
-  {
-    "id": "resource",
-    "name": "workspace resource",
-    "note": "A single file in a user's workspace — instructions, skill, memory, agent, MCP config, or job.",
-    "fields": [
-      {
-        "name": "path",
-        "type": "string",
-        "note": "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md"
-      },
-      {
-        "name": "scope",
-        "type": "workspace | shared | personal",
-        "note": "Which level this row lives at"
-      },
-      {
-        "name": "owner",
-        "type": "string",
-        "nullable": true,
-        "note": "u:<email> for personal scope"
-      },
-      {
-        "name": "content",
-        "type": "text",
-        "note": "Markdown / JSON / YAML body"
-      }
-    ]
-  }
-]} />
+<DataModel
+  id="doc-block-1rsm42e"
+  title="The workspace resource model"
+  summary="One resource shape backs every workspace file. The runtime keys it by path and scope and resolves the effective value on read."
+  entities={[
+    {
+      id: "resource",
+      name: "workspace resource",
+      note: "A single file in a user's workspace — instructions, skill, memory, agent, MCP config, or job.",
+      fields: [
+        {
+          name: "path",
+          type: "string",
+          note: "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md",
+        },
+        {
+          name: "scope",
+          type: "workspace | shared | personal",
+          note: "Which level this row lives at",
+        },
+        {
+          name: "owner",
+          type: "string",
+          nullable: true,
+          note: "u:<email> for personal scope",
+        },
+        {
+          name: "content",
+          type: "text",
+          note: "Markdown / JSON / YAML body",
+        },
+      ],
+    },
+  ]}
+/>
 
 ## Skills {#skills}
 
@@ -232,27 +237,36 @@ Use them when you want a focused delegate with its own name, description, model 
 
 Custom agents use YAML frontmatter plus Markdown instructions:
 
-<AnnotatedCode id="doc-block-yrvfel" title="A custom agent profile" filename="agents/design.md" language="markdown" code={"---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Role\n\nYou are a focused design agent.\n\n## Responsibilities\n\n- Review layouts and interaction flows\n- Suggest stronger visual direction\n- Be concise and opinionated"} annotations={[
-  {
-    "lines": "2",
-    "label": "@mention handle",
-    "note": "`name` is what appears in the `@`-dropdown and what the main agent delegates to."
-  },
-  {
-    "lines": "3-4",
-    "label": "When to delegate",
-    "note": "The `description` is what the orchestrator reads to decide this profile fits a task."
-  },
-  {
-    "lines": "5",
-    "label": "Model",
-    "note": "`inherit` reuses the main agent's model. Override only when the profile clearly needs a different one."
-  },
-  {
-    "lines": "6",
-    "note": "`tools: inherit` for now — the field is reserved for future per-agent tool policies."
+<AnnotatedCode
+  id="doc-block-yrvfel"
+  title="A custom agent profile"
+  filename="agents/design.md"
+  language="markdown"
+  code={
+    "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Role\n\nYou are a focused design agent.\n\n## Responsibilities\n\n- Review layouts and interaction flows\n- Suggest stronger visual direction\n- Be concise and opinionated"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "@mention handle",
+      note: "`name` is what appears in the `@`-dropdown and what the main agent delegates to.",
+    },
+    {
+      lines: "3-4",
+      label: "When to delegate",
+      note: "The `description` is what the orchestrator reads to decide this profile fits a task.",
+    },
+    {
+      lines: "5",
+      label: "Model",
+      note: "`inherit` reuses the main agent's model. Override only when the profile clearly needs a different one.",
+    },
+    {
+      lines: "6",
+      note: "`tools: inherit` for now — the field is reserved for future per-agent tool policies.",
+    },
+  ]}
+/>
 
 Recommended conventions:
 

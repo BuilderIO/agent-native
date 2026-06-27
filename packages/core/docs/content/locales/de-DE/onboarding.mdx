@@ -113,33 +113,42 @@ Drives the sidebar checklist — returns each step's id, title, methods, require
 
 ### Einen Schritt aus einer Vorlage hinzufügen
 
-<AnnotatedCode id="doc-block-7g6056" title="Registrieren eines benutzerdefinierten Onboarding-Schritts" filename="server/plugins/my-onboarding.ts" language="ts" code={"import { defineNitroPlugin } from \"@agent-native/core/server\";\nimport { registerOnboardingStep } from \"@agent-native/core/onboarding\";\nimport { listOAuthAccounts } from \"@agent-native/core/oauth-tokens\";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: \"gmail\",\n    order: 100,\n    title: \"Connect Gmail\",\n    description: \"Grant read/send access so the agent can work with email.\",\n    methods: [\n      {\n        id: \"oauth\",\n        kind: \"link\",\n        primary: true,\n        label: \"Sign in with Google\",\n        payload: { url: \"/_agent-native/google/auth-url?scope=mail\", external: false },\n      },\n      {\n        id: \"delegate\",\n        kind: \"agent-task\",\n        label: \"Let the agent set it up\",\n        badge: \"beta\",\n        payload: { prompt: \"Walk me through connecting Gmail. Set env vars as needed.\" },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts(\"google\");\n      return accounts.length > 0;\n    },\n  });\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "Automatisch montiert",
-    "note": "Registrieren Sie sich über ein Nitro-Plugin – das Framework übernimmt das Rendern, die Abschlussverfolgung und die Entlassung."
-  },
-  {
-    "lines": "7",
-    "label": "Stabile ID",
-    "note": "Die erneute Registrierung bei demselben `id` nach dem Laden der Standardeinstellungen überschreibt einen integrierten Schritt."
-  },
-  {
-    "lines": "12-19",
-    "label": "Primäre Methode",
-    "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow."
-  },
-  {
-    "lines": "20-26",
-    "label": "Delegierter Pfad",
-    "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt."
-  },
-  {
-    "lines": "28-31",
-    "label": "Abschlussprüfung",
-    "note": "`isComplete` läuft serverseitig. OAuth-Tokens leben im `oauth_tokens`-Store – überprüfen Sie es, nicht `process.env.GMAIL_REFRESH_TOKEN`."
+<AnnotatedCode
+  id="doc-block-7g6056"
+  title="Registrieren eines benutzerdefinierten Onboarding-Schritts"
+  filename="server/plugins/my-onboarding.ts"
+  language="ts"
+  code={
+    'import { defineNitroPlugin } from "@agent-native/core/server";\nimport { registerOnboardingStep } from "@agent-native/core/onboarding";\nimport { listOAuthAccounts } from "@agent-native/core/oauth-tokens";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: "gmail",\n    order: 100,\n    title: "Connect Gmail",\n    description: "Grant read/send access so the agent can work with email.",\n    methods: [\n      {\n        id: "oauth",\n        kind: "link",\n        primary: true,\n        label: "Sign in with Google",\n        payload: { url: "/_agent-native/google/auth-url?scope=mail", external: false },\n      },\n      {\n        id: "delegate",\n        kind: "agent-task",\n        label: "Let the agent set it up",\n        badge: "beta",\n        payload: { prompt: "Walk me through connecting Gmail. Set env vars as needed." },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts("google");\n      return accounts.length > 0;\n    },\n  });\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "Automatisch montiert",
+      note: "Registrieren Sie sich über ein Nitro-Plugin – das Framework übernimmt das Rendern, die Abschlussverfolgung und die Entlassung.",
+    },
+    {
+      lines: "7",
+      label: "Stabile ID",
+      note: "Die erneute Registrierung bei demselben `id` nach dem Laden der Standardeinstellungen überschreibt einen integrierten Schritt.",
+    },
+    {
+      lines: "12-19",
+      label: "Primäre Methode",
+      note: '`primary: true` marks the big CTA. `kind: "link"` sends the user into the OAuth flow.',
+    },
+    {
+      lines: "20-26",
+      label: "Delegierter Pfad",
+      note: '`kind: "agent-task"` übergibt die Einrichtung mit einem Prompt an den Agenten-Chat.',
+    },
+    {
+      lines: "28-31",
+      label: "Abschlussprüfung",
+      note: "`isComplete` läuft serverseitig. OAuth-Tokens leben im `oauth_tokens`-Store – überprüfen Sie es, nicht `process.env.GMAIL_REFRESH_TOKEN`.",
+    },
+  ]}
+/>
 
 ### Arbeitsbereichsverbindungen beim Onboarding prüfen
 

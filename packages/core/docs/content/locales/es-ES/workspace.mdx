@@ -185,36 +185,43 @@ Los usuarios pueden editar estos archivos de memoria directamente en la pestaña
 
 Cada una de estas superficies (`AGENTS.md`, skills, memoria, agentes personalizados, servidores MCP) tiene la misma forma de recurso subyacente: un `path` + `scope` + `content`, direccionado y resuelto de la misma manera.
 
-<DataModel id="doc-block-1mx0tv0" title="El modelo de recursos del espacio de trabajo" summary={"Una forma de recurso respalda cada archivo de espacio de trabajo. El tiempo de ejecución lo clave por ruta y alcance y resuelve el valor efectivo en la lectura."} entities={[
-  {
-    "id": "resource",
-    "name": "workspace resource",
-    "note": "Un único archivo en el espacio de trabajo de un usuario: instrucciones, habilidad, memoria, agente, configuración MCP o trabajo.",
-    "fields": [
-      {
-        "name": "path",
-        "type": "string",
-        "note": "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md"
-      },
-      {
-        "name": "scope",
-        "type": "workspace | shared | personal",
-        "note": "¿En qué nivel vive esta fila?"
-      },
-      {
-        "name": "owner",
-        "type": "string",
-        "nullable": true,
-        "note": "u:<email> for personal scope"
-      },
-      {
-        "name": "content",
-        "type": "text",
-        "note": "Markdown / JSON / YAML cuerpo"
-      }
-    ]
+<DataModel
+  id="doc-block-1mx0tv0"
+  title="El modelo de recursos del espacio de trabajo"
+  summary={
+    "Una forma de recurso respalda cada archivo de espacio de trabajo. El tiempo de ejecución lo clave por ruta y alcance y resuelve el valor efectivo en la lectura."
   }
-]} />
+  entities={[
+    {
+      id: "resource",
+      name: "workspace resource",
+      note: "Un único archivo en el espacio de trabajo de un usuario: instrucciones, habilidad, memoria, agente, configuración MCP o trabajo.",
+      fields: [
+        {
+          name: "path",
+          type: "string",
+          note: "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md",
+        },
+        {
+          name: "scope",
+          type: "workspace | shared | personal",
+          note: "¿En qué nivel vive esta fila?",
+        },
+        {
+          name: "owner",
+          type: "string",
+          nullable: true,
+          note: "u:<email> for personal scope",
+        },
+        {
+          name: "content",
+          type: "text",
+          note: "Markdown / JSON / YAML cuerpo",
+        },
+      ],
+    },
+  ]}
+/>
 
 ## Skills {#skills}
 
@@ -232,27 +239,36 @@ Los agentes personalizados son perfiles de subagente local reutilizables almacen
 
 Los agentes personalizados utilizan el frontmatter YAML más las instrucciones Markdown:
 
-<AnnotatedCode id="doc-block-sr7bz7" title="Un perfil de agente personalizado" filename="agents/design.md" language="markdown" code={"---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Rol\n\nYou es un agente de diseño enfocado.\n\n## Responsabilidades\n\n- Revisar diseños y flujos de interacción\n- Sugerir una dirección visual más fuerte\n- Ser conciso y obstinado"} annotations={[
-  {
-    "lines": "2",
-    "label": "@mention handle",
-    "note": "`name` es lo que aparece en el menú desplegable `@` y en lo que delega el agente principal."
-  },
-  {
-    "lines": "3-4",
-    "label": "Cuando delegar",
-    "note": "`description` es lo que lee el orquestador para decidir que este perfil se ajusta a una tarea."
-  },
-  {
-    "lines": "5",
-    "label": "modelo",
-    "note": "`inherit` reutiliza el modelo del agente principal. Anular sólo cuando el perfil claramente necesite uno diferente."
-  },
-  {
-    "lines": "6",
-    "note": "`tools: inherit` por ahora: el campo está reservado para futuras políticas de herramientas por agente."
+<AnnotatedCode
+  id="doc-block-sr7bz7"
+  title="Un perfil de agente personalizado"
+  filename="agents/design.md"
+  language="markdown"
+  code={
+    "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# Rol\n\nYou es un agente de diseño enfocado.\n\n## Responsabilidades\n\n- Revisar diseños y flujos de interacción\n- Sugerir una dirección visual más fuerte\n- Ser conciso y obstinado"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "@mention handle",
+      note: "`name` es lo que aparece en el menú desplegable `@` y en lo que delega el agente principal.",
+    },
+    {
+      lines: "3-4",
+      label: "Cuando delegar",
+      note: "`description` es lo que lee el orquestador para decidir que este perfil se ajusta a una tarea.",
+    },
+    {
+      lines: "5",
+      label: "modelo",
+      note: "`inherit` reutiliza el modelo del agente principal. Anular sólo cuando el perfil claramente necesite uno diferente.",
+    },
+    {
+      lines: "6",
+      note: "`tools: inherit` por ahora: el campo está reservado para futuras políticas de herramientas por agente.",
+    },
+  ]}
+/>
 
 Convenciones recomendadas:
 

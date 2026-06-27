@@ -8,7 +8,12 @@ description: "代理原生表单生成器 - 通过自然语言和可视化编辑
 Forms 是一个代理原生表单构建器。描述您想要的表单，在编辑器中对其进行完善，然后发布一个公共表单，将提交内容存储在您自己的 SQL 数据库中。
 
 <WireframeBlock id="doc-block-g9edo7">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta 注册</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>分享</button><button class='primary'>取消发布</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>编辑</span><span class='wf-pill'>结果 187</span><span class='wf-pill'>设置</span><span class='wf-pill'>集成</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta 注册</h2><p class='wf-muted' style='margin:0'>预留即将开始的私密 beta 名额。</p><div class='wf-card'><strong>姓名</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>工作邮箱</strong><input value='you@company.com'/></div><div class='wf-card'><strong>你的角色</strong><input value='Select...'/></div><div class='wf-card'><strong>团队规模</strong><input value='Select...'/></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Beta 注册</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>分享</button><button class='primary'>取消发布</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>编辑</span><span class='wf-pill'>结果 187</span><span class='wf-pill'>设置</span><span class='wf-pill'>集成</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Beta 注册</h2><p class='wf-muted' style='margin:0'>预留即将开始的私密 beta 名额。</p><div class='wf-card'><strong>姓名</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>工作邮箱</strong><input value='you@company.com'/></div><div class='wf-card'><strong>你的角色</strong><input value='Select...'/></div><div class='wf-card'><strong>团队规模</strong><input value='Select...'/></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 当您打开应用程序时，您会看到表单、当前编辑器和实时预览。代理可以根据提示创建表单、更新字段标签和选项、更改验证以及使用 UI 使用的相同 actions 连接提交目的地。
@@ -91,140 +96,148 @@ npx @agent-native/core@latest create my-platform
 
 `fields` 和 `settings` JSON 形状在 `templates/forms/shared/types.ts`（`FormField`、`FormSettings`）中定义。在任何数据通过 `toPublicFormSettings` 到达公共填充页面之前，所有者私有设置（例如集成 Webhook URL 和允许的来源）都会被删除。
 
-<DataModel id="doc-block-18t7v7s" title={"表单数据模型"} summary={"三张桌子。字段和集成是表单上的 JSON 列，因此代理的编辑是外科手术补丁，而不是跨表行更改。"} entities={[
-  {
-    "id": "forms",
-    "name": "forms",
-    "note": "A form definition (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "string"
-      },
-      {
-        "name": "description",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "note": "unique; public URL"
-      },
-      {
-        "name": "fields",
-        "type": "json",
-        "note": "FormField[] — 所有字段类型"
-      },
-      {
-        "name": "settings",
-        "type": "json",
-        "note": "FormSettings — 集成等"
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "草稿|发表 |关闭"
-      },
-      {
-        "name": "deleted_at",
-        "type": "datetime",
-        "nullable": true,
-        "note": "soft delete"
-      },
-      {
-        "name": "owner_email",
-        "type": "string"
-      },
-      {
-        "name": "org_id",
-        "type": "id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "responses",
-    "name": "responses",
-    "note": "每行一次提交",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "form_id",
-        "type": "id",
-        "fk": "forms.id"
-      },
-      {
-        "name": "data",
-        "type": "json",
-        "note": "{ fieldId: value }"
-      },
-      {
-        "name": "submitted_at",
-        "type": "datetime"
-      },
-      {
-        "name": "ip",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "submitter_email",
-        "type": "string",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "form_shares",
-    "name": "form_shares",
-    "note": "框架份额表——每个表格的角色原则",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "form_id",
-        "type": "id",
-        "fk": "forms.id"
-      },
-      {
-        "name": "principal",
-        "type": "string",
-        "note": "user or org"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "观众|编辑|行政"
-      }
-    ]
+<DataModel
+  id="doc-block-18t7v7s"
+  title={"表单数据模型"}
+  summary={
+    "三张桌子。字段和集成是表单上的 JSON 列，因此代理的编辑是外科手术补丁，而不是跨表行更改。"
   }
-]} relations={[
-  {
-    "from": "forms",
-    "to": "responses",
-    "kind": "1-n",
-    "label": "has responses"
-  },
-  {
-    "from": "forms",
-    "to": "form_shares",
-    "kind": "1-n",
-    "label": "has share grants"
-  }
-]} />
+  entities={[
+    {
+      id: "forms",
+      name: "forms",
+      note: "A form definition (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "unique; public URL",
+        },
+        {
+          name: "fields",
+          type: "json",
+          note: "FormField[] — 所有字段类型",
+        },
+        {
+          name: "settings",
+          type: "json",
+          note: "FormSettings — 集成等",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "草稿|发表 |关闭",
+        },
+        {
+          name: "deleted_at",
+          type: "datetime",
+          nullable: true,
+          note: "soft delete",
+        },
+        {
+          name: "owner_email",
+          type: "string",
+        },
+        {
+          name: "org_id",
+          type: "id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "responses",
+      name: "responses",
+      note: "每行一次提交",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "{ fieldId: value }",
+        },
+        {
+          name: "submitted_at",
+          type: "datetime",
+        },
+        {
+          name: "ip",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "submitter_email",
+          type: "string",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "form_shares",
+      name: "form_shares",
+      note: "框架份额表——每个表格的角色原则",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "观众|编辑|行政",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "forms",
+      to: "responses",
+      kind: "1-n",
+      label: "has responses",
+    },
+    {
+      from: "forms",
+      to: "form_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
 
 ### 密钥actions
 

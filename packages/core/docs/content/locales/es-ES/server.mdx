@@ -103,23 +103,32 @@ en una acción para que UI y el agente compartan la misma capacidad.
 
 Actions montado por el marco se ejecuta automáticamente con el contexto de solicitud. Las rutas personalizadas no. Si una ruta personalizada lee o escribe recursos propios, carga la sesión y ajusta el trabajo:
 
-<AnnotatedCode id="doc-block-jgxe6q" title="Determinar el alcance de una ruta personalizada para el usuario de la solicitud" filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "Las rutas personalizadas no tienen contexto automático",
-    "note": "A diferencia de las acciones, una ruta de archivo debe cargar la sesión misma y no cerrarse cuando no hay ningún usuario autenticado."
-  },
-  {
-    "lines": "12-13",
-    "label": "Establecer contexto de solicitud",
-    "note": "`runWithRequestContext` pone el usuario y la organización a disposición de los ayudantes de alcance durante la duración del trabajo."
-  },
-  {
-    "lines": "18-19",
-    "label": "Lecturas propias del alcance",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-jgxe6q"
+  title="Determinar el alcance de una ruta personalizada para el usuario de la solicitud"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectShares));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "Las rutas personalizadas no tienen contexto automático",
+      note: "A diferencia de las acciones, una ruta de archivo debe cargar la sesión misma y no cerrarse cuando no hay ningún usuario autenticado.",
+    },
+    {
+      lines: "12-13",
+      label: "Establecer contexto de solicitud",
+      note: "`runWithRequestContext` pone el usuario y la organización a disposición de los ayudantes de alcance durante la duración del trabajo.",
+    },
+    {
+      lines: "18-19",
+      label: "Lecturas propias del alcance",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `getDb` se crea por aplicación a través de `createGetDb(schema)` en `server/db/index.ts`, por lo que las rutas personalizadas se importan desde la plantilla (`../../db/index.js`), no desde `@agent-native/core/db`; ver [Database — Where the DB Client Lives](/docs/database#db-client). No ejecute `db.select().from(ownableTable)` sin ámbito en rutas personalizadas.
 

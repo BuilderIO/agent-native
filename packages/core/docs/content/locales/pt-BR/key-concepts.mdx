@@ -31,20 +31,24 @@ Aplicativos headless podem executar o mesmo loop de agente de aplicativo de prod
 Todo aplicativo nativo de agente tem os mesmos blocos de construção de agente, independentemente de
 a superfície do produto é headless, chat-first ou UI completo:
 
-<FileTree id="doc-block-1c0l5rq" title={"Orientação e comportamento"} entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "Instruções sempre ativas: propósito, regras centrais, chaves de estado, índice de actions, índice de skills"
-  },
-  {
-    "path": ".agents/skills/<name>/SKILL.md",
-    "note": "Comportamento reutilizável: etapas de workflow, políticas, exemplos, referências e listas do que fazer/não fazer"
-  },
-  {
-    "path": "actions/<name>.ts",
-    "note": "Capacidade executável: operação tipada exposta ao agente, UI, CLI, HTTP, MCP, A2A, jobs e webhooks"
-  }
-]} />
+<FileTree
+  id="doc-block-1c0l5rq"
+  title={"Orientação e comportamento"}
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "Instruções sempre ativas: propósito, regras centrais, chaves de estado, índice de actions, índice de skills",
+    },
+    {
+      path: ".agents/skills/<name>/SKILL.md",
+      note: "Comportamento reutilizável: etapas de workflow, políticas, exemplos, referências e listas do que fazer/não fazer",
+    },
+    {
+      path: "actions/<name>.ts",
+      note: "Capacidade executável: operação tipada exposta ao agente, UI, CLI, HTTP, MCP, A2A, jobs e webhooks",
+    },
+  ]}
+/>
 
 | Bloco de construção | Use-o para                                                                                                                        | Carregado quando                                                         |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
@@ -91,74 +95,81 @@ As lojas principais SQL são criadas automaticamente e estão disponíveis em to
 - `oauth_tokens` — credenciais OAuth
 - `sessions` — sessões de autenticação
 
-<DataModel id="doc-block-zeyf73" title="Lojas principais SQL" summary={"Criado automaticamente em cada modelo — o agente e UI leem e gravam estes."} entities={[
-  {
-    "id": "application_state",
-    "name": "application_state",
-    "note": "Efêmero UI estado que o agente lê para obter contexto",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true,
-        "note": "por exemplo. 'navigation'"
-      },
-      {
-        "name": "value",
-        "type": "json",
-        "note": "visualização, seleção, rascunhos"
-      }
-    ]
-  },
-  {
-    "id": "settings",
-    "name": "settings",
-    "note": "Configuração de valor-chave persistente",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "value",
-        "type": "json"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "OAuth credenciais",
-    "fields": [
-      {
-        "name": "provider",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "token",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "sessions",
-    "note": "Sessões de autenticação",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "userId",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-zeyf73"
+  title="Lojas principais SQL"
+  summary={
+    "Criado automaticamente em cada modelo — o agente e UI leem e gravam estes."
   }
-]} />
+  entities={[
+    {
+      id: "application_state",
+      name: "application_state",
+      note: "Efêmero UI estado que o agente lê para obter contexto",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+          note: "por exemplo. 'navigation'",
+        },
+        {
+          name: "value",
+          type: "json",
+          note: "visualização, seleção, rascunhos",
+        },
+      ],
+    },
+    {
+      id: "settings",
+      name: "settings",
+      note: "Configuração de valor-chave persistente",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "value",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "OAuth credenciais",
+      fields: [
+        {
+          name: "provider",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "token",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "sessions",
+      note: "Sessões de autenticação",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "userId",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+/>
 
 ```ts
 // Drizzle schema for domain data

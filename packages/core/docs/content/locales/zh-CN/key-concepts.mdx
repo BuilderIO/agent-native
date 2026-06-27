@@ -31,20 +31,24 @@ description: "代理本机应用程序的工作原理：首先是 actions、SQL 
 每个代理本机应用程序都具有相同的代理构建块，无论是否
 产品表面是无头的、聊天优先的或完整的 UI：
 
-<FileTree id="doc-block-jn7mlp" title={"指导和行为"} entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "始终生效的指令：目的、核心规则、状态键、actions 索引、skills 索引"
-  },
-  {
-    "path": ".agents/skills/<name>/SKILL.md",
-    "note": "可复用行为：workflow 步骤、策略、示例、参考以及做/不做清单"
-  },
-  {
-    "path": "actions/<name>.ts",
-    "note": "可执行能力：暴露给代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 的类型化操作"
-  }
-]} />
+<FileTree
+  id="doc-block-jn7mlp"
+  title={"指导和行为"}
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "始终生效的指令：目的、核心规则、状态键、actions 索引、skills 索引",
+    },
+    {
+      path: ".agents/skills/<name>/SKILL.md",
+      note: "可复用行为：workflow 步骤、策略、示例、参考以及做/不做清单",
+    },
+    {
+      path: "actions/<name>.ts",
+      note: "可执行能力：暴露给代理、UI、CLI、HTTP、MCP、A2A、jobs 和 webhooks 的类型化操作",
+    },
+  ]}
+/>
 
 | 构建块      | 使用它                                                                 | 加载时间                         |
 | ----------- | ---------------------------------------------------------------------- | -------------------------------- |
@@ -91,74 +95,79 @@ Skills 和 actions 一起工作。一项技能教代理如何做一类
 - `oauth_tokens` — OAuth 凭证
 - `sessions` — 身份验证会话
 
-<DataModel id="doc-block-g2do85" title={"核心 SQL 商店"} summary={"在每个模板中自动创建 - 代理和 UI 都可以读取和写入这些模板。"} entities={[
-  {
-    "id": "application_state",
-    "name": "application_state",
-    "note": "代理读取上下文的临时 UI 状态",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true,
-        "note": "e.g。 '导航'"
-      },
-      {
-        "name": "value",
-        "type": "json",
-        "note": "查看、选择、草稿"
-      }
-    ]
-  },
-  {
-    "id": "settings",
-    "name": "settings",
-    "note": "持久键值配置",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "value",
-        "type": "json"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "OAuth 凭据",
-    "fields": [
-      {
-        "name": "provider",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "token",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "sessions",
-    "note": "身份验证会话",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "userId",
-        "type": "text"
-      }
-    ]
-  }
-]} />
+<DataModel
+  id="doc-block-g2do85"
+  title={"核心 SQL 商店"}
+  summary={"在每个模板中自动创建 - 代理和 UI 都可以读取和写入这些模板。"}
+  entities={[
+    {
+      id: "application_state",
+      name: "application_state",
+      note: "代理读取上下文的临时 UI 状态",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+          note: "e.g。 '导航'",
+        },
+        {
+          name: "value",
+          type: "json",
+          note: "查看、选择、草稿",
+        },
+      ],
+    },
+    {
+      id: "settings",
+      name: "settings",
+      note: "持久键值配置",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "value",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "OAuth 凭据",
+      fields: [
+        {
+          name: "provider",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "token",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "sessions",
+      note: "身份验证会话",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "userId",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+/>
 
 ```ts
 // Drizzle schema for domain data

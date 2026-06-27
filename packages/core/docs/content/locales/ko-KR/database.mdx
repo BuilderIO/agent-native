@@ -89,55 +89,62 @@ export const tasks = table("tasks", {
 
 위의 `tasks` 테이블은 모든 백엔드에서 동일한 열을 정의합니다.
 
-<DataModel id="doc-block-10ub4z9" title={"작업 테이블"} summary={"Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."} entities={[
-  {
-    "id": "tasks",
-    "name": "tasks",
-    "note": "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true,
-        "nullable": false
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": false
-      },
-      {
-        "name": "priority",
-        "type": "integer",
-        "nullable": false,
-        "note": "default 0"
-      },
-      {
-        "name": "weight",
-        "type": "real",
-        "nullable": true
-      },
-      {
-        "name": "done",
-        "type": "integer (boolean mode)",
-        "nullable": false,
-        "note": "default false; maps to a Postgres boolean"
-      },
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "enables data scoping"
-      },
-      {
-        "name": "created_at",
-        "type": "text",
-        "nullable": false,
-        "note": "default now()"
-      }
-    ]
+<DataModel
+  id="doc-block-10ub4z9"
+  title={"작업 테이블"}
+  summary={
+    "Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
   }
-]} />
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "weight",
+          type: "real",
+          nullable: true,
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
 
 `drizzle-orm/sqlite-core` 또는 `drizzle-orm/pg-core`에서 직접 가져오지 마십시오. 항상 `@agent-native/core/db/schema`를 사용하세요.
 
@@ -191,23 +198,32 @@ Drizzle 쿼리 외부에 원시 SQL가 꼭 필요한 경우:
 
 직접 푸시하는 대신 애플리케이션 시작 시 실행되는 SQL 마이그레이션을 통해 스키마 변경 사항을 적용해야 합니다. 프레임워크의 `runMigrations()` 도우미를 호출하여 서버 플러그인(예: `server/plugins/db.ts`) 내에서 추가 마이그레이션을 구현합니다.
 
-<AnnotatedCode id="doc-block-fx471" title={"추가 마이그레이션 플러그인"} filename="server/plugins/db.ts" language="ts" code={"import { runMigrations } from \"@agent-native/core/db\";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: \"my_app_migrations\" },\n);"} annotations={[
-  {
-    "lines": "6-7",
-    "label": "첨가제만",
-    "note": "`ADD COLUMN IF NOT EXISTS`은 다시 실행해도 안전하며 데이터를 삭제하지 않습니다. 이름 바꾸기는 Drizzle에 drop+create와 유사하므로 대신 추가 후 마이그레이션하세요."
-  },
-  {
-    "lines": "13-16",
-    "label": "방언 게이팅",
-    "note": "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features."
-  },
-  {
-    "lines": "19",
-    "label": "앱별 버전 표",
-    "note": "각 앱은 자체 적용된 버전을 추적하므로 마이그레이션은 다시 시작 및 인스턴스 전반에 걸쳐 멱등성을 갖습니다."
+<AnnotatedCode
+  id="doc-block-fx471"
+  title={"추가 마이그레이션 플러그인"}
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend. Omit the other key\n      // to make it a no-op on that dialect.\n      version: 2,\n      sql: {\n        postgres: `ALTER TABLE projects ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`, // no-op; tsvector is Postgres-only\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
   }
-]} />
+  annotations={[
+    {
+      lines: "6-7",
+      label: "첨가제만",
+      note: "`ADD COLUMN IF NOT EXISTS`은 다시 실행해도 안전하며 데이터를 삭제하지 않습니다. 이름 바꾸기는 Drizzle에 drop+create와 유사하므로 대신 추가 후 마이그레이션하세요.",
+    },
+    {
+      lines: "13-16",
+      label: "방언 게이팅",
+      note: "Pass an object keyed by dialect to run different SQL per backend. Make the other key a no-op (`SELECT 1`) for Postgres-only or SQLite-only features.",
+    },
+    {
+      lines: "19",
+      label: "앱별 버전 표",
+      note: "각 앱은 자체 적용된 버전을 추적하므로 마이그레이션은 다시 시작 및 인스턴스 전반에 걸쳐 멱등성을 갖습니다.",
+    },
+  ]}
+/>
 
 ## 환경변수 {#environment-variables}
 

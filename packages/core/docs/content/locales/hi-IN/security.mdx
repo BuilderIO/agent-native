@@ -188,33 +188,40 @@ export const projects = table("projects", {
 });
 ```
 
-<DataModel id="doc-block-16nt3zl" title="What ownableColumns() adds" summary={"तीन कॉलम जो तालिका को किरायेदार-जागरूक और साझा करने योग्य बनाते हैं।"} entities={[
-  {
-    "id": "ownable",
-    "name": "ownable resource",
-    "note": "Any table that spreads ...ownableColumns()",
-    "fields": [
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "Creator. Auto-filled by write actions; auto-injected on INSERT."
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true,
-        "note": "निर्माण के समय स्वामी का सक्रिय संगठन। ऑर्ग-विजिबिलिटी जांच चलाता है।"
-      },
-      {
-        "name": "visibility",
-        "type": "enum",
-        "nullable": false,
-        "note": "निजी | संगठन | सार्वजनिक - मोटे तौर पर डिफ़ॉल्ट, डिफ़ॉल्ट से निजी।"
-      }
-    ]
+<DataModel
+  id="doc-block-16nt3zl"
+  title="What ownableColumns() adds"
+  summary={
+    "तीन कॉलम जो तालिका को किरायेदार-जागरूक और साझा करने योग्य बनाते हैं।"
   }
-]} />
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads ...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "निर्माण के समय स्वामी का सक्रिय संगठन। ऑर्ग-विजिबिलिटी जांच चलाता है।",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "निजी | संगठन | सार्वजनिक - मोटे तौर पर डिफ़ॉल्ट, डिफ़ॉल्ट से निजी।",
+        },
+      ],
+    },
+  ]}
+/>
 
 ### actions में एक्सेस गार्ड {#access-guards}
 

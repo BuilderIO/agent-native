@@ -8,7 +8,12 @@ description: "Ein programmatisches Videostudio für Bewegungsgrafiken, Produktde
 Ein programmatisches Videostudio für die Art von Bewegungsgrafiken, Produktdemos und Videos mit kinetischem Text, bei denen das Keyframeing von Hand mühsam ist. Bitten Sie den Agenten um „eine 6-Sekunden-Logo-Enthüllung, die nach 2 Sekunden eingeblendet wird“, und er erstellt die Animation. Passen Sie Timing, Easing und Kamerabewegungen auf einer Zeitleiste an und rendern Sie sie dann in MP4 oder WebM.
 
 <WireframeBlock id="doc-block-1ruzkrq">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo-Reveal</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion-Vorschau</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>Neue Spur</button></div><div class='wf-box'>Titel einblenden · Frames 0-48</div><div class='wf-box'>Logo skalieren · Frames 48-120</div><div class='wf-box'>Kamerafahrt · Frames 72-144</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo-Reveal</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion-Vorschau</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>Neue Spur</button></div><div class='wf-box'>Titel einblenden · Frames 0-48</div><div class='wf-box'>Logo skalieren · Frames 48-120</div><div class='wf-box'>Kamerafahrt · Frames 72-144</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Wenn Sie das Studio öffnen, wird auf dem Startbildschirm eine Liste der Kompositionen angezeigt. Klicken Sie darauf und Sie erhalten oben einen Player, unten eine Zeitleiste und rechts ein Eigenschaftenfenster. Der Agent weiß immer, welche Komposition Sie geöffnet haben.
@@ -96,113 +101,121 @@ Unter der Haube nennt der Agentenaktionen wie `navigate`, `save-composition` und
 
 Serverseitiges Schema befindet sich in `templates/videos/server/db/schema.ts`:
 
-<DataModel id="doc-block-12rdzxe" title="Videodatenmodell" summary={"Von SQL unterstützte Kompositionen sowie Designsysteme und verschachtelbare Ordner, jeweils mit einer Framework-Shares-Tabelle."} entities={[
-  {
-    "id": "compositions",
-    "name": "compositions",
-    "note": "User-created compositions and overrides; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "type",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "Vollständige Komposition JSON Blob"
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      },
-      {
-        "name": "updated_at",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "design_systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens; ownableColumns",
-    "fields": [
-      {
-        "name": "data",
-        "type": "text",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "folders",
-    "name": "folders",
-    "note": "Nestable folders; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "name",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "folder_memberships",
-    "name": "folder_memberships",
-    "note": "Viele-zu-viele schließen sich an",
-    "fields": [
-      {
-        "name": "folder_id",
-        "type": "text",
-        "fk": "folders.id"
-      },
-      {
-        "name": "composition_id",
-        "type": "text",
-        "fk": "compositions.id"
-      }
-    ]
+<DataModel
+  id="doc-block-12rdzxe"
+  title="Videodatenmodell"
+  summary={
+    "Von SQL unterstützte Kompositionen sowie Designsysteme und verschachtelbare Ordner, jeweils mit einer Framework-Shares-Tabelle."
   }
-]} relations={[
-  {
-    "from": "folders",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "members"
-  },
-  {
-    "from": "compositions",
-    "to": "folder_memberships",
-    "kind": "1-n",
-    "label": "in folders"
-  }
-]} />
+  entities={[
+    {
+      id: "compositions",
+      name: "compositions",
+      note: "User-created compositions and overrides; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "Vollständige Komposition JSON Blob",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "Nestable folders; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "folder_memberships",
+      name: "folder_memberships",
+      note: "Viele-zu-viele schließen sich an",
+      fields: [
+        {
+          name: "folder_id",
+          type: "text",
+          fk: "folders.id",
+        },
+        {
+          name: "composition_id",
+          type: "text",
+          fk: "compositions.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "folders",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "members",
+    },
+    {
+      from: "compositions",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "in folders",
+    },
+  ]}
+/>
 
 Jede Tabelle verfügt außerdem über eine passende Framework-Anteilstabelle (`composition_shares`, `design_system_shares`, `folder_shares`), die von `createSharesTable()` erstellt wurde.
 

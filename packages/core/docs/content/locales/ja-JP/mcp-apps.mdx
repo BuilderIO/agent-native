@@ -54,23 +54,32 @@ export default defineAction({
 });
 ```
 
-<AnnotatedCode id="doc-block-118q90w" title={"mcpApp リソース構成"} filename="actions/review-draft.ts" language="ts" code={"import { embedApp } from \"@agent-native/core\";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: \"Review draft\",\n      description: \"Open the generated draft in the real Mail compose UI.\",\n      iframeTitle: \"Agent-Native Mail\",\n      openLabel: \"Open in Mail\",\n    }),\n  },\n});"} annotations={[
-  {
-    "lines": "6",
-    "label": "段階的な強化",
-    "note": "`mcpApp.resource` は、MCP Apps 拡張機能をサポートするホストのインライン UI をアドバタイズします。アクションの `link` ビルダーも保持します。CLI のみの古いホストは UI メタデータを無視し、依然としてディープ リンクを必要とします。"
-  },
-  {
-    "lines": "7",
-    "label": "Embed = the link target",
-    "note": "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route."
-  },
-  {
-    "lines": "11",
-    "label": "ユニバーサルフォールバックラベル",
-    "note": "`openLabel` is the visible `\"Open in … →\"` text used as the deep-link escape hatch when a host does not render the inline iframe."
+<AnnotatedCode
+  id="doc-block-118q90w"
+  title={"mcpApp リソース構成"}
+  filename="actions/review-draft.ts"
+  language="ts"
+  code={
+    'import { embedApp } from "@agent-native/core";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: "Review draft",\n      description: "Open the generated draft in the real Mail compose UI.",\n      iframeTitle: "Agent-Native Mail",\n      openLabel: "Open in Mail",\n    }),\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "段階的な強化",
+      note: "`mcpApp.resource` は、MCP Apps 拡張機能をサポートするホストのインライン UI をアドバタイズします。アクションの `link` ビルダーも保持します。CLI のみの古いホストは UI メタデータを無視し、依然としてディープ リンクを必要とします。",
+    },
+    {
+      lines: "7",
+      label: "Embed = the link target",
+      note: "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route.",
+    },
+    {
+      lines: "11",
+      label: "ユニバーサルフォールバックラベル",
+      note: '`openLabel` は、ホストがインライン iframe をレンダリングしない場合のディープリンク退避先として使われる、表示テキスト `"Open in … →"` です。',
+    },
+  ]}
+/>
 
 MCP サーバーは、拡張機能 `io.modelcontextprotocol/ui` をアドバタイズし、`_meta.ui.resourceUri` と `_meta["ui/resourceUri"]` を `tools/list` に追加し、ChatGPT アプリ SDK 互換性メタデータ (`openai/outputTemplate`、ウィジェット CSP/説明/アクセシビリティ) も発行します。 MIME `text/html;profile=mcp-app` を使用して、HTML から `resources/list`、`resources/templates/list`、および `resources/read` を公開します。標準入出力プロキシはライブ アプリからこれらのリソース ハンドラーを転送するため、デスクトップおよび CLI クライアントは HTTP クライアントと同じリソースを認識します。
 

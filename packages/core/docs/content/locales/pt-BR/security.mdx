@@ -188,33 +188,40 @@ export const projects = table("projects", {
 });
 ```
 
-<DataModel id="doc-block-eqjd6s" title="What ownableColumns() adds" summary={"As três colunas que tornam uma tabela compatível com locatários e compartilhável."} entities={[
-  {
-    "id": "ownable",
-    "name": "ownable resource",
-    "note": "Any table that spreads...ownableColumns()",
-    "fields": [
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "Creator. Auto-filled by write actions; auto-injected on INSERT."
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true,
-        "note": "Organização ativa do proprietário na criação. Impulsiona verificações de visibilidade organizacional."
-      },
-      {
-        "name": "visibility",
-        "type": "enum",
-        "nullable": false,
-        "note": "privado | organização | público — padrão grosseiro, o padrão é privado."
-      }
-    ]
+<DataModel
+  id="doc-block-eqjd6s"
+  title="What ownableColumns() adds"
+  summary={
+    "As três colunas que tornam uma tabela compatível com locatários e compartilhável."
   }
-]} />
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "Organização ativa do proprietário na criação. Impulsiona verificações de visibilidade organizacional.",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "privado | organização | público — padrão grosseiro, o padrão é privado.",
+        },
+      ],
+    },
+  ]}
+/>
 
 ### Proteções de acesso em actions {#access-guards}
 

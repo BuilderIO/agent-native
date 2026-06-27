@@ -102,23 +102,32 @@ Create `mcp.config.json` at your workspace root (or at an individual app root �
 
 The shape is small: a `servers` map keyed by server id, where each entry is either a stdio launcher (`command` + `args` + optional `env`) or a remote `{ "type": "http", "url", "headers" }` entry.
 
-<AnnotatedCode id="doc-block-19dkfja" title="mcp.config.json, annotated" filename="mcp.config.json" language="jsonc" code={"{\n  \"$schema\": \"https://agent-native.com/schema/mcp.config.json\",\n  \"servers\": {\n    \"claude-in-chrome\": {\n      \"command\": \"claude-in-chrome-mcp\",\n      \"args\": [],\n      \"env\": { \"LOG_LEVEL\": \"info\" }\n    },\n    \"filesystem\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"@modelcontextprotocol/server-filesystem@latest\", \"/Users/me/projects\"]\n    }\n  }\n}"} annotations={[
-  {
-    "lines": "3",
-    "label": "Server id",
-    "note": "The key becomes the tool prefix: this server's tools surface as `mcp__claude-in-chrome__*` in the agent's registry, so they can't collide with your template's actions."
-  },
-  {
-    "lines": "4-6",
-    "label": "stdio launcher",
-    "note": "`command` + `args` spawn a local binary. Stdio servers are intended for **local development** — they are a no-op in edge runtimes."
-  },
-  {
-    "lines": "6",
-    "label": "Process env",
-    "note": "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens."
+<AnnotatedCode
+  id="doc-block-19dkfja"
+  title="mcp.config.json, annotated"
+  filename="mcp.config.json"
+  language="jsonc"
+  code={
+    '{\n  "$schema": "https://agent-native.com/schema/mcp.config.json",\n  "servers": {\n    "claude-in-chrome": {\n      "command": "claude-in-chrome-mcp",\n      "args": [],\n      "env": { "LOG_LEVEL": "info" }\n    },\n    "filesystem": {\n      "command": "npx",\n      "args": ["-y", "@modelcontextprotocol/server-filesystem@latest", "/Users/me/projects"]\n    }\n  }\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "3",
+      label: "Server id",
+      note: "The key becomes the tool prefix: this server's tools surface as `mcp__claude-in-chrome__*` in the agent's registry, so they can't collide with your template's actions.",
+    },
+    {
+      lines: "4-6",
+      label: "stdio launcher",
+      note: "`command` + `args` spawn a local binary. Stdio servers are intended for **local development** — they are a no-op in edge runtimes.",
+    },
+    {
+      lines: "6",
+      label: "Process env",
+      note: "Optional `env` is passed to the spawned process. Keep secrets out of committed config; prefer `MCP_SERVERS` or the settings UI for tokens.",
+    },
+  ]}
+/>
 
 On next app start you'll see:
 

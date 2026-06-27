@@ -9,7 +9,12 @@ search: "Clips registros del navegador registros del desarrollador registros de 
 Una aplicación que lo captura todo: grabaciones de pantalla, notas de reuniones de su calendario y dictado de voz con Fn-hold. El agente transcribe, titula, resume e indexa todo; luego le permite preguntar "busque el clip donde discutimos el plan de implementación" y busca en todas las transcripciones que haya realizado.
 
 <WireframeBlock id="doc-block-1swnyjw">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Clips de ingeniería</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Revisión de OKR</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Flujo de incorporación</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Reproducción de bug</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Legible por agentes</span><span>Transcripción + fotogramas listos para enlaces compartidos</span><div style='flex:1'></div><button>Compartir</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Búsqueda de transcripciones</strong><div class='wf-box'>Capítulo coincidente 03:12 · riesgos de despliegue y traspaso de propietario</div><div class='wf-box'>Resumen de la reunión y acciones</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Clips de ingeniería</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Revisión de OKR</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Flujo de incorporación</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Reproducción de bug</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>Legible por agentes</span><span>Transcripción + fotogramas listos para enlaces compartidos</span><div style='flex:1'></div><button>Compartir</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Búsqueda de transcripciones</strong><div class='wf-box'>Capítulo coincidente 03:12 · riesgos de despliegue y traspaso de propietario</div><div class='wf-box'>Resumen de la reunión y acciones</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Piense en la línea de Loom + Granola + Wispr Flow en una sola aplicación, pero el agente es un editor de primera clase en todas las superficies, y las grabaciones, reuniones y dictados son suyos, no de un proveedor de SaaS. Clips también hace que las grabaciones compartidas sean legibles para el agente: pegue un enlace normal para compartir de Clips en un agente y este podrá "escuchar" la transcripción como texto y "ver" marcos de pantalla con marca de tiempo como imágenes; no se necesita video sin formato. La visualización de cuadros funciona en cualquier agente con capacidad de imagen (ChatGPT, Código Claude, Cursor, Codex); Los chats web de solo texto aún obtienen la transcripción completa y pueden tomar un fotograma que usted cargue.
@@ -122,8 +127,6 @@ Returns clip metadata, transcript status, chapters, CTAs, recommended frames, an
   }
 ]}>
 
-
-
 </Endpoint>
 
 <Endpoint id="doc-block-lqc8vu" title="Marco en una marca de tiempo" method="GET" path="/api/agent-frame.jpg" summary={"Un fotograma JPEG extraído del vídeo en una marca de tiempo del vídeo original."} params={[
@@ -147,8 +150,6 @@ Returns clip metadata, transcript status, chapters, CTAs, recommended frames, an
     "description": "image/jpeg frame"
   }
 ]}>
-
-
 
 </Endpoint>
 
@@ -267,156 +268,164 @@ el recurso alternativo cuando la aplicación no está instalada.
 
 Todos los datos residen en SQL a través de Drizzle ORM. Esquema: `templates/clips/server/db/schema.ts`. Las grabaciones, las reuniones, los dictados, las cuentas de calendario y el vocabulario llevan el estándar `ownableColumns` y tienen una tabla de recursos compartidos de marco coincidente, por lo que encajan en el modelo de uso compartido por usuario/por organización.
 
-<DataModel id="doc-block-1m84q58" title="Modelo de datos central Clips" summary={"recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"} entities={[
-  {
-    "id": "recordings",
-    "name": "recordings",
-    "note": "Core resource; source of truth for media. ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "video_url",
-        "type": "text",
-        "note": "plus format / size / duration / thumbnails"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "edits_json",
-        "type": "text",
-        "note": "Ediciones no destructivas"
-      },
-      {
-        "name": "chapters_json",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "password",
-        "type": "text",
-        "nullable": true,
-        "note": "Privacidad: contraseña/caducidad"
-      }
-    ]
-  },
-  {
-    "id": "recording_transcripts",
-    "name": "recording_transcripts",
-    "note": "Divida para que las vistas de biblioteca y transcripción se procesen rápidamente",
-    "fields": [
-      {
-        "name": "recording_id",
-        "type": "text",
-        "fk": "recordings.id"
-      },
-      {
-        "name": "segments_json",
-        "type": "text",
-        "note": "{ startMs, endMs, text }"
-      },
-      {
-        "name": "full_text",
-        "type": "text"
-      },
-      {
-        "name": "language",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "clips_meetings",
-    "name": "clips_meetings",
-    "note": "Calendar-sourced or ad-hoc; owns a recording",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "recording_id",
-        "type": "text",
-        "fk": "recordings.id",
-        "nullable": true
-      },
-      {
-        "name": "summary_md",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "bullets_json",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "action_items_json",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "clips_dictations",
-    "name": "clips_dictations",
-    "note": "Push-to-talk dictation history; ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "full_text",
-        "type": "text",
-        "note": "crudo"
-      },
-      {
-        "name": "cleaned_text",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "note": "fn-mantener, etc."
-      },
-      {
-        "name": "target_app",
-        "type": "text",
-        "nullable": true
-      }
-    ]
+<DataModel
+  id="doc-block-1m84q58"
+  title="Modelo de datos central Clips"
+  summary={
+    "recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
   }
-]} relations={[
-  {
-    "from": "recordings",
-    "to": "recording_transcripts",
-    "kind": "1-1",
-    "label": "transcript"
-  },
-  {
-    "from": "recordings",
-    "to": "clips_meetings",
-    "kind": "1-1",
-    "label": "captured by"
-  }
-]} />
+  entities={[
+    {
+      id: "recordings",
+      name: "recordings",
+      note: "Core resource; source of truth for media. ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "video_url",
+          type: "text",
+          note: "plus format / size / duration / thumbnails",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "edits_json",
+          type: "text",
+          note: "Ediciones no destructivas",
+        },
+        {
+          name: "chapters_json",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "password",
+          type: "text",
+          nullable: true,
+          note: "Privacidad: contraseña/caducidad",
+        },
+      ],
+    },
+    {
+      id: "recording_transcripts",
+      name: "recording_transcripts",
+      note: "Divida para que las vistas de biblioteca y transcripción se procesen rápidamente",
+      fields: [
+        {
+          name: "recording_id",
+          type: "text",
+          fk: "recordings.id",
+        },
+        {
+          name: "segments_json",
+          type: "text",
+          note: "{ startMs, endMs, text }",
+        },
+        {
+          name: "full_text",
+          type: "text",
+        },
+        {
+          name: "language",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "clips_meetings",
+      name: "clips_meetings",
+      note: "Calendar-sourced or ad-hoc; owns a recording",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "recording_id",
+          type: "text",
+          fk: "recordings.id",
+          nullable: true,
+        },
+        {
+          name: "summary_md",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "bullets_json",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "action_items_json",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "clips_dictations",
+      name: "clips_dictations",
+      note: "Push-to-talk dictation history; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "full_text",
+          type: "text",
+          note: "crudo",
+        },
+        {
+          name: "cleaned_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "source",
+          type: "text",
+          note: "fn-mantener, etc.",
+        },
+        {
+          name: "target_app",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "recordings",
+      to: "recording_transcripts",
+      kind: "1-1",
+      label: "transcript",
+    },
+    {
+      from: "recordings",
+      to: "clips_meetings",
+      kind: "1-1",
+      label: "captured by",
+    },
+  ]}
+/>
 
 | Tabla                                           | Qué contiene                                                                                                                                                                                          |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -8,7 +8,12 @@ description: "Un calendrier alimenté par un agent avec synchronisation Google C
 Une application de calendrier alimentée par un agent. Connectez votre Google Calendar et l'agent peut lire votre emploi du temps, trouver des créneaux libres, créer des événements et gérer les liens de réservation de style Calendly, le tout dans un anglais simple. Il remplace le combo Google Calendar + Calendly par une application que vous possédez.
 
 <WireframeBlock id="doc-block-wcp7np">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>3-9 mai 2026</strong><div style='flex:1'></div><button class='primary'>Nouvel événement</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>dim. 3</strong><strong>lun. 4</strong><strong>mar. 5</strong><strong>mer. 6</strong><strong>jeu. 7</strong><strong>ven. 8</strong><strong>sam. 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>Réunion générale</div><div class='wf-box'>Standup ingénierie</div><div class='wf-box'>Standup ingénierie</div><div class='wf-box'>Standup ingénierie</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>Revue design</div><div></div><div class='wf-box'>Critique design</div><div class='wf-box'>Roadmap</div><div class='wf-box'>Démo du vendredi</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>Bloc de concentration</div><div></div><div></div><div class='wf-box'>Réunion générale</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>Réunion skip-level</div><div></div><div></div><div></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>3-9 mai 2026</strong><div style='flex:1'></div><button class='primary'>Nouvel événement</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>dim. 3</strong><strong>lun. 4</strong><strong>mar. 5</strong><strong>mer. 6</strong><strong>jeu. 7</strong><strong>ven. 8</strong><strong>sam. 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>Réunion générale</div><div class='wf-box'>Standup ingénierie</div><div class='wf-box'>Standup ingénierie</div><div class='wf-box'>Standup ingénierie</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>Revue design</div><div></div><div class='wf-box'>Critique design</div><div class='wf-box'>Roadmap</div><div class='wf-box'>Démo du vendredi</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>Bloc de concentration</div><div></div><div></div><div class='wf-box'>Réunion générale</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>Réunion skip-level</div><div></div><div></div><div></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Lorsque vous ouvrez l'application, la vue active du calendrier constitue la surface principale. L'agent sait toujours quel jour, semaine ou événement vous consultez, vous pouvez donc dire « planifier un appel de 30 minutes avec Alex ce jour-là » sans tout préciser.
@@ -108,187 +113,195 @@ Défini dans `templates/calendar/server/db/schema.ts`. Seules les données non �
 - `booking_slug_redirects` : mémorise les anciens slugs lorsqu'un lien est renommé afin que les URL publics existants continuent de fonctionner.
 - `booking_link_shares` – partager les subventions pour les liens de réservation.
 
-<DataModel id="doc-block-1pfbxbv" title={"Modèle de données Calendar"} summary={"Seules les données non événementielles sont stockées localement — les événements vivent dans Google Calendar. Les liens de réservation utilisent ownableColumns donc le système de partage s'applique."} entities={[
-  {
-    "id": "booking_links",
-    "name": "booking_links",
-    "note": "Calendly-style link definitions (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "note": "public page at /book/{slug}"
-      },
-      {
-        "name": "title",
-        "type": "string"
-      },
-      {
-        "name": "description",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "duration",
-        "type": "int",
-        "note": "primary duration in minutes"
-      },
-      {
-        "name": "durations",
-        "type": "json",
-        "nullable": true,
-        "note": "alternative durations"
-      },
-      {
-        "name": "customFields",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "conferencing",
-        "type": "string",
-        "note": "Google Meet / Zoom / personnalisé"
-      },
-      {
-        "name": "color",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "isActive",
-        "type": "bool",
-        "note": "pause without deleting"
-      }
-    ]
-  },
-  {
-    "id": "bookings",
-    "name": "bookings",
-    "note": "Rendez-vous confirmés à partir des pages de réservation publiques",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "fk": "booking_links.slug"
-      },
-      {
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "name": "email",
-        "type": "string"
-      },
-      {
-        "name": "start",
-        "type": "datetime"
-      },
-      {
-        "name": "end",
-        "type": "datetime"
-      },
-      {
-        "name": "notes",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "customFields",
-        "type": "json",
-        "nullable": true,
-        "note": "custom field responses"
-      },
-      {
-        "name": "meetingLink",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "cancelToken",
-        "type": "string",
-        "note": "powers /booking/manage/{token}"
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "confirmé | annulé"
-      }
-    ]
-  },
-  {
-    "id": "booking_slug_redirects",
-    "name": "booking_slug_redirects",
-    "note": "Maintient l'ancien public URLs fonctionnel après qu'un lien soit renommé",
-    "fields": [
-      {
-        "name": "oldSlug",
-        "type": "string",
-        "pk": true
-      },
-      {
-        "name": "linkId",
-        "type": "id",
-        "fk": "booking_links.id"
-      }
-    ]
-  },
-  {
-    "id": "booking_link_shares",
-    "name": "booking_link_shares",
-    "note": "Partager les subventions pour les liens de réservation",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "linkId",
-        "type": "id",
-        "fk": "booking_links.id"
-      },
-      {
-        "name": "principal",
-        "type": "string",
-        "note": "user or org"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "spectateur | éditeur | administrateur"
-      }
-    ]
+<DataModel
+  id="doc-block-1pfbxbv"
+  title={"Modèle de données Calendar"}
+  summary={
+    "Seules les données non événementielles sont stockées localement — les événements vivent dans Google Calendar. Les liens de réservation utilisent ownableColumns donc le système de partage s'applique."
   }
-]} relations={[
-  {
-    "from": "booking_links",
-    "to": "bookings",
-    "kind": "1-n",
-    "label": "has bookings"
-  },
-  {
-    "from": "booking_links",
-    "to": "booking_slug_redirects",
-    "kind": "1-n",
-    "label": "has old slugs"
-  },
-  {
-    "from": "booking_links",
-    "to": "booking_link_shares",
-    "kind": "1-n",
-    "label": "has share grants"
-  }
-]} />
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly-style link definitions (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "public page at /book/{slug}",
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "duration",
+          type: "int",
+          note: "primary duration in minutes",
+        },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "alternative durations",
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "conferencing",
+          type: "string",
+          note: "Google Meet / Zoom / personnalisé",
+        },
+        {
+          name: "color",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "isActive",
+          type: "bool",
+          note: "pause without deleting",
+        },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "Rendez-vous confirmés à partir des pages de réservation publiques",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          fk: "booking_links.slug",
+        },
+        {
+          name: "name",
+          type: "string",
+        },
+        {
+          name: "email",
+          type: "string",
+        },
+        {
+          name: "start",
+          type: "datetime",
+        },
+        {
+          name: "end",
+          type: "datetime",
+        },
+        {
+          name: "notes",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+          note: "custom field responses",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "powers /booking/manage/{token}",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "confirmé | annulé",
+        },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "Maintient l'ancien public URLs fonctionnel après qu'un lien soit renommé",
+      fields: [
+        {
+          name: "oldSlug",
+          type: "string",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "Partager les subventions pour les liens de réservation",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "spectateur | éditeur | administrateur",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "has bookings",
+    },
+    {
+      from: "booking_links",
+      to: "booking_slug_redirects",
+      kind: "1-n",
+      label: "has old slugs",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
 
 Les règles de disponibilité et la configuration par utilisateur se trouvent dans le tableau des paramètres, saisis par `calendar-availability`. Les jetons Google OAuth résident dans la table framework `oauth_tokens`. L'état éphémère UI (vue actuelle, date, événement sélectionné) réside dans `application_state` sous la clé `navigation`.
 

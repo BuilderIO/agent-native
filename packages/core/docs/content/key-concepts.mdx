@@ -31,20 +31,24 @@ Headless apps can run the same production app-agent loop from the folder with `p
 Every agent-native app has the same agent building blocks, regardless of whether
 the product surface is headless, chat-first, or a full UI:
 
-<FileTree id="doc-block-1ae57y4" title="Guidance and behavior" entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "always-on instructions: purpose, core rules, state keys, action index, skills index"
-  },
-  {
-    "path": ".agents/skills/<name>/SKILL.md",
-    "note": "reusable behavior: workflow steps, policies, examples, references, and do/don't lists"
-  },
-  {
-    "path": "actions/<name>.ts",
-    "note": "executable capability: typed operation exposed to the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks"
-  }
-]} />
+<FileTree
+  id="doc-block-1ae57y4"
+  title="Guidance and behavior"
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "always-on instructions: purpose, core rules, state keys, action index, skills index",
+    },
+    {
+      path: ".agents/skills/<name>/SKILL.md",
+      note: "reusable behavior: workflow steps, policies, examples, references, and do/don't lists",
+    },
+    {
+      path: "actions/<name>.ts",
+      note: "executable capability: typed operation exposed to the agent, UI, CLI, HTTP, MCP, A2A, jobs, and webhooks",
+    },
+  ]}
+/>
 
 | Building block   | Use it for                                                                                          | Loaded when                                           |
 | ---------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
@@ -91,74 +95,81 @@ Core SQL stores are auto-created and available in every template:
 - `oauth_tokens` — OAuth credentials
 - `sessions` — auth sessions
 
-<DataModel id="doc-block-4w0fu8" title="Core SQL stores" summary={"Auto-created in every template — the agent and UI both read and write these."} entities={[
-  {
-    "id": "application_state",
-    "name": "application_state",
-    "note": "Ephemeral UI state the agent reads for context",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true,
-        "note": "e.g. 'navigation'"
-      },
-      {
-        "name": "value",
-        "type": "json",
-        "note": "view, selection, drafts"
-      }
-    ]
-  },
-  {
-    "id": "settings",
-    "name": "settings",
-    "note": "Persistent key-value config",
-    "fields": [
-      {
-        "name": "key",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "value",
-        "type": "json"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "OAuth credentials",
-    "fields": [
-      {
-        "name": "provider",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "token",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "sessions",
-    "name": "sessions",
-    "note": "Auth sessions",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "userId",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-4w0fu8"
+  title="Core SQL stores"
+  summary={
+    "Auto-created in every template — the agent and UI both read and write these."
   }
-]} />
+  entities={[
+    {
+      id: "application_state",
+      name: "application_state",
+      note: "Ephemeral UI state the agent reads for context",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+          note: "e.g. 'navigation'",
+        },
+        {
+          name: "value",
+          type: "json",
+          note: "view, selection, drafts",
+        },
+      ],
+    },
+    {
+      id: "settings",
+      name: "settings",
+      note: "Persistent key-value config",
+      fields: [
+        {
+          name: "key",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "value",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "OAuth credentials",
+      fields: [
+        {
+          name: "provider",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "token",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "sessions",
+      name: "sessions",
+      note: "Auth sessions",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "userId",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+/>
 
 ```ts
 // Drizzle schema for domain data

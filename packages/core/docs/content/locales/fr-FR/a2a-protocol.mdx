@@ -190,23 +190,31 @@ Lorsque `message/send` est appelé avec `async: true`, le gestionnaire JSON-RPC 
 
 Les messages contiennent des parties saisies : le texte, les données structurées et les fichiers peuvent tous voyager dans un seul message :
 
-<AnnotatedCode id="doc-block-lmnsr7" title="Message A2A avec des parties saisies" language="json" code={"{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}"} annotations={[
-  {
-    "lines": "4",
-    "label": "text part",
-    "note": "Instruction simple en langage naturel que l'agent lit."
-  },
-  {
-    "lines": "5",
-    "label": "data part",
-    "note": "Arguments JSON structurés — par ex. une plage de dates — transmis avec l'invite."
-  },
-  {
-    "lines": "6-9",
-    "label": "file part",
-    "note": "Joignez un fichier par nom, `mimeType` et base64 `bytes`."
+<AnnotatedCode
+  id="doc-block-lmnsr7"
+  title="Message A2A avec des parties saisies"
+  language="json"
+  code={
+    '{\n  "role": "user",\n  "parts": [\n    { "type": "text", "text": "Show signups by source" },\n    { "type": "data", "data": { "dateRange": "last-30d" } },\n    {\n      "type": "file",\n      "file": { "name": "report.csv", "mimeType": "text/csv", "bytes": "..." }\n    }\n  ]\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "4",
+      label: "text part",
+      note: "Instruction simple en langage naturel que l'agent lit.",
+    },
+    {
+      lines: "5",
+      label: "data part",
+      note: "Arguments JSON structurés — par ex. une plage de dates — transmis avec l'invite.",
+    },
+    {
+      lines: "6-9",
+      label: "file part",
+      note: "Joignez un fichier par nom, `mimeType` et base64 `bytes`.",
+    },
+  ]}
+/>
 
 ## Client {#client}
 

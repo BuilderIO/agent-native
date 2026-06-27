@@ -8,7 +8,12 @@ description: "تقويم مدعوم من الوكيل مع مزامنة Google C
 تطبيق تقويم مدعوم من الوكيل. قم بتوصيل Google Calendar الخاص بك وسيتمكن الوكيل من قراءة جدولك الزمني والعثور على فتحات مجانية وإنشاء أحداث وإدارة روابط الحجز على نمط Calendly - كل ذلك باللغة الإنجليزية البسيطة. فهو يستبدل مجموعة Google Calendar + Calendly بتطبيق واحد تملكه.
 
 <WireframeBlock id="doc-block-7huabh">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>3-9 مايو 2026</strong><div style='flex:1'></div><button class='primary'>حدث جديد</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>الأحد 3</strong><strong>الاثنين 4</strong><strong>الثلاثاء 5</strong><strong>الأربعاء 6</strong><strong>الخميس 7</strong><strong>الجمعة 8</strong><strong>السبت 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>اجتماع عام</div><div class='wf-box'>اجتماع هندسي يومي</div><div class='wf-box'>اجتماع هندسي يومي</div><div class='wf-box'>اجتماع هندسي يومي</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>مراجعة التصميم</div><div></div><div class='wf-box'>نقد التصميم</div><div class='wf-box'>Roadmap</div><div class='wf-box'>عرض الجمعة</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>كتلة تركيز</div><div></div><div></div><div class='wf-box'>اجتماع عام</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>اجتماع تخطي المستوى</div><div></div><div></div><div></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>3-9 مايو 2026</strong><div style='flex:1'></div><button class='primary'>حدث جديد</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>الأحد 3</strong><strong>الاثنين 4</strong><strong>الثلاثاء 5</strong><strong>الأربعاء 6</strong><strong>الخميس 7</strong><strong>الجمعة 8</strong><strong>السبت 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>اجتماع عام</div><div class='wf-box'>اجتماع هندسي يومي</div><div class='wf-box'>اجتماع هندسي يومي</div><div class='wf-box'>اجتماع هندسي يومي</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>مراجعة التصميم</div><div></div><div class='wf-box'>نقد التصميم</div><div class='wf-box'>Roadmap</div><div class='wf-box'>عرض الجمعة</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>كتلة تركيز</div><div></div><div></div><div class='wf-box'>اجتماع عام</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>اجتماع تخطي المستوى</div><div></div><div></div><div></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 عند فتح التطبيق، يكون عرض التقويم النشط هو السطح الأساسي. لا يزال الوكيل يعرف اليوم أو الأسبوع أو الحدث الذي تتطلع إليه، لذا يمكنك أن تقول "حدد موعدًا لمكالمة مدتها 30 دقيقة مع Alex في هذا اليوم" دون توضيح كل شيء.
@@ -108,187 +113,195 @@ pnpm dev
 - `booking_slug_redirects` — يتذكر الارتباطات الثابتة القديمة عند إعادة تسمية الرابط حتى تستمر URL العامة الموجودة في العمل.
 - `booking_link_shares` — مشاركة المنح لروابط الحجز.
 
-<DataModel id="doc-block-s8v9za" title={"Calendar نموذج البيانات"} summary={"يتم تخزين البيانات غير المتعلقة بالحدث محليًا فقط - الأحداث مباشرة في Google Calendar. تستخدم روابط الحجز أعمدة خاصة بها بحيث يتم تطبيق نظام المشاركة."} entities={[
-  {
-    "id": "booking_links",
-    "name": "booking_links",
-    "note": "Calendly-style link definitions (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "note": "public page at /book/{slug}"
-      },
-      {
-        "name": "title",
-        "type": "string"
-      },
-      {
-        "name": "description",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "duration",
-        "type": "int",
-        "note": "primary duration in minutes"
-      },
-      {
-        "name": "durations",
-        "type": "json",
-        "nullable": true,
-        "note": "alternative durations"
-      },
-      {
-        "name": "customFields",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "conferencing",
-        "type": "string",
-        "note": "Google لقاء / تكبير / مخصص"
-      },
-      {
-        "name": "color",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "isActive",
-        "type": "bool",
-        "note": "pause without deleting"
-      }
-    ]
-  },
-  {
-    "id": "bookings",
-    "name": "bookings",
-    "note": "تم تأكيد المواعيد من صفحات الحجز العامة",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "fk": "booking_links.slug"
-      },
-      {
-        "name": "name",
-        "type": "string"
-      },
-      {
-        "name": "email",
-        "type": "string"
-      },
-      {
-        "name": "start",
-        "type": "datetime"
-      },
-      {
-        "name": "end",
-        "type": "datetime"
-      },
-      {
-        "name": "notes",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "customFields",
-        "type": "json",
-        "nullable": true,
-        "note": "custom field responses"
-      },
-      {
-        "name": "meetingLink",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "cancelToken",
-        "type": "string",
-        "note": "powers /booking/manage/{token}"
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "مؤكد | تم الإلغاء"
-      }
-    ]
-  },
-  {
-    "id": "booking_slug_redirects",
-    "name": "booking_slug_redirects",
-    "note": "يحافظ على عمل عناوين URL العامة القديمة بعد إعادة تسمية الرابط",
-    "fields": [
-      {
-        "name": "oldSlug",
-        "type": "string",
-        "pk": true
-      },
-      {
-        "name": "linkId",
-        "type": "id",
-        "fk": "booking_links.id"
-      }
-    ]
-  },
-  {
-    "id": "booking_link_shares",
-    "name": "booking_link_shares",
-    "note": "مشاركة المنح لروابط الحجز",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "linkId",
-        "type": "id",
-        "fk": "booking_links.id"
-      },
-      {
-        "name": "principal",
-        "type": "string",
-        "note": "user or org"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "عارض | محرر | admin"
-      }
-    ]
+<DataModel
+  id="doc-block-s8v9za"
+  title={"Calendar نموذج البيانات"}
+  summary={
+    "يتم تخزين البيانات غير المتعلقة بالحدث محليًا فقط - الأحداث مباشرة في Google Calendar. تستخدم روابط الحجز أعمدة خاصة بها بحيث يتم تطبيق نظام المشاركة."
   }
-]} relations={[
-  {
-    "from": "booking_links",
-    "to": "bookings",
-    "kind": "1-n",
-    "label": "has bookings"
-  },
-  {
-    "from": "booking_links",
-    "to": "booking_slug_redirects",
-    "kind": "1-n",
-    "label": "has old slugs"
-  },
-  {
-    "from": "booking_links",
-    "to": "booking_link_shares",
-    "kind": "1-n",
-    "label": "has share grants"
-  }
-]} />
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly-style link definitions (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "public page at /book/{slug}",
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "duration",
+          type: "int",
+          note: "primary duration in minutes",
+        },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "alternative durations",
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "conferencing",
+          type: "string",
+          note: "Google لقاء / تكبير / مخصص",
+        },
+        {
+          name: "color",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "isActive",
+          type: "bool",
+          note: "pause without deleting",
+        },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "تم تأكيد المواعيد من صفحات الحجز العامة",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          fk: "booking_links.slug",
+        },
+        {
+          name: "name",
+          type: "string",
+        },
+        {
+          name: "email",
+          type: "string",
+        },
+        {
+          name: "start",
+          type: "datetime",
+        },
+        {
+          name: "end",
+          type: "datetime",
+        },
+        {
+          name: "notes",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+          note: "custom field responses",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "powers /booking/manage/{token}",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "مؤكد | تم الإلغاء",
+        },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "يحافظ على عمل عناوين URL العامة القديمة بعد إعادة تسمية الرابط",
+      fields: [
+        {
+          name: "oldSlug",
+          type: "string",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "مشاركة المنح لروابط الحجز",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "عارض | محرر | admin",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "has bookings",
+    },
+    {
+      from: "booking_links",
+      to: "booking_slug_redirects",
+      kind: "1-n",
+      label: "has old slugs",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
 
 توجد قواعد التوفر والتكوين لكل مستخدم في جدول الإعدادات، مع مفتاح `calendar-availability`. توجد رموز Google OAuth في جدول إطار العمل `oauth_tokens`. توجد حالة UI المؤقتة (العرض الحالي والتاريخ والحدث المحدد) في `application_state` تحت مفتاح `navigation`.
 

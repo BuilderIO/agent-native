@@ -191,28 +191,37 @@ Utilisez `pending-selection-context` pour des flux ponctuels « agir sur ce text
 
 Chaque modèle doit avoir une action `view-screen`. Il lit l'état de navigation et de sélection, récupère les données pertinentes et renvoie un instantané de ce que voit l'utilisateur. Ce sont les yeux de l'agent.
 
-<AnnotatedCode id="doc-block-1oxh21x" title={"écran de visualisation : les yeux de l'agent"} filename="actions/view-screen.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { readAppState } from \"@agent-native/core/application-state\";\nimport { eq, inArray } from \"drizzle-orm\";\nimport { z } from \"zod\";\nimport { getDb, schema } from \"../server/db/index.js\";\n\nexport default defineAction({\n  description:\n    \"See what the user is currently looking at on screen.\",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState(\"navigation\")) as any;\n    const selection = (await readAppState(\"selection\")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === \"inbox\") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === \"email.messages\") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return \"No application state found. Is the app running?\";\n    }\n    return screen;\n  },\n});"} annotations={[
-  {
-    "lines": "10-11",
-    "label": "Surface de l'outil",
-    "note": "L'agent lit cette description pour savoir qu'il peut appeler `view-screen` pour voir l'interface utilisateur actuelle."
-  },
-  {
-    "lines": "13",
-    "label": "http: false",
-    "note": "Action interne – non exposée sur HTTP. L'agent et `pnpm action` l'appellent, pas le navigateur."
-  },
-  {
-    "lines": "15-16",
-    "label": "Lire l'état",
-    "note": "Extrait les touches légères `navigation` et `selection` écrites par l'interface utilisateur."
-  },
-  {
-    "lines": "23-37",
-    "label": "Hydratation",
-    "note": "Transforme ces IDs en enregistrements **frais** directement à partir de `application_state`, afin que l'agent vérifie l'objet actif avant d'agir."
+<AnnotatedCode
+  id="doc-block-1oxh21x"
+  title={"écran de visualisation : les yeux de l'agent"}
+  filename="actions/view-screen.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { readAppState } from "@agent-native/core/application-state";\nimport { eq, inArray } from "drizzle-orm";\nimport { z } from "zod";\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description:\n    "See what the user is currently looking at on screen.",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState("navigation")) as any;\n    const selection = (await readAppState("selection")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === "inbox") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === "email.messages") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return "No application state found. Is the app running?";\n    }\n    return screen;\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "10-11",
+      label: "Surface de l'outil",
+      note: "L'agent lit cette description pour savoir qu'il peut appeler `view-screen` pour voir l'interface utilisateur actuelle.",
+    },
+    {
+      lines: "13",
+      label: "http: false",
+      note: "Action interne – non exposée sur HTTP. L'agent et `pnpm action` l'appellent, pas le navigateur.",
+    },
+    {
+      lines: "15-16",
+      label: "Lire l'état",
+      note: "Extrait les touches légères `navigation` et `selection` écrites par l'interface utilisateur.",
+    },
+    {
+      lines: "23-37",
+      label: "Hydratation",
+      note: "Transforme ces IDs en enregistrements **frais** directement à partir de `application_state`, afin que l'agent vérifie l'objet actif avant d'agir.",
+    },
+  ]}
+/>
 
 L'agent doit appeler `pnpm action view-screen` avant d'agir sur le UI actuel. Il s’agit d’une convention stricte dans tous les modèles. Lors de l'ajout de nouvelles fonctionnalités, mettez à jour `view-screen` pour renvoyer les données de la nouvelle vue et de toute nouvelle forme de sélection.
 

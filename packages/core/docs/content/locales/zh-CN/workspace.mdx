@@ -185,36 +185,43 @@ instructions/legal-review-policy.md
 
 这些表面中的每一个 - `AGENTS.md`、skills、内存、自定义代理、MCP 服务器 - 都是相同的底层资源形状：`path` + `scope` + `content`，以相同的方式寻址和解析。
 
-<DataModel id="doc-block-1fre735" title={"工作区资源模型"} summary={"一种资源形状支持每个工作区文件。运行时按路径和范围对其进行键控，并解析读取时的有效值。"} entities={[
-  {
-    "id": "resource",
-    "name": "workspace resource",
-    "note": "用户工作区中的单个文件 - 说明、技能、内存、代理、MCP 配置或作业。",
-    "fields": [
-      {
-        "name": "path",
-        "type": "string",
-        "note": "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md"
-      },
-      {
-        "name": "scope",
-        "type": "workspace | shared | personal",
-        "note": "该行位于哪一层"
-      },
-      {
-        "name": "owner",
-        "type": "string",
-        "nullable": true,
-        "note": "u:<email> for personal scope"
-      },
-      {
-        "name": "content",
-        "type": "text",
-        "note": "Markdown / JSON / YAML 正文"
-      }
-    ]
+<DataModel
+  id="doc-block-1fre735"
+  title={"工作区资源模型"}
+  summary={
+    "一种资源形状支持每个工作区文件。运行时按路径和范围对其进行键控，并解析读取时的有效值。"
   }
-]} />
+  entities={[
+    {
+      id: "resource",
+      name: "workspace resource",
+      note: "用户工作区中的单个文件 - 说明、技能、内存、代理、MCP 配置或作业。",
+      fields: [
+        {
+          name: "path",
+          type: "string",
+          note: "Canonical path, e.g. AGENTS.md, skills/<slug>/SKILL.md",
+        },
+        {
+          name: "scope",
+          type: "workspace | shared | personal",
+          note: "该行位于哪一层",
+        },
+        {
+          name: "owner",
+          type: "string",
+          nullable: true,
+          note: "u:<email> for personal scope",
+        },
+        {
+          name: "content",
+          type: "text",
+          note: "Markdown / JSON / YAML 正文",
+        },
+      ],
+    },
+  ]}
+/>
 
 ## Skills {#skills}
 
@@ -232,27 +239,36 @@ Skills 是 `skills/` 路径（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 自定义代理使用 YAML frontmatter 加上 Markdown 指令：
 
-<AnnotatedCode id="doc-block-z5fs16" title={"自定义代理配置文件"} filename="agents/design.md" language="markdown" code={"---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# 角色\n\n您是一名专注的设计代理。\n\n##职责\n\n-审查布局和交互流程\n-提出更强的视觉方向\n-简洁且有主见"} annotations={[
-  {
-    "lines": "2",
-    "label": "@mention handle",
-    "note": "`name` 是 `@` 下拉列表中显示的内容，也是主代理委托的内容。"
-  },
-  {
-    "lines": "3-4",
-    "label": "何时委托",
-    "note": "`description` 是协调器读取的内容，以确定此配置文件适合任务。"
-  },
-  {
-    "lines": "5",
-    "label": "型号",
-    "note": "`inherit` 重用主代理的模型。仅当配置文件明确需要不同的配置文件时才覆盖。"
-  },
-  {
-    "lines": "6",
-    "note": "`tools: inherit` 目前 - 该字段是为未来的每代理工具策略保留的。"
+<AnnotatedCode
+  id="doc-block-z5fs16"
+  title={"自定义代理配置文件"}
+  filename="agents/design.md"
+  language="markdown"
+  code={
+    "---\nname: Design\ndescription: >-\n  Reviews layouts, interaction patterns, and product UX decisions.\nmodel: inherit\ntools: inherit\ndelegate-default: false\n---\n\n# 角色\n\n您是一名专注的设计代理。\n\n##职责\n\n-审查布局和交互流程\n-提出更强的视觉方向\n-简洁且有主见"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "@mention handle",
+      note: "`name` 是 `@` 下拉列表中显示的内容，也是主代理委托的内容。",
+    },
+    {
+      lines: "3-4",
+      label: "何时委托",
+      note: "`description` 是协调器读取的内容，以确定此配置文件适合任务。",
+    },
+    {
+      lines: "5",
+      label: "型号",
+      note: "`inherit` 重用主代理的模型。仅当配置文件明确需要不同的配置文件时才覆盖。",
+    },
+    {
+      lines: "6",
+      note: "`tools: inherit` 目前 - 该字段是为未来的每代理工具策略保留的。",
+    },
+  ]}
+/>
 
 推荐约定：
 

@@ -10,7 +10,12 @@ description: "Dispatch はワークスペースのコントロール プレー�
 Dispatch は **ワークスペース コントロール プレーン**です。他のテンプレートがドメイン アプリ (メール、カレンダー、アナリティクス、ブレイン) であるのに対し、Dispatch はそれらと並行して実行してすべてを調整するアプリです。中央の受信トレイ、秘密保管庫、スケジュールされたジョブ、Slack/テレグラム統合、ドメイン作業を [A2A](/docs/a2a-protocol) を介して適切な専門アプリに委任するオーケストレーター エージェントです。
 
 <WireframeBlock id="doc-block-r8zil6">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>次に何をしますか？</strong><div class='wf-box'>Analyticsに今週の登録数を聞き、Slack更新を下書きする。</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>アプリを作成</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>SlackのDM に返信が必要</div><div class='wf-box'>A2Aタスク完了</div><div class='wf-box'>承認が必要</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>次に何をしますか？</strong><div class='wf-box'>Analyticsに今週の登録数を聞き、Slack更新を下書きする。</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>アプリを作成</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>SlackのDM に返信が必要</div><div class='wf-box'>A2Aタスク完了</div><div class='wf-box'>承認が必要</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 [multi-app workspace](/docs/multi-app-workspace) を多くのアプリで実行している場合、Dispatch がその役割を果たします。
@@ -85,154 +90,162 @@ _内部での仕組み (開発者向け)。_
 - **Slack / Telegram プラグイン。** webhooks を登録し、受信メッセージをオーケストレーター エージェントに転送するサーバー プラグイン。
 - **ワークスペース MCP リソース。** リソースの `mcp-servers/*.json` の下に HTTP MCP サーバー定義を追加し、skills とコンテキストと同様に、それらのスコープをすべてのアプリまたは選択したアプリの許可に設定します。
 
-<DataModel id="doc-block-1gfu52k" title={"Secrets ボールトのスキーマ"} summary={"Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."} entities={[
-  {
-    "id": "secrets",
-    "name": "vault_secrets",
-    "note": "保存された資格情報の値",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "owner_email",
-        "type": "text"
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "name",
-        "type": "text"
-      },
-      {
-        "name": "credential_key",
-        "type": "text"
-      },
-      {
-        "name": "value",
-        "type": "text",
-        "note": "secret value"
-      },
-      {
-        "name": "provider",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "grants",
-    "name": "vault_grants",
-    "note": "アプリごとのアクセス許可",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "secret_id",
-        "type": "text",
-        "fk": "vault_secrets.id"
-      },
-      {
-        "name": "app_id",
-        "type": "text"
-      },
-      {
-        "name": "granted_by",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "requests",
-    "name": "vault_requests",
-    "note": "アクセスリクエスト+レビュー",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "credential_key",
-        "type": "text"
-      },
-      {
-        "name": "app_id",
-        "type": "text"
-      },
-      {
-        "name": "reason",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "reviewed_by",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "audit",
-    "name": "vault_audit_log",
-    "note": "誰がいつどのシークレットを使用したか",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "secret_id",
-        "type": "text",
-        "fk": "vault_secrets.id",
-        "nullable": true
-      },
-      {
-        "name": "app_id",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "action",
-        "type": "text"
-      },
-      {
-        "name": "actor",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-1gfu52k"
+  title={"Secrets ボールトのスキーマ"}
+  summary={
+    "Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
   }
-]} relations={[
-  {
-    "from": "secrets",
-    "to": "grants",
-    "kind": "1-n",
-    "label": "granted via"
-  },
-  {
-    "from": "secrets",
-    "to": "audit",
-    "kind": "1-n",
-    "label": "use recorded by"
-  }
-]} />
+  entities={[
+    {
+      id: "secrets",
+      name: "vault_secrets",
+      note: "保存された資格情報の値",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "owner_email",
+          type: "text",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "value",
+          type: "text",
+          note: "secret value",
+        },
+        {
+          name: "provider",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "grants",
+      name: "vault_grants",
+      note: "アプリごとのアクセス許可",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "granted_by",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "requests",
+      name: "vault_requests",
+      note: "アクセスリクエスト+レビュー",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "reason",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "reviewed_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "audit",
+      name: "vault_audit_log",
+      note: "誰がいつどのシークレットを使用したか",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+          nullable: true,
+        },
+        {
+          name: "app_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "action",
+          type: "text",
+        },
+        {
+          name: "actor",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "secrets",
+      to: "grants",
+      kind: "1-n",
+      label: "granted via",
+    },
+    {
+      from: "secrets",
+      to: "audit",
+      kind: "1-n",
+      label: "use recorded by",
+    },
+  ]}
+/>
 
 - **MCP ハブ モード。** Dispatch は引き続きワークスペースの [MCP hub](/docs/mcp-clients#hub) として機能できるため、ワークスペース内の他のすべてのアプリは同じ組織スコープの MCP サーバー リストを取得します。これとは別に、Dispatch 独自の `/_agent-native/mcp` エンドポイントは、複数のワークスペース アプリに接続する必要がある Claude、ChatGPT、およびその他のホストに推奨される外部 MCP コネクタです。
 

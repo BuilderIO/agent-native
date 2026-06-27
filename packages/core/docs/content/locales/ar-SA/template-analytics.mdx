@@ -8,7 +8,12 @@ description: "اطرح أسئلة تحليلية باللغة الإنجليزي
 اطرح أسئلة تحليلية باللغة الإنجليزية البسيطة، واحصل على المخططات ولوحات المعلومات مرة أخرى. يتصل الوكيل بـ BigQuery، وGA4، وAmplitude، ومجمع أحداث الطرف الأول المدمج، وHubSpot، وJira، وعشرات المصادر الأخرى، ويكتب الاستعلام نيابةً عنك، ويتحقق من صحته، ويعرض الإجابة كمخطط أو جدول أو لوحة معلومات محفوظة.
 
 <WireframeBlock id="doc-block-10gyiwj">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>قوالب Agent-Native</h1><p class='wf-muted' style='margin:0'>التبني والتفاعل خلال آخر 12 أسبوعا.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>المستخدمون النشطون أسبوعيًا</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>تسجيلات جديدة</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>إيرادات MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>المستخدمون النشطون أسبوعيًا</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>الإيرادات بمرور الوقت</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>التسجيلات حسب المصدر</strong><br/><small class='wf-muted'>يبدأ المخطط السفلي أسفل المخططات الرئيسية.</small></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>قوالب Agent-Native</h1><p class='wf-muted' style='margin:0'>التبني والتفاعل خلال آخر 12 أسبوعا.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>المستخدمون النشطون أسبوعيًا</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>تسجيلات جديدة</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>إيرادات MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>المستخدمون النشطون أسبوعيًا</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>الإيرادات بمرور الوقت</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>التسجيلات حسب المصدر</strong><br/><small class='wf-muted'>يبدأ المخطط السفلي أسفل المخططات الرئيسية.</small></div></div>"
+    }
+  />
 </WireframeBlock>
 
 إنه بديل مفتوح المصدر لـ Amplitude وMixpanel وLooker - للفرق التي ترغب في امتلاك التعليمات البرمجية والاستعلامات والبيانات.
@@ -159,105 +164,113 @@ pnpm dev
 
 الجداول الأساسية (راجع `templates/analytics/server/db/schema.ts`):
 
-<DataModel id="doc-block-mw19wa" title={"نموذج بيانات التحليلات"} summary={"Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."} entities={[
-  {
-    "id": "dashboards",
-    "name": "dashboards",
-    "note": "المستكشف ولوحات المعلومات SQL",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "kind",
-        "type": "text",
-        "note": "\"explorer\" or \"sql\""
-      },
-      {
-        "name": "config",
-        "type": "text",
-        "note": "JSON مطابقة SqlDashboardConfig"
-      }
-    ]
-  },
-  {
-    "id": "dashboard_views",
-    "name": "dashboard_views",
-    "note": "الإعدادات المسبقة للمرشح المحفوظة لكل لوحة معلومات",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "dashboard_id",
-        "type": "text",
-        "fk": "dashboards.id"
-      }
-    ]
-  },
-  {
-    "id": "analyses",
-    "name": "analyses",
-    "note": "التحقيقات المخصصة القابلة لإعادة التشغيل",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "question",
-        "type": "text"
-      },
-      {
-        "name": "instructions",
-        "type": "text",
-        "note": "أعد تنفيذ الخطوات"
-      },
-      {
-        "name": "dataSources",
-        "type": "text",
-        "note": "تم لمس المصادر"
-      },
-      {
-        "name": "resultMarkdown",
-        "type": "text"
-      },
-      {
-        "name": "resultData",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "bigquery_cache",
-    "name": "bigquery_cache",
-    "note": "نتيجة مفتاح تجزئة SQL ذاكرة التخزين المؤقت",
-    "fields": [
-      {
-        "name": "sql_hash",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "bytes_processed",
-        "type": "integer"
-      }
-    ]
+<DataModel
+  id="doc-block-mw19wa"
+  title={"نموذج بيانات التحليلات"}
+  summary={
+    "Dashboards and analyses are the resources; views, shares, and a query cache hang off them. Org tables come from @agent-native/core/org."
   }
-]} relations={[
-  {
-    "from": "dashboards",
-    "to": "dashboard_views",
-    "kind": "1-n",
-    "label": "saved views"
-  }
-]} />
+  entities={[
+    {
+      id: "dashboards",
+      name: "dashboards",
+      note: "المستكشف ولوحات المعلومات SQL",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: '"explorer" or "sql"',
+        },
+        {
+          name: "config",
+          type: "text",
+          note: "JSON مطابقة SqlDashboardConfig",
+        },
+      ],
+    },
+    {
+      id: "dashboard_views",
+      name: "dashboard_views",
+      note: "الإعدادات المسبقة للمرشح المحفوظة لكل لوحة معلومات",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "dashboard_id",
+          type: "text",
+          fk: "dashboards.id",
+        },
+      ],
+    },
+    {
+      id: "analyses",
+      name: "analyses",
+      note: "التحقيقات المخصصة القابلة لإعادة التشغيل",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "question",
+          type: "text",
+        },
+        {
+          name: "instructions",
+          type: "text",
+          note: "أعد تنفيذ الخطوات",
+        },
+        {
+          name: "dataSources",
+          type: "text",
+          note: "تم لمس المصادر",
+        },
+        {
+          name: "resultMarkdown",
+          type: "text",
+        },
+        {
+          name: "resultData",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "bigquery_cache",
+      name: "bigquery_cache",
+      note: "نتيجة مفتاح تجزئة SQL ذاكرة التخزين المؤقت",
+      fields: [
+        {
+          name: "sql_hash",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "bytes_processed",
+          type: "integer",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "dashboards",
+      to: "dashboard_views",
+      kind: "1-n",
+      label: "saved views",
+    },
+  ]}
+/>
 
 بالإضافة إلى جداول المشاركة لكل مورد (`dashboard_shares`، `analysis_shares`) والجداول التنظيمية (`organizations`، `org_members`، `org_invitations`) المقدمة من `@agent-native/core/org`. يوجد قاموس البيانات في جدول `settings` الخاص بإطار العمل ضمن المفاتيح المحددة النطاق.
 

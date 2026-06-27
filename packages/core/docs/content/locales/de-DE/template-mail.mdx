@@ -8,7 +8,12 @@ description: "Ein agentengesteuerter E-Mail-Client. Schließen Sie Ihren Gmail a
 Ein agentengesteuerter E-Mail-Client. Verknüpfen Sie Ihr Gmail-Konto und der Agent kann E-Mails für Sie lesen, entwerfen, senden und organisieren – zusammen mit einem schnellen, per Tastatur gesteuerten Posteingang, den Sie selbst steuern können. Denken Sie an Superhuman, aber der Agent ist ein erstklassiger Bürger und die Codebasis gehört Ihnen.
 
 <WireframeBlock id="doc-block-q56c5l">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Posteingang 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Suchen'></span><span data-icon='edit' aria-label='Verfassen'></span><span data-icon='bell' aria-label='Benachrichtigen'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Paula Meier</strong><span><strong>Q3-Launch</strong> — finale Assets bereit zur Prüfung</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Acme-Abrechnung</strong><span>Deine Monatsrechnung ist bereit</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Martin Tang</span><span>Onboarding-Ablauf research findings</span><span>Gestern</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR bereit zur Prüfung</span><span>Gestern</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 dir zugewiesen</span><span>2. Mai</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Wöchentliche Zahlungsübersicht</span><span>29. Apr.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Neue Buchung bestätigt</span><span>28. Apr.</span></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Posteingang 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Suchen'></span><span data-icon='edit' aria-label='Verfassen'></span><span data-icon='bell' aria-label='Benachrichtigen'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Paula Meier</strong><span><strong>Q3-Launch</strong> — finale Assets bereit zur Prüfung</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Acme-Abrechnung</strong><span>Deine Monatsrechnung ist bereit</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Martin Tang</span><span>Onboarding-Ablauf research findings</span><span>Gestern</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR bereit zur Prüfung</span><span>Gestern</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 dir zugewiesen</span><span>2. Mai</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Wöchentliche Zahlungsübersicht</span><span>29. Apr.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Neue Buchung bestätigt</span><span>28. Apr.</span></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Wenn Sie die App öffnen, bleiben der Posteingang und die Thread-Ansicht mit der Tastatureingabe auf die E-Mail selbst fokussiert. Der Agent weiß immer, in welcher Ansicht Sie sich befinden und welchen Thread Sie geöffnet haben, sodass Sie „Archivieren“ oder „Einvernehmliche Ablehnung verfassen“ sagen können, ohne zu erklären, was „Das“ ist.
@@ -153,119 +158,127 @@ Wenn ein Google-Konto verbunden ist, werden E-Mails in Gmail gespeichert – die
 
 E-Mails, die durch API fließen, haben die Form `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
 
-<DataModel id="doc-block-1mt6whl" title="Mail SQL Tabellen" summary={"E-Mail selbst lebt in Gmail. Die SQL-Tabellen enthalten, was Gmail nicht enthält: Entwürfe in der Warteschlange, Sendeverfolgungsereignisse und OAuth-Tokens. Einstellungen und kurzlebiger Status sind in den Speichern „settings“ und „application_state“ gespeichert."} entities={[
-  {
-    "id": "queued_email_drafts",
-    "name": "queued_email_drafts",
-    "note": "Teammate/Slack-requested-Entwürfe warten auf die Überprüfung durch den Eigentümer",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "assignedTo",
-        "type": "string",
-        "note": "org member who reviews/sends"
-      },
-      {
-        "name": "subject",
-        "type": "string"
-      },
-      {
-        "name": "body",
-        "type": "markdown"
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "review at /draft-queue/<id>"
-      }
-    ]
-  },
-  {
-    "id": "email_tracking",
-    "name": "email_tracking",
-    "note": "Open-Pixel-Ereignisse für gesendete Nachrichten",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "messageId",
-        "type": "string"
-      },
-      {
-        "name": "openedAt",
-        "type": "datetime"
-      }
-    ]
-  },
-  {
-    "id": "email_link_tracking",
-    "name": "email_link_tracking",
-    "note": "Link-Klick-Ereignisse für gesendete Nachrichten",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "messageId",
-        "type": "string",
-        "fk": "email_tracking.messageId"
-      },
-      {
-        "name": "url",
-        "type": "string"
-      },
-      {
-        "name": "clickedAt",
-        "type": "datetime"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "Rahmentabelle – eine Zeile pro verbundenem Google-Konto",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "provider",
-        "type": "string",
-        "note": "\"google\""
-      },
-      {
-        "name": "accountEmail",
-        "type": "string"
-      },
-      {
-        "name": "accessToken",
-        "type": "string"
-      },
-      {
-        "name": "refreshToken",
-        "type": "string"
-      }
-    ]
+<DataModel
+  id="doc-block-1mt6whl"
+  title="Mail SQL Tabellen"
+  summary={
+    "E-Mail selbst lebt in Gmail. Die SQL-Tabellen enthalten, was Gmail nicht enthält: Entwürfe in der Warteschlange, Sendeverfolgungsereignisse und OAuth-Tokens. Einstellungen und kurzlebiger Status sind in den Speichern „settings“ und „application_state“ gespeichert."
   }
-]} relations={[
-  {
-    "from": "email_tracking",
-    "to": "email_link_tracking",
-    "kind": "1-n",
-    "label": "click events"
-  }
-]} />
+  entities={[
+    {
+      id: "queued_email_drafts",
+      name: "queued_email_drafts",
+      note: "Teammate/Slack-requested-Entwürfe warten auf die Überprüfung durch den Eigentümer",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "assignedTo",
+          type: "string",
+          note: "org member who reviews/sends",
+        },
+        {
+          name: "subject",
+          type: "string",
+        },
+        {
+          name: "body",
+          type: "markdown",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "review at /draft-queue/<id>",
+        },
+      ],
+    },
+    {
+      id: "email_tracking",
+      name: "email_tracking",
+      note: "Open-Pixel-Ereignisse für gesendete Nachrichten",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "messageId",
+          type: "string",
+        },
+        {
+          name: "openedAt",
+          type: "datetime",
+        },
+      ],
+    },
+    {
+      id: "email_link_tracking",
+      name: "email_link_tracking",
+      note: "Link-Klick-Ereignisse für gesendete Nachrichten",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "messageId",
+          type: "string",
+          fk: "email_tracking.messageId",
+        },
+        {
+          name: "url",
+          type: "string",
+        },
+        {
+          name: "clickedAt",
+          type: "datetime",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "Rahmentabelle – eine Zeile pro verbundenem Google-Konto",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "provider",
+          type: "string",
+          note: '"google"',
+        },
+        {
+          name: "accountEmail",
+          type: "string",
+        },
+        {
+          name: "accessToken",
+          type: "string",
+        },
+        {
+          name: "refreshToken",
+          type: "string",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "email_tracking",
+      to: "email_link_tracking",
+      kind: "1-n",
+      label: "click events",
+    },
+  ]}
+/>
 
 Routen im UI:
 

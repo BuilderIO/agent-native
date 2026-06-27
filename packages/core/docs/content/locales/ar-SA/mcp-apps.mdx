@@ -54,23 +54,32 @@ export default defineAction({
 });
 ```
 
-<AnnotatedCode id="doc-block-1k85d0n" title={"تكوين موارد mcpApp"} filename="actions/review-draft.ts" language="ts" code={"import { embedApp } from \"@agent-native/core\";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: \"Review draft\",\n      description: \"Open the generated draft in the real Mail compose UI.\",\n      iframeTitle: \"Agent-Native Mail\",\n      openLabel: \"Open in Mail\",\n    }),\n  },\n});"} annotations={[
-  {
-    "lines": "6",
-    "label": "التحسين التدريجي",
-    "note": "يعلن `mcpApp.resource` عن UI مضمن للمضيفين الذين يدعمون ملحق MCP Apps. احتفظ بمنشئ الإجراء `link` أيضًا - CLI - فقط والمضيفون الأقدم يتجاهلون البيانات التعريفية UI وما زالوا بحاجة إلى الرابط العميق."
-  },
-  {
-    "lines": "7",
-    "label": "Embed = the link target",
-    "note": "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route."
-  },
-  {
-    "lines": "11",
-    "label": "تسمية احتياطية عالمية",
-    "note": "`openLabel` is the visible `\"Open in … →\"` text used as the deep-link escape hatch when a host does not render the inline iframe."
+<AnnotatedCode
+  id="doc-block-1k85d0n"
+  title={"تكوين موارد mcpApp"}
+  filename="actions/review-draft.ts"
+  language="ts"
+  code={
+    'import { embedApp } from "@agent-native/core";\n\nexport default defineAction({\n  // ...description, schema, run, link...\n  mcpApp: {\n    resource: embedApp({\n      title: "Review draft",\n      description: "Open the generated draft in the real Mail compose UI.",\n      iframeTitle: "Agent-Native Mail",\n      openLabel: "Open in Mail",\n    }),\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "6",
+      label: "التحسين التدريجي",
+      note: "يعلن `mcpApp.resource` عن UI مضمن للمضيفين الذين يدعمون ملحق MCP Apps. احتفظ بمنشئ الإجراء `link` أيضًا - CLI - فقط والمضيفون الأقدم يتجاهلون البيانات التعريفية UI وما زالوا بحاجة إلى الرابط العميق.",
+    },
+    {
+      lines: "7",
+      label: "Embed = the link target",
+      note: "`embedApp()` uses the action's `link` as its launch target: it calls `create_embed_session`, exchanges a one-time SQL ticket at `/_agent-native/embed/start`, and navigates the MCP App frame to the same signed app route.",
+    },
+    {
+      lines: "11",
+      label: "تسمية احتياطية عالمية",
+      note: '`openLabel` هو النص المرئي `"Open in … →"` المستخدم كمسار خروج للرابط العميق عندما لا يعرض المضيف iframe المضمن.',
+    },
+  ]}
+/>
 
 يعلن خادم MCP عن الامتداد `io.modelcontextprotocol/ui`، ويضيف `_meta.ui.resourceUri` بالإضافة إلى `_meta["ui/resourceUri"]` إلى `tools/list`، ويصدر أيضًا بيانات تعريف توافق ChatGPT Apps SDK (`openai/outputTemplate`، عنصر واجهة المستخدم CSP/الوصف/إمكانية الوصول). يعرض HTML حتى `resources/list` و`resources/templates/list` و`resources/read` باستخدام MIME `text/html;profile=mcp-app`. يقوم وكيل stdio بإعادة توجيه معالجات الموارد هذه من التطبيق المباشر، لذلك يرى عملاء سطح المكتب وعملاء CLI نفس الموارد التي يشاهدها عملاء HTTP.
 

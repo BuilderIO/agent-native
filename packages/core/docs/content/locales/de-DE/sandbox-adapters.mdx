@@ -51,24 +51,29 @@ Wenn der Vertrag eng gefasst bleibt, erbt ein Remote-Adapter denselben Sicherhei
 
 Die Naht befindet sich im Kern bei `packages/core/src/coding-tools/sandbox/` – `adapter.ts` (der Vertrag), `index.ts` (Auswahl: `getSandboxAdapter()` / `registerSandboxAdapter()`) und `local-child-process-adapter.ts` (die Standardeinstellung). Die Verkabelung erfolgt im Gehäuse durch `run-code.ts`; Ein Host verbindet ein anderes Backend über den Registrierungshelfer `index.ts` (oder, für ein Docker-Backend, über [blueprint](/docs/blueprint-installer), der diese Dateien direkt bearbeitet).
 
-<FileTree id="doc-block-vd1j1k" title="Die Sandbox-Nahtstelle in core" title="packages/core/src/coding-tools/sandbox/" entries={[
-  {
-    "path": "adapter.ts",
-    "note": "Der SandboxAdapter-Vertrag (SandboxRunRequest / SandboxRunResult)"
-  },
-  {
-    "path": "index.ts",
-    "note": "Auswahl: getSandboxAdapter() / registerSandboxAdapter()"
-  },
-  {
-    "path": "local-child-process-adapter.ts",
-    "note": "Das Standard-Backend: gesperrter Node-Child-Prozess"
-  },
-  {
-    "path": "../run-code.ts",
-    "note": "Verdrahtet die Nahtstelle; ändert sich nie beim Backend-Wechsel"
-  }
-]} />
+<FileTree
+  id="doc-block-vd1j1k"
+  title="Die Sandbox-Nahtstelle in core"
+  title="packages/core/src/coding-tools/sandbox/"
+  entries={[
+    {
+      path: "adapter.ts",
+      note: "Der SandboxAdapter-Vertrag (SandboxRunRequest / SandboxRunResult)",
+    },
+    {
+      path: "index.ts",
+      note: "Auswahl: getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "local-child-process-adapter.ts",
+      note: "Das Standard-Backend: gesperrter Node-Child-Prozess",
+    },
+    {
+      path: "../run-code.ts",
+      note: "Verdrahtet die Nahtstelle; ändert sich nie beim Backend-Wechsel",
+    },
+  ]}
+/>
 
 Jedes Backend implementiert `SandboxAdapter`:
 

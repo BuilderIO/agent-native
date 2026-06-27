@@ -57,56 +57,60 @@ vers des lignes SQL ou des fichiers locaux.
 
 Un espace de travail de contenu peut être aussi petit que ceci :
 
-<FileTree id="doc-block-u2dd2k" title="Un repo de workspace Content" entries={[
-  {
-    "path": "agent-native.json",
-    "note": "Déclare quels dossiers sont des racines de contenu et leurs types"
-  },
-  {
-    "path": "docs/",
-    "note": "Racine de contenu : affichée dans la barre latérale comme pages"
-  },
-  {
-    "path": "docs/getting-started.mdx"
-  },
-  {
-    "path": "docs/guides/custom-components.mdx"
-  },
-  {
-    "path": "blog/",
-    "note": "Racine de contenu"
-  },
-  {
-    "path": "blog/launch-post.mdx"
-  },
-  {
-    "path": "resources/",
-    "note": "Racine de contenu"
-  },
-  {
-    "path": "resources/messaging/positioning.md"
-  },
-  {
-    "path": "components/",
-    "note": "PAS une racine de contenu : bibliothèque de composants de preview que MDX peut importer"
-  },
-  {
-    "path": "components/FrameworkTabs.tsx"
-  },
-  {
-    "path": "components/Callout.tsx"
-  },
-  {
-    "path": "extensions/",
-    "note": "PAS une racine de contenu : bibliothèque locale d'extensions (widgets sandboxés)"
-  },
-  {
-    "path": "extensions/doc-status/extension.json"
-  },
-  {
-    "path": "extensions/doc-status/index.html"
-  }
-]} />
+<FileTree
+  id="doc-block-u2dd2k"
+  title="Un repo de workspace Content"
+  entries={[
+    {
+      path: "agent-native.json",
+      note: "Déclare quels dossiers sont des racines de contenu et leurs types",
+    },
+    {
+      path: "docs/",
+      note: "Racine de contenu : affichée dans la barre latérale comme pages",
+    },
+    {
+      path: "docs/getting-started.mdx",
+    },
+    {
+      path: "docs/guides/custom-components.mdx",
+    },
+    {
+      path: "blog/",
+      note: "Racine de contenu",
+    },
+    {
+      path: "blog/launch-post.mdx",
+    },
+    {
+      path: "resources/",
+      note: "Racine de contenu",
+    },
+    {
+      path: "resources/messaging/positioning.md",
+    },
+    {
+      path: "components/",
+      note: "PAS une racine de contenu : bibliothèque de composants de preview que MDX peut importer",
+    },
+    {
+      path: "components/FrameworkTabs.tsx",
+    },
+    {
+      path: "components/Callout.tsx",
+    },
+    {
+      path: "extensions/",
+      note: "PAS une racine de contenu : bibliothèque locale d'extensions (widgets sandboxés)",
+    },
+    {
+      path: "extensions/doc-status/extension.json",
+    },
+    {
+      path: "extensions/doc-status/index.html",
+    },
+  ]}
+/>
 
 En mode fichier local, la barre latérale Contenu affiche les `docs/`, `blog/` et
 Arborescences `resources/` sous forme de pages. La sélection de `docs/getting-started.mdx` ouvre cela

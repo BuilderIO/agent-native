@@ -47,24 +47,28 @@ No todos los que necesitan realizar cambios se sienten cómodos con git. [Builde
 
 La gobernanza del código se configura mediante un puñado de archivos en la raíz del repositorio:
 
-<FileTree id="doc-block-4v0r00" title={"Configuración de gobernanza en el repo"} entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "Asigna revisores automáticamente según la ruta modificada"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "Etiqueta PRs automáticamente por app"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Nivel de workspace: revisión amplia"
-  },
-  {
-    "path": "package.json",
-    "note": "Nivel de workspace: propiedad del equipo de plataforma"
-  }
-]} />
+<FileTree
+  id="doc-block-4v0r00"
+  title={"Configuración de gobernanza en el repo"}
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "Asigna revisores automáticamente según la ruta modificada",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "Etiqueta PRs automáticamente por app",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Nivel de workspace: revisión amplia",
+    },
+    {
+      path: "package.json",
+      note: "Nivel de workspace: propiedad del equipo de plataforma",
+    },
+  ]}
+/>
 
 El archivo CODEOWNERS de GitHub asigna automáticamente revisores a los RP según los archivos modificados. Cree `.github/CODEOWNERS` en la raíz del repositorio:
 

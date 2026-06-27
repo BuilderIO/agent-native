@@ -45,45 +45,49 @@ Le CLI affiche un sélecteur à sélection multiple de chaque modèle propriéta
 
 Vous obtenez un monorepo pnpm avec le package partagé privé, un `package.json` racine qui connecte la découverte de l'espace de travail, un `.env` partagé et un sous-répertoire par application que vous avez choisie :
 
-<FileTree id="doc-block-s8gzfc" title={"Un workspace généré"} entries={[
-  {
-    "path": "package.json",
-    "note": "Déclare agent-native.workspaceCore"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "packages: [\"packages/*\", \"apps/*\"]"
-  },
-  {
-    "path": ".env.example",
-    "note": "ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ... partagés"
-  },
-  {
-    "path": "packages/shared/",
-    "note": "@my-company-platform/shared"
-  },
-  {
-    "path": "packages/shared/src/server/",
-    "note": "Overrides de plugins seulement si nécessaire"
-  },
-  {
-    "path": "packages/shared/src/client/",
-    "note": "Code React partagé seulement si nécessaire"
-  },
-  {
-    "path": "packages/shared/AGENTS.md",
-    "note": "Instructions à l'échelle du workspace"
-  },
-  {
-    "path": "apps/mail/"
-  },
-  {
-    "path": "apps/calendar/"
-  },
-  {
-    "path": "apps/forms/"
-  }
-]} />
+<FileTree
+  id="doc-block-s8gzfc"
+  title={"Un workspace généré"}
+  entries={[
+    {
+      path: "package.json",
+      note: "Déclare agent-native.workspaceCore",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: 'packages: ["packages/*", "apps/*"]',
+    },
+    {
+      path: ".env.example",
+      note: "ANTHROPIC_API_KEY, A2A_SECRET, DATABASE_URL, ... partagés",
+    },
+    {
+      path: "packages/shared/",
+      note: "@my-company-platform/shared",
+    },
+    {
+      path: "packages/shared/src/server/",
+      note: "Overrides de plugins seulement si nécessaire",
+    },
+    {
+      path: "packages/shared/src/client/",
+      note: "Code React partagé seulement si nécessaire",
+    },
+    {
+      path: "packages/shared/AGENTS.md",
+      note: "Instructions à l'échelle du workspace",
+    },
+    {
+      path: "apps/mail/",
+    },
+    {
+      path: "apps/calendar/",
+    },
+    {
+      path: "apps/forms/",
+    },
+  ]}
+/>
 
 Puis démarrez-le :
 

@@ -47,24 +47,28 @@ Tous ceux qui ont besoin d'apporter des modifications ne sont pas à l'aise avec
 
 La gouvernance du code est configurée par une poignée de fichiers à la racine du dépôt :
 
-<FileTree id="doc-block-1h15ksd" title="Configuration de gouvernance dans le repo" entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "Assigne automatiquement les reviewers selon le chemin modifié"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "Ajoute automatiquement des labels aux PRs par app"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Niveau workspace : revue large"
-  },
-  {
-    "path": "package.json",
-    "note": "Niveau workspace : propriété de l'équipe plateforme"
-  }
-]} />
+<FileTree
+  id="doc-block-1h15ksd"
+  title="Configuration de gouvernance dans le repo"
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "Assigne automatiquement les reviewers selon le chemin modifié",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "Ajoute automatiquement des labels aux PRs par app",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Niveau workspace : revue large",
+    },
+    {
+      path: "package.json",
+      note: "Niveau workspace : propriété de l'équipe plateforme",
+    },
+  ]}
+/>
 
 Le fichier CODEOWNERS de GitHub attribue automatiquement les réviseurs aux PR en fonction des fichiers modifiés. Créez `.github/CODEOWNERS` à la racine du dépôt :
 

@@ -39,69 +39,74 @@ Si aún no está creando una plantilla UI reutilizable, use la rampa de acceso s
 
 Cada plantilla sigue el mismo diseño general:
 
-<FileTree id="doc-block-1qe28n0" title="Estructura del proyecto de plantilla" title="my-template/" entries={[
-  {
-    "path": "app/",
-    "note": "Frontend React"
-  },
-  {
-    "path": "app/root.tsx",
-    "note": "Shell HTML y proveedores"
-  },
-  {
-    "path": "app/routes/",
-    "note": "Rutas de archivo de React Router"
-  },
-  {
-    "path": "app/components/",
-    "note": "UI de la plantilla"
-  },
-  {
-    "path": "app/hooks/",
-    "note": "Hooks de estado y datos de la UI"
-  },
-  {
-    "path": "actions/",
-    "note": "Operaciones defineAction: la única fuente de verdad"
-  },
-  {
-    "path": "server/db/schema.ts",
-    "note": "Esquema Drizzle"
-  },
-  {
-    "path": "server/plugins/db.ts",
-    "note": "Migraciones aditivas"
-  },
-  {
-    "path": "server/plugins/",
-    "note": "Integraciones de arranque"
-  },
-  {
-    "path": "server/routes/api/",
-    "note": "Rutas personalizadas solo cuando las actions no bastan"
-  },
-  {
-    "path": "shared/types.ts",
-    "note": "Tipos compartidos cliente/servidor"
-  },
-  {
-    "path": ".agents/skills/",
-    "note": "<skill>/SKILL.md: guía del agente para flujos de trabajo complejos"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "Instrucciones de agente específicas de la plantilla"
-  },
-  {
-    "path": "package.json"
-  },
-  {
-    "path": "react-router.config.ts"
-  },
-  {
-    "path": "vite.config.ts"
-  }
-]} />
+<FileTree
+  id="doc-block-1qe28n0"
+  title="Estructura del proyecto de plantilla"
+  title="my-template/"
+  entries={[
+    {
+      path: "app/",
+      note: "Frontend React",
+    },
+    {
+      path: "app/root.tsx",
+      note: "Shell HTML y proveedores",
+    },
+    {
+      path: "app/routes/",
+      note: "Rutas de archivo de React Router",
+    },
+    {
+      path: "app/components/",
+      note: "UI de la plantilla",
+    },
+    {
+      path: "app/hooks/",
+      note: "Hooks de estado y datos de la UI",
+    },
+    {
+      path: "actions/",
+      note: "Operaciones defineAction: la única fuente de verdad",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Esquema Drizzle",
+    },
+    {
+      path: "server/plugins/db.ts",
+      note: "Migraciones aditivas",
+    },
+    {
+      path: "server/plugins/",
+      note: "Integraciones de arranque",
+    },
+    {
+      path: "server/routes/api/",
+      note: "Rutas personalizadas solo cuando las actions no bastan",
+    },
+    {
+      path: "shared/types.ts",
+      note: "Tipos compartidos cliente/servidor",
+    },
+    {
+      path: ".agents/skills/",
+      note: "<skill>/SKILL.md: guía del agente para flujos de trabajo complejos",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Instrucciones de agente específicas de la plantilla",
+    },
+    {
+      path: "package.json",
+    },
+    {
+      path: "react-router.config.ts",
+    },
+    {
+      path: "vite.config.ts",
+    },
+  ]}
+/>
 
 No agregue un directorio `data/` para el estado de la aplicación. Los datos duraderos de la aplicación pertenecen a SQL y el UI los lee a través de actions o controladores de servidor escritos.
 
@@ -181,27 +186,36 @@ Utilice los documentos [Database](/docs/database) y [Security](/docs/security) a
 
 Acciones son la única fuente de información sobre el comportamiento de las aplicaciones. El agente los llama como herramientas, el frontend los llama a través de enlaces y otras aplicaciones pueden acceder a ellos a través de MCP/A2A.
 
-<AnnotatedCode id="doc-block-ntw54o" title="actions/create-project.ts" filename="actions/create-project.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});"} annotations={[
-  {
-    "lines": "2",
-    "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`."
-  },
-  {
-    "lines": "8",
-    "label": "Superficie de la herramienta",
-    "note": "`description` es lo que lee el agente para decidir cuándo llamar a esta acción como herramienta."
-  },
-  {
-    "lines": "9-11",
-    "label": "Contrato tipado",
-    "note": "Un zod `schema` valida la entrada del agente, la UI, HTTP, MCP y A2A."
-  },
-  {
-    "lines": "18-19",
-    "label": "escritura con alcance",
-    "note": "Sello `ownerEmail` / `orgId` de `ctx` para que la fila tenga el alcance correcto para compartir y verificar el acceso."
+<AnnotatedCode
+  id="doc-block-ntw54o"
+  title="actions/create-project.ts"
+  filename="actions/create-project.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { getDb } from "../server/db/index.js";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\nimport * as schema from "../server/db/schema";\n\nexport default defineAction({\n  description: "Create a project.",\n  schema: z.object({\n    title: z.string().min(1).describe("Project title"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      note: "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`.",
+    },
+    {
+      lines: "8",
+      label: "Superficie de la herramienta",
+      note: "`description` es lo que lee el agente para decidir cuándo llamar a esta acción como herramienta.",
+    },
+    {
+      lines: "9-11",
+      label: "Contrato tipado",
+      note: "Un zod `schema` valida la entrada del agente, la UI, HTTP, MCP y A2A.",
+    },
+    {
+      lines: "18-19",
+      label: "escritura con alcance",
+      note: "Sello `ownerEmail` / `orgId` de `ctx` para que la fila tenga el alcance correcto para compartir y verificar el acceso.",
+    },
+  ]}
+/>
 
 Utilice `http: { method: "GET" }` o `readOnly: true` para actions de solo lectura. Utilice `parallelSafe: true` solo para mutar actions que sea seguro ejecutar al mismo tiempo que llamadas a herramientas en el mismo turno. Utilice `toolCallable: false` para actions con un radio de explosión alto que no debe ejecutarse desde herramientas de espacio aislado.
 

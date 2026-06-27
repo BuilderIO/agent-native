@@ -39,28 +39,37 @@ description: "عمليات التشغيل التلقائي المجدولة وا
 
 المسار الثالث - كتابة ملف `jobs/<name>.md` يدويًا عبر `resourcePut` - يعمل تمامًا كما هو الحال مع [recurring jobs](/docs/recurring-jobs#creating). للحصول على أتمتة تعتمد على الحدث، يمكنك إضافة المادة الأمامية لمشغل الحدث أدناه إلى نفس الملف. تقوم المهمة التي يتم تشغيلها بواسطة حدث بتعيين `schedule: ""` وتوفر `triggerType: event` واسم `event` و`condition` اختياري:
 
-<AnnotatedCode id="doc-block-1nt3xht" title={"أتمتة ناجمة عن الأحداث"} filename="jobs/slack-on-builder-booking.md" language="markdown" code={"---\nschedule: \"\"\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: \"attendee email ends with @builder.io\"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}."} annotations={[
-  {
-    "lines": "2",
-    "label": "لا كرون",
-    "note": "قم بتعيين مشغلات الأحداث `schedule` إلى `\"\"` - يظل حقل cron فارغًا."
-  },
-  {
-    "lines": "4-5",
-    "label": "الزناد",
-    "note": "`triggerType: event` بالإضافة إلى اسم `event` يشترك في هذه الأتمتة في الناقل."
-  },
-  {
-    "lines": "6",
-    "label": "بوابة",
-    "note": "لغة طبيعية اختيارية `condition`، يتم تقييمها بواسطة Haiku مقابل الحمولة قبل الإرسال."
-  },
-  {
-    "lines": "12",
-    "label": "سر من جانب الخادم",
-    "note": "يتم حل `${keys.SLACK_WEBHOOK}` من جانب الخادم - ولا تدخل القيمة الأولية مطلقًا في سياق الوكيل."
+<AnnotatedCode
+  id="doc-block-1nt3xht"
+  title={"أتمتة ناجمة عن الأحداث"}
+  filename="jobs/slack-on-builder-booking.md"
+  language="markdown"
+  code={
+    '---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: "attendee email ends with @builder.io"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}.'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "لا كرون",
+      note: 'قم بتعيين مشغلات الأحداث `schedule` إلى `""` - يظل حقل cron فارغًا.',
+    },
+    {
+      lines: "4-5",
+      label: "الزناد",
+      note: "`triggerType: event` بالإضافة إلى اسم `event` يشترك في هذه الأتمتة في الناقل.",
+    },
+    {
+      lines: "6",
+      label: "بوابة",
+      note: "لغة طبيعية اختيارية `condition`، يتم تقييمها بواسطة Haiku مقابل الحمولة قبل الإرسال.",
+    },
+    {
+      lines: "12",
+      label: "سر من جانب الخادم",
+      note: "يتم حل `${keys.SLACK_WEBHOOK}` من جانب الخادم - ولا تدخل القيمة الأولية مطلقًا في سياق الوكيل.",
+    },
+  ]}
+/>
 
 ## الأتمتة الأمامية {#frontmatter}
 

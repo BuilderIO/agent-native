@@ -8,7 +8,12 @@ description: "エージェントネイティブのフォームビルダー - 自
 Forms は、エージェントネイティブのフォームビルダーです。必要なフォームを記述し、エディターで調整して、送信内容を独自の SQL データベースに保存する公開フォームを公開します。
 
 <WireframeBlock id="doc-block-1mdxkyx">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>ベータ登録</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>共有</button><button class='primary'>公開停止</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>編集</span><span class='wf-pill'>結果 187</span><span class='wf-pill'>設定</span><span class='wf-pill'>連携</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>ベータ登録</h2><p class='wf-muted' style='margin:0'>近日開始のプライベートベータ枠を予約します。</p><div class='wf-card'><strong>氏名</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>仕事用メール</strong><input value='you@company.com'/></div><div class='wf-card'><strong>あなたの役割</strong><input value='Select...'/></div><div class='wf-card'><strong>チーム規模</strong><input value='Select...'/></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>ベータ登録</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>共有</button><button class='primary'>公開停止</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>編集</span><span class='wf-pill'>結果 187</span><span class='wf-pill'>設定</span><span class='wf-pill'>連携</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>ベータ登録</h2><p class='wf-muted' style='margin:0'>近日開始のプライベートベータ枠を予約します。</p><div class='wf-card'><strong>氏名</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>仕事用メール</strong><input value='you@company.com'/></div><div class='wf-card'><strong>あなたの役割</strong><input value='Select...'/></div><div class='wf-card'><strong>チーム規模</strong><input value='Select...'/></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 アプリを開くと、フォーム、現在のエディター、ライブ プレビューが表示されます。エージェントは、UI が使用するものと同じ actions を使用して、プロンプトからフォームを作成し、フィールド ラベルとオプションを更新し、検証を変更し、送信先に接続することができます。
@@ -91,140 +96,148 @@ npx @agent-native/core@latest create my-platform
 
 `fields` および `settings` JSON 形状は、`templates/forms/shared/types.ts` (`FormField`、`FormSettings`) で定義されています。統合 Webhook URL や許可されたオリジンなどの所有者プライベート設定は、データが `toPublicFormSettings` 経由でパブリック入力ページに到達する前に削除されます。
 
-<DataModel id="doc-block-1wk7pa0" title={"フォームデータモデル"} summary={"テーブルが3つ。フィールドと統合はフォーム上の JSON 列であるため、エージェントの編集はテーブル間の行変更ではなく、外科的パッチとなります。"} entities={[
-  {
-    "id": "forms",
-    "name": "forms",
-    "note": "A form definition (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "string"
-      },
-      {
-        "name": "description",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "note": "unique; public URL"
-      },
-      {
-        "name": "fields",
-        "type": "json",
-        "note": "FormField[] — すべてのフィールド タイプ"
-      },
-      {
-        "name": "settings",
-        "type": "json",
-        "note": "FormSettings — 統合など"
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "ドラフト |公開された |閉まっている"
-      },
-      {
-        "name": "deleted_at",
-        "type": "datetime",
-        "nullable": true,
-        "note": "soft delete"
-      },
-      {
-        "name": "owner_email",
-        "type": "string"
-      },
-      {
-        "name": "org_id",
-        "type": "id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "responses",
-    "name": "responses",
-    "note": "1 行につき 1 つの送信",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "form_id",
-        "type": "id",
-        "fk": "forms.id"
-      },
-      {
-        "name": "data",
-        "type": "json",
-        "note": "{ fieldId: value }"
-      },
-      {
-        "name": "submitted_at",
-        "type": "datetime"
-      },
-      {
-        "name": "ip",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "submitter_email",
-        "type": "string",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "form_shares",
-    "name": "form_shares",
-    "note": "フレームワーク共有テーブル - フォームごとのプリンシパルとロール",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "form_id",
-        "type": "id",
-        "fk": "forms.id"
-      },
-      {
-        "name": "principal",
-        "type": "string",
-        "note": "user or org"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "ビューア |編集者 |管理者"
-      }
-    ]
+<DataModel
+  id="doc-block-1wk7pa0"
+  title={"フォームデータモデル"}
+  summary={
+    "テーブルが3つ。フィールドと統合はフォーム上の JSON 列であるため、エージェントの編集はテーブル間の行変更ではなく、外科的パッチとなります。"
   }
-]} relations={[
-  {
-    "from": "forms",
-    "to": "responses",
-    "kind": "1-n",
-    "label": "has responses"
-  },
-  {
-    "from": "forms",
-    "to": "form_shares",
-    "kind": "1-n",
-    "label": "has share grants"
-  }
-]} />
+  entities={[
+    {
+      id: "forms",
+      name: "forms",
+      note: "A form definition (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "unique; public URL",
+        },
+        {
+          name: "fields",
+          type: "json",
+          note: "FormField[] — すべてのフィールド タイプ",
+        },
+        {
+          name: "settings",
+          type: "json",
+          note: "FormSettings — 統合など",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "ドラフト |公開された |閉まっている",
+        },
+        {
+          name: "deleted_at",
+          type: "datetime",
+          nullable: true,
+          note: "soft delete",
+        },
+        {
+          name: "owner_email",
+          type: "string",
+        },
+        {
+          name: "org_id",
+          type: "id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "responses",
+      name: "responses",
+      note: "1 行につき 1 つの送信",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "{ fieldId: value }",
+        },
+        {
+          name: "submitted_at",
+          type: "datetime",
+        },
+        {
+          name: "ip",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "submitter_email",
+          type: "string",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "form_shares",
+      name: "form_shares",
+      note: "フレームワーク共有テーブル - フォームごとのプリンシパルとロール",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "ビューア |編集者 |管理者",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "forms",
+      to: "responses",
+      kind: "1-n",
+      label: "has responses",
+    },
+    {
+      from: "forms",
+      to: "form_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
 
 ### キー actions
 

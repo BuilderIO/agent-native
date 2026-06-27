@@ -76,24 +76,33 @@ O acesso à página pública e o acesso à ferramenta pública são separados. U
 
 <Callout id="doc-block-s50w8y" tone="warning">
 
-**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action *and* `publicMcp: true` on the app.
+**A public page is not a public tool.** Making a route crawlable never exposes an action. Tool access requires an explicit `publicAgent.expose` opt-in on the action _and_ `publicMcp: true` on the app.
 
 </Callout>
 
 Para expor uma ação por meio de um protocolo de agente público, a ação deve aceitar:
 
-<AnnotatedCode id="doc-block-1lq2cm3" title={"Optando por uma ação segura na superfície pública"} filename="actions/search-docs.ts" language="ts" code={"export default defineAction({\n  description: \"Pesquisar published docs\",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: \"Pesquisar published docs\",\n  },\n  run: async (args) => {\n    // ...\n  },\n});"} annotations={[
-  {
-    "lines": "4",
-    "label": "Aceitação explícita",
-    "note": "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are."
-  },
-  {
-    "lines": "5-7",
-    "label": "Autodescrever segurança",
-    "note": "Marque-o como somente leitura, declare se ele precisa de autenticação e sinalize se é consequencial. MCP público exclui ações consequential/write, a menos que a política as permita explicitamente."
+<AnnotatedCode
+  id="doc-block-1lq2cm3"
+  title={"Optando por uma ação segura na superfície pública"}
+  filename="actions/search-docs.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Pesquisar published docs",\n  readOnly: true,\n  publicAgent: {\n    expose: true,\n    readOnly: true,\n    requiresAuth: false,\n    isConsequential: false,\n    title: "Pesquisar published docs",\n  },\n  run: async (args) => {\n    // ...\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "4",
+      label: "Aceitação explícita",
+      note: "Without `publicAgent.expose === true`, the action never appears on any public agent surface — no matter how public its routes are.",
+    },
+    {
+      lines: "5-7",
+      label: "Autodescrever segurança",
+      note: "Marque-o como somente leitura, declare se ele precisa de autenticação e sinalize se é consequencial. MCP público exclui ações consequential/write, a menos que a política as permita explicitamente.",
+    },
+  ]}
+/>
 
 `agentWeb.publicMcp` permanece `false` por padrão. Quando MCP público estiver habilitado, o servidor deverá expor apenas actions com `publicAgent.expose === true` e ainda deverá excluir actions consequente ou de gravação, a menos que a ação e a política de autenticação permitam explicitamente.
 

@@ -79,23 +79,32 @@ pnpm agent "Call hello for Steve and explain the result"
 
 ## 定义操作 {#defining}
 
-<AnnotatedCode id="doc-block-16r6bb2" title={"动作剖析"} filename="actions/reply-to-email.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "工具表面",
-    "note": "`description` 是代理读取以决定何时调用此动作的内容。每个字段的 `.describe()` 也会进入 JSON Schema。"
-  },
-  {
-    "lines": "6-9",
-    "label": "类型化契约",
-    "note": "一个 schema 会验证来自**每个**界面的输入，并转换为供模型使用的 JSON Schema。无效输入永远不会进入 `run`。"
-  },
-  {
-    "lines": "10-13",
-    "label": "单一实现",
-    "note": "`run` 主体是唯一事实来源，UI 按钮和代理工具都会执行这一段。"
+<AnnotatedCode
+  id="doc-block-16r6bb2"
+  title={"动作剖析"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "工具表面",
+      note: "`description` 是代理读取以决定何时调用此动作的内容。每个字段的 `.describe()` 也会进入 JSON Schema。",
+    },
+    {
+      lines: "6-9",
+      label: "类型化契约",
+      note: "一个 schema 会验证来自**每个**界面的输入，并转换为供模型使用的 JSON Schema。无效输入永远不会进入 `run`。",
+    },
+    {
+      lines: "10-13",
+      label: "单一实现",
+      note: "`run` 主体是唯一事实来源，UI 按钮和代理工具都会执行这一段。",
+    },
+  ]}
+/>
 
 就是这样。该框架会自动发现 `actions/` 中的每个文件并在启动时挂载它们。
 

@@ -79,23 +79,32 @@ autour de actions, pas une condition préalable requise pour l'action elle-même
 
 ## Définir une action {#defining}
 
-<AnnotatedCode id="doc-block-12vxjve" title={"Anatomie d'une action"} filename="actions/reply-to-email.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "Surface d’outil",
-    "note": "`description` est ce que l’agent lit pour décider quand appeler cette action. Les appels `.describe()` de chaque champ alimentent aussi le JSON Schema."
-  },
-  {
-    "lines": "6-9",
-    "label": "Contrat typé",
-    "note": "Un schema valide les entrées de **chaque** surface et les convertit en JSON Schema pour le modèle. Les entrées invalides n’atteignent jamais `run`."
-  },
-  {
-    "lines": "10-13",
-    "label": "Une implémentation",
-    "note": "Le corps de `run` est la source de vérité unique : le bouton de l’UI et l’outil de l’agent exécutent exactement ceci."
+<AnnotatedCode
+  id="doc-block-12vxjve"
+  title={"Anatomie d'une action"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "Surface d’outil",
+      note: "`description` est ce que l’agent lit pour décider quand appeler cette action. Les appels `.describe()` de chaque champ alimentent aussi le JSON Schema.",
+    },
+    {
+      lines: "6-9",
+      label: "Contrat typé",
+      note: "Un schema valide les entrées de **chaque** surface et les convertit en JSON Schema pour le modèle. Les entrées invalides n’atteignent jamais `run`.",
+    },
+    {
+      lines: "10-13",
+      label: "Une implémentation",
+      note: "Le corps de `run` est la source de vérité unique : le bouton de l’UI et l’outil de l’agent exécutent exactement ceci.",
+    },
+  ]}
+/>
 
 C'est tout. Le framework découvre automatiquement chaque fichier dans `actions/` et les monte au démarrage.
 

@@ -159,23 +159,32 @@ Esto funciona con [A2A](/docs/a2a-protocol) y [MCP](/docs/mcp-protocol) bajo el 
 
 Si está creando o ampliando una aplicación nativa del agente, este es el patrón central: cada operación en la aplicación es una **acción**, definida una vez, disponible tanto para el agente como para el UI.
 
-<AnnotatedCode id="doc-block-d4w6eh" title={"Una acción, definida una vez"} filename="actions/reply-to-email.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "Superficie de la herramienta",
-    "note": "`description` es lo que el agente lee para decidir cuándo llamarlo como herramienta."
-  },
-  {
-    "lines": "6",
-    "label": "Contrato tipado",
-    "note": "Un zod `schema` valida la entrada de **todas** las superficies: agente, UI, HTTP, MCP y A2A."
-  },
-  {
-    "lines": "7-10",
-    "label": "Una implementación",
-    "note": "El cuerpo `run` es la única fuente de verdad. El botón de la interfaz de usuario y la herramienta del agente ejecutan exactamente esto."
+<AnnotatedCode
+  id="doc-block-d4w6eh"
+  title={"Una acción, definida una vez"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app\'s server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "Superficie de la herramienta",
+      note: "`description` es lo que el agente lee para decidir cuándo llamarlo como herramienta.",
+    },
+    {
+      lines: "6",
+      label: "Contrato tipado",
+      note: "Un zod `schema` valida la entrada de **todas** las superficies: agente, UI, HTTP, MCP y A2A.",
+    },
+    {
+      lines: "7-10",
+      label: "Una implementación",
+      note: "El cuerpo `run` es la única fuente de verdad. El botón de la interfaz de usuario y la herramienta del agente ejecutan exactamente esto.",
+    },
+  ]}
+/>
 
 ```tsx
 // In any React component — same action, called from a button

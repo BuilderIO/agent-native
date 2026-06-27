@@ -159,23 +159,32 @@ Agent-native هو وسيلة لبناء البرامج حيث يكون وكيل 
 
 إذا كنت تقوم بإنشاء تطبيق وكيل أصلي أو توسيعه، فإليك النمط المركزي: كل عملية في التطبيق عبارة عن **إجراء** — محدد مرة واحدة، ومتاح لكل من الوكيل وUI.
 
-<AnnotatedCode id="doc-block-1pbc6g" title={"إجراء واحد، محدد مرة واحدة"} filename="actions/reply-to-email.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread\",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app's server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "سطح الأداة",
-    "note": "`description` هو ما يقرأه الوكيل ليقرر متى يتم استدعاء هذا كأداة."
-  },
-  {
-    "lines": "6",
-    "label": "عقد typed",
-    "note": "يقوم zod `schema` واحد بالتحقق من الإدخال من **كل** سطح — agent وواجهة المستخدم وHTTP وMCP وA2A."
-  },
-  {
-    "lines": "7-10",
-    "label": "تنفيذ واحد",
-    "note": "جسد `run` هو المصدر الوحيد للحقيقة. يقوم كل من الزر UI وأداة الوكيل بتنفيذ هذا بالضبط."
+<AnnotatedCode
+  id="doc-block-1pbc6g"
+  title={"إجراء واحد، محدد مرة واحدة"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread",\n  schema: z.object({ emailId: z.string(), body: z.string() }),\n  run: async ({ emailId, body }) => {\n    // db and schema come from your app\'s server/db setup\n    await db.insert(schema.replies).values({ emailId, body });\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "سطح الأداة",
+      note: "`description` هو ما يقرأه الوكيل ليقرر متى يتم استدعاء هذا كأداة.",
+    },
+    {
+      lines: "6",
+      label: "عقد typed",
+      note: "يقوم zod `schema` واحد بالتحقق من الإدخال من **كل** سطح — agent وواجهة المستخدم وHTTP وMCP وA2A.",
+    },
+    {
+      lines: "7-10",
+      label: "تنفيذ واحد",
+      note: "جسد `run` هو المصدر الوحيد للحقيقة. يقوم كل من الزر UI وأداة الوكيل بتنفيذ هذا بالضبط.",
+    },
+  ]}
+/>
 
 ```tsx
 // In any React component — same action, called from a button

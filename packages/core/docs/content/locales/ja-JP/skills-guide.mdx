@@ -80,28 +80,37 @@ Skills は `.agents/skills/<name>/SKILL.md` にあり、エージェント向け
 
 各スキルは、YAML フロントマターを持つ Markdown ファイルです:
 
-<AnnotatedCode id="doc-block-mqbxfr" title={"SKILL.md の構造"} filename=".agents/skills/project-imports/SKILL.md" language="markdown" code={"---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"} annotations={[
-  {
-    "lines": "2",
-    "label": "ディスカバリーキー",
-    "note": "The `name` matches the folder; it is how the skill is invoked as `/project-imports`."
-  },
-  {
-    "lines": "3-5",
-    "label": "トリガー",
-    "note": "この `description` は、常にコンテキスト内にある**唯一**のテキストです。スキルが「いつ」適用されるかを正確に示すようにします。"
-  },
-  {
-    "lines": "9-14",
-    "label": "まずはルール",
-    "note": "Lead with the hard rule and the why; the agent reads the body only once the task matches."
-  },
-  {
-    "lines": "27-30",
-    "label": "クロスリンク",
-    "note": "関連するスキルをポイントすると、エージェントはガイダンスを再度導き出すのではなく、それらを連鎖させることができます。"
+<AnnotatedCode
+  id="doc-block-mqbxfr"
+  title={"SKILL.md の構造"}
+  filename=".agents/skills/project-imports/SKILL.md"
+  language="markdown"
+  code={
+    "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      label: "ディスカバリーキー",
+      note: "The `name` matches the folder; it is how the skill is invoked as `/project-imports`.",
+    },
+    {
+      lines: "3-5",
+      label: "トリガー",
+      note: "この `description` は、常にコンテキスト内にある**唯一**のテキストです。スキルが「いつ」適用されるかを正確に示すようにします。",
+    },
+    {
+      lines: "9-14",
+      label: "まずはルール",
+      note: "Lead with the hard rule and the why; the agent reads the body only once the task matches.",
+    },
+    {
+      lines: "27-30",
+      label: "クロスリンク",
+      note: "関連するスキルをポイントすると、エージェントはガイダンスを再度導き出すのではなく、それらを連鎖させることができます。",
+    },
+  ]}
+/>
 
 フロントマター `name` および `description` は、スキル検出のためにエージェントのツール システムによって使用されます。説明には、スキルがいつ発動するかを記載する必要があります。状況について具体的に記載してください。
 

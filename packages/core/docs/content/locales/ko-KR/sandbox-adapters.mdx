@@ -51,24 +51,29 @@ Agent-Native에는 좁은 뒤에 있는 문제를 고려하는 두 개의 어댑
 
 심은 `packages/core/src/coding-tools/sandbox/` — `adapter.ts`(계약), `index.ts`(선택: `getSandboxAdapter()` / `registerSandboxAdapter()`) 및 `local-child-process-adapter.ts`(기본값)의 코어에 있습니다. `run-code.ts`에 의해 패키지 내로 배선됩니다. 호스트는 `index.ts` 등록 도우미를 통해(또는 Docker 백엔드의 경우 이러한 파일을 직접 편집하는 [blueprint](/docs/blueprint-installer)를 통해) 다른 백엔드에 연결됩니다.
 
-<FileTree id="doc-block-12moz3v" title={"core의 sandbox 접점"} title="packages/core/src/coding-tools/sandbox/" entries={[
-  {
-    "path": "adapter.ts",
-    "note": "SandboxAdapter 계약(SandboxRunRequest / SandboxRunResult)"
-  },
-  {
-    "path": "index.ts",
-    "note": "선택: getSandboxAdapter() / registerSandboxAdapter()"
-  },
-  {
-    "path": "local-child-process-adapter.ts",
-    "note": "기본 backend: 잠긴 Node child process"
-  },
-  {
-    "path": "../run-code.ts",
-    "note": "이 접점을 연결; backend를 바꿔도 변경되지 않음"
-  }
-]} />
+<FileTree
+  id="doc-block-12moz3v"
+  title={"core의 sandbox 접점"}
+  title="packages/core/src/coding-tools/sandbox/"
+  entries={[
+    {
+      path: "adapter.ts",
+      note: "SandboxAdapter 계약(SandboxRunRequest / SandboxRunResult)",
+    },
+    {
+      path: "index.ts",
+      note: "선택: getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "local-child-process-adapter.ts",
+      note: "기본 backend: 잠긴 Node child process",
+    },
+    {
+      path: "../run-code.ts",
+      note: "이 접점을 연결; backend를 바꿔도 변경되지 않음",
+    },
+  ]}
+/>
 
 모든 백엔드는 `SandboxAdapter`를 구현합니다.
 

@@ -39,69 +39,74 @@ npx @agent-native/core@latest create my-platform
 
 すべてのテンプレートは、同じ広範なレイアウトに従います:
 
-<FileTree id="doc-block-a0ipml" title={"テンプレートプロジェクトの構成"} title="my-template/" entries={[
-  {
-    "path": "app/",
-    "note": "React フロントエンド"
-  },
-  {
-    "path": "app/root.tsx",
-    "note": "HTML shell と providers"
-  },
-  {
-    "path": "app/routes/",
-    "note": "React Router のファイルルート"
-  },
-  {
-    "path": "app/components/",
-    "note": "テンプレート UI"
-  },
-  {
-    "path": "app/hooks/",
-    "note": "UI 状態とデータ hooks"
-  },
-  {
-    "path": "actions/",
-    "note": "defineAction 操作: 唯一の source of truth"
-  },
-  {
-    "path": "server/db/schema.ts",
-    "note": "Drizzle スキーマ"
-  },
-  {
-    "path": "server/plugins/db.ts",
-    "note": "追加型 migrations"
-  },
-  {
-    "path": "server/plugins/",
-    "note": "起動時 integrations"
-  },
-  {
-    "path": "server/routes/api/",
-    "note": "actions だけでは足りない場合のみ custom routes"
-  },
-  {
-    "path": "shared/types.ts",
-    "note": "共有 client/server 型"
-  },
-  {
-    "path": ".agents/skills/",
-    "note": "<skill>/SKILL.md: 複雑な workflow 向けのエージェントガイド"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "テンプレート固有のエージェント指示"
-  },
-  {
-    "path": "package.json"
-  },
-  {
-    "path": "react-router.config.ts"
-  },
-  {
-    "path": "vite.config.ts"
-  }
-]} />
+<FileTree
+  id="doc-block-a0ipml"
+  title={"テンプレートプロジェクトの構成"}
+  title="my-template/"
+  entries={[
+    {
+      path: "app/",
+      note: "React フロントエンド",
+    },
+    {
+      path: "app/root.tsx",
+      note: "HTML shell と providers",
+    },
+    {
+      path: "app/routes/",
+      note: "React Router のファイルルート",
+    },
+    {
+      path: "app/components/",
+      note: "テンプレート UI",
+    },
+    {
+      path: "app/hooks/",
+      note: "UI 状態とデータ hooks",
+    },
+    {
+      path: "actions/",
+      note: "defineAction 操作: 唯一の source of truth",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle スキーマ",
+    },
+    {
+      path: "server/plugins/db.ts",
+      note: "追加型 migrations",
+    },
+    {
+      path: "server/plugins/",
+      note: "起動時 integrations",
+    },
+    {
+      path: "server/routes/api/",
+      note: "actions だけでは足りない場合のみ custom routes",
+    },
+    {
+      path: "shared/types.ts",
+      note: "共有 client/server 型",
+    },
+    {
+      path: ".agents/skills/",
+      note: "<skill>/SKILL.md: 複雑な workflow 向けのエージェントガイド",
+    },
+    {
+      path: "AGENTS.md",
+      note: "テンプレート固有のエージェント指示",
+    },
+    {
+      path: "package.json",
+    },
+    {
+      path: "react-router.config.ts",
+    },
+    {
+      path: "vite.config.ts",
+    },
+  ]}
+/>
 
 アプリケーション状態に `data/` ディレクトリを追加しないでください。永続的なアプリ データは SQL に属し、UI は actions または型指定されたサーバー ハンドラーを通じてそれを読み取ります。
 
@@ -181,27 +186,36 @@ export default runMigrations(
 
 アクション は、アプリの動作に関する唯一の信頼できる情報源です。エージェントはそれらをツールとして呼び出し、フロントエンドはフックを通じてそれらを呼び出し、他のアプリは MCP/A2A を通じてそれらにアクセスできます。
 
-<AnnotatedCode id="doc-block-1ywma1r" title="actions/create-project.ts" filename="actions/create-project.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});"} annotations={[
-  {
-    "lines": "2",
-    "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`."
-  },
-  {
-    "lines": "8",
-    "label": "工具表面",
-    "note": "`description` は、このアクションをいつツールとして呼び出すかを決定するためにエージェントが読み取るものです。"
-  },
-  {
-    "lines": "9-11",
-    "label": "型付き契約",
-    "note": "1つの zod `schema` が、エージェント、UI、HTTP、MCP、A2A からの入力を検証します。"
-  },
-  {
-    "lines": "18-19",
-    "label": "スコープ付き書き込み",
-    "note": "`ctx` から `ownerEmail` / `orgId` をスタンプして、行の共有およびアクセス チェックの範囲が正しく設定されるようにします。"
+<AnnotatedCode
+  id="doc-block-1ywma1r"
+  title="actions/create-project.ts"
+  filename="actions/create-project.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { getDb } from "../server/db/index.js";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\nimport * as schema from "../server/db/schema";\n\nexport default defineAction({\n  description: "Create a project.",\n  schema: z.object({\n    title: z.string().min(1).describe("Project title"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      note: "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`.",
+    },
+    {
+      lines: "8",
+      label: "工具表面",
+      note: "`description` は、このアクションをいつツールとして呼び出すかを決定するためにエージェントが読み取るものです。",
+    },
+    {
+      lines: "9-11",
+      label: "型付き契約",
+      note: "1つの zod `schema` が、エージェント、UI、HTTP、MCP、A2A からの入力を検証します。",
+    },
+    {
+      lines: "18-19",
+      label: "スコープ付き書き込み",
+      note: "`ctx` から `ownerEmail` / `orgId` をスタンプして、行の共有およびアクセス チェックの範囲が正しく設定されるようにします。",
+    },
+  ]}
+/>
 
 読み取り専用の actions には、`http: { method: "GET" }` または `readOnly: true` を使用します。 `parallelSafe: true` は、同じターンのツール呼び出しと同時に安全に実行できる actions を変更する場合にのみ使用します。サンドボックス ツールから実行すべきではない、爆発半径の大きい actions には `toolCallable: false` を使用してください。
 

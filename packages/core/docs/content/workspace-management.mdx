@@ -47,24 +47,28 @@ Not everyone who needs to make changes is comfortable with git. [Builder.io](htt
 
 Code governance is configured by a handful of files at the repo root:
 
-<FileTree id="doc-block-b82ryc" title="Governance config in the repo" entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "Auto-assigns reviewers per changed path"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "Auto-labels PRs by app"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Workspace-level — broad review"
-  },
-  {
-    "path": "package.json",
-    "note": "Workspace-level — platform team owns"
-  }
-]} />
+<FileTree
+  id="doc-block-b82ryc"
+  title="Governance config in the repo"
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "Auto-assigns reviewers per changed path",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "Auto-labels PRs by app",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Workspace-level — broad review",
+    },
+    {
+      path: "package.json",
+      note: "Workspace-level — platform team owns",
+    },
+  ]}
+/>
 
 GitHub's CODEOWNERS file auto-assigns reviewers to PRs based on which files changed. Create `.github/CODEOWNERS` at the repo root:
 

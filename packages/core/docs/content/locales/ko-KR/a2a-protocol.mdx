@@ -190,23 +190,31 @@ JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `ta
 
 메시지에는 입력된 부분이 포함되어 있습니다. 즉, 텍스트, 구조화된 데이터 및 파일이 모두 하나의 메시지로 전달될 수 있습니다.
 
-<AnnotatedCode id="doc-block-qjrt4b" title={"A2A 입력된 부분이 있는 메시지"} language="json" code={"{\n  \"role\": \"user\",\n  \"parts\": [\n    { \"type\": \"text\", \"text\": \"Show signups by source\" },\n    { \"type\": \"data\", \"data\": { \"dateRange\": \"last-30d\" } },\n    {\n      \"type\": \"file\",\n      \"file\": { \"name\": \"report.csv\", \"mimeType\": \"text/csv\", \"bytes\": \"...\" }\n    }\n  ]\n}"} annotations={[
-  {
-    "lines": "4",
-    "label": "text part",
-    "note": "에이전트가 읽는 일반 자연어 지침입니다."
-  },
-  {
-    "lines": "5",
-    "label": "data part",
-    "note": "구조화된 JSON 인수 — e.g. 날짜 범위 - 프롬프트와 함께 전달됩니다."
-  },
-  {
-    "lines": "6-9",
-    "label": "file part",
-    "note": "이름, `mimeType` 및 base64 `bytes`로 파일을 첨부합니다."
+<AnnotatedCode
+  id="doc-block-qjrt4b"
+  title={"A2A 입력된 부분이 있는 메시지"}
+  language="json"
+  code={
+    '{\n  "role": "user",\n  "parts": [\n    { "type": "text", "text": "Show signups by source" },\n    { "type": "data", "data": { "dateRange": "last-30d" } },\n    {\n      "type": "file",\n      "file": { "name": "report.csv", "mimeType": "text/csv", "bytes": "..." }\n    }\n  ]\n}'
   }
-]} />
+  annotations={[
+    {
+      lines: "4",
+      label: "text part",
+      note: "에이전트가 읽는 일반 자연어 지침입니다.",
+    },
+    {
+      lines: "5",
+      label: "data part",
+      note: "구조화된 JSON 인수 — e.g. 날짜 범위 - 프롬프트와 함께 전달됩니다.",
+    },
+    {
+      lines: "6-9",
+      label: "file part",
+      note: "이름, `mimeType` 및 base64 `bytes`로 파일을 첨부합니다.",
+    },
+  ]}
+/>
 
 ## 클라이언트 {#client}
 

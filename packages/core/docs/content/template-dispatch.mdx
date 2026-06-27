@@ -10,7 +10,12 @@ description: "Dispatch is the workspace control plane — central inbox, cross-a
 Dispatch is the **workspace control plane**. Where other templates are domain apps (Mail, Calendar, Analytics, Brain), Dispatch is the app you run _alongside_ them to coordinate everything: a central inbox, a secrets vault, scheduled jobs, Slack/Telegram integration, and an orchestrator agent that delegates domain work to the right specialist app over [A2A](/docs/a2a-protocol).
 
 <WireframeBlock id="doc-block-iw1glr">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>What should we do next?</strong><div class='wf-box'>Ask Analytics for this week's signups and draft a Slack update.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>Create app</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack DM needs reply</div><div class='wf-box'>A2A task completed</div><div class='wf-box'>Approval required</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>What should we do next?</strong><div class='wf-box'>Ask Analytics for this week's signups and draft a Slack update.</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>Create app</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack DM needs reply</div><div class='wf-box'>A2A task completed</div><div class='wf-box'>Approval required</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 If you're running an [multi-app workspace](/docs/multi-app-workspace) with many apps, Dispatch is the glue.
@@ -85,154 +90,162 @@ _How it works under the hood (for developers)._
 - **Slack / Telegram plugins.** Server plugins that register webhooks and forward incoming messages to the orchestrator agent.
 - **Workspace MCP resources.** Add HTTP MCP server definitions under `mcp-servers/*.json` in Resources, then scope them to All apps or selected app grants just like skills and context.
 
-<DataModel id="doc-block-1pitn7l" title="Secrets vault schema" summary={"Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."} entities={[
-  {
-    "id": "secrets",
-    "name": "vault_secrets",
-    "note": "Stored credential values",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "owner_email",
-        "type": "text"
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "name",
-        "type": "text"
-      },
-      {
-        "name": "credential_key",
-        "type": "text"
-      },
-      {
-        "name": "value",
-        "type": "text",
-        "note": "secret value"
-      },
-      {
-        "name": "provider",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "grants",
-    "name": "vault_grants",
-    "note": "Per-app access grant",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "secret_id",
-        "type": "text",
-        "fk": "vault_secrets.id"
-      },
-      {
-        "name": "app_id",
-        "type": "text"
-      },
-      {
-        "name": "granted_by",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "requests",
-    "name": "vault_requests",
-    "note": "Access request + review",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "credential_key",
-        "type": "text"
-      },
-      {
-        "name": "app_id",
-        "type": "text"
-      },
-      {
-        "name": "reason",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "reviewed_by",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "audit",
-    "name": "vault_audit_log",
-    "note": "Who used which secret when",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "secret_id",
-        "type": "text",
-        "fk": "vault_secrets.id",
-        "nullable": true
-      },
-      {
-        "name": "app_id",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "action",
-        "type": "text"
-      },
-      {
-        "name": "actor",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-1pitn7l"
+  title="Secrets vault schema"
+  summary={
+    "Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
   }
-]} relations={[
-  {
-    "from": "secrets",
-    "to": "grants",
-    "kind": "1-n",
-    "label": "granted via"
-  },
-  {
-    "from": "secrets",
-    "to": "audit",
-    "kind": "1-n",
-    "label": "use recorded by"
-  }
-]} />
+  entities={[
+    {
+      id: "secrets",
+      name: "vault_secrets",
+      note: "Stored credential values",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "owner_email",
+          type: "text",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "value",
+          type: "text",
+          note: "secret value",
+        },
+        {
+          name: "provider",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "grants",
+      name: "vault_grants",
+      note: "Per-app access grant",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "granted_by",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "requests",
+      name: "vault_requests",
+      note: "Access request + review",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "reason",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "reviewed_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "audit",
+      name: "vault_audit_log",
+      note: "Who used which secret when",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+          nullable: true,
+        },
+        {
+          name: "app_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "action",
+          type: "text",
+        },
+        {
+          name: "actor",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "secrets",
+      to: "grants",
+      kind: "1-n",
+      label: "granted via",
+    },
+    {
+      from: "secrets",
+      to: "audit",
+      kind: "1-n",
+      label: "use recorded by",
+    },
+  ]}
+/>
 
 - **MCP hub mode.** Dispatch can still act as the workspace's [MCP hub](/docs/mcp-clients#hub) so every other app in the workspace pulls the same org-scope MCP server list. Separately, Dispatch's own `/_agent-native/mcp` endpoint is the recommended external MCP connector for Claude, ChatGPT, and other hosts that should reach multiple workspace apps.
 

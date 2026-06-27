@@ -8,7 +8,12 @@ description: "Creador de formularios nativo del agente: cree, edite, publique y 
 Forms es un creador de formularios nativo del agente. Describe el formulario que deseas, refinelo en el editor y publica un formulario público que almacene los envíos en tu propia base de datos SQL.
 
 <WireframeBlock id="doc-block-pp45du">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Registro beta</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>Compartir</button><button class='primary'>Anular publicación</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>Editar</span><span class='wf-pill'>Resultados 187</span><span class='wf-pill'>Configuración</span><span class='wf-pill'>Integraciones</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Registro beta</h2><p class='wf-muted' style='margin:0'>Reserva un lugar en la próxima beta privada.</p><div class='wf-card'><strong>Nombre completo</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>Correo de trabajo</strong><input value='you@company.com'/></div><div class='wf-card'><strong>Tu rol</strong><input value='Select...'/></div><div class='wf-card'><strong>Tamaño del equipo</strong><input value='Select...'/></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Registro beta</strong><span class='wf-pill accent'>published</span><div style='flex:1'></div><button>Compartir</button><button class='primary'>Anular publicación</button></div><div style='display:flex;gap:8px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><span class='wf-pill accent'>Editar</span><span class='wf-pill'>Resultados 187</span><span class='wf-pill'>Configuración</span><span class='wf-pill'>Integraciones</span></div><div style='display:flex;flex-direction:column;gap:12px;padding:30px 78px;overflow:hidden'><h2 style='margin:0'>Registro beta</h2><p class='wf-muted' style='margin:0'>Reserva un lugar en la próxima beta privada.</p><div class='wf-card'><strong>Nombre completo</strong><input value='Ada Lovelace'/></div><div class='wf-card'><strong>Correo de trabajo</strong><input value='you@company.com'/></div><div class='wf-card'><strong>Tu rol</strong><input value='Select...'/></div><div class='wf-card'><strong>Tamaño del equipo</strong><input value='Select...'/></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Cuando abres la aplicación, ves tus formularios, el editor actual y una vista previa en vivo. El agente puede crear un formulario a partir de un mensaje, actualizar etiquetas y opciones de campo, cambiar la validación y conectar destinos de envío utilizando el mismo actions que utiliza el UI.
@@ -91,140 +96,148 @@ Todos los datos residen en SQL a través de Drizzle ORM. Esquema: `templates/for
 
 Las formas `fields` y `settings` JSON están definidas en `templates/forms/shared/types.ts` (`FormField`, `FormSettings`). Las configuraciones privadas del propietario, como el webhook de integración URL y los orígenes permitidos, se eliminan antes de que los datos lleguen a la página de llenado público a través de `toPublicFormSettings`.
 
-<DataModel id="doc-block-ljpo3c" title="Modelo de datos de Forms" summary={"Tres mesas. Los campos y las integraciones son columnas JSON en los formularios, por lo que las ediciones del agente son parches quirúrgicos en lugar de cambios de filas entre tablas."} entities={[
-  {
-    "id": "forms",
-    "name": "forms",
-    "note": "A form definition (ownable)",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "string"
-      },
-      {
-        "name": "description",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "slug",
-        "type": "string",
-        "note": "unique; public URL"
-      },
-      {
-        "name": "fields",
-        "type": "json",
-        "note": "FormField[]: todos los tipos de campos"
-      },
-      {
-        "name": "settings",
-        "type": "json",
-        "note": "FormSettings: integraciones, etc."
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "borrador | publicado | cerrado"
-      },
-      {
-        "name": "deleted_at",
-        "type": "datetime",
-        "nullable": true,
-        "note": "soft delete"
-      },
-      {
-        "name": "owner_email",
-        "type": "string"
-      },
-      {
-        "name": "org_id",
-        "type": "id",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "responses",
-    "name": "responses",
-    "note": "Un envío por fila",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "form_id",
-        "type": "id",
-        "fk": "forms.id"
-      },
-      {
-        "name": "data",
-        "type": "json",
-        "note": "{ fieldId: value }"
-      },
-      {
-        "name": "submitted_at",
-        "type": "datetime"
-      },
-      {
-        "name": "ip",
-        "type": "string",
-        "nullable": true
-      },
-      {
-        "name": "submitter_email",
-        "type": "string",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "form_shares",
-    "name": "form_shares",
-    "note": "Tabla de recursos compartidos del marco: principales a roles por formulario",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "form_id",
-        "type": "id",
-        "fk": "forms.id"
-      },
-      {
-        "name": "principal",
-        "type": "string",
-        "note": "user or org"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "visor | redactor | administración"
-      }
-    ]
+<DataModel
+  id="doc-block-ljpo3c"
+  title="Modelo de datos de Forms"
+  summary={
+    "Tres mesas. Los campos y las integraciones son columnas JSON en los formularios, por lo que las ediciones del agente son parches quirúrgicos en lugar de cambios de filas entre tablas."
   }
-]} relations={[
-  {
-    "from": "forms",
-    "to": "responses",
-    "kind": "1-n",
-    "label": "has responses"
-  },
-  {
-    "from": "forms",
-    "to": "form_shares",
-    "kind": "1-n",
-    "label": "has share grants"
-  }
-]} />
+  entities={[
+    {
+      id: "forms",
+      name: "forms",
+      note: "A form definition (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "unique; public URL",
+        },
+        {
+          name: "fields",
+          type: "json",
+          note: "FormField[]: todos los tipos de campos",
+        },
+        {
+          name: "settings",
+          type: "json",
+          note: "FormSettings: integraciones, etc.",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "borrador | publicado | cerrado",
+        },
+        {
+          name: "deleted_at",
+          type: "datetime",
+          nullable: true,
+          note: "soft delete",
+        },
+        {
+          name: "owner_email",
+          type: "string",
+        },
+        {
+          name: "org_id",
+          type: "id",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "responses",
+      name: "responses",
+      note: "Un envío por fila",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "data",
+          type: "json",
+          note: "{ fieldId: value }",
+        },
+        {
+          name: "submitted_at",
+          type: "datetime",
+        },
+        {
+          name: "ip",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "submitter_email",
+          type: "string",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "form_shares",
+      name: "form_shares",
+      note: "Tabla de recursos compartidos del marco: principales a roles por formulario",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "form_id",
+          type: "id",
+          fk: "forms.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "visor | redactor | administración",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "forms",
+      to: "responses",
+      kind: "1-n",
+      label: "has responses",
+    },
+    {
+      from: "forms",
+      to: "form_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
 
 ### Clave actions
 

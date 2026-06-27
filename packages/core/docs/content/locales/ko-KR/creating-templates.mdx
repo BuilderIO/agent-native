@@ -39,69 +39,74 @@ Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구,
 
 모든 템플릿은 동일한 광범위한 레이아웃을 따릅니다.
 
-<FileTree id="doc-block-1sjtdow" title={"템플릿 프로젝트 구조"} title="my-template/" entries={[
-  {
-    "path": "app/",
-    "note": "React 프런트엔드"
-  },
-  {
-    "path": "app/root.tsx",
-    "note": "HTML shell과 providers"
-  },
-  {
-    "path": "app/routes/",
-    "note": "React Router 파일 routes"
-  },
-  {
-    "path": "app/components/",
-    "note": "템플릿 UI"
-  },
-  {
-    "path": "app/hooks/",
-    "note": "UI 상태 및 데이터 hooks"
-  },
-  {
-    "path": "actions/",
-    "note": "defineAction 작업: 단일 진실 공급원"
-  },
-  {
-    "path": "server/db/schema.ts",
-    "note": "Drizzle 스키마"
-  },
-  {
-    "path": "server/plugins/db.ts",
-    "note": "추가형 migrations"
-  },
-  {
-    "path": "server/plugins/",
-    "note": "시작 integrations"
-  },
-  {
-    "path": "server/routes/api/",
-    "note": "actions만으로 부족할 때만 custom routes 사용"
-  },
-  {
-    "path": "shared/types.ts",
-    "note": "공유 client/server 타입"
-  },
-  {
-    "path": ".agents/skills/",
-    "note": "<skill>/SKILL.md: 복잡한 workflow를 위한 에이전트 지침"
-  },
-  {
-    "path": "AGENTS.md",
-    "note": "템플릿별 에이전트 지침"
-  },
-  {
-    "path": "package.json"
-  },
-  {
-    "path": "react-router.config.ts"
-  },
-  {
-    "path": "vite.config.ts"
-  }
-]} />
+<FileTree
+  id="doc-block-1sjtdow"
+  title={"템플릿 프로젝트 구조"}
+  title="my-template/"
+  entries={[
+    {
+      path: "app/",
+      note: "React 프런트엔드",
+    },
+    {
+      path: "app/root.tsx",
+      note: "HTML shell과 providers",
+    },
+    {
+      path: "app/routes/",
+      note: "React Router 파일 routes",
+    },
+    {
+      path: "app/components/",
+      note: "템플릿 UI",
+    },
+    {
+      path: "app/hooks/",
+      note: "UI 상태 및 데이터 hooks",
+    },
+    {
+      path: "actions/",
+      note: "defineAction 작업: 단일 진실 공급원",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "Drizzle 스키마",
+    },
+    {
+      path: "server/plugins/db.ts",
+      note: "추가형 migrations",
+    },
+    {
+      path: "server/plugins/",
+      note: "시작 integrations",
+    },
+    {
+      path: "server/routes/api/",
+      note: "actions만으로 부족할 때만 custom routes 사용",
+    },
+    {
+      path: "shared/types.ts",
+      note: "공유 client/server 타입",
+    },
+    {
+      path: ".agents/skills/",
+      note: "<skill>/SKILL.md: 복잡한 workflow를 위한 에이전트 지침",
+    },
+    {
+      path: "AGENTS.md",
+      note: "템플릿별 에이전트 지침",
+    },
+    {
+      path: "package.json",
+    },
+    {
+      path: "react-router.config.ts",
+    },
+    {
+      path: "vite.config.ts",
+    },
+  ]}
+/>
 
 애플리케이션 상태에 대해 `data/` 디렉터리를 추가하지 마세요. 내구성 있는 앱 데이터는 SQL에 속하며 UI는 actions 또는 형식화된 서버 핸들러를 통해 이를 읽습니다.
 
@@ -181,27 +186,36 @@ export default runMigrations(
 
 작업는 앱 동작에 대한 단일 정보 소스입니다. 에이전트는 이를 도구로 호출하고 프런트엔드는 후크를 통해 호출하며 다른 앱은 MCP/A2A를 통해 연결할 수 있습니다.
 
-<AnnotatedCode id="doc-block-1oafixs" title="actions/create-project.ts" filename="actions/create-project.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { getDb } from \"../server/db/index.js\";\nimport { nanoid } from \"nanoid\";\nimport { z } from \"zod\";\nimport * as schema from \"../server/db/schema\";\n\nexport default defineAction({\n  description: \"Create a project.\",\n  schema: z.object({\n    title: z.string().min(1).describe(\"Project title\"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});"} annotations={[
-  {
-    "lines": "2",
-    "note": "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`."
-  },
-  {
-    "lines": "8",
-    "label": "도구 표면",
-    "note": "`description`는 이 작업을 도구로 호출할 시기를 결정하기 위해 에이전트가 읽는 것입니다."
-  },
-  {
-    "lines": "9-11",
-    "label": "타입 계약",
-    "note": "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A의 입력을 검증합니다."
-  },
-  {
-    "lines": "18-19",
-    "label": "범위가 지정된 쓰기",
-    "note": "공유 및 액세스 확인을 위해 행의 범위가 올바르게 지정되도록 `ctx`에서 `ownerEmail` / `orgId`을 스탬프 처리합니다."
+<AnnotatedCode
+  id="doc-block-1oafixs"
+  title="actions/create-project.ts"
+  filename="actions/create-project.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { getDb } from "../server/db/index.js";\nimport { nanoid } from "nanoid";\nimport { z } from "zod";\nimport * as schema from "../server/db/schema";\n\nexport default defineAction({\n  description: "Create a project.",\n  schema: z.object({\n    title: z.string().min(1).describe("Project title"),\n  }),\n  run: async ({ title }, ctx) => {\n    const db = getDb();\n    const id = nanoid();\n    await db.insert(schema.projects).values({\n      id,\n      title,\n      ownerEmail: ctx.userEmail,\n      orgId: ctx.orgId,\n    });\n    return { id, title };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "2",
+      note: "`getDb` is created per app via `createGetDb(schema)` in `server/db/index.ts`.",
+    },
+    {
+      lines: "8",
+      label: "도구 표면",
+      note: "`description`는 이 작업을 도구로 호출할 시기를 결정하기 위해 에이전트가 읽는 것입니다.",
+    },
+    {
+      lines: "9-11",
+      label: "타입 계약",
+      note: "하나의 zod `schema`가 에이전트, UI, HTTP, MCP, A2A의 입력을 검증합니다.",
+    },
+    {
+      lines: "18-19",
+      label: "범위가 지정된 쓰기",
+      note: "공유 및 액세스 확인을 위해 행의 범위가 올바르게 지정되도록 `ctx`에서 `ownerEmail` / `orgId`을 스탬프 처리합니다.",
+    },
+  ]}
+/>
 
 읽기 전용 actions에는 `http: { method: "GET" }` 또는 `readOnly: true`를 사용하세요. 동일 회전 도구 호출과 동시에 실행하기에 안전한 actions를 변형하는 경우에만 `parallelSafe: true`를 사용하십시오. 샌드박스 도구에서 실행하면 안 되는 폭발 반경이 높은 actions에는 `toolCallable: false`를 사용하세요.
 

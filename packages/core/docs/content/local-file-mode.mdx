@@ -57,56 +57,60 @@ to SQL rows or local files.
 
 A Content workspace can be as small as this:
 
-<FileTree id="doc-block-1h7glo0" title="A Content workspace repo" entries={[
-  {
-    "path": "agent-native.json",
-    "note": "declares which folders are content roots and their kinds"
-  },
-  {
-    "path": "docs/",
-    "note": "content root — shows in the sidebar as pages"
-  },
-  {
-    "path": "docs/getting-started.mdx"
-  },
-  {
-    "path": "docs/guides/custom-components.mdx"
-  },
-  {
-    "path": "blog/",
-    "note": "content root"
-  },
-  {
-    "path": "blog/launch-post.mdx"
-  },
-  {
-    "path": "resources/",
-    "note": "content root"
-  },
-  {
-    "path": "resources/messaging/positioning.md"
-  },
-  {
-    "path": "components/",
-    "note": "NOT a content root — preview component library MDX can import"
-  },
-  {
-    "path": "components/FrameworkTabs.tsx"
-  },
-  {
-    "path": "components/Callout.tsx"
-  },
-  {
-    "path": "extensions/",
-    "note": "NOT a content root — local extension library (sandboxed widgets)"
-  },
-  {
-    "path": "extensions/doc-status/extension.json"
-  },
-  {
-    "path": "extensions/doc-status/index.html"
-  }
-]} />
+<FileTree
+  id="doc-block-1h7glo0"
+  title="A Content workspace repo"
+  entries={[
+    {
+      path: "agent-native.json",
+      note: "declares which folders are content roots and their kinds",
+    },
+    {
+      path: "docs/",
+      note: "content root — shows in the sidebar as pages",
+    },
+    {
+      path: "docs/getting-started.mdx",
+    },
+    {
+      path: "docs/guides/custom-components.mdx",
+    },
+    {
+      path: "blog/",
+      note: "content root",
+    },
+    {
+      path: "blog/launch-post.mdx",
+    },
+    {
+      path: "resources/",
+      note: "content root",
+    },
+    {
+      path: "resources/messaging/positioning.md",
+    },
+    {
+      path: "components/",
+      note: "NOT a content root — preview component library MDX can import",
+    },
+    {
+      path: "components/FrameworkTabs.tsx",
+    },
+    {
+      path: "components/Callout.tsx",
+    },
+    {
+      path: "extensions/",
+      note: "NOT a content root — local extension library (sandboxed widgets)",
+    },
+    {
+      path: "extensions/doc-status/extension.json",
+    },
+    {
+      path: "extensions/doc-status/index.html",
+    },
+  ]}
+/>
 
 In Local File Mode, the Content sidebar shows the `docs/`, `blog/`, and
 `resources/` trees as pages. Selecting `docs/getting-started.mdx` opens that

@@ -10,7 +10,12 @@ description: "Dispatch 是工作区控制平面 - 中央收件箱、跨应用编
 Dispatch 是**工作区控制平面**。其他模板是域应用程序（邮件、日历、分析、大脑），而 Dispatch 是您与它们一起运行以协调一切的应用程序：中央收件箱、机密库、计划作业、Slack/Telegram 集成以及通过 [A2A](/docs/a2a-protocol) 将域工作委托给正确的专业应用程序的协调器代理。
 
 <WireframeBlock id="doc-block-mmo2dc">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>接下来该做什么？</strong><div class='wf-box'>询问 Analytics 本周注册数并起草 Slack 更新。</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>创建应用</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack 私信 needs reply</div><div class='wf-box'>A2A 任务已完成</div><div class='wf-box'>需要批准</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Dispatch</h1><span class='wf-pill accent'>Overview</span><span class='wf-pill'>Inbox</span><span class='wf-pill'>Secrets</span><span class='wf-pill'>Approvals</span><div style='flex:1'></div><button>Schedules</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>接下来该做什么？</strong><div class='wf-box'>询问 Analytics 本周注册数并起草 Slack 更新。</div><button class='primary'>Delegate</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px'><div class='wf-card'><strong>Mail</strong><br/><small>/mail</small></div><div class='wf-card'><strong>Calendar</strong><br/><small>/calendar</small></div><div class='wf-card'><strong>Analytics</strong><br/><small>/analytics</small></div><div class='wf-card'><strong>Slides</strong><br/><small>/slides</small></div><div class='wf-card'><strong>Forms</strong><br/><small>/forms</small></div><div class='wf-card'><strong>创建应用</strong><br/><small>+</small></div></div><div class='wf-card' style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px'><div class='wf-box'>Slack 私信 needs reply</div><div class='wf-box'>A2A 任务已完成</div><div class='wf-box'>需要批准</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 如果您正在运行带有许多应用程序的 [multi-app workspace](/docs/multi-app-workspace)，Dispatch 就是粘合剂。
@@ -85,154 +90,162 @@ _它的底层工作原理（对于开发人员）。_
 - **Slack / Telegram 插件。**注册 webhooks 并将传入消息转发到 Orchestrator 代理的服务器插件。
 - **工作区 MCP 资源。** 在资源中的 `mcp-servers/*.json` 下添加 HTTP MCP 服务器定义，然后将其范围限定为所有应用或选定的应用授权，就像 skills 和上下文一样。
 
-<DataModel id="doc-block-1gu79px" title={"秘密库架构"} summary={"Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."} entities={[
-  {
-    "id": "secrets",
-    "name": "vault_secrets",
-    "note": "存储的凭证值",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "owner_email",
-        "type": "text"
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "name",
-        "type": "text"
-      },
-      {
-        "name": "credential_key",
-        "type": "text"
-      },
-      {
-        "name": "value",
-        "type": "text",
-        "note": "secret value"
-      },
-      {
-        "name": "provider",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "grants",
-    "name": "vault_grants",
-    "note": "每个应用程序访问权限授予",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "secret_id",
-        "type": "text",
-        "fk": "vault_secrets.id"
-      },
-      {
-        "name": "app_id",
-        "type": "text"
-      },
-      {
-        "name": "granted_by",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "requests",
-    "name": "vault_requests",
-    "note": "访问请求+审核",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "credential_key",
-        "type": "text"
-      },
-      {
-        "name": "app_id",
-        "type": "text"
-      },
-      {
-        "name": "reason",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "reviewed_by",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "audit",
-    "name": "vault_audit_log",
-    "note": "谁在什么时候使用了哪个秘密",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "secret_id",
-        "type": "text",
-        "fk": "vault_secrets.id",
-        "nullable": true
-      },
-      {
-        "name": "app_id",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "action",
-        "type": "text"
-      },
-      {
-        "name": "actor",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-1gu79px"
+  title={"秘密库架构"}
+  summary={
+    "Secrets are stored once; grants give a named app access; requests + reviews gate sensitive access; the audit log records who used which secret when. Defined in @agent-native/dispatch (packages/dispatch/src/db/schema.ts)."
   }
-]} relations={[
-  {
-    "from": "secrets",
-    "to": "grants",
-    "kind": "1-n",
-    "label": "granted via"
-  },
-  {
-    "from": "secrets",
-    "to": "audit",
-    "kind": "1-n",
-    "label": "use recorded by"
-  }
-]} />
+  entities={[
+    {
+      id: "secrets",
+      name: "vault_secrets",
+      note: "存储的凭证值",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "owner_email",
+          type: "text",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "value",
+          type: "text",
+          note: "secret value",
+        },
+        {
+          name: "provider",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "grants",
+      name: "vault_grants",
+      note: "每个应用程序访问权限授予",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "granted_by",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "requests",
+      name: "vault_requests",
+      note: "访问请求+审核",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "credential_key",
+          type: "text",
+        },
+        {
+          name: "app_id",
+          type: "text",
+        },
+        {
+          name: "reason",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "reviewed_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "audit",
+      name: "vault_audit_log",
+      note: "谁在什么时候使用了哪个秘密",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "secret_id",
+          type: "text",
+          fk: "vault_secrets.id",
+          nullable: true,
+        },
+        {
+          name: "app_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "action",
+          type: "text",
+        },
+        {
+          name: "actor",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "secrets",
+      to: "grants",
+      kind: "1-n",
+      label: "granted via",
+    },
+    {
+      from: "secrets",
+      to: "audit",
+      kind: "1-n",
+      label: "use recorded by",
+    },
+  ]}
+/>
 
 - **MCP 集线器模式。** Dispatch 仍然可以充当工作区的 [MCP hub](/docs/mcp-clients#hub)，因此工作区中的每个其他应用程序都会拉取相同的组织范围 MCP 服务器列表。另外，对于 Claude、ChatGPT 和其他应访问多个工作区应用的主机，Dispatch 自己的 `/_agent-native/mcp` 端点是推荐的外部 MCP 连接器。
 

@@ -8,7 +8,12 @@ description: "Um cliente de e-mail baseado em agente. Conecte seu Gmail e o agen
 Um cliente de e-mail baseado em agente. Conecte sua conta Gmail e o agente poderá ler, redigir, enviar e organizar e-mails para você - junto com uma caixa de entrada rápida com teclado que você mesmo pode controlar. Pense em Superhuman, mas o agente é um cidadão de primeira classe e a base de código é sua.
 
 <WireframeBlock id="doc-block-4yvkvj">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Caixa de entrada 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Pesquisar'></span><span data-icon='edit' aria-label='Escrever'></span><span data-icon='bell' aria-label='Notificar'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Priscila Mehta</strong><span><strong>Lançamento do T3</strong> — assets finais prontos para revisão</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Cobrança Acme</strong><span>Sua fatura mensal está pronta</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marcos Tang</span><span>Fluxo de integração research findings</span><span>Ontem</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR pronto para revisão</span><span>Ontem</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 atribuída a você</span><span>2 de mai.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Resumo semanal de pagamentos</span><span>29 de abr.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Nova reserva confirmada</span><span>28 de abr.</span></div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:500px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1.4px solid var(--wf-line)'><strong>Caixa de entrada 16</strong><div style='flex:1'></div><span data-icon='search' aria-label='Pesquisar'></span><span data-icon='edit' aria-label='Escrever'></span><span data-icon='bell' aria-label='Notificar'></span></div><div style='display:flex;flex-direction:column;padding:8px 14px;gap:6px'><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Priscila Mehta</strong><span><strong>Lançamento do T3</strong> — assets finais prontos para revisão</span><span>★</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><strong>Cobrança Acme</strong><span>Sua fatura mensal está pronta</span><span>11:10 AM</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Marcos Tang</span><span>Fluxo de integração research findings</span><span>Ontem</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>GitHub</span><span>[framework] PR pronto para revisão</span><span>Ontem</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Linear</span><span>Issue ENG-1287 atribuída a você</span><span>2 de mai.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Stripe</span><span>Resumo semanal de pagamentos</span><span>29 de abr.</span></div><div class='wf-box' style='display:grid;grid-template-columns:155px 1fr auto;gap:12px;align-items:center'><span>Calendly</span><span>Nova reserva confirmada</span><span>28 de abr.</span></div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 Quando você abre o aplicativo, a caixa de entrada do teclado e a visualização do tópico permanecem focadas no próprio e-mail. O agente sempre sabe em qual visualização você está e qual tópico está aberto, então você pode dizer "arquivar isto" ou "esboçar uma recusa amigável" sem explicar o que "isto" é.
@@ -153,119 +158,127 @@ Quando uma conta do Google está conectada, o e-mail fica em Gmail — o aplicat
 
 Os e-mails que passam pelo API têm o formato `{ id, threadId, from, to, cc, subject, snippet, body, date, isRead, isStarred, isArchived, isTrashed, labelIds, accountEmail, attachments }`.
 
-<DataModel id="doc-block-8jxgi9" title="Enviar tabelas SQL" summary={"O próprio e-mail reside em Gmail. As tabelas SQL contêm o que Gmail não contém: rascunhos em fila, eventos de rastreamento de envio e tokens OAuth. As configurações e o estado efêmero residem nas configurações e nos armazenamentos application_state."} entities={[
-  {
-    "id": "queued_email_drafts",
-    "name": "queued_email_drafts",
-    "note": "Rascunhos solicitados por colegas/Slack aguardando revisão do proprietário",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "assignedTo",
-        "type": "string",
-        "note": "org member who reviews/sends"
-      },
-      {
-        "name": "subject",
-        "type": "string"
-      },
-      {
-        "name": "body",
-        "type": "markdown"
-      },
-      {
-        "name": "status",
-        "type": "enum",
-        "note": "review at /draft-queue/<id>"
-      }
-    ]
-  },
-  {
-    "id": "email_tracking",
-    "name": "email_tracking",
-    "note": "Eventos de pixel aberto para mensagens enviadas",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "messageId",
-        "type": "string"
-      },
-      {
-        "name": "openedAt",
-        "type": "datetime"
-      }
-    ]
-  },
-  {
-    "id": "email_link_tracking",
-    "name": "email_link_tracking",
-    "note": "Eventos de clique em link para mensagens enviadas",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "messageId",
-        "type": "string",
-        "fk": "email_tracking.messageId"
-      },
-      {
-        "name": "url",
-        "type": "string"
-      },
-      {
-        "name": "clickedAt",
-        "type": "datetime"
-      }
-    ]
-  },
-  {
-    "id": "oauth_tokens",
-    "name": "oauth_tokens",
-    "note": "Tabela de estrutura — uma linha por conta Google conectada",
-    "fields": [
-      {
-        "name": "id",
-        "type": "id",
-        "pk": true
-      },
-      {
-        "name": "provider",
-        "type": "string",
-        "note": "\"google\""
-      },
-      {
-        "name": "accountEmail",
-        "type": "string"
-      },
-      {
-        "name": "accessToken",
-        "type": "string"
-      },
-      {
-        "name": "refreshToken",
-        "type": "string"
-      }
-    ]
+<DataModel
+  id="doc-block-8jxgi9"
+  title="Enviar tabelas SQL"
+  summary={
+    "O próprio e-mail reside em Gmail. As tabelas SQL contêm o que Gmail não contém: rascunhos em fila, eventos de rastreamento de envio e tokens OAuth. As configurações e o estado efêmero residem nas configurações e nos armazenamentos application_state."
   }
-]} relations={[
-  {
-    "from": "email_tracking",
-    "to": "email_link_tracking",
-    "kind": "1-n",
-    "label": "click events"
-  }
-]} />
+  entities={[
+    {
+      id: "queued_email_drafts",
+      name: "queued_email_drafts",
+      note: "Rascunhos solicitados por colegas/Slack aguardando revisão do proprietário",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "assignedTo",
+          type: "string",
+          note: "org member who reviews/sends",
+        },
+        {
+          name: "subject",
+          type: "string",
+        },
+        {
+          name: "body",
+          type: "markdown",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "review at /draft-queue/<id>",
+        },
+      ],
+    },
+    {
+      id: "email_tracking",
+      name: "email_tracking",
+      note: "Eventos de pixel aberto para mensagens enviadas",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "messageId",
+          type: "string",
+        },
+        {
+          name: "openedAt",
+          type: "datetime",
+        },
+      ],
+    },
+    {
+      id: "email_link_tracking",
+      name: "email_link_tracking",
+      note: "Eventos de clique em link para mensagens enviadas",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "messageId",
+          type: "string",
+          fk: "email_tracking.messageId",
+        },
+        {
+          name: "url",
+          type: "string",
+        },
+        {
+          name: "clickedAt",
+          type: "datetime",
+        },
+      ],
+    },
+    {
+      id: "oauth_tokens",
+      name: "oauth_tokens",
+      note: "Tabela de estrutura — uma linha por conta Google conectada",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "provider",
+          type: "string",
+          note: '"google"',
+        },
+        {
+          name: "accountEmail",
+          type: "string",
+        },
+        {
+          name: "accessToken",
+          type: "string",
+        },
+        {
+          name: "refreshToken",
+          type: "string",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "email_tracking",
+      to: "email_link_tracking",
+      kind: "1-n",
+      label: "click events",
+    },
+  ]}
+/>
 
 Rotas no UI:
 

@@ -31,7 +31,12 @@ Codex, Claude 코드, Markdown 또는 구조화된 구현 계획에 붙여넣기
 ```
 
 <WireframeBlock id="doc-block-14v4b6a">
-<Screen surface="desktop" html={"<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>결제 재설계 계획</h1><div style='flex:1'></div><button>공유</button><button class='primary'>승인</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>현재 와이어프레임</div><div class='wf-box'>제안 와이어프레임</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>구현 계획</strong><div class='wf-box'>결정: 기존 결제 셸 유지</div><div class='wf-box'>주석이 달린 코드 워크스루</div><div class='wf-box'>열린 질문</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>댓글</strong><div class='wf-box'>기본 CTA에 핀</div><div class='wf-box'>에이전트에게 묻는 질문</div><div class='wf-box'>해결된 문구 메모</div><button class='primary'>피드백 전달</button></aside></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:grid;grid-template-columns:1fr 250px;gap:14px;padding:16px;min-height:520px;box-sizing:border-box'><main style='display:flex;flex-direction:column;gap:12px;min-width:0'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>결제 재설계 계획</h1><div style='flex:1'></div><button>공유</button><button class='primary'>승인</button></div><div class='wf-card' style='display:grid;grid-template-columns:1fr 1fr;gap:10px;min-height:150px'><div class='wf-box'>현재 와이어프레임</div><div class='wf-box'>제안 와이어프레임</div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:10px'><strong>구현 계획</strong><div class='wf-box'>결정: 기존 결제 셸 유지</div><div class='wf-box'>주석이 달린 코드 워크스루</div><div class='wf-box'>열린 질문</div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>댓글</strong><div class='wf-box'>기본 CTA에 핀</div><div class='wf-box'>에이전트에게 묻는 질문</div><div class='wf-box'>해결된 문구 메모</div><button class='primary'>피드백 전달</button></aside></div>"
+    }
+  />
 </WireframeBlock>
 
 계획에는 두 가지 방법이 있습니다:
@@ -393,277 +398,285 @@ pnpm dev
 | `plan_guest_mints` | 게스트 세션 발행을 위한 비율 제한 기록                                                                                                                                             |
 | `plan_assets`      | base64로 저장된 인라인 이미지 자산(업로드 공급자가 없는 경우 대체)                                                                                                                 |
 
-<DataModel id="doc-block-1javm2u" title={"계획 데이터 모델"} summary={"하나의 계획 행은 주문된 섹션과 설명, 이벤트, 버전, 공유 및 인라인 자산을 소유합니다."} entities={[
-  {
-    "id": "plans",
-    "name": "plans",
-    "note": "each plan or recap",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "brief",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "kind",
-        "type": "enum",
-        "note": "계획 | 요약"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "source",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "hosted_plan_id",
-        "type": "text",
-        "nullable": true,
-        "note": "hosted_plan_url paired"
-      },
-      {
-        "name": "source_url",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "deleted_at",
-        "type": "timestamp",
-        "nullable": true,
-        "note": "soft delete; deleted_by paired"
-      }
-    ]
-  },
-  {
-    "id": "plan_sections",
-    "name": "plan_sections",
-    "note": "ordered sections within a plan",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      },
-      {
-        "name": "type",
-        "type": "text"
-      },
-      {
-        "name": "title",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "body",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "html",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "sort_order",
-        "type": "integer"
-      },
-      {
-        "name": "created_by",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "plan_comments",
-    "name": "plan_comments",
-    "note": "threaded comments",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      },
-      {
-        "name": "kind",
-        "type": "text"
-      },
-      {
-        "name": "status",
-        "type": "text"
-      },
-      {
-        "name": "anchor",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "message",
-        "type": "text"
-      },
-      {
-        "name": "resolution_target",
-        "type": "text",
-        "nullable": true,
-        "note": "agent | human | null"
-      },
-      {
-        "name": "mentions_json",
-        "type": "json",
-        "nullable": true
-      },
-      {
-        "name": "resolved_by",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "plan_events",
-    "name": "plan_events",
-    "note": "audit log of agent/human events",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      }
-    ]
-  },
-  {
-    "id": "plan_versions",
-    "name": "plan_versions",
-    "note": "point-in-time snapshots",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      }
-    ]
-  },
-  {
-    "id": "plan_shares",
-    "name": "plan_shares",
-    "note": "per-principal grants",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      },
-      {
-        "name": "role",
-        "type": "enum",
-        "note": "뷰어 | 편집자 | 관리자"
-      }
-    ]
-  },
-  {
-    "id": "plan_guest_mints",
-    "name": "plan_guest_mints",
-    "note": "rate-limit records for guest session issuance",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      }
-    ]
-  },
-  {
-    "id": "plan_assets",
-    "name": "plan_assets",
-    "note": "inline image assets as base64",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "plan_id",
-        "type": "text",
-        "fk": "plans.id"
-      }
-    ]
+<DataModel
+  id="doc-block-1javm2u"
+  title={"계획 데이터 모델"}
+  summary={
+    "하나의 계획 행은 주문된 섹션과 설명, 이벤트, 버전, 공유 및 인라인 자산을 소유합니다."
   }
-]} relations={[
-  {
-    "from": "plans",
-    "to": "plan_sections",
-    "kind": "1-n",
-    "label": "has sections"
-  },
-  {
-    "from": "plans",
-    "to": "plan_comments",
-    "kind": "1-n",
-    "label": "has comments"
-  },
-  {
-    "from": "plans",
-    "to": "plan_events",
-    "kind": "1-n",
-    "label": "has events"
-  },
-  {
-    "from": "plans",
-    "to": "plan_versions",
-    "kind": "1-n",
-    "label": "has versions"
-  },
-  {
-    "from": "plans",
-    "to": "plan_shares",
-    "kind": "1-n",
-    "label": "has shares"
-  },
-  {
-    "from": "plans",
-    "to": "plan_assets",
-    "kind": "1-n",
-    "label": "has assets"
-  }
-]} />
+  entities={[
+    {
+      id: "plans",
+      name: "plans",
+      note: "each plan or recap",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "brief",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "kind",
+          type: "enum",
+          note: "계획 | 요약",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "source",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "hosted_plan_id",
+          type: "text",
+          nullable: true,
+          note: "hosted_plan_url paired",
+        },
+        {
+          name: "source_url",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "deleted_at",
+          type: "timestamp",
+          nullable: true,
+          note: "soft delete; deleted_by paired",
+        },
+      ],
+    },
+    {
+      id: "plan_sections",
+      name: "plan_sections",
+      note: "ordered sections within a plan",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "body",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "html",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "sort_order",
+          type: "integer",
+        },
+        {
+          name: "created_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_comments",
+      name: "plan_comments",
+      note: "threaded comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "anchor",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "message",
+          type: "text",
+        },
+        {
+          name: "resolution_target",
+          type: "text",
+          nullable: true,
+          note: "agent | human | null",
+        },
+        {
+          name: "mentions_json",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "resolved_by",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "plan_events",
+      name: "plan_events",
+      note: "audit log of agent/human events",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_versions",
+      name: "plan_versions",
+      note: "point-in-time snapshots",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+    {
+      id: "plan_shares",
+      name: "plan_shares",
+      note: "per-principal grants",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "뷰어 | 편집자 | 관리자",
+        },
+      ],
+    },
+    {
+      id: "plan_guest_mints",
+      name: "plan_guest_mints",
+      note: "rate-limit records for guest session issuance",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+      ],
+    },
+    {
+      id: "plan_assets",
+      name: "plan_assets",
+      note: "inline image assets as base64",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "plan_id",
+          type: "text",
+          fk: "plans.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "plans",
+      to: "plan_sections",
+      kind: "1-n",
+      label: "has sections",
+    },
+    {
+      from: "plans",
+      to: "plan_comments",
+      kind: "1-n",
+      label: "has comments",
+    },
+    {
+      from: "plans",
+      to: "plan_events",
+      kind: "1-n",
+      label: "has events",
+    },
+    {
+      from: "plans",
+      to: "plan_versions",
+      kind: "1-n",
+      label: "has versions",
+    },
+    {
+      from: "plans",
+      to: "plan_shares",
+      kind: "1-n",
+      label: "has shares",
+    },
+    {
+      from: "plans",
+      to: "plan_assets",
+      kind: "1-n",
+      label: "has assets",
+    },
+  ]}
+/>
 
 ### 키 actions
 

@@ -19,20 +19,24 @@ Construire à partir de zéro ? Le seul choix dès le départ est de savoir si 
 tout après (écrire les instructions, ajouter skills, définir actions, exécuter
 l'agent) est le même dans les deux cas.
 
-<FileTree id="doc-block-13buza2" title="Un agent Agent-Native de base" entries={[
-  {
-    "path": "AGENTS.md",
-    "note": "Instructions toujours actives : objectif, règles, ton et carte de ce que l'agent peut faire"
-  },
-  {
-    "path": ".agents/skills/customer-research/SKILL.md",
-    "note": "Un playbook réutilisable que l'agent charge quand la tâche correspond"
-  },
-  {
-    "path": "actions/summarize-week.ts",
-    "note": "Code typé que l'agent, UI, CLI, HTTP, MCP, A2A, jobs et webhooks peuvent exécuter"
-  }
-]} />
+<FileTree
+  id="doc-block-13buza2"
+  title="Un agent Agent-Native de base"
+  entries={[
+    {
+      path: "AGENTS.md",
+      note: "Instructions toujours actives : objectif, règles, ton et carte de ce que l'agent peut faire",
+    },
+    {
+      path: ".agents/skills/customer-research/SKILL.md",
+      note: "Un playbook réutilisable que l'agent charge quand la tâche correspond",
+    },
+    {
+      path: "actions/summarize-week.ts",
+      note: "Code typé que l'agent, UI, CLI, HTTP, MCP, A2A, jobs et webhooks peuvent exécuter",
+    },
+  ]}
+/>
 
 Cela est vrai que vous commenciez avec un chat UI, un agent sans tête ou une application complète.
 Le UI change la surface ; instructions, skills et actions donnent à l'agent son
@@ -79,33 +83,42 @@ pnpm install
 Une action est une opération que votre agent (et votre UI) peut appeler. Les deux échafaudages
 livré avec cet exemple :
 
-<AnnotatedCode id="doc-block-hmo7e9" title={"Votre première action"} filename="actions/hello.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Dites bonjour depuis l’agent local.\",\n  schema: z.object({\n    name: z.string().default(\"world\"),\n  }),\n  http: { method: \"GET\" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "Description de l’outil",
-    "note": "L’agent lit `description` pour décider quand appeler ceci comme outil."
-  },
-  {
-    "lines": "6-8",
-    "label": "Contrat typé",
-    "note": "Un `schema` zod valide les entrées depuis chaque surface: agent, UI, HTTP, MCP et A2A."
-  },
-  {
-    "lines": "9",
-    "label": "Verbe HTTP",
-    "note": "Exposez cette action sur un endpoint HTTP monté automatiquement."
-  },
-  {
-    "lines": "10",
-    "label": "Lecture seule",
-    "note": "`readOnly` indique que l’action peut être appelée sans approbation et mise en cache pour les requêtes."
-  },
-  {
-    "lines": "11-13",
-    "label": "Une seule implémentation",
-    "note": "Le corps de `run` est la source de vérité unique exécutée par toutes les surfaces."
+<AnnotatedCode
+  id="doc-block-hmo7e9"
+  title={"Votre première action"}
+  filename="actions/hello.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Dites bonjour depuis l’agent local.",\n  schema: z.object({\n    name: z.string().default("world"),\n  }),\n  http: { method: "GET" },\n  readOnly: true,\n  run: async ({ name }) => {\n    return { message: `Hello, ${name}!` };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "Description de l’outil",
+      note: "L’agent lit `description` pour décider quand appeler ceci comme outil.",
+    },
+    {
+      lines: "6-8",
+      label: "Contrat typé",
+      note: "Un `schema` zod valide les entrées depuis chaque surface: agent, UI, HTTP, MCP et A2A.",
+    },
+    {
+      lines: "9",
+      label: "Verbe HTTP",
+      note: "Exposez cette action sur un endpoint HTTP monté automatiquement.",
+    },
+    {
+      lines: "10",
+      label: "Lecture seule",
+      note: "`readOnly` indique que l’action peut être appelée sans approbation et mise en cache pour les requêtes.",
+    },
+    {
+      lines: "11-13",
+      label: "Une seule implémentation",
+      note: "Le corps de `run` est la source de vérité unique exécutée par toutes les surfaces.",
+    },
+  ]}
+/>
 
 Remplacez `hello` par la première opération réelle dans votre domaine. Vous le définissez une fois ;
 chaque surface le capte.

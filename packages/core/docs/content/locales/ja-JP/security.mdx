@@ -188,33 +188,38 @@ export const projects = table("projects", {
 });
 ```
 
-<DataModel id="doc-block-1u3up31" title="What ownableColumns() adds" summary={"テーブルをテナント認識し、共有可能にする 3 つの列。"} entities={[
-  {
-    "id": "ownable",
-    "name": "ownable resource",
-    "note": "Any table that spreads ...ownableColumns()",
-    "fields": [
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "Creator. Auto-filled by write actions; auto-injected on INSERT."
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true,
-        "note": "作成時の所有者のアクティブな組織。組織の可視性チェックを推進します。"
-      },
-      {
-        "name": "visibility",
-        "type": "enum",
-        "nullable": false,
-        "note": "プライベート |組織 | public — 大まかなデフォルト、デフォルトはプライベートです。"
-      }
-    ]
-  }
-]} />
+<DataModel
+  id="doc-block-1u3up31"
+  title="What ownableColumns() adds"
+  summary={"テーブルをテナント認識し、共有可能にする 3 つの列。"}
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads ...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "作成時の所有者のアクティブな組織。組織の可視性チェックを推進します。",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "プライベート |組織 | public — 大まかなデフォルト、デフォルトはプライベートです。",
+        },
+      ],
+    },
+  ]}
+/>
 
 ### actions のアクセス ガード {#access-guards}
 

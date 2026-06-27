@@ -79,23 +79,32 @@ actions 付近ですが、アクション自体の必要な前提条件ではあ
 
 ## アクションの定義 {#defining}
 
-<AnnotatedCode id="doc-block-6tp7g5" title={"アクションの構造"} filename="actions/reply-to-email.ts" language="ts" code={"import { defineAction } from \"@agent-native/core/action\";\nimport { z } from \"zod\";\n\nexport default defineAction({\n  description: \"Reply to an email thread in the user's voice.\",\n  schema: z.object({\n    emailId: z.string().describe(\"The id of the email to reply to.\"),\n    body: z.string().describe(\"The reply body, in markdown.\"),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "ツール面",
-    "note": "`description` は、エージェントがこれをいつ呼び出すか判断するために読む内容です。各フィールドの `.describe()` も JSON Schema に反映されます。"
-  },
-  {
-    "lines": "6-9",
-    "label": "型付き契約",
-    "note": "1つの schema が**すべて**のサーフェスからの入力を検証し、モデル向けに JSON Schema へ変換します。無効な入力が `run` に届くことはありません。"
-  },
-  {
-    "lines": "10-13",
-    "label": "単一の実装",
-    "note": "`run` 本体が唯一の信頼できる実装です。UI ボタンとエージェントツールはどちらもこれをそのまま実行します。"
+<AnnotatedCode
+  id="doc-block-6tp7g5"
+  title={"アクションの構造"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "ツール面",
+      note: "`description` は、エージェントがこれをいつ呼び出すか判断するために読む内容です。各フィールドの `.describe()` も JSON Schema に反映されます。",
+    },
+    {
+      lines: "6-9",
+      label: "型付き契約",
+      note: "1つの schema が**すべて**のサーフェスからの入力を検証し、モデル向けに JSON Schema へ変換します。無効な入力が `run` に届くことはありません。",
+    },
+    {
+      lines: "10-13",
+      label: "単一の実装",
+      note: "`run` 本体が唯一の信頼できる実装です。UI ボタンとエージェントツールはどちらもこれをそのまま実行します。",
+    },
+  ]}
+/>
 
 それだけです。フレームワークは、`actions/` 内のすべてのファイルを自動検出し、起動時にそれらをマウントします。
 

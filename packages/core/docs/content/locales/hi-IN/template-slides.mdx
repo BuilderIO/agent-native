@@ -8,7 +8,12 @@ description: "प्रॉम्प्ट से डेक बनाएं, द�
 प्रॉम्प्ट से पूर्ण प्रेजेंटेशन डेक तैयार करें, स्लाइड्स को दृश्य रूप से संपादित करें, और पूर्ण-स्क्रीन प्रस्तुत करें। एजेंट से "कॉफी सदस्यता सेवा के लिए 10-स्लाइड पिच डेक" के लिए पूछें और इसे सेकंडों में संपादक में स्लाइड-दर-स्लाइड स्ट्रीम करते हुए देखें। Google स्लाइड, पिच और पॉवरपॉइंट के लिए एक ओपन-सोर्स प्रतिस्थापन।
 
 <WireframeBlock id="doc-block-3a2t13">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 बोर्ड अपडेट</h1><span class='wf-pill accent'>शीर्षक स्लाइड</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>साझा करें</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Q3 बोर्ड अपडेट</strong><br/><small>माया चेन · CEO</small><div style='height:46px'></div><span class='wf-pill'>उत्पाद की गति</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>स्लाइड रूपरेखा</strong><div class='wf-box'>1 शीर्षक</div><div class='wf-box'>2 एजेंडा</div><div class='wf-box'>3 मेट्रिक्स</div><div class='wf-box'>4 शिप्ड</div></div><div class='wf-card' style='flex:1'><strong>स्पीकर नोट्स</strong><p class='wf-muted' style='margin:8px 0 0'>लॉन्च प्रगति और रिटेंशन कहानी से शुरू करें।</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 शीर्षक</div><div class='wf-box'>2 एजेंडा</div><div class='wf-box'>3 मेट्रिक्स</div><div class='wf-box'>4 शिप्ड</div><div class='wf-box'>5 जोखिम</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Q3 बोर्ड अपडेट</h1><span class='wf-pill accent'>शीर्षक स्लाइड</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>साझा करें</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>Q3 बोर्ड अपडेट</strong><br/><small>माया चेन · CEO</small><div style='height:46px'></div><span class='wf-pill'>उत्पाद की गति</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>स्लाइड रूपरेखा</strong><div class='wf-box'>1 शीर्षक</div><div class='wf-box'>2 एजेंडा</div><div class='wf-box'>3 मेट्रिक्स</div><div class='wf-box'>4 शिप्ड</div></div><div class='wf-card' style='flex:1'><strong>स्पीकर नोट्स</strong><p class='wf-muted' style='margin:8px 0 0'>लॉन्च प्रगति और रिटेंशन कहानी से शुरू करें।</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 शीर्षक</div><div class='wf-box'>2 एजेंडा</div><div class='wf-box'>3 मेट्रिक्स</div><div class='wf-box'>4 शिप्ड</div><div class='wf-box'>5 जोखिम</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 जब आप एक डेक खोलते हैं, तो स्लाइड कैनवास, रूपरेखा, नोट्स और फिल्मस्ट्रिप एक संपादक सतह पर रहते हैं जबकि एजेंट अभी भी actions के माध्यम से स्लाइड बना, संशोधित और नेविगेट कर सकता है।
@@ -108,185 +113,193 @@ pnpm dev
 
 सभी डेक डेटा Drizzle ORM के माध्यम से SQL में रहते हैं। स्कीमा: `templates/slides/server/db/schema.ts`.
 
-<DataModel id="doc-block-1w9ef7x" title={"डेटा मॉडल स्लाइड करता है"} summary={"A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."} entities={[
-  {
-    "id": "decks",
-    "name": "decks",
-    "note": "Slides live as JSON in data; carries ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true,
-        "note": "e.g. deck-1712345-abc"
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "JSON: { title, slides: [{ id, content, layout }] }"
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      },
-      {
-        "name": "updated_at",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "slide_comments",
-    "name": "slide_comments",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "deck_id",
-        "type": "text",
-        "fk": "decks.id"
-      },
-      {
-        "name": "slide_id",
-        "type": "text",
-        "note": "टिप्पणी को स्लाइड करें"
-      },
-      {
-        "name": "thread_id",
-        "type": "text",
-        "note": "सूत्रण"
-      },
-      {
-        "name": "parent_id",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "content",
-        "type": "text"
-      },
-      {
-        "name": "quoted_text",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "author_email",
-        "type": "text"
-      },
-      {
-        "name": "author_name",
-        "type": "text"
-      },
-      {
-        "name": "resolved",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "deck_versions",
-    "name": "deck_versions",
-    "note": "पुनर्स्थापना के लिए पॉइंट-इन-टाइम स्नैपशॉट",
-    "fields": [
-      {
-        "name": "deck_id",
-        "type": "text",
-        "fk": "decks.id"
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "पूर्ण डेक JSON"
-      },
-      {
-        "name": "change_label",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "design_systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens; ownableColumns",
-    "fields": [
-      {
-        "name": "data",
-        "type": "text",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "deck_share_links",
-    "name": "deck_share_links",
-    "note": "लगातार सार्वजनिक शेयर-लिंक स्नैपशॉट",
-    "fields": [
-      {
-        "name": "token",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "slides",
-        "type": "text",
-        "note": "JSON स्लाइड स्नैपशॉट"
-      },
-      {
-        "name": "aspect_ratio",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-1w9ef7x"
+  title={"डेटा मॉडल स्लाइड करता है"}
+  summary={
+    "A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."
   }
-]} relations={[
-  {
-    "from": "decks",
-    "to": "slide_comments",
-    "kind": "1-n",
-    "label": "comments"
-  },
-  {
-    "from": "decks",
-    "to": "deck_versions",
-    "kind": "1-n",
-    "label": "snapshots"
-  }
-]} />
+  entities={[
+    {
+      id: "decks",
+      name: "decks",
+      note: "Slides live as JSON in data; carries ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          note: "e.g. deck-1712345-abc",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "JSON: { title, slides: [{ id, content, layout }] }",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "slide_comments",
+      name: "slide_comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "slide_id",
+          type: "text",
+          note: "टिप्पणी को स्लाइड करें",
+        },
+        {
+          name: "thread_id",
+          type: "text",
+          note: "सूत्रण",
+        },
+        {
+          name: "parent_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "quoted_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "author_email",
+          type: "text",
+        },
+        {
+          name: "author_name",
+          type: "text",
+        },
+        {
+          name: "resolved",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_versions",
+      name: "deck_versions",
+      note: "पुनर्स्थापना के लिए पॉइंट-इन-टाइम स्नैपशॉट",
+      fields: [
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "पूर्ण डेक JSON",
+        },
+        {
+          name: "change_label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_share_links",
+      name: "deck_share_links",
+      note: "लगातार सार्वजनिक शेयर-लिंक स्नैपशॉट",
+      fields: [
+        {
+          name: "token",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "slides",
+          type: "text",
+          note: "JSON स्लाइड स्नैपशॉट",
+        },
+        {
+          name: "aspect_ratio",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "decks",
+      to: "slide_comments",
+      kind: "1-n",
+      label: "comments",
+    },
+    {
+      from: "decks",
+      to: "deck_versions",
+      kind: "1-n",
+      label: "snapshots",
+    },
+  ]}
+/>
 
 फ़्रेमवर्क तालिकाओं (`deck_shares`, `design_system_shares`) को प्रति संसाधन दर्शक/संपादक/व्यवस्थापक भूमिकाओं के लिए मानचित्र सिद्धांतों को साझा करता है।
 

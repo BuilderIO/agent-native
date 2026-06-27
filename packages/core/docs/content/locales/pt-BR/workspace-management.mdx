@@ -47,24 +47,28 @@ Nem todo mundo que precisa fazer alterações se sente confortável com o git. [
 
 A governança do código é configurada por alguns arquivos na raiz do repositório:
 
-<FileTree id="doc-block-15icryg" title={"Configuração de governança no repo"} entries={[
-  {
-    "path": ".github/CODEOWNERS",
-    "note": "Atribui reviewers automaticamente por caminho alterado"
-  },
-  {
-    "path": ".github/labeler.yml",
-    "note": "Aplica labels automaticamente aos PRs por app"
-  },
-  {
-    "path": "pnpm-workspace.yaml",
-    "note": "Nível de workspace: revisão ampla"
-  },
-  {
-    "path": "package.json",
-    "note": "Nível de workspace: propriedade do time de plataforma"
-  }
-]} />
+<FileTree
+  id="doc-block-15icryg"
+  title={"Configuração de governança no repo"}
+  entries={[
+    {
+      path: ".github/CODEOWNERS",
+      note: "Atribui reviewers automaticamente por caminho alterado",
+    },
+    {
+      path: ".github/labeler.yml",
+      note: "Aplica labels automaticamente aos PRs por app",
+    },
+    {
+      path: "pnpm-workspace.yaml",
+      note: "Nível de workspace: revisão ampla",
+    },
+    {
+      path: "package.json",
+      note: "Nível de workspace: propriedade do time de plataforma",
+    },
+  ]}
+/>
 
 O arquivo CODEOWNERS de GitHub atribui automaticamente revisores aos PRs com base em quais arquivos foram alterados. Crie `.github/CODEOWNERS` na raiz do repositório:
 

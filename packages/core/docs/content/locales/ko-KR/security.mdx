@@ -188,33 +188,38 @@ export const projects = table("projects", {
 });
 ```
 
-<DataModel id="doc-block-197tsny" title="What ownableColumns() adds" summary={"테이블을 테넌트 인식하고 공유 가능하게 만드는 세 개의 열입니다."} entities={[
-  {
-    "id": "ownable",
-    "name": "ownable resource",
-    "note": "Any table that spreads ...ownableColumns()",
-    "fields": [
-      {
-        "name": "owner_email",
-        "type": "text",
-        "nullable": false,
-        "note": "Creator. Auto-filled by write actions; auto-injected on INSERT."
-      },
-      {
-        "name": "org_id",
-        "type": "text",
-        "nullable": true,
-        "note": "생성 시 소유자의 활성 조직입니다. 조직 가시성 검사를 진행합니다."
-      },
-      {
-        "name": "visibility",
-        "type": "enum",
-        "nullable": false,
-        "note": "비공개 | 조직 | 공개 — 대략적인 기본값, 기본값은 비공개입니다."
-      }
-    ]
-  }
-]} />
+<DataModel
+  id="doc-block-197tsny"
+  title="What ownableColumns() adds"
+  summary={"테이블을 테넌트 인식하고 공유 가능하게 만드는 세 개의 열입니다."}
+  entities={[
+    {
+      id: "ownable",
+      name: "ownable resource",
+      note: "Any table that spreads ...ownableColumns()",
+      fields: [
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "Creator. Auto-filled by write actions; auto-injected on INSERT.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+          note: "생성 시 소유자의 활성 조직입니다. 조직 가시성 검사를 진행합니다.",
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "비공개 | 조직 | 공개 — 대략적인 기본값, 기본값은 비공개입니다.",
+        },
+      ],
+    },
+  ]}
+/>
 
 ### actions의 액세스 가드 {#access-guards}
 

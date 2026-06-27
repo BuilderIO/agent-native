@@ -113,33 +113,42 @@ Drives the sidebar checklist — returns each step's id, title, methods, require
 
 ### Adicionando uma etapa de um modelo
 
-<AnnotatedCode id="doc-block-1jk54dm" title={"Registrando uma etapa de integração personalizada"} filename="server/plugins/my-onboarding.ts" language="ts" code={"import { defineNitroPlugin } from \"@agent-native/core/server\";\nimport { registerOnboardingStep } from \"@agent-native/core/onboarding\";\nimport { listOAuthAccounts } from \"@agent-native/core/oauth-tokens\";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: \"gmail\",\n    order: 100,\n    title: \"Connect Gmail\",\n    description: \"Grant read/send access so the agent can work with email.\",\n    methods: [\n      {\n        id: \"oauth\",\n        kind: \"link\",\n        primary: true,\n        label: \"Sign in with Google\",\n        payload: { url: \"/_agent-native/google/auth-url?scope=mail\", external: false },\n      },\n      {\n        id: \"delegate\",\n        kind: \"agent-task\",\n        label: \"Let the agent set it up\",\n        badge: \"beta\",\n        payload: { prompt: \"Walk me through connecting Gmail. Set env vars as needed.\" },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts(\"google\");\n      return accounts.length > 0;\n    },\n  });\n});"} annotations={[
-  {
-    "lines": "5",
-    "label": "Montado automaticamente",
-    "note": "Registre-se a partir de um plugin Nitro — a estrutura lida com renderização, rastreamento de conclusão e dispensa."
-  },
-  {
-    "lines": "7",
-    "label": "ID da pilha",
-    "note": "O novo registro com o mesmo `id` após o carregamento dos padrões substitui uma etapa integrada."
-  },
-  {
-    "lines": "12-19",
-    "label": "Método primário",
-    "note": "`primary: true` marks the big CTA. `kind: \"link\"` sends the user into the OAuth flow."
-  },
-  {
-    "lines": "20-26",
-    "label": "Caminho do delegado",
-    "note": "`kind: \"agent-task\"` hands the setup to the agent chat with a prompt."
-  },
-  {
-    "lines": "28-31",
-    "label": "Verificação de conclusão",
-    "note": "`isComplete` é executado no lado do servidor. Os tokens OAuth residem na loja `oauth_tokens` – verifique, não `process.env.GMAIL_REFRESH_TOKEN`."
+<AnnotatedCode
+  id="doc-block-1jk54dm"
+  title={"Registrando uma etapa de integração personalizada"}
+  filename="server/plugins/my-onboarding.ts"
+  language="ts"
+  code={
+    'import { defineNitroPlugin } from "@agent-native/core/server";\nimport { registerOnboardingStep } from "@agent-native/core/onboarding";\nimport { listOAuthAccounts } from "@agent-native/core/oauth-tokens";\n\nexport default defineNitroPlugin(() => {\n  registerOnboardingStep({\n    id: "gmail",\n    order: 100,\n    title: "Connect Gmail",\n    description: "Grant read/send access so the agent can work with email.",\n    methods: [\n      {\n        id: "oauth",\n        kind: "link",\n        primary: true,\n        label: "Sign in with Google",\n        payload: { url: "/_agent-native/google/auth-url?scope=mail", external: false },\n      },\n      {\n        id: "delegate",\n        kind: "agent-task",\n        label: "Let the agent set it up",\n        badge: "beta",\n        payload: { prompt: "Walk me through connecting Gmail. Set env vars as needed." },\n      },\n    ],\n    isComplete: async () => {\n      const accounts = await listOAuthAccounts("google");\n      return accounts.length > 0;\n    },\n  });\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "5",
+      label: "Montado automaticamente",
+      note: "Registre-se a partir de um plugin Nitro — a estrutura lida com renderização, rastreamento de conclusão e dispensa.",
+    },
+    {
+      lines: "7",
+      label: "ID da pilha",
+      note: "O novo registro com o mesmo `id` após o carregamento dos padrões substitui uma etapa integrada.",
+    },
+    {
+      lines: "12-19",
+      label: "Método primário",
+      note: '`primary: true` marks the big CTA. `kind: "link"` sends the user into the OAuth flow.',
+    },
+    {
+      lines: "20-26",
+      label: "Caminho do delegado",
+      note: '`kind: "agent-task"` entrega a configuração ao chat do agente com um prompt.',
+    },
+    {
+      lines: "28-31",
+      label: "Verificação de conclusão",
+      note: "`isComplete` é executado no lado do servidor. Os tokens OAuth residem na loja `oauth_tokens` – verifique, não `process.env.GMAIL_REFRESH_TOKEN`.",
+    },
+  ]}
+/>
 
 ### Verificando conexões do espaço de trabalho na integração
 

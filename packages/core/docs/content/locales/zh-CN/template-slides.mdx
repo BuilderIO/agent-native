@@ -8,7 +8,12 @@ description: "根据提示生成套牌、进行可视化编辑并全屏呈现。
 根据提示生成完整的演示文稿、直观地编辑幻灯片并全屏演示。向代理询问“一份包含 10 张幻灯片的咖啡订阅服务宣传资料”，并在几秒钟内观看它一张一张幻灯片地传输到编辑器中。 Google Slides、Pitch 和 PowerPoint 的开源替代品。
 
 <WireframeBlock id="doc-block-1hz53a4">
-<Screen surface="desktop" html={"<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>第三季度董事会更新</h1><span class='wf-pill accent'>标题幻灯片</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>分享</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>第三季度董事会更新</strong><br/><small>Maya Chen · 首席执行官</small><div style='height:46px'></div><span class='wf-pill'>产品动能</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>幻灯片大纲</strong><div class='wf-box'>1 标题</div><div class='wf-box'>2 议程</div><div class='wf-box'>3 指标</div><div class='wf-box'>4 已发布</div></div><div class='wf-card' style='flex:1'><strong>演讲者备注</strong><p class='wf-muted' style='margin:8px 0 0'>以发布进展和留存故事开场。</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 标题</div><div class='wf-box'>2 议程</div><div class='wf-box'>3 指标</div><div class='wf-box'>4 已发布</div><div class='wf-box'>5 风险</div></div></div>"} />
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>第三季度董事会更新</h1><span class='wf-pill accent'>标题幻灯片</span><div style='flex:1'></div><button>Preview</button><button>Present</button><button class='primary'>分享</button></div><main style='display:grid;grid-template-columns:1fr 220px;gap:12px;flex:1;min-height:0'><section class='wf-card' style='display:flex;align-items:center;justify-content:center;text-align:center;padding:36px'><div><strong style='font-size:28px'>第三季度董事会更新</strong><br/><small>Maya Chen · 首席执行官</small><div style='height:46px'></div><span class='wf-pill'>产品动能</span></div></section><section style='display:flex;flex-direction:column;gap:10px'><div class='wf-card'><strong>幻灯片大纲</strong><div class='wf-box'>1 标题</div><div class='wf-box'>2 议程</div><div class='wf-box'>3 指标</div><div class='wf-box'>4 已发布</div></div><div class='wf-card' style='flex:1'><strong>演讲者备注</strong><p class='wf-muted' style='margin:8px 0 0'>以发布进展和留存故事开场。</p></div></section></main><div style='display:grid;grid-template-columns:repeat(5,1fr);gap:8px'><div class='wf-box'>1 标题</div><div class='wf-box'>2 议程</div><div class='wf-box'>3 指标</div><div class='wf-box'>4 已发布</div><div class='wf-box'>5 风险</div></div></div>"
+    }
+  />
 </WireframeBlock>
 
 当您打开幻灯片时，幻灯片画布、大纲、注释和幻灯片保留在一个编辑器界面中，而代理仍然可以通过 actions 创建、修改和导航幻灯片。
@@ -108,185 +113,193 @@ pnpm dev
 
 所有牌组数据通过 Drizzle ORM 存储在 SQL 中。架构：`templates/slides/server/db/schema.ts`。
 
-<DataModel id="doc-block-h985pt" title={"幻灯片数据模型"} summary={"A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."} entities={[
-  {
-    "id": "decks",
-    "name": "decks",
-    "note": "Slides live as JSON in data; carries ownableColumns",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true,
-        "note": "e.g. deck-1712345-abc"
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "JSON: { title, slides: [{ id, content, layout }] }"
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      },
-      {
-        "name": "updated_at",
-        "type": "text"
-      }
-    ]
-  },
-  {
-    "id": "slide_comments",
-    "name": "slide_comments",
-    "fields": [
-      {
-        "name": "id",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "deck_id",
-        "type": "text",
-        "fk": "decks.id"
-      },
-      {
-        "name": "slide_id",
-        "type": "text",
-        "note": "滑动评论继续存在"
-      },
-      {
-        "name": "thread_id",
-        "type": "text",
-        "note": "螺纹加工"
-      },
-      {
-        "name": "parent_id",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "content",
-        "type": "text"
-      },
-      {
-        "name": "quoted_text",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "author_email",
-        "type": "text"
-      },
-      {
-        "name": "author_name",
-        "type": "text"
-      },
-      {
-        "name": "resolved",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "deck_versions",
-    "name": "deck_versions",
-    "note": "用于恢复的时间点快照",
-    "fields": [
-      {
-        "name": "deck_id",
-        "type": "text",
-        "fk": "decks.id"
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "data",
-        "type": "text",
-        "note": "全副牌 JSON"
-      },
-      {
-        "name": "change_label",
-        "type": "text",
-        "nullable": true
-      }
-    ]
-  },
-  {
-    "id": "design_systems",
-    "name": "design_systems",
-    "note": "Reusable brand tokens; ownableColumns",
-    "fields": [
-      {
-        "name": "data",
-        "type": "text",
-        "note": "colors / typography / spacing"
-      },
-      {
-        "name": "assets",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "custom_instructions",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "is_default",
-        "type": "boolean"
-      }
-    ]
-  },
-  {
-    "id": "deck_share_links",
-    "name": "deck_share_links",
-    "note": "持久的公共共享链接快照",
-    "fields": [
-      {
-        "name": "token",
-        "type": "text",
-        "pk": true
-      },
-      {
-        "name": "title",
-        "type": "text"
-      },
-      {
-        "name": "slides",
-        "type": "text",
-        "note": "JSON 幻灯片快照"
-      },
-      {
-        "name": "aspect_ratio",
-        "type": "text",
-        "nullable": true
-      },
-      {
-        "name": "created_at",
-        "type": "text"
-      }
-    ]
+<DataModel
+  id="doc-block-h985pt"
+  title={"幻灯片数据模型"}
+  summary={
+    "A deck owns its slides as JSON in decks.data; comments, versions, shares, and design systems hang off it."
   }
-]} relations={[
-  {
-    "from": "decks",
-    "to": "slide_comments",
-    "kind": "1-n",
-    "label": "comments"
-  },
-  {
-    "from": "decks",
-    "to": "deck_versions",
-    "kind": "1-n",
-    "label": "snapshots"
-  }
-]} />
+  entities={[
+    {
+      id: "decks",
+      name: "decks",
+      note: "Slides live as JSON in data; carries ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          note: "e.g. deck-1712345-abc",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "JSON: { title, slides: [{ id, content, layout }] }",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "slide_comments",
+      name: "slide_comments",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "slide_id",
+          type: "text",
+          note: "滑动评论继续存在",
+        },
+        {
+          name: "thread_id",
+          type: "text",
+          note: "螺纹加工",
+        },
+        {
+          name: "parent_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "content",
+          type: "text",
+        },
+        {
+          name: "quoted_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "author_email",
+          type: "text",
+        },
+        {
+          name: "author_name",
+          type: "text",
+        },
+        {
+          name: "resolved",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_versions",
+      name: "deck_versions",
+      note: "用于恢复的时间点快照",
+      fields: [
+        {
+          name: "deck_id",
+          type: "text",
+          fk: "decks.id",
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "全副牌 JSON",
+        },
+        {
+          name: "change_label",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "deck_share_links",
+      name: "deck_share_links",
+      note: "持久的公共共享链接快照",
+      fields: [
+        {
+          name: "token",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "slides",
+          type: "text",
+          note: "JSON 幻灯片快照",
+        },
+        {
+          name: "aspect_ratio",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "decks",
+      to: "slide_comments",
+      kind: "1-n",
+      label: "comments",
+    },
+    {
+      from: "decks",
+      to: "deck_versions",
+      kind: "1-n",
+      label: "snapshots",
+    },
+  ]}
+/>
 
 框架共享表（`deck_shares`、`design_system_shares`）将主体映射到每个资源的查看者/编辑者/管理员角色。
 

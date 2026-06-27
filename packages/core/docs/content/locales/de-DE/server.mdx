@@ -103,23 +103,32 @@ in einer Aktion, damit UI und Agent die gleiche Fähigkeit teilen.
 
 Actions, das vom Framework bereitgestellt wird, wird automatisch mit dem Anforderungskontext ausgeführt. Bei benutzerdefinierten Routen ist dies nicht der Fall. Wenn eine benutzerdefinierte Route besitzbare Ressourcen liest oder schreibt, laden Sie die Sitzung und schließen Sie die Arbeit ein:
 
-<AnnotatedCode id="doc-block-uwrkhu" title="Festlegen einer benutzerdefinierten Route zum Anforderungsbenutzer" filename="server/routes/api/projects.get.ts" language="ts" code={"import { defineEventHandler, createError } from \"h3\";\nimport { getSession, runWithRequestContext } from \"@agent-native/core/server\";\nimport { getDb } from \"../../db/index.js\";\nimport { accessFilter } from \"@agent-native/core/sharing\";\nimport * as schema from \"../../db/schema\";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: \"Unauthorized\" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectTeilens));\n    },\n  );\n});"} annotations={[
-  {
-    "lines": "7-10",
-    "label": "Benutzerdefinierte Routen haben keinen automatischen Kontext",
-    "note": "Im Gegensatz zu Aktionen muss eine Dateiroute die Sitzung selbst laden und nicht geschlossen werden, wenn kein authentifizierter Benutzer vorhanden ist."
-  },
-  {
-    "lines": "12-13",
-    "label": "Stellen Sie den Anforderungskontext her",
-    "note": "`runWithRequestContext` stellt den Scoping-Helfern die user/org für die Dauer der Arbeiten zur Verfügung."
-  },
-  {
-    "lines": "18-19",
-    "label": "Umfang besitzbarer Lesevorgänge",
-    "note": "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here."
+<AnnotatedCode
+  id="doc-block-uwrkhu"
+  title="Festlegen einer benutzerdefinierten Route zum Anforderungsbenutzer"
+  filename="server/routes/api/projects.get.ts"
+  language="ts"
+  code={
+    'import { defineEventHandler, createError } from "h3";\nimport { getSession, runWithRequestContext } from "@agent-native/core/server";\nimport { getDb } from "../../db/index.js";\nimport { accessFilter } from "@agent-native/core/sharing";\nimport * as schema from "../../db/schema";\n\nexport default defineEventHandler(async (event) => {\n  const session = await getSession(event);\n  if (!session?.email) {\n    throw createError({ statusCode: 401, statusMessage: "Unauthorized" });\n  }\n\n  return runWithRequestContext(\n    { userEmail: session.email, orgId: session.orgId },\n    async () => {\n      const db = getDb();\n      return db\n        .select()\n        .from(schema.projects)\n        .where(accessFilter(schema.projects, schema.projectTeilens));\n    },\n  );\n});'
   }
-]} />
+  annotations={[
+    {
+      lines: "7-10",
+      label: "Benutzerdefinierte Routen haben keinen automatischen Kontext",
+      note: "Im Gegensatz zu Aktionen muss eine Dateiroute die Sitzung selbst laden und nicht geschlossen werden, wenn kein authentifizierter Benutzer vorhanden ist.",
+    },
+    {
+      lines: "12-13",
+      label: "Stellen Sie den Anforderungskontext her",
+      note: "`runWithRequestContext` stellt den Scoping-Helfern die user/org für die Dauer der Arbeiten zur Verfügung.",
+    },
+    {
+      lines: "18-19",
+      label: "Umfang besitzbarer Lesevorgänge",
+      note: "`accessFilter` constrains the query to rows the caller may see. Never run an unscoped `db.select().from(ownableTable)` here.",
+    },
+  ]}
+/>
 
 `getDb` wird pro App über `createGetDb(schema)` in `server/db/index.ts` erstellt, daher importieren benutzerdefinierte Routen es aus der Vorlage (`../../db/index.js`), nicht aus `@agent-native/core/db`; siehe [Database — Where the DB Client Lives](/docs/database#db-client). Führen Sie `db.select().from(ownableTable)` ohne Gültigkeitsbereich nicht in benutzerdefinierten Routen aus.
 
