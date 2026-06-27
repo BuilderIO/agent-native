@@ -7113,7 +7113,7 @@ function PlanCanvasSkeleton() {
       aria-hidden="true"
     >
       <div
-        className="plan-canvas-viewport absolute inset-0"
+        className="plan-canvas-grid absolute inset-0"
         style={{
           backgroundPosition: "96px 64px",
           backgroundSize: "20px 20px",

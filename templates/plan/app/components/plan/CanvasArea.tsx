@@ -43,6 +43,8 @@ const WHEEL_ZOOM_STEP = 0.16;
 const PINCH_ZOOM_SENSITIVITY = 0.01;
 /** Base CSS grid cell, scaled by zoom. */
 const GRID_CELL = 28;
+/** Extra world-space grid on each side so the grid still fills overscrolled pans. */
+const GRID_PADDING = 5000;
 
 type CanvasView = typeof DEFAULT_VIEW;
 export type CanvasViewport = CanvasView;
@@ -156,6 +158,9 @@ export function CanvasArea({
   );
   const latestViewportChangeRef = useRef<CanvasViewport>(initialView);
   const viewportChangeFrameRef = useRef<number | null>(null);
+  // Kept current each render so the central pan clamp (in updateView) can read
+  // the live board size without widening updateView's dependencies.
+  const boardRef = useRef({ width: 0, height: 0 });
   const queueViewportChange = useCallback(
     (nextView: CanvasViewport) => {
       latestViewportChangeRef.current = nextView;
@@ -171,7 +176,11 @@ export function CanvasArea({
   const updateView = useCallback(
     (resolve: (current: CanvasView) => CanvasView) => {
       setView((current) => {
-        const next = resolve(current);
+        const next = clampPanToGrid(
+          resolve(current),
+          boardRef.current,
+          viewportRef.current?.getBoundingClientRect() ?? null,
+        );
         if (sameCanvasView(current, next)) return current;
         queueViewportChange(next);
         return next;
@@ -332,6 +341,7 @@ export function CanvasArea({
     );
     return { width: maxX + 360, height: maxY + 280 };
   }, [frames, annotations, legacyNotes]);
+  boardRef.current = board;
 
   const lastAutoFitKeyRef = useRef<string | null>(null);
   useEffect(() => {
@@ -385,6 +395,7 @@ export function CanvasArea({
   }, [frameLayoutKey, frames, hasSavedViewport, updateView]);
 
   const { zoom, pan } = view;
+  const worldTransform = `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`;
   useEffect(() => {
     queueViewportChange(view);
   }, [queueViewportChange, view]);
@@ -656,8 +667,6 @@ export function CanvasArea({
         tabIndex={0}
         style={
           {
-            backgroundPosition: `${pan.x}px ${pan.y}px`,
-            backgroundSize: `${GRID_CELL * zoom}px ${GRID_CELL * zoom}px`,
             overscrollBehavior: "contain",
             touchAction: "none",
           } as CSSProperties
@@ -724,11 +733,25 @@ export function CanvasArea({
           style={{
             width: board.width,
             height: board.height,
-            transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+            transform: worldTransform,
             transformOrigin: "0 0",
             willChange: "transform",
+            backfaceVisibility: "hidden",
           }}
         >
+          <div
+            aria-hidden="true"
+            className="plan-canvas-grid absolute"
+            data-plan-canvas-grid
+            style={{
+              left: -GRID_PADDING,
+              top: -GRID_PADDING,
+              width: board.width + GRID_PADDING * 2,
+              height: board.height + GRID_PADDING * 2,
+              backgroundSize: `${GRID_CELL}px ${GRID_CELL}px`,
+            }}
+          />
+
           {/* Section containers sit BEHIND the frames (lowest layer) so each
               group reads as one bounded region the artboards rest inside. */}
           {sectionRects.map(({ section, rect }) => (
@@ -2292,4 +2315,33 @@ function resolveMarkupComposerPosition(input: {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * Keep the visible viewport inside the rendered grid. The grid is a fixed-size
+ * child of the transformed world (board + GRID_PADDING on every side), so it is
+ * large but finite; without this clamp a far-enough pan scrolls past the grid
+ * edge into a blank void. Screen = pan + world * zoom, and the grid spans world
+ * [-GRID_PADDING, board + GRID_PADDING], so bounding pan to the range below
+ * guarantees the grid always fills the viewport while still allowing the full
+ * GRID_PADDING of overscroll. A no-op until the viewport has been measured.
+ */
+function clampPanToGrid(
+  view: CanvasView,
+  board: { width: number; height: number },
+  rect: DOMRect | null,
+): CanvasView {
+  if (!rect) return view;
+  const { zoom } = view;
+  const minPanX = rect.width - (board.width + GRID_PADDING) * zoom;
+  const maxPanX = GRID_PADDING * zoom;
+  const minPanY = rect.height - (board.height + GRID_PADDING) * zoom;
+  const maxPanY = GRID_PADDING * zoom;
+  return {
+    zoom,
+    pan: {
+      x: minPanX <= maxPanX ? clamp(view.pan.x, minPanX, maxPanX) : view.pan.x,
+      y: minPanY <= maxPanY ? clamp(view.pan.y, minPanY, maxPanY) : view.pan.y,
+    },
+  };
 }
