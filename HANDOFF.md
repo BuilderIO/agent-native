@@ -38,8 +38,10 @@
 ### Git Status
 ```
 Branch: Agent-Native_my-local-ai-environment
-Recent commit: 1c3bb05ac (OPENAI env vars integration)
+Recent commit: 93d1eb742 (HANDOFF.md update)
+Previous commit: 1c3bb05ac (OPENAI env vars integration)
 Working tree: CLEAN
+Commits ahead of origin: 4
 ```
 
 ### .env Configuration (in root, .gitignore excluded)
@@ -50,34 +52,37 @@ OPENAI_API_KEY=nvapi-mseC5XS0H5kqshWOb99iY5S88Ctx9Q_9EpkNmjBpvjkLVEzYdwAy7soWO0r
 OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 ```
 
-### Running Services (Current Session)
-- **Gateway**: http://127.0.0.1:8080 (localhost, all templates routed through)
-- **Dispatch**: http://127.0.0.1:8092 (dev-lazy prewarming in background)
+### Running Services (Current Session — CLEAN RESTART COMPLETE)
+- **Gateway**: http://127.0.0.1:8080 (localhost, all templates routed through) ✅ HEALTHY
+- **Dispatch**: http://127.0.0.1:8092 (dev-lazy prewarming in background) ✅ MOUNTED
 - **Agent Model**: NVIDIA Nemotron 3 Ultra 550B via https://integrate.api.nvidia.com/v1
 - **Build Status**: packages/core recompiled with env var reading; TypeScript watch mode active
+- **Clean Sweep**: Fresh install (node_modules rebuilt, .nitro/.output caches cleared) — Nitro Vite environment healthy
 
 ---
 
 ## NEXT STEPS FOR NEW SESSION
 
-### PRIORITY 1: Verify NVIDIA NIM Integration in Dispatch (VALIDATION)
+### PRIORITY 1: Verify NVIDIA NIM Integration in Dispatch (VALIDATION) ✅ SERVER READY
+**Server is now healthy and running.**
+
 1. **Access Dispatch UI**:
-   - Browser: http://127.0.0.1:8080/dispatch
-   - Sign in (create account if needed)
+    - Browser: http://127.0.0.1:8080/dispatch
+    - Sign in (create account if needed)
 
 2. **Send Test Message**:
-   - Simple query: "Hello, what model are you running?"
-   - Expected response: Should mention Nemotron 550B or include context about 1M token window
+    - Simple query: "Hello, what model are you running?"
+    - Expected response: Should mention Nemotron 550B or include context about 1M token window
 
 3. **Verify Backend Logs**:
-   - Check dev server output (shell 231) for any errors
-   - Should NOT see "OllamN3A" or Ollama errors
-   - Should see successful requests to https://integrate.api.nvidia.com/v1
+    - Check dev server output (shell 253) for any errors
+    - Should NOT see "OllamN3A" or Ollama errors
+    - Should see successful requests to https://integrate.api.nvidia.com/v1
 
 4. **Test Agent Capabilities**:
-   - Basic chat completion
-   - Tool dispatch (if available)
-   - Verify response quality from 550B model
+    - Basic chat completion
+    - Tool dispatch (if available)
+    - Verify response quality from 550B model
 
 ### PRIORITY 2: Commit and Prepare for Merge (if tests pass)
 - Changes are already committed (1c3bb05ac)
@@ -116,7 +121,13 @@ OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 - **Status**: FIXED ✅
 - **Was**: createAISDKEngine didn't read OPENAI_BASE_URL/OPENAI_MODEL
 - **Fix Applied**: Updated to read env vars for openai provider (mirrors ollama pattern)
-- **Verification Pending**: Need to send test message in Dispatch to confirm
+- **Verification Pending**: Ready to send test message in Dispatch to confirm
+
+### Vite/Nitro Initialization (RESOLVED ✅)
+- **Was**: "Vite environment 'nitro' is unavailable" error on server startup
+- **Cause**: Stale node_modules and build caches (59 zombie Node processes, corrupted .nitro/.output)
+- **Resolution**: Clean sweep executed — `pnpm install` with fresh caches, all ports released
+- **Status**: Dev server now mounts successfully, no Nitro errors
 
 ### Port Conflicts (Resolved)
 - **Was**: Ports 8080-8105 in use from previous session
@@ -140,6 +151,7 @@ OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 - [x] Changes committed to git (1c3bb05ac)
 - [x] Dev server restarted with fresh TypeScript compilation
 - [x] All node processes cleaned up
+- [x] Clean sweep executed: pnpm install with fresh caches, Nitro healthy
 - [x] .env properly configured with NVIDIA NIM credentials
 - [x] This handoff document updated
 
@@ -165,4 +177,4 @@ OPENAI_MODEL=nvidia/nemotron-3-ultra-550b-a55b
 
 ---
 
-**Status: READY FOR NEXT SESSION WITH VERIFICATION STEP** ✅
+**Status: READY FOR VERIFICATION — Dev Server Healthy, Clean Sweep Complete** ✅
