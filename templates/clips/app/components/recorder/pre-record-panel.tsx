@@ -41,6 +41,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   loadRecorderPreferences,
   saveRecorderPreferences,
@@ -192,6 +193,7 @@ export function PreRecordPanel({
     error: null,
     hasPreview: false,
   });
+  const isMobile = useIsMobile();
 
   const modeOptions = useMemo<ModeOption[]>(
     () => [
@@ -213,6 +215,14 @@ export function PreRecordPanel({
     ],
     [t],
   );
+  const visibleModeOptions = useMemo(
+    () =>
+      isMobile
+        ? modeOptions.filter((option) => option.value === "camera")
+        : modeOptions,
+    [isMobile, modeOptions],
+  );
+
   const surfaceOptions = useMemo<SurfaceOption[]>(
     () => [
       {
@@ -238,8 +248,14 @@ export function PreRecordPanel({
   );
 
   useEffect(() => {
+    if (isMobile) {
+      // Mobile browsers do not support the screen-capture choices this panel
+      // offers on desktop, so keep the setup focused on recording face video.
+      setMode("camera");
+      return;
+    }
     if (initialMode) setMode(initialMode);
-  }, [initialMode]);
+  }, [initialMode, isMobile]);
 
   useEffect(() => {
     if (initialDisplaySurface) setDisplaySurface(initialDisplaySurface);
@@ -586,7 +602,7 @@ export function PreRecordPanel({
     <div className="mx-auto w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
       <div className="p-6">
         <div className="grid gap-2 sm:grid-cols-3">
-          {modeOptions.map((opt) => {
+          {visibleModeOptions.map((opt) => {
             const Icon = opt.icon;
             const active = opt.value === mode;
             return (
@@ -600,7 +616,7 @@ export function PreRecordPanel({
                 className={cn(
                   "flex min-h-20 min-w-0 flex-col justify-between rounded-xl border p-3 text-start transition-colors",
                   active
-                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
+                    ? "border-primary/55 bg-primary/[0.12] text-foreground shadow-sm ring-1 ring-primary/15"
                     : "border-border bg-background text-foreground hover:border-foreground/30 hover:bg-muted/45",
                 )}
                 aria-pressed={active}
@@ -609,7 +625,7 @@ export function PreRecordPanel({
                   className={cn(
                     "mb-3 flex h-9 w-9 items-center justify-center rounded-full",
                     active
-                      ? "bg-primary-foreground/15 text-primary-foreground"
+                      ? "bg-primary/[0.18] text-foreground"
                       : "bg-muted text-muted-foreground",
                   )}
                 >
