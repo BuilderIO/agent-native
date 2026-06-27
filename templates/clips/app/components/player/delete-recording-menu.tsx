@@ -96,8 +96,8 @@ export function RecordingOptionsMenu({
             >
               <IconDownload className="me-2 h-4 w-4" />
               {downloadPending
-                ? (downloadingLabel ?? t("recordingPage.downloading"))
-                : (downloadLabel ?? t("recordingPage.downloadMp4"))}
+                ? (downloadingLabel ?? t("sharePage.downloading"))
+                : (downloadLabel ?? t("sharePage.downloadMp4"))}
             </DropdownMenuItem>
           ) : null}
           {showDownload && showDelete ? <DropdownMenuSeparator /> : null}
