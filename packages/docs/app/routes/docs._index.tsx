@@ -6,11 +6,8 @@ import {
 
 import DocContent from "../components/DocContent";
 import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
-import {
-  DEFAULT_DOCS_LOCALE,
-  docsMarkdownPathForSlug,
-  isDocsLocale,
-} from "../components/docs-locale";
+import { DEFAULT_DOCS_LOCALE, isDocsLocale } from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
@@ -62,7 +59,7 @@ export default function DocsIndex() {
   return (
     <DocsLayout
       toc={toc}
-      markdownUrl={docsMarkdownPathForSlug(currentDoc.slug, locale)}
+      markdownUrl={docsMarkdownPathForDoc(currentDoc.slug, locale) ?? undefined}
     >
       <DocContent markdown={currentDoc.body} />
     </DocsLayout>

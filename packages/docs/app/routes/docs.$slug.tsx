@@ -4,10 +4,10 @@ import DocContent from "../components/DocContent";
 import { getDoc, type DocEntry } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
-  docsMarkdownPathForSlug,
   docsPathForSlug,
   isDocsLocale,
 } from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
@@ -74,7 +74,9 @@ export default function DocPage() {
   return (
     <DocsLayout
       toc={toc}
-      markdownUrl={docsMarkdownPathForSlug(doc.slug, DEFAULT_DOCS_LOCALE)}
+      markdownUrl={
+        docsMarkdownPathForDoc(doc.slug, DEFAULT_DOCS_LOCALE) ?? undefined
+      }
     >
       <DocContent markdown={doc.body} />
     </DocsLayout>

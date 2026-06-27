@@ -9,11 +9,11 @@ import DocContent from "../components/DocContent";
 import { getDoc, loadDoc, type DocEntry } from "../components/docs-content";
 import {
   DEFAULT_DOCS_LOCALE,
-  docsMarkdownPathForSlug,
   docsPathForSlug,
   isDocsLocale,
   type DocsLocale,
 } from "../components/docs-locale";
+import { docsMarkdownPathForDoc } from "../components/docs-seo";
 import DocsLayout from "../components/DocsLayout";
 import { withDefaultSocialImage, withDocsSocialImage } from "../seo";
 
@@ -104,7 +104,7 @@ export default function LocalizedDocPage() {
   return (
     <DocsLayout
       toc={toc}
-      markdownUrl={docsMarkdownPathForSlug(doc.slug, locale)}
+      markdownUrl={docsMarkdownPathForDoc(doc.slug, locale) ?? undefined}
     >
       <DocContent markdown={doc.body} />
     </DocsLayout>
