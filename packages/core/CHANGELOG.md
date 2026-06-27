@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.23
+
+### Patch Changes
+
+- 7bde747: Ship framework docs source as MDX and generate clean Markdown mirrors for docs pages.
+
 ## 0.79.22
 
 ### Patch Changes
