@@ -1012,7 +1012,8 @@ function resolveMarkdownRunIds(
       ? options.markdownBlocks
       : (options.markdownBlockIds?.map((id) => ({ id })) ?? []);
 
-  if (stateBlocks.length === markdowns.length) {
+  const hasHashes = stateBlocks.some((block) => block.hash);
+  if (!hasHashes && stateBlocks.length === markdowns.length) {
     return stateBlocks.map((block) => block.id);
   }
 

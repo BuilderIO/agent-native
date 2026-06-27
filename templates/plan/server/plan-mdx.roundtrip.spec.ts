@@ -1207,6 +1207,79 @@ describe("byte stability and malformed import handling", () => {
     expect(inserted?.id).not.toBe("tail");
   });
 
+  it("recovers reordered bare markdown ids by hash when the run count stays the same", async () => {
+    const folder = await exportPlanContentToMdxFolder({
+      content: {
+        version: 2,
+        title: "Reordered prose",
+        blocks: [
+          {
+            id: "lead-checklist",
+            type: "checklist",
+            data: {
+              items: [
+                {
+                  id: "lead-item",
+                  label: "Lead with structure",
+                  checked: false,
+                },
+              ],
+            },
+          },
+          {
+            id: "intro",
+            type: "rich-text",
+            data: { markdown: "Intro prose." },
+          },
+          {
+            id: "middle-checklist",
+            type: "checklist",
+            data: {
+              items: [
+                {
+                  id: "middle-item",
+                  label: "Separate runs",
+                  checked: false,
+                },
+              ],
+            },
+          },
+          {
+            id: "tail",
+            type: "rich-text",
+            data: { markdown: "Tail prose." },
+          },
+        ],
+      },
+      title: "Reordered prose",
+    });
+
+    const editedFolder = {
+      ...folder,
+      "plan.mdx": folder["plan.mdx"]
+        .replace("Intro prose.", "TEMP_REORDERED_PROSE")
+        .replace("Tail prose.", "Intro prose.")
+        .replace("TEMP_REORDERED_PROSE", "Tail prose."),
+    };
+
+    const parsed = await parsePlanMdxFolder(editedFolder);
+    const richTextBlocks = parsed.blocks.filter(
+      (
+        block,
+      ): block is Extract<
+        PlanContent["blocks"][number],
+        { type: "rich-text" }
+      > => block.type === "rich-text",
+    );
+
+    expect(
+      richTextBlocks.find((block) => block.id === "intro")?.data.markdown,
+    ).toBe("Intro prose.");
+    expect(
+      richTextBlocks.find((block) => block.id === "tail")?.data.markdown,
+    ).toBe("Tail prose.");
+  });
+
   it("keeps rich-text wrappers when prose carries metadata or external references", async () => {
     const content: PlanContent = {
       version: 2,

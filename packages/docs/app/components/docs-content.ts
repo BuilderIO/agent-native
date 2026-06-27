@@ -4,6 +4,7 @@
  * Provides parsed frontmatter, raw markdown, and heading extraction for TOC + search.
  */
 
+import { docsBodyToMarkdownMirror } from "../../lib/docs-markdown-export";
 import {
   docSourceFilenamesForSlug,
   docSourceSlugFromFilename,
@@ -51,6 +52,7 @@ export interface DocEntry {
   description: string;
   search: string;
   body: string; // markdown body (without frontmatter)
+  searchBody: string; // portable markdown body used for search snippets/indexing
   headings: { id: string; label: string; level: number }[];
 }
 
@@ -138,6 +140,7 @@ function docEntryFromPath(path: string, raw: string): DocEntry {
     description: data.description || "",
     search: data.search || "",
     body,
+    searchBody: docsBodyToMarkdownMirror(body),
     headings,
   };
 }
@@ -257,7 +260,7 @@ function buildSearchIndexFromDocs(
 
   for (const doc of docsList) {
     const path = docsPathForSlug(doc.slug, docsLocale);
-    const lines = nonFencedMarkdownLines(doc.body);
+    const lines = nonFencedMarkdownLines(doc.searchBody);
     const lastLineNumber = lines.at(-1)?.lineNumber ?? 0;
     const sections: { id: string; label: string; startLine: number }[] = [];
 
