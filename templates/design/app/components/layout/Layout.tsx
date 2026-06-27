@@ -120,7 +120,7 @@ export function Layout({ children }: LayoutProps) {
             )}
             <div
               className={cn(
-                "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 md:static md:z-auto",
+                "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
                 mobileSidebarOpen
                   ? "translate-x-0"
                   : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
