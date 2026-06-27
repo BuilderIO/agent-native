@@ -116,6 +116,12 @@ import {
   type DashboardDropSlot,
 } from "./dashboard-layout";
 import {
+  createDashboardAdoptionHold,
+  dashboardPrefetchInitialData,
+  shouldAdoptDashboardQueryResult,
+  type DashboardAdoptionHold,
+} from "./dashboard-sync";
+import {
   DashboardFilterBar,
   FILTER_PARAM_PREFIX,
   extractFilterParams,
@@ -371,18 +377,6 @@ async function fetchDashboard(id: string): Promise<FetchedDashboard | null> {
   }
 }
 
-function dashboardPrefetchInitialData<T>(
-  snapshot: PrefetchSnapshot<T> | undefined,
-  syncVersion: number,
-): T | undefined {
-  if (!snapshot || snapshot.syncVersion !== syncVersion) return undefined;
-  return snapshot.data;
-}
-
-function dashboardConfigSignature(config: SqlDashboardConfig | null): string {
-  return config ? JSON.stringify(config) : "null";
-}
-
 /**
  * Save dashboard config via the update-dashboard action. Throws on error so
  * callers (e.g. the panel editor dialog) can surface BigQuery validation
@@ -433,11 +427,7 @@ export default function SqlDashboardPage() {
     null,
   );
   const viewedDashboardIdRef = useRef<string | null>(null);
-  const pendingConfigRef = useRef<{
-    dashboardId: string;
-    signature: string;
-    expiresAt: number;
-  } | null>(null);
+  const pendingConfigRef = useRef<DashboardAdoptionHold | null>(null);
   const canEdit = !reportScreenshot && resourceCanEdit(resourceAccess);
   const canManage = !reportScreenshot && resourceCanManage(resourceAccess);
   const dashboardColumns = clampDashboardColumns(
@@ -541,21 +531,17 @@ export default function SqlDashboardPage() {
     [dashboardId, queryClient],
   );
 
-  const holdDashboardConfig = useCallback(
-    (updated: SqlDashboardConfig) => {
-      if (!dashboardId) return;
-      pendingConfigRef.current = {
-        dashboardId,
-        signature: dashboardConfigSignature(updated),
-        expiresAt: Date.now() + 10_000,
-      };
-      void queryClient.cancelQueries(
-        { queryKey: ["data", "sql-dashboard", dashboardId] },
-        { revert: false },
-      );
-    },
-    [dashboardId, queryClient],
-  );
+  const holdDashboardConfig = useCallback(() => {
+    if (!dashboardId) return;
+    pendingConfigRef.current = createDashboardAdoptionHold({
+      dashboardId,
+      currentUpdatedAt: dashboardUpdatedAt,
+    });
+    void queryClient.cancelQueries(
+      { queryKey: ["data", "sql-dashboard", dashboardId] },
+      { revert: false },
+    );
+  }, [dashboardId, dashboardUpdatedAt, queryClient]);
 
   // Track which panels remote users are editing (from awareness)
   const [remoteEditingPanels, setRemoteEditingPanels] = useState<
@@ -596,7 +582,7 @@ export default function SqlDashboardPage() {
       try {
         const parsed = JSON.parse(raw) as SqlDashboardConfig;
         if (parsed && Array.isArray(parsed.panels)) {
-          holdDashboardConfig(parsed);
+          holdDashboardConfig();
           setDashboard(parsed);
           updateCachedDashboardConfig(parsed);
         }
@@ -639,21 +625,21 @@ export default function SqlDashboardPage() {
 
   useEffect(() => {
     if (!dashboardId || !dashboardQuery.isSuccess) return;
-    if (loaded && dashboardQuery.isPlaceholderData) return;
     const fetched = dashboardQuery.data;
-    if (fetched && fetched.id !== dashboardId) return;
-    const fetchedConfig = fetched?.config ?? null;
-    const pendingConfig = pendingConfigRef.current;
-    if (loaded && pendingConfig && pendingConfig.dashboardId === dashboardId) {
-      const fetchedSignature = dashboardConfigSignature(fetchedConfig);
-      if (
-        Date.now() < pendingConfig.expiresAt &&
-        fetchedSignature !== pendingConfig.signature
-      ) {
-        return;
-      }
+    const adoption = shouldAdoptDashboardQueryResult({
+      dashboardId,
+      loaded,
+      isPlaceholderData: dashboardQuery.isPlaceholderData,
+      fetchedId: fetched?.id,
+      fetchedUpdatedAt: fetched?.updatedAt,
+      currentUpdatedAt: dashboardUpdatedAt,
+      hold: pendingConfigRef.current,
+    });
+    if (adoption.clearHold) {
       pendingConfigRef.current = null;
     }
+    if (!adoption.adopt) return;
+    const fetchedConfig = fetched?.config ?? null;
     const fetchedVisibility =
       fetched?.visibility === "private" ||
       fetched?.visibility === "org" ||
@@ -689,6 +675,7 @@ export default function SqlDashboardPage() {
     dashboardQuery.data,
     dashboardQuery.isSuccess,
     dashboardQuery.isPlaceholderData,
+    dashboardUpdatedAt,
     loaded,
     reportScreenshot,
   ]);
@@ -813,7 +800,7 @@ export default function SqlDashboardPage() {
         toast.error(t("sqlDashboard.viewOnly"));
         return;
       }
-      holdDashboardConfig(updated);
+      holdDashboardConfig();
       setDashboard(updated);
       updateCachedDashboardConfig(updated);
       pushToCollab(updated);
@@ -863,7 +850,7 @@ export default function SqlDashboardPage() {
       if (!canEdit) {
         throw new Error(t("sqlDashboard.viewOnly"));
       }
-      holdDashboardConfig(updated);
+      holdDashboardConfig();
       await saveDashboard(dashboardId, updated);
       setDashboard(updated);
       updateCachedDashboardConfig(updated);

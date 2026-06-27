@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getDbMock = vi.hoisted(() => vi.fn());
 const putPrivateBlobMock = vi.hoisted(() => vi.fn());
+const resolveAccessMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -18,8 +19,18 @@ vi.mock("@agent-native/core/private-blob", () => ({
   readPrivateBlob: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/sharing", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/sharing")>();
+  return {
+    ...actual,
+    resolveAccess: resolveAccessMock,
+  };
+});
+
 import {
   assertReplayKeyBudget,
+  getSessionReplaySummary,
   parseSessionReplayIngestPayload,
   recordSessionReplayChunks,
 } from "./session-replay";
@@ -73,6 +84,7 @@ describe("session replay ingest parsing", () => {
   beforeEach(() => {
     getDbMock.mockReset();
     putPrivateBlobMock.mockReset();
+    resolveAccessMock.mockReset();
   });
 
   it("normalizes recorder payloads into session recording chunks", () => {
@@ -118,6 +130,28 @@ describe("session replay ingest parsing", () => {
         events: [{ type: 4, timestamp: 1 }],
       }),
     ).toThrow("Session replay requires a signed-in user email");
+  });
+
+  it("does not return malformed zero-event recordings from direct summary reads", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "sr_empty",
+        userId: "dev@example.com",
+        chunkCount: 0,
+        eventCount: 0,
+      },
+    });
+
+    await expect(
+      getSessionReplaySummary("sr_empty", {
+        userEmail: "owner@example.com",
+        orgId: "org_123",
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Session recording not found",
+    });
   });
 
   it("derives replay timing from rrweb event timestamps", () => {

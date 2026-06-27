@@ -975,6 +975,14 @@ function rowToSessionRecordingSummary(
   };
 }
 
+function isVisibleSessionRecording(row: any): boolean {
+  return (
+    Boolean(replayEmail(row.userId)) &&
+    Number(row.chunkCount ?? 0) > 0 &&
+    Number(row.eventCount ?? 0) > 0
+  );
+}
+
 function mergeReplayMetadata(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
@@ -1359,6 +1367,9 @@ export async function getSessionReplaySummary(
     orgId: scope.orgId ?? undefined,
   });
   if (!access) throw replayError("Session recording not found", 404);
+  if (!isVisibleSessionRecording(access.resource)) {
+    throw replayError("Session recording not found", 404);
+  }
   return rowToSessionRecordingSummary(access.resource, access.role);
 }
 
