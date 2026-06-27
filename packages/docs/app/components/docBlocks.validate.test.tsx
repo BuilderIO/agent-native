@@ -165,7 +165,7 @@ describe("docs visual blocks", () => {
   it("does not leave registered MDX block tags behind as prose", () => {
     const failures: string[] = [];
     const rawBlockTagPattern =
-      /^\s*<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)(?:\s|>|\/)/;
+      /^\s*<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)(?:\s|>|\/|$)/;
     for (const doc of allDocs) {
       const leaked = doc.segments
         .filter((segment) => segment.kind === "markdown")
