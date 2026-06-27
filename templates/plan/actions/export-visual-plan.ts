@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
-import { exportPlanContentToMdxFolder } from "../server/plan-mdx.js";
+import {
+  exportPlanContentToMdxFolder,
+  referencedBlockIdsForPlanComments,
+} from "../server/plan-mdx.js";
 import {
   buildPlanHtml,
   loadPlanBundle,
@@ -33,6 +36,7 @@ export default defineAction({
       brief: bundle.plan.brief,
       planId: bundle.plan.id,
       url: path,
+      referencedBlockIds: referencedBlockIdsForPlanComments(bundle.comments),
     });
     const sourceMarkdown =
       (bundle.plan.content ? mdx["plan.mdx"] : bundle.plan.markdown) ||

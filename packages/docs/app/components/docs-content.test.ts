@@ -27,4 +27,16 @@ describe("docs content parsing", () => {
       sections.some((entry) => entry.section === "Application State"),
     ).toBe(false);
   });
+
+  it("indexes markdown mirror text instead of raw MDX component source", () => {
+    const indexText = buildSearchIndex()
+      .map((entry) => `${entry.section}\n${entry.text}`)
+      .join("\n");
+
+    expect(indexText).not.toMatch(
+      /<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)\b/,
+    );
+    expect(indexText).not.toContain("doc-block-");
+    expect(indexText).not.toContain("params={[");
+  });
 });

@@ -45,6 +45,26 @@ function isExcluded(relPath: string): boolean {
   return EXCLUDED_PATH_SEGMENTS.some((seg) => padded.includes(seg));
 }
 
+function isDocSourceFile(baseName: string): boolean {
+  return baseName.endsWith(".mdx") || baseName.endsWith(".md");
+}
+
+function pathWithoutDocSourceExtension(relPath: string): string {
+  return relPath.replace(/\.(?:mdx|md)$/, "");
+}
+
+function preferMdxDocSourceFiles(files: string[]): string[] {
+  const byPath = new Map<string, string>();
+  for (const file of [...files].sort()) {
+    const pathWithoutExtension = pathWithoutDocSourceExtension(file);
+    const existing = byPath.get(pathWithoutExtension);
+    if (!existing || file.endsWith(".mdx")) {
+      byPath.set(pathWithoutExtension, file);
+    }
+  }
+  return Array.from(byPath.values()).sort();
+}
+
 /**
  * Recursively collect files under `startDir` whose basename matches one of
  * `fileNames`, or (when `fileNames` is "*.md") any markdown file. Returns
@@ -85,9 +105,10 @@ function collectDocFiles(): string[] {
   const files = new Set<string>();
 
   // 1. Published docs site.
-  for (const f of walk(
-    join(REPO_ROOT, "packages/core/docs/content"),
-    (_rel, base) => base.endsWith(".md"),
+  for (const f of preferMdxDocSourceFiles(
+    walk(join(REPO_ROOT, "packages/core/docs/content"), (_rel, base) =>
+      isDocSourceFile(base),
+    ),
   )) {
     files.add(f);
   }
@@ -235,28 +256,28 @@ const RULES: Rule[] = [
   {
     id: "slides-fake-eight-layouts",
     pattern: /eight\s+(slide\s+)?layouts/i,
-    scope: "packages/core/docs/content/template-slides.md",
+    scope: "packages/core/docs/content/template-slides.mdx",
     message:
       "Slides has 7 real layouts in .agents/skills/create-deck/SKILL.md; there is no image/full-bleed/blank layout.",
   },
   {
     id: "slides-fake-full-bleed",
     pattern: /\bfull-bleed\b/i,
-    scope: "packages/core/docs/content/template-slides.md",
+    scope: "packages/core/docs/content/template-slides.mdx",
     message:
       "Slides has 7 real layouts in .agents/skills/create-deck/SKILL.md; there is no image/full-bleed/blank layout.",
   },
   {
     id: "slides-fake-blank-layout",
     pattern: /\bblank\s+layout\b/i,
-    scope: "packages/core/docs/content/template-slides.md",
+    scope: "packages/core/docs/content/template-slides.mdx",
     message:
       "Slides has 7 real layouts in .agents/skills/create-deck/SKILL.md; there is no image/full-bleed/blank layout.",
   },
   {
     id: "videos-twelve-compositions",
     pattern: /twelve\s+(example\s+)?compositions|12\s+example\s+compositions/i,
-    scope: "packages/core/docs/content/template-videos.md",
+    scope: "packages/core/docs/content/template-videos.mdx",
     message:
       "Video compositions are DB-backed; only BlankComposition ships in code.",
   },
@@ -271,7 +292,7 @@ const RULES: Rule[] = [
     // Match `db:push` only when NOT part of the corrected negative
     // "has no `db:push` script".
     pattern: /(?<!no\s)(?<!no\s`)\bdb:push\b/i,
-    scope: "packages/core/docs/content/template-content.md",
+    scope: "packages/core/docs/content/template-content.mdx",
     message:
       "The content template has no db:push script; it uses additive startup migrations.",
   },
@@ -287,7 +308,14 @@ function filesInScope(rule: Rule): string[] {
   if (rule.scope === "all") return ALL_DOC_FILES;
   // Single-file scope: only include it if it was actually collected
   // (i.e. it exists and isn't excluded).
-  return ALL_DOC_FILES.includes(rule.scope) ? [rule.scope] : [];
+  const scope =
+    ALL_DOC_FILES.find((file) => file === rule.scope) ??
+    (rule.scope.endsWith(".md")
+      ? ALL_DOC_FILES.find(
+          (file) => file === rule.scope.replace(/\.md$/, ".mdx"),
+        )
+      : undefined);
+  return scope ? [scope] : [];
 }
 
 function findViolations(rule: Rule): Violation[] {
@@ -323,9 +351,14 @@ describe("docs false-claim regression guard", () => {
       RULES.map((r) => r.scope).filter((s): s is string => s !== "all"),
     )) {
       expect(
-        ALL_DOC_FILES.includes(scoped),
+        filesInScope({
+          id: "scope-check",
+          pattern: /$^/,
+          scope: scoped,
+          message: "",
+        }).length,
         `Scoped target file not collected: ${scoped}`,
-      ).toBe(true);
+      ).toBe(1);
     }
   });
 

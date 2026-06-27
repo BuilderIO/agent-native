@@ -5,13 +5,13 @@ This package builds the public docs site for Agent-Native.
 ## Source
 
 - App routes and UI live in `app/`.
-- Markdown docs are loaded from `../core/docs/content/` by `app/components/docs-content.ts`.
+- MDX docs are loaded from `../core/docs/content/` by `app/components/docs-content.ts`.
 - The left nav is `app/components/docsNavItems.ts`.
 - Template landing-page metadata comes from `app/components/TemplateCard.tsx`.
 - `scripts/generate-source-index.ts` builds `public/source-index.json` before production builds.
 - `app/vite-sitemap-plugin.ts` generates `public/sitemap.xml` during `pnpm build`.
 
-Search is built at runtime from the loaded markdown docs. There is no generated `searchIndex.ts` source file.
+Search is built at runtime from the loaded docs. Public `.md` mirrors are generated from the MDX source for crawlers, agents, and copy-as-markdown. There is no generated `searchIndex.ts` source file.
 
 ## Development
 

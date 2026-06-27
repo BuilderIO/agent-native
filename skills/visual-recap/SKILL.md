@@ -502,11 +502,11 @@ fine — only capitalized component-style block tags are validated.
 
 A few recap-specific authoring rules the registry table cannot encode:
 
-- Every block takes a REQUIRED `id` (unique across the whole plan) plus the
-  shared optional `summary` / `editable` envelope; give a block a heading by
-  placing a `rich-text` block with a Markdown `###` heading directly above it
-  (blocks no longer take a `title`).
-- Every capitalized block component must be self-closing (`<RichText ... />`) or
+- Every structured block takes a REQUIRED `id` (unique across the whole plan)
+  plus the shared optional `summary` / `editable` envelope. Ordinary top-level
+  Markdown prose imports as rich-text automatically; use `<RichText id="...">`
+  only when prose needs explicit metadata or a preserved referenced block id.
+- Every capitalized block component must be self-closing (`<Diagram ... />`) or
   explicitly closed around children (`<RichText ...>...</RichText>`). Never
   leave a bare opening tag like `<RichText ...>` in a paragraph; MDX treats it
   as unclosed JSX and import fails before the recap can render.

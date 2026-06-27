@@ -23,6 +23,11 @@ import {
 import { meta as designTemplateMeta } from "../app/routes/templates.design";
 import { meta as slidesTemplateMeta } from "../app/routes/templates.slides";
 import { buildSitemapPaths } from "../app/vite-sitemap-plugin";
+import {
+  docSourceFilenamesForSlug,
+  docSourceSlugFromFilename,
+  preferMdxDocSourceFiles,
+} from "../lib/docs-source";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const docsRoot = path.resolve(__dirname, "..");
@@ -49,6 +54,18 @@ function ogImageAccentText(
   meta: Array<Record<string, unknown>>,
 ): string | null {
   return ogImageUrl(meta).searchParams.get("accentText");
+}
+
+function docsSourceExists(docsDir: string, slug: string): boolean {
+  return docSourceFilenamesForSlug(slug).some((filename) =>
+    fs.existsSync(path.join(docsDir, filename)),
+  );
+}
+
+function listDocSlugs(docsDir: string): string[] {
+  return preferMdxDocSourceFiles(fs.readdirSync(docsDir)).map((name) =>
+    docSourceSlugFromFilename(name),
+  );
 }
 
 describe("template routes", () => {
@@ -190,7 +207,7 @@ describe("template routes", () => {
       expect(sidebarPath).not.toMatch(/^\/templates\//);
 
       const slug = sidebarPath.replace("/docs/", "");
-      expect(fs.existsSync(path.join(docsDir, `${slug}.md`))).toBe(true);
+      expect(docsSourceExists(docsDir, slug)).toBe(true);
     }
   });
 
@@ -205,20 +222,16 @@ describe("template routes", () => {
       expect(docsPath).not.toMatch(/^\/templates\//);
 
       const slug = docsPath.replace("/docs/template-", "");
-      expect(fs.existsSync(path.join(docsDir, `template-${slug}.md`))).toBe(
-        true,
-      );
+      expect(docsSourceExists(docsDir, `template-${slug}`)).toBe(true);
     }
   });
 
   it("includes every public docs page and template page in the sitemap", () => {
     const paths = buildSitemapPaths(docsRoot);
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
-    const docPaths = fs
-      .readdirSync(docsDir)
-      .filter((name) => name.endsWith(".md"))
-      .map((name) => name.replace(/\.md$/, ""))
-      .map((slug) => (slug === "getting-started" ? "/docs" : `/docs/${slug}`));
+    const docPaths = listDocSlugs(docsDir).map((slug) =>
+      slug === "getting-started" ? "/docs" : `/docs/${slug}`,
+    );
 
     expect(paths).toContain("/");
     expect(paths).toContain("/templates");

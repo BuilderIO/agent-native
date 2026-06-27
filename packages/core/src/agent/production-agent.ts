@@ -581,7 +581,7 @@ export interface ActionEntry {
    * predicate that resolves truthy for the call's args), the loop emits
    * `approval_required` and stops the turn instead of executing this action,
    * until a human approves the specific call. Set by `defineAction`'s
-   * `needsApproval` option. See `packages/core/docs/content/actions.md`.
+   * `needsApproval` option. See `packages/core/docs/content/actions.mdx`.
    */
   needsApproval?:
     | boolean
