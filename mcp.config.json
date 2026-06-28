@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-native.com/schema/mcp.config.json",
+  "servers": {
+    "codebase-memory": {
+      "command": "C:\\Users\\larry\\AppData\\Local\\Programs\\codebase-memory-mcp\\codebase-memory-mcp.exe",
+      "args": ["--stdio"],
+      "env": {}
+    }
+  }
+}

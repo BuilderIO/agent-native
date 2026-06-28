@@ -42,7 +42,7 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo && cp src/styles.css dist/styles.css",
+    "build": "tsgo && copy src\\styles.css dist\\styles.css",
     "prepublishOnly": "npm run build",
     "typecheck": "tsgo --noEmit"
   },

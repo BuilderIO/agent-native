@@ -22,6 +22,22 @@ read the relevant skill before changing that area.
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
 
+## Memory Context & Handoff Protocol
+
+- **Memory Threshold Actions**:
+  - At **55% memory context**: Stop at the next tool call ending and prepare handoff (read HANDOFF.md, commit any pending changes, finalize documentation)
+  - At **65% memory context**: Stop immediately after the next tool call or loop ends and ask user "Ready for handoff?" — do not continue
+- **Handoff Process**: 
+  - Update `HANDOFF.md` in the repo root with: completed work, current state, next steps, critical files, known diagnostics, and what to verify in the next session
+  - Commit HANDOFF.md and any code changes to git
+  - Ensure `.env` secrets are in `.gitignore` and safe
+  - Stop the session cleanly (kill background servers/processes with `kill_shell`)
+- **Session Startup**: 
+  - Always read `HANDOFF.md` first if it exists to understand prior work and context
+  - Verify that `.env` is present and correctly configured before starting servers
+  - Start dev servers in a fresh terminal session with `run_in_background=true`
+  - Test that the configuration (esp. OPENAI_BASE_URL, AGENT_ENGINE) is active before claiming readiness
+
 ## Final Status Block
 
 Every final response must end with a three-line status block:

@@ -94,7 +94,7 @@ export function registerBuiltinEngines(): void {
   const providerDescriptions: Record<AISDKProvider, string> = {
     anthropic:
       "Claude models through the Vercel AI SDK. Supports thinking and caching via AI SDK providerOptions.",
-    openai: "OpenAI GPT models via the Vercel AI SDK. Requires OPENAI_API_KEY.",
+    openai: "OpenAI GPT models via the Vercel AI SDK. Supports OPENAI_BASE_URL for OpenAI-compatible gateways (e.g., NVIDIA NIM). Requires OPENAI_API_KEY.",
     openrouter:
       "300+ models from Anthropic, OpenAI, Google, Meta, and more routed through a single endpoint. Use model IDs like 'anthropic/claude-sonnet-4.6' or 'openai/gpt-5.5'. Requires OPENROUTER_API_KEY.",
     google:
