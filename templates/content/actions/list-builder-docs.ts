@@ -6,7 +6,7 @@ import { listBuilderDocsEntries } from "./_builder-docs-client.js";
 
 export default defineAction({
   description:
-    "List Builder.io docs/blog entries that can be pulled into Content as .builder.mdx.",
+    "List published Builder.io docs/blog entries that can be pulled into Content as .builder.mdx.",
   schema: z.object({
     model: z
       .enum(BUILDER_DOCS_MODELS as unknown as [string, ...string[]])
@@ -20,7 +20,8 @@ export default defineAction({
     readOnly: true,
     requiresAuth: true,
     title: "List Builder Docs",
-    description: "List Builder docs/blog entries available for MDX pull.",
+    description:
+      "List published Builder docs/blog entries available for MDX pull.",
   },
   run: async ({ model, limit }) => {
     return await listBuilderDocsEntries({ model, limit });

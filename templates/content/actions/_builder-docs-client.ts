@@ -79,6 +79,10 @@ async function readBuilderPrivateKey() {
   );
 }
 
+async function readBuilderPublicKey() {
+  return await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+}
+
 async function requireBuilderDocsPrivateKey() {
   const privateKey = await readBuilderPrivateKey();
   if (!privateKey) {
@@ -94,6 +98,21 @@ function builderMcpEndpoint() {
     process.env.BUILDER_CMS_MCP_ENDPOINT ??
     "https://cdn.builder.io/api/v1/mcp/builder-content"
   ).replace(/\/+$/, "");
+}
+
+function builderContentApiHost() {
+  return (
+    process.env.BUILDER_CONTENT_API_HOST ??
+    process.env.BUILDER_CMS_API_HOST ??
+    "https://cdn.builder.io"
+  ).replace(/\/+$/, "");
+}
+
+function entryArrayFromResponse(value: unknown) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  return Array.isArray(record.results) ? record.results : [];
 }
 
 function normalizeFullBuilderEntry(
@@ -230,55 +249,64 @@ function fullEntryFromToolResponse(value: unknown, model: string) {
   );
 }
 
-function builderDocsEntriesFromToolResponse(value: unknown, model: string) {
-  if (!value || typeof value !== "object") return [];
-  const record = value as Record<string, unknown>;
-  const entries =
-    (Array.isArray(record.content) && record.content) ||
-    (Array.isArray(record.results) && record.results) ||
-    [];
-  return entries
-    .map((entry) => normalizeBuilderCmsApiEntry(entry, model))
-    .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
-}
-
-async function readBuilderDocsEntriesViaMcp(args: {
+async function readBuilderDocsPublishedEntries(args: {
   model: string;
   limit: number;
   fetchImpl: FetchLike;
-  privateKey: string;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
-  const endpoint = builderMcpEndpoint();
-  const sessionId = await initializeBuilderMcp({
-    endpoint,
-    privateKey: args.privateKey,
-    fetchImpl: args.fetchImpl,
-  });
-  const result = await postBuilderMcp({
-    endpoint,
-    privateKey: args.privateKey,
-    fetchImpl: args.fetchImpl,
-    sessionId,
-    payload: {
-      jsonrpc: "2.0",
-      id: `builder-mdx-list-${args.model}`,
-      method: "tools/call",
-      params: {
-        name: "get_builder_content",
-        arguments: {
-          modelName: args.model,
-          limit: args.limit,
-          enrich: true,
-          returnFullContent: false,
-        },
-      },
-    },
-  });
-  const contentJson = parseBuilderMcpToolJson(result.json.result);
+  const publicKey = await readBuilderPublicKey();
+  if (!publicKey) {
+    return {
+      state: "unconfigured",
+      entries: [],
+      fetchedAt,
+      message:
+        "Builder docs list skipped because BUILDER_PUBLIC_KEY is not configured.",
+    };
+  }
+
+  const url = new URL(
+    `/api/v3/content/${encodeURIComponent(args.model)}`,
+    builderContentApiHost(),
+  );
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("limit", String(args.limit));
+  url.searchParams.set("enrich", "true");
+  url.searchParams.set("noCache", "true");
+
+  let response: Response;
+  try {
+    response = await args.fetchImpl(url, {
+      headers: { accept: "application/json" },
+    });
+  } catch (error) {
+    return {
+      state: "error",
+      entries: [],
+      fetchedAt,
+      message:
+        error instanceof Error
+          ? `Builder docs list failed: ${error.message}`
+          : "Builder docs list failed.",
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      state: "error",
+      entries: [],
+      fetchedAt,
+      message: `Builder docs list failed with HTTP ${response.status}.`,
+    };
+  }
+
+  const json = (await response.json()) as unknown;
   return {
     state: "live",
-    entries: builderDocsEntriesFromToolResponse(contentJson, args.model),
+    entries: entryArrayFromResponse(json)
+      .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
+      .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry)),
     fetchedAt,
     message: null,
   };
@@ -332,15 +360,13 @@ export async function listBuilderDocsEntries(args: {
   limit?: number;
   fetchImpl?: FetchLike;
 }) {
-  const privateKey = await requireBuilderDocsPrivateKey();
-  return await readBuilderDocsEntriesViaMcp({
+  return await readBuilderDocsPublishedEntries({
     model: args.model,
     limit: Math.min(
       args.limit ?? BUILDER_DOCS_LIST_LIMIT,
       BUILDER_DOCS_LIST_LIMIT,
     ),
     fetchImpl: args.fetchImpl ?? fetch,
-    privateKey,
   });
 }
 
@@ -763,6 +789,12 @@ export async function checkBuilderDocsSource(args: {
     remoteSourceHash !== resolved.mdx.metadata.sourceHash
   ) {
     blockers.push("Remote Builder source hash changed since pull.");
+  }
+  if (
+    resolved.mdx.metadata.blocksHash &&
+    remoteBlocksHash !== resolved.mdx.metadata.blocksHash
+  ) {
+    blockers.push("Remote Builder blocks changed since pull.");
   }
 
   if (Object.keys(resolved.sidecars).length === 0) {

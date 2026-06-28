@@ -93,6 +93,8 @@ vi.mock("@agent-native/core/application-state", () => ({
 let resolveBuilderDocsSource: typeof import("./_builder-docs-client.js").resolveBuilderDocsSource;
 let pullBuilderDocIntoContent: typeof import("./_builder-docs-client.js").pullBuilderDocIntoContent;
 let readFullBuilderDocsEntry: typeof import("./_builder-docs-client.js").readFullBuilderDocsEntry;
+let checkBuilderDocsSource: typeof import("./_builder-docs-client.js").checkBuilderDocsSource;
+let listBuilderDocsEntries: typeof import("./_builder-docs-client.js").listBuilderDocsEntries;
 
 const entry: BuilderContentEntry = {
   id: "builder-entry-db",
@@ -127,6 +129,8 @@ beforeAll(async () => {
   resolveBuilderDocsSource = client.resolveBuilderDocsSource;
   pullBuilderDocIntoContent = client.pullBuilderDocIntoContent;
   readFullBuilderDocsEntry = client.readFullBuilderDocsEntry;
+  checkBuilderDocsSource = client.checkBuilderDocsSource;
+  listBuilderDocsEntries = client.listBuilderDocsEntries;
 });
 
 beforeEach(() => {
@@ -176,6 +180,97 @@ function mcpFetchForEntry(entry: BuilderContentEntry) {
     });
   });
 }
+
+describe("Builder docs list and conflict safety", () => {
+  it("lists published entries through the public Content API only", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PUBLIC_KEY"
+        ? "public-key"
+        : key === "BUILDER_PRIVATE_KEY"
+          ? "private-key"
+          : null,
+    );
+    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
+      expect(input.href).toContain("/api/v3/content/docs-content");
+      expect(input.searchParams.get("apiKey")).toBe("public-key");
+      expect(input.searchParams.get("includeUnpublished")).toBeNull();
+      expect(input.searchParams.get("limit")).toBe("25");
+      expect(init?.headers).toMatchObject({
+        accept: "application/json",
+      });
+      expect(init?.headers).not.toHaveProperty("authorization");
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "published-doc",
+              name: "Published Doc",
+              lastUpdated: "2026-06-28T12:00:00.000Z",
+              data: {
+                title: "Published Doc",
+                urlPath: "/c/docs/published-doc",
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const result = await listBuilderDocsEntries({
+      model: "docs-content",
+      limit: 25,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result).toMatchObject({
+      state: "live",
+      entries: [
+        {
+          id: "published-doc",
+          model: "docs-content",
+          title: "Published Doc",
+          urlPath: "/c/docs/published-doc",
+        },
+      ],
+    });
+    expect(resolveBuilderCredential).toHaveBeenCalledWith("BUILDER_PUBLIC_KEY");
+    expect(resolveBuilderCredential).not.toHaveBeenCalledWith(
+      "BUILDER_PRIVATE_KEY",
+    );
+    expect(resolveBuilderCredential).not.toHaveBeenCalledWith(
+      "BUILDER_CMS_PRIVATE_KEY",
+    );
+  });
+
+  it("blocks push/check when remote Builder blocks changed since pull", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const bundle = await builderEntryToMdxBundle(entry);
+    const remoteEntry = JSON.parse(
+      JSON.stringify(entry),
+    ) as BuilderContentEntry;
+    const [firstBlock] = (remoteEntry.data?.blocks ?? []) as Array<
+      Record<string, unknown>
+    >;
+    firstBlock.component = {
+      name: "Text",
+      options: { text: "<p>Remote changed text.</p>" },
+    };
+
+    const result = await checkBuilderDocsSource({
+      files: bundle.files,
+      fetchImpl: mcpFetchForEntry(remoteEntry) as typeof fetch,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.blockers).toContain(
+      "Remote Builder blocks changed since pull.",
+    );
+    expect(result.remoteBlocksHash).not.toBe(bundle.mdx.metadata.blocksHash);
+  });
+});
 
 describe("Builder docs DB-backed source", () => {
   it("reconstructs MDX metadata and raw sidecars from a pulled document", async () => {
