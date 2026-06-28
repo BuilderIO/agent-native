@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.79.27
+
+### Patch Changes
+
+- 087be08: Show Gemini and other installed API-key-backed providers in the chat model picker.
+- 087be08: Add a `agent-native content local-files` launcher for local Content editing, propagate local file profiles through manifests, and support standard MDX child code fences for Diagram block authoring.
+- 087be08: Allow the framework Settings email panel to save Resend and SendGrid provider keys for transactional email and dashboard reports.
+- 087be08: Move Portuguese and Chinese locale options directly under German in locale pickers.
+- 087be08: Add a shared MCP integrations catalog dialog to the composer and Workspace create menus, with configurable default remote server presets plus custom server setup.
+- 087be08: Simplify the chat thinking indicator to plain text without the logo or animated dots.
+- 087be08: Reduce noisy browser Sentry reports from public docs visitors and harden organization member search SQL.
+- 087be08: Keep shared wireframe blocks readable in dark mode by stripping host theme utility classes and avoiding overlapping rough outlines around broad helper containers.
+
 ## 0.79.26
 
 ### Patch Changes
