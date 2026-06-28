@@ -1,6 +1,7 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import {
   BUILDER_DOCS_MDX_SOURCE_MODE,
   builderSourceKindForModel,
@@ -33,6 +34,15 @@ const appStateMock = vi.hoisted(() => ({
   writeAppState: vi.fn(async () => {}),
 }));
 
+const builderWriteMock = vi.hoisted(() => ({
+  executeBuilderCmsWrite: vi.fn(async () => ({
+    ok: true,
+    status: 200,
+    entryId: "builder-entry-db",
+    responseBody: { id: "builder-entry-db" },
+  })),
+}));
+
 let documentResource: Record<string, unknown> | null = null;
 let sidecarRows: Array<{
   path: string;
@@ -45,6 +55,39 @@ const fakeDb = {
     from: () => ({
       where: async () => sidecarRows,
     }),
+  }),
+  update: () => ({
+    set: (values: Record<string, unknown>) => ({
+      where: async () => {
+        documentResource = { ...(documentResource ?? {}), ...values };
+      },
+    }),
+  }),
+  delete: () => ({
+    where: async () => {
+      sidecarRows = [];
+    },
+  }),
+  insert: () => ({
+    values: async (
+      values: Record<string, unknown> | Array<Record<string, unknown>>,
+    ) => {
+      const rows = Array.isArray(values) ? values : [values];
+      if (
+        rows.every(
+          (row) => typeof row.path === "string" && "contentHash" in row,
+        )
+      ) {
+        sidecarRows = rows.map((row) => ({
+          path: String(row.path),
+          content: typeof row.content === "string" ? row.content : "",
+          contentHash:
+            typeof row.contentHash === "string" ? row.contentHash : "",
+        }));
+      } else {
+        documentResource = { ...rows[0] };
+      }
+    },
   }),
 };
 
@@ -90,11 +133,16 @@ vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: appStateMock.writeAppState,
 }));
 
+vi.mock("./_builder-cms-write-client.js", () => ({
+  executeBuilderCmsWrite: builderWriteMock.executeBuilderCmsWrite,
+}));
+
 let resolveBuilderDocsSource: typeof import("./_builder-docs-client.js").resolveBuilderDocsSource;
 let pullBuilderDocIntoContent: typeof import("./_builder-docs-client.js").pullBuilderDocIntoContent;
 let readFullBuilderDocsEntry: typeof import("./_builder-docs-client.js").readFullBuilderDocsEntry;
 let checkBuilderDocsSource: typeof import("./_builder-docs-client.js").checkBuilderDocsSource;
 let listBuilderDocsEntries: typeof import("./_builder-docs-client.js").listBuilderDocsEntries;
+let pushBuilderDocsSource: typeof import("./_builder-docs-client.js").pushBuilderDocsSource;
 
 const entry: BuilderContentEntry = {
   id: "builder-entry-db",
@@ -131,6 +179,7 @@ beforeAll(async () => {
   readFullBuilderDocsEntry = client.readFullBuilderDocsEntry;
   checkBuilderDocsSource = client.checkBuilderDocsSource;
   listBuilderDocsEntries = client.listBuilderDocsEntries;
+  pushBuilderDocsSource = client.pushBuilderDocsSource;
 });
 
 beforeEach(() => {
@@ -142,6 +191,12 @@ beforeEach(() => {
   resolveBuilderCredentialMock.mockResolvedValue(null);
   collabStateMock.hasCollabState.mockResolvedValue(false);
   appStateMock.appStateGet.mockResolvedValue(null);
+  builderWriteMock.executeBuilderCmsWrite.mockResolvedValue({
+    ok: true,
+    status: 200,
+    entryId: "builder-entry-db",
+    responseBody: { id: "builder-entry-db" },
+  });
 });
 
 function mcpResponse(
@@ -155,6 +210,11 @@ function mcpResponse(
 }
 
 function mcpFetchForEntry(entry: BuilderContentEntry) {
+  return mcpFetchForEntries([entry]);
+}
+
+function mcpFetchForEntries(entries: BuilderContentEntry[]) {
+  let readIndex = 0;
   return vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
     const body =
       typeof init?.body === "string"
@@ -166,6 +226,8 @@ function mcpFetchForEntry(entry: BuilderContentEntry) {
     if (body.method === "notifications/initialized") {
       return mcpResponse({ jsonrpc: "2.0", result: {} });
     }
+    const entry = entries[Math.min(readIndex, entries.length - 1)];
+    readIndex += 1;
     return mcpResponse({
       jsonrpc: "2.0",
       id: body.id,
@@ -364,6 +426,96 @@ describe("Builder docs DB-backed source", () => {
     await expect(
       resolveBuilderDocsSource({ documentId: bundle.mdx.documentId }),
     ).rejects.toThrow("missing Builder blocksHash metadata");
+  });
+
+  it("refreshes DB metadata and sidecars after a successful document push", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const safeEntry = {
+      ...entry,
+      model: BUILDER_CMS_SAFE_WRITE_MODEL,
+      data: {
+        ...entry.data,
+        handle: "db-builder-doc",
+      },
+    };
+    const bundle = await builderEntryToMdxBundle(safeEntry);
+    const sidecars = Object.fromEntries(
+      Object.entries(bundle.files).filter(
+        ([path]) => path.includes("/.raw/") && path.endsWith(".json"),
+      ),
+    );
+    documentResource = {
+      id: bundle.mdx.documentId,
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      title: bundle.mdx.title,
+      content: bundle.mdx.body.replace("DB backed text.", "Local pushed text."),
+      sourceMode: BUILDER_DOCS_MDX_SOURCE_MODE,
+      sourceKind: builderSourceKindForModel(safeEntry.model),
+      sourcePath: bundle.mdx.path,
+      sourceRootPath: builderSourceRootPath({
+        entryId: safeEntry.id,
+        sourceHash: bundle.mdx.metadata.sourceHash,
+        blocksHash: bundle.mdx.metadata.blocksHash,
+      }),
+      sourceUpdatedAt: bundle.mdx.metadata.lastUpdated,
+    };
+    sidecarRows = Object.entries(sidecars).map(([path, content]) => ({
+      path,
+      content,
+      contentHash: stableHash(content),
+    }));
+
+    const pushedEntry = JSON.parse(
+      JSON.stringify(safeEntry),
+    ) as BuilderContentEntry;
+    pushedEntry.lastUpdated = "1700000000003";
+    const [firstBlock] = pushedEntry.data.blocks as Array<
+      Record<string, unknown>
+    >;
+    firstBlock.component = {
+      name: "Text",
+      options: { text: "<p>Local pushed text.</p>" },
+    };
+
+    const result = await pushBuilderDocsSource({
+      documentId: bundle.mdx.documentId,
+      dryRun: false,
+      fetchImpl: mcpFetchForEntries([safeEntry, pushedEntry]) as typeof fetch,
+    });
+
+    expect(result.executed).toBe(true);
+    expect(builderWriteMock.executeBuilderCmsWrite).toHaveBeenCalledWith(
+      expect.objectContaining({
+        request: expect.objectContaining({
+          method: "PATCH",
+          body: {
+            data: {
+              blocksString: expect.stringContaining("Local pushed text."),
+            },
+          },
+        }),
+      }),
+    );
+    expect(documentResource).toMatchObject({
+      content: expect.stringContaining("Local pushed text."),
+      sourceUpdatedAt: "1700000000003",
+      sourceRootPath: builderSourceRootPath({
+        entryId: safeEntry.id,
+        sourceHash: result.refreshedDocument?.metadata.sourceHash ?? "",
+        blocksHash: result.refreshedDocument?.metadata.blocksHash ?? "",
+      }),
+    });
+    expect(result.refreshedDocument?.metadata.lastUpdated).toBe(
+      "1700000000003",
+    );
+    expect(sidecarRows.length).toBeGreaterThan(0);
+    expect(appStateMock.writeAppState).toHaveBeenCalledWith(
+      "refresh-signal",
+      expect.objectContaining({ ts: expect.any(Number) }),
+    );
   });
 
   it("requires a private Builder credential for full docs reads", async () => {

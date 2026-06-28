@@ -307,6 +307,16 @@ function parseMdxBlockFragment(
     };
   }
 
+  const unknownDataKeys = findUnknownDataKeys(parsed.data, validated.data);
+  if (unknownDataKeys.length > 0) {
+    return {
+      ok: false,
+      error: `unknown key${
+        unknownDataKeys.length === 1 ? "" : "s"
+      } — ${unknownDataKeys.join(", ")}`,
+    };
+  }
+
   const unknownAttrs = unknownMdxAttrs(
     child as unknown as MdxJsxNode,
     parsed.type,

@@ -76,7 +76,7 @@ function docLabel(doc: LoadedDoc) {
   return doc.locale ? `${doc.locale}/${doc.slug}` : doc.slug;
 }
 
-function parseJsonBlockData(segment: BlockSegment): unknown | undefined {
+function parseJsonBlockData(segment: BlockSegment): unknown {
   if (segment.source === "mdx") return segment.data;
   if (resolveDocBlockType(segment.alias) === "mermaid") return undefined;
   const trimmed = segment.body.trim();
@@ -291,6 +291,21 @@ describe("docs visual blocks", () => {
     expect(segment && validateDocSegment(segment)).toEqual({
       ok: false,
       error: "unknown attribute — typo",
+    });
+  });
+
+  it("fails registered MDX tags with unknown nested data keys", () => {
+    const segment = splitDocSegments(
+      '<FileTree title="Files" entries={[{ path: "app/page.tsx", surprise: true }]} />',
+    ).find(isValidatableBlockSegment);
+
+    expect(segment).toMatchObject({
+      kind: "invalid-block",
+      tag: "FileTree",
+    });
+    expect(segment && validateDocSegment(segment)).toEqual({
+      ok: false,
+      error: "unknown key — entries[0].surprise",
     });
   });
 

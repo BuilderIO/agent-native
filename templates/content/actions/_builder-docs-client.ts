@@ -428,6 +428,20 @@ function withBuilderDocumentId(
   };
 }
 
+function builderDocumentSourceFields(bundle: BuilderMdxBundle, now: string) {
+  return {
+    sourceMode: BUILDER_DOCS_MDX_SOURCE_MODE,
+    sourceKind: builderSourceKindForModel(bundle.mdx.metadata.model),
+    sourcePath: bundle.mdx.path,
+    sourceRootPath: builderSourceRootPath({
+      entryId: bundle.mdx.metadata.entryId,
+      sourceHash: bundle.mdx.metadata.sourceHash,
+      blocksHash: bundle.mdx.metadata.blocksHash,
+    }),
+    sourceUpdatedAt: bundle.mdx.metadata.lastUpdated ?? now,
+  };
+}
+
 async function findBuilderDocumentBySource(args: {
   ownerEmail: string;
   orgId: string | null;
@@ -503,17 +517,7 @@ export async function pullBuilderDocIntoContent(args: {
     );
   }
 
-  const sourceFields = {
-    sourceMode: BUILDER_DOCS_MDX_SOURCE_MODE,
-    sourceKind: builderSourceKindForModel(args.model),
-    sourcePath: bundle.mdx.path,
-    sourceRootPath: builderSourceRootPath({
-      entryId: args.entryId,
-      sourceHash: bundle.mdx.metadata.sourceHash,
-      blocksHash: bundle.mdx.metadata.blocksHash,
-    }),
-    sourceUpdatedAt: bundle.mdx.metadata.lastUpdated ?? now,
-  };
+  const sourceFields = builderDocumentSourceFields(bundle, now);
 
   if (!args.dryRun) {
     if (existing) {
@@ -629,6 +633,52 @@ async function replaceBuilderDocumentSidecars(args: {
   if (rows.length > 0) {
     await args.db.insert(schema.builderDocSidecars).values(rows);
   }
+}
+
+async function refreshBuilderDocumentAfterPush(args: {
+  documentId: string;
+  entry: BuilderContentEntry;
+}): Promise<BuilderMdxBundle> {
+  const access = await resolveAccess("document", args.documentId);
+  if (!access || !canEditRole(access.role)) {
+    throw new Error(`Requires editor access to document "${args.documentId}".`);
+  }
+  const document = access.resource as {
+    id: string;
+    ownerEmail?: string | null;
+    orgId?: string | null;
+  };
+  const ownerEmail = document.ownerEmail ?? getRequestUserEmail();
+  if (!ownerEmail) {
+    throw new Error(`Document "${args.documentId}" is missing owner metadata.`);
+  }
+  const orgId = document.orgId ?? getRequestOrgId() ?? null;
+  const now = new Date().toISOString();
+  const db = getDb();
+  const bundle = withBuilderDocumentId(
+    await builderEntryToMdxBundle(args.entry),
+    args.documentId,
+  );
+
+  await db
+    .update(schema.documents)
+    .set({
+      title: bundle.mdx.title,
+      content: bundle.mdx.body,
+      updatedAt: now,
+      ...builderDocumentSourceFields(bundle, now),
+    })
+    .where(eq(schema.documents.id, args.documentId));
+  await replaceBuilderDocumentSidecars({
+    db,
+    documentId: args.documentId,
+    ownerEmail,
+    orgId,
+    sidecars: sidecarsFromFiles(bundle.files),
+    now,
+  });
+  await writeAppState("refresh-signal", { ts: Date.now() });
+  return bundle;
 }
 
 async function readBuilderDocumentSidecars(documentId: string) {
@@ -873,11 +923,30 @@ export async function pushBuilderDocsSource(args: {
     request,
     fetchImpl: args.fetchImpl,
   });
+  const refreshedDocument =
+    writeResult.ok && args.documentId
+      ? await refreshBuilderDocumentAfterPush({
+          documentId: args.documentId,
+          entry: await readFullBuilderDocsEntry({
+            model: resolved.mdx.metadata.model,
+            entryId: resolved.mdx.metadata.entryId,
+            fetchImpl: args.fetchImpl,
+          }),
+        })
+      : null;
   return {
     dryRun: false,
     executed: writeResult.ok,
     check,
     request,
     writeResult,
+    refreshedDocument: refreshedDocument
+      ? {
+          documentId: refreshedDocument.mdx.documentId,
+          metadata: refreshedDocument.mdx.metadata,
+          sidecarCount: Object.keys(sidecarsFromFiles(refreshedDocument.files))
+            .length,
+        }
+      : null,
   };
 }
