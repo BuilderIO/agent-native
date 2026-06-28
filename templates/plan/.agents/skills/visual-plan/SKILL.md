@@ -365,10 +365,11 @@ skill — never hand-edit one stored plan. Turn feedback into better guidance.
 
 ## Local-Files Privacy Mode — read `references/local-files.md`
 
-When the user wants no hosted Plan writes — no DB writes, no Plan MCP publish,
-fully local/offline/private planning, repo-owned source-controlled artifacts, or
-`AGENT_NATIVE_PLANS_MODE=local-files` — do not call any hosted Plan tool except
-the schema-only `get-plan-blocks` catalog lookup. Author a local MDX folder and
+When the user wants no hosted Plan database writes — no DB writes, no Plan MCP
+publish, fully local/offline/private planning, repo-owned source-controlled
+artifacts, or `AGENT_NATIVE_PLANS_MODE=local-files` — do not call any hosted Plan
+tool except the schema-only `get-plan-blocks` catalog lookup. Author a local MDX
+folder and
 preview it with `plan local check` / `plan local serve` / `plan local verify`.
 Before using local-files mode, READ `references/local-files.md` in this skill
 directory — it is the single source of truth for the full contract (catalog
