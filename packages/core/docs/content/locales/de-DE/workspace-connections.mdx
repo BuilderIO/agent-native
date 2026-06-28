@@ -16,12 +16,74 @@ Workspace-Verbindungen sind das Grundgerüst für wiederverwendbare Integrations
 - **credentialRef** – ein Zeiger auf ein Tresorgeheimnis (`{ key: "SLACK_BOT_TOKEN", scope: "org" }`). Die Verbindung gibt an, wo sich der Token befindet; Der Tresor speichert den Wert.
 - **Bereitschaft** – der kombinierte Status, den eine App sieht: `connected` (erteilt + Anmeldeinformationen vorhanden), `needs_grant`, `needs_credentials`, `needs_attention` oder `not_configured`.
 
-```an-diagram title="Einmal verbinden, Apps gewähren, Anmeldeinformationen wiederverwenden" summary="Eine Verbindung enthält Anbietermetadaten (niemals Geheimnisse) und CredentialRefs, die auf den Tresor verweisen. Per App-Zuschüsse wird es freigeschaltet. Apps lesen einen einzelnen Bereitschaftsstatus."
-{
-  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, Status, Scopes, Konfiguration &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
-  "css": ".diagram-conn{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-conn .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-conn .diagram-arrow{font-size:22px;line-height:1}.diagram-conn .sev-row{display:flex;gap:8px;flex-wrap:wrap}"
+<Diagram id="doc-block-1qzab5j" title={"Einmal verbinden, Apps gewähren, Anmeldeinformationen wiederverwenden"} summary={"Eine Verbindung enthält Anbietermetadaten (niemals Geheimnisse) und CredentialRefs, die auf den Tresor verweisen. Per App-Zuschüsse wird es freigeschaltet. Apps lesen einen einzelnen Bereitschaftsstatus."}>
+
+```html
+<div class="diagram-conn">
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill accent">Connection</span>
+    <div class="diagram-box" data-rough>
+      named provider account<br /><small class="diagram-muted"
+        >provider, label, Status, Scopes, Konfiguration &middot; never stores
+        secret values</small
+      >
+    </div>
+    <div class="diagram-muted">
+      credentialRef &rarr; pointer to a vault secret
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill">Grant</span>
+    <div class="diagram-box" data-rough>
+      per-app permission<br /><small class="diagram-muted"
+        >no grant = no credential access</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill ok">Readiness</span
+    ><small class="diagram-muted">what the app sees</small>
+    <div class="sev-row">
+      <span class="diagram-pill ok">connected</span
+      ><span class="diagram-pill warn">needs_grant</span>
+    </div>
+    <div class="sev-row">
+      <span class="diagram-pill warn">needs_credentials</span
+      ><span class="diagram-pill warn">needs_attention</span>
+    </div>
+    <div class="sev-row"><span class="diagram-pill">not_configured</span></div>
+  </div>
+</div>
+```
+
+```css
+.diagram-conn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-conn .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  min-width: 220px;
+}
+.diagram-conn .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-conn .sev-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 ```
+
+</Diagram>
 
 ### Arbeitsbeispiel: Slack
 
@@ -260,12 +322,70 @@ Der Anmeldeinformations-Tresor antwortet: „Wo wird das Geheimnis gespeichert, 
 
 Metadaten des Workspace-Verbindungsanbieters antworten: „Welcher Anbieter ist das, was kann er, welche Anmeldeinformationsschlüssel benötigt er möglicherweise und welche Vorlagen sollten ihn anbieten?“
 
-```an-diagram title="Verbindungsspeicher vs. Tresor" summary="Der Tresor ist Eigentümer des geheimen Werts. Die Verbindung besitzt Provider-Metadaten sowie CredentialRefs (Zeiger). Zur Ausführungszeit löst die App den Verweis über eine gewährte Verbindung auf und liest den Wert aus dem Tresor."
-{
-  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Verbindungsspeicher</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">Status, Scopes, Konfiguration</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">App-Action</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">nie an Agent oder UI zurückgegeben</small></div></div></div>",
-  "css": ".diagram-vault{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-vault .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-vault .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-vault .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-185a7ue" title="Verbindungsspeicher vs. Tresor" summary={"Der Tresor ist Eigentümer des geheimen Werts. Die Verbindung besitzt Provider-Metadaten sowie CredentialRefs (Zeiger). Zur Ausführungszeit löst die App den Verweis über eine gewährte Verbindung auf und liest den Wert aus dem Tresor."}>
+
+```html
+<div class="diagram-vault">
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill accent">Verbindungsspeicher</span>
+    <div class="diagram-box" data-rough>
+      provider account + metadata<br /><small class="diagram-muted"
+        >Status, Scopes, Konfiguration</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      credentialRef<br /><small class="diagram-muted"
+        >{ key: SLACK_BOT_TOKEN, scope: org }</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">App-Action</span
+    ><small class="diagram-muted"
+      >resolves at execution time through a granted ref</small
+    >
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill ok">Vault</span>
+    <div class="diagram-box" data-rough>
+      secret value<br /><small class="diagram-muted"
+        >nie an Agent oder UI zurückgegeben</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-vault {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-vault .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  min-width: 220px;
+}
+.diagram-vault .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-vault .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Beides zusammen verwenden:
 

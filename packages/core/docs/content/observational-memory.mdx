@@ -19,12 +19,54 @@ OM represents a long thread as three layers, from most-distilled to most-recent:
 | **Observations**        | Dense, dated entries that fold a stretch of raw messages into a compact record of what happened.  |
 | **Recent raw messages** | The last N turns, kept **verbatim** — never folded — so the agent always sees the latest context. |
 
-```an-diagram title="Three tiers, distilled to recent" summary="The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."
-{
-  "html": "<div class=\"om\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Reflections</span><small class=\"diagram-muted\">long-arc summary, condensed from the observation log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observations</span><small class=\"diagram-muted\">dense, dated entries folding stretches of raw messages</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&uarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Recent raw messages</span><small class=\"diagram-muted\">last N turns, kept <strong>verbatim</strong> — never folded</small></div></div>",
-  "css": ".om{display:flex;flex-direction:column-reverse;align-items:stretch;gap:8px}.om .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.om .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
+<Diagram id="doc-block-2hncj4" title="Three tiers, distilled to recent" summary={"The older prefix folds into dated observations and a long-arc reflection; only the most recent turns stay verbatim."}>
+
+```html
+<div class="om">
+  <div class="diagram-card">
+    <span class="diagram-pill">Reflections</span
+    ><small class="diagram-muted"
+      >long-arc summary, condensed from the observation log</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&uarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Observations</span
+    ><small class="diagram-muted"
+      >dense, dated entries folding stretches of raw messages</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&uarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">Recent raw messages</span
+    ><small class="diagram-muted"
+      >last N turns, kept <strong>verbatim</strong> — never folded</small
+    >
+  </div>
+</div>
+```
+
+```css
+.om {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: stretch;
+  gap: 8px;
+}
+.om .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.om .diagram-arrow {
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 On each turn, the read side assembles these into a single self-labeled `[Observational Memory]` block that replaces the raw older prefix, keeps the recent-raw window intact, and tells the model to treat the compacted record as authoritative (don't redo completed work, trust the recorded decisions, names, dates, and status).
 
@@ -35,12 +77,51 @@ Two passes run as a **fire-and-forget, best-effort** step _after_ a clean turn, 
 1. **Observer** — once a thread's _unobserved_ messages exceed the observation token threshold, folds them into a single dense observation entry.
 2. **Reflector** — once the persisted observation log itself exceeds the reflection token threshold, condenses the observations into a higher-level reflection.
 
-```an-diagram title="Two best-effort passes after a clean turn" summary="Each pass no-ops below its threshold, so running the compactor every turn is cheap. Failures are swallowed and never add latency."
-{
-  "html": "<div class=\"om-pass\"><div class=\"diagram-node\">Clean turn ends<br><small class=\"diagram-muted\">fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Observer</span><small class=\"diagram-muted\">unobserved tokens &gt; 30k? &rarr; fold into one observation</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Reflector</span><small class=\"diagram-muted\">observation log &gt; 40k? &rarr; condense into a reflection</small></div></div>",
-  "css": ".om-pass{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.om-pass .diagram-node,.om-pass .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.om-pass .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1rds4e4" title="Two best-effort passes after a clean turn" summary="Each pass no-ops below its threshold, so running the compactor every turn is cheap. Failures are swallowed and never add latency.">
+
+```html
+<div class="om-pass">
+  <div class="diagram-node">
+    Clean turn ends<br /><small class="diagram-muted">fire-and-forget</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Observer</span
+    ><small class="diagram-muted"
+      >unobserved tokens &gt; 30k? &rarr; fold into one observation</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Reflector</span
+    ><small class="diagram-muted"
+      >observation log &gt; 40k? &rarr; condense into a reflection</small
+    >
+  </div>
+</div>
+```
+
+```css
+.om-pass {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.om-pass .diagram-node,
+.om-pass .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.om-pass .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Both passes no-op below their thresholds, so calling the compactor after every turn is cheap. Because OM replaces the volatile raw prefix with stable compacted text, it also keeps the prompt **cache-stable** across turns of a long thread.
 

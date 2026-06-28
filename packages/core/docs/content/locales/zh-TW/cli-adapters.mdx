@@ -12,12 +12,52 @@ description: "透過標準轉接器介面（轉接器指南中介紹的兩個轉
 
 CLI 轉接器包裝單一指令行工具（`gh`、`ffmpeg`、`stripe`、`aws`），以便代理可以發現它，檢查它是否已安裝，並使用一致的 stdout/stderr/exit-code 結果執行它。如果沒有這個接縫，每個指令碼都會重新發明如何呼叫 CLI 並解析其輸出。
 
-```an-diagram title="CLI 轉接器 → 註冊表 → 操作面" summary="ShellCliAdapter 包裝二進制檔案； CliRegistry 收集轉接器以供發現； defineAction 在代理 + UI 操作介面上公開一個呼叫。"
-{
-  "html": "<div class=\"diagram-cli\"><div class=\"diagram-node\" data-rough>gh · ffmpeg · stripe<br><small class=\"diagram-muted\">command-line tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>ShellCliAdapter<br><small class=\"diagram-muted\">isAvailable · execute</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>CliRegistry<br><small class=\"diagram-muted\">describe() for discovery</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">defineAction</div></div>",
-  "css": ".diagram-cli{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-cli .diagram-arrow{font-size:22px;line-height:1}.diagram-cli .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1m43bnx" title={"CLI 轉接器 → 註冊表 → 操作面"} summary={"ShellCliAdapter 包裝二進制檔案； CliRegistry 收集轉接器以供發現； defineAction 在代理 + UI 操作介面上公開一個呼叫。"}>
+
+```html
+<div class="diagram-cli">
+  <div class="diagram-node" data-rough>
+    gh · ffmpeg · stripe<br /><small class="diagram-muted"
+      >command-line tools</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    ShellCliAdapter<br /><small class="diagram-muted"
+      >isAvailable · execute</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    CliRegistry<br /><small class="diagram-muted"
+      >describe() for discovery</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill accent">defineAction</div>
+</div>
+```
+
+```css
+.diagram-cli {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-cli .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-cli .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 介面 {#the-interface}
 

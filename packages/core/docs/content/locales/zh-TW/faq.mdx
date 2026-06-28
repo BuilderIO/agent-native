@@ -28,12 +28,64 @@ Agent-Native 適合那些想要真正的應用程式和 AI 代理使用相同資
 
 大多數應用程式將人工智慧作為事後的想法，實際上無法在應用程式中*做*事情。在 Agent-Native 應用程式中，代理是一等公民，與 UI 共用相同的 actions、資料庫和狀態，因此它可以執行按鈕可以執行的任何操作 - 並修改應用程式自己的程式碼。參見[What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)。
 
-```an-diagram title="附加人工智慧與 agent-native" summary="螺栓固定的聊天側邊欄有自己的世界。 agent-native 代理與 UI 共用相同的操作、資料庫和狀態。"
-{
-  "html": "<div class=\"diagram-vs\"><div class=\"diagram-col\"><span class=\"diagram-pill warn\">外掛式 AI</span><div class=\"diagram-node\">聊天側邊欄</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>獨立的 AI 世界<br><small class=\"diagram-muted\">無法操作應用</small></div><div class=\"diagram-box diagram-muted\">App UI &amp; data</div></div><div class=\"diagram-divider\" aria-hidden=\"true\"></div><div class=\"diagram-col\"><span class=\"diagram-pill ok\">Agent-Native</span><div class=\"diagram-row2\"><div class=\"diagram-node\">UI</div><div class=\"diagram-node\">Agent</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>shared actions, DB &amp; state</div></div></div>",
-  "css": ".diagram-vs{display:flex;align-items:stretch;gap:18px;flex-wrap:wrap}.diagram-vs .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:center;flex:1;min-width:200px}.diagram-vs .diagram-row2{display:flex;gap:8px}.diagram-vs .diagram-arrow{font-size:20px;line-height:1}.diagram-vs .diagram-divider{width:1px;align-self:stretch;background:currentColor;opacity:.15}"
+<Diagram id="doc-block-k43heh" title={"附加人工智慧與 agent-native"} summary={"螺栓固定的聊天側邊欄有自己的世界。 agent-native 代理與 UI 共用相同的操作、資料庫和狀態。"}>
+
+```html
+<div class="diagram-vs">
+  <div class="diagram-col">
+    <span class="diagram-pill warn">外掛式 AI</span>
+    <div class="diagram-node">聊天側邊欄</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>
+      獨立的 AI 世界<br /><small class="diagram-muted">無法操作應用</small>
+    </div>
+    <div class="diagram-box diagram-muted">App UI &amp; data</div>
+  </div>
+  <div class="diagram-divider" aria-hidden="true"></div>
+  <div class="diagram-col">
+    <span class="diagram-pill ok">Agent-Native</span>
+    <div class="diagram-row2">
+      <div class="diagram-node">UI</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>shared actions, DB &amp; state</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-vs {
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.diagram-vs .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+  min-width: 200px;
+}
+.diagram-vs .diagram-row2 {
+  display: flex;
+  gap: 8px;
+}
+.diagram-vs .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-vs .diagram-divider {
+  width: 1px;
+  align-self: stretch;
+  background: currentColor;
+  opacity: 0.15;
 }
 ```
+
+</Diagram>
 
 ### 它是開放原始碼的嗎？ {#is-this-open-source}
 
@@ -126,12 +178,48 @@ Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI 
 
 SSE 為同行程寫入提供了到瀏覽器的直接路徑，而輕量級版本計數器輪詢仍然是後備方案，因為它適用於每個部署環境 - 包括無伺服器和邊緣，其中持久 socket 可能不可用。參見[Key Concepts — 即時同步](/docs/key-concepts#polling-sync)。
 
-```an-diagram title="SSE 首先，輪詢後備" summary="同行程即時寫流；版本計數器輪詢使無伺服器、邊緣和跨行程寫入保持收斂。"
-{
-  "html": "<div class=\"diagram-transport\"><div class=\"diagram-box\" data-rough>資料庫寫入</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">SSE<br><small class=\"diagram-muted\">/_agent-native/events &middot; instant</small></div><div class=\"diagram-node\">輪詢<br><small class=\"diagram-muted\">/_agent-native/poll &middot; universal fallback</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>瀏覽器重新取得</div></div>",
-  "css": ".diagram-transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-transport .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-transport .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-4ztuxl" title={"SSE 首先，輪詢後備"} summary={"同行程即時寫流；版本計數器輪詢使無伺服器、邊緣和跨行程寫入保持收斂。"}>
+
+```html
+<div class="diagram-transport">
+  <div class="diagram-box" data-rough>資料庫寫入</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      SSE<br /><small class="diagram-muted"
+        >/_agent-native/events &middot; instant</small
+      >
+    </div>
+    <div class="diagram-node">
+      輪詢<br /><small class="diagram-muted"
+        >/_agent-native/poll &middot; universal fallback</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>瀏覽器重新取得</div>
+</div>
+```
+
+```css
+.diagram-transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-transport .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-transport .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ### 為什麼 UI 不能直接呼叫 LLM？ {#why-no-inline-llm-calls}
 

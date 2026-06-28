@@ -11,12 +11,67 @@ Cada aplicación nativa del agente viene con un **espacio de trabajo**: la capa 
 
 El giro: **son filas SQL, no archivos del sistema de archivos.** Cada usuario obtiene su propio espacio de trabajo almacenado en la base de datos. No hay una caja de desarrollo que activar, ni un contenedor por usuario, ni archivos que montar. Un SaaS multiinquilino puede brindar a cada usuario un agente totalmente personalizable de forma esencialmente gratuita, porque todo son filas (memoria personal, servidores MCP personales, skills personal, subagentes personales) y el código base compartido los aloja todos a la vez.
 
-```an-diagram title="Un espacio de trabajo Claude-Code, pero almacenado en SQL" summary="La misma capa de personalización (instrucciones, habilidades, memoria, agentes, trabajos, MCP) excepto que cada archivo es una fila en una base de datos compartida de múltiples inquilinos."
-{
-  "html": "<div class=\"ws-map\"><div class=\"diagram-card cc\"><span class=\"diagram-pill warn\">Claude Code / Codex</span><small class=\"diagram-muted\">~/.claude/ on a local disk</small><div class=\"ws-files\"><span class=\"diagram-box\">CLAUDE.md</span><span class=\"diagram-box\">skills/</span><span class=\"diagram-box\">memory</span><span class=\"diagram-box\">mcp.json</span></div><small class=\"diagram-muted\">one codebase per developer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card an\"><span class=\"diagram-pill accent\">Workspace agent-native</span><small class=\"diagram-muted\">rows in one base de datos SQL</small><div class=\"ws-rows\"><span class=\"diagram-pill\">AGENTS.md</span><span class=\"diagram-pill\">skills/&hellip;</span><span class=\"diagram-pill\">memory/&hellip;</span><span class=\"diagram-pill\">mcp-servers/&hellip;</span></div><small class=\"diagram-muted\">una base de código, muchos usuarios, con alcance <code>u:&lt;email&gt;:&hellip;</code></small></div></div>",
-  "css": ".ws-map{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ws-map .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:220px}.ws-map .ws-files,.ws-map .ws-rows{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.ws-map .diagram-arrow{font-size:24px}"
+<Diagram id="doc-block-1v2thml" title="Un espacio de trabajo Claude-Code, pero almacenado en SQL" summary={"La misma capa de personalización (instrucciones, habilidades, memoria, agentes, trabajos, MCP) excepto que cada archivo es una fila en una base de datos compartida de múltiples inquilinos."}>
+
+```html
+<div class="ws-map">
+  <div class="diagram-card cc">
+    <span class="diagram-pill warn">Claude Code / Codex</span
+    ><small class="diagram-muted">~/.claude/ on a local disk</small>
+    <div class="ws-files">
+      <span class="diagram-box">CLAUDE.md</span
+      ><span class="diagram-box">skills/</span
+      ><span class="diagram-box">memory</span
+      ><span class="diagram-box">mcp.json</span>
+    </div>
+    <small class="diagram-muted">one codebase per developer</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card an">
+    <span class="diagram-pill accent">Workspace agent-native</span
+    ><small class="diagram-muted">rows in one base de datos SQL</small>
+    <div class="ws-rows">
+      <span class="diagram-pill">AGENTS.md</span
+      ><span class="diagram-pill">skills/&hellip;</span
+      ><span class="diagram-pill">memory/&hellip;</span
+      ><span class="diagram-pill">mcp-servers/&hellip;</span>
+    </div>
+    <small class="diagram-muted"
+      >una base de código, muchos usuarios, con alcance
+      <code>u:&lt;email&gt;:&hellip;</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.ws-map {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ws-map .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 220px;
+}
+.ws-map .ws-files,
+.ws-map .ws-rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+}
+.ws-map .diagram-arrow {
+  font-size: 24px;
 }
 ```
+
+</Diagram>
 
 | Código Claude / Codex                           | Espacio de trabajo nativo del agente                                    |
 | ----------------------------------------------- | ----------------------------------------------------------------------- |
@@ -51,12 +106,61 @@ Las rutas canónicas que controlan cómo el agente usa cada recurso:
 
 Estas rutas se aplican en los tres ámbitos: espacio de trabajo, organización/aplicación y personal. El ámbito posterior gana cuando existe la misma ruta en múltiples niveles.
 
-```an-diagram title="Tres alcances, un archivo efectivo" summary="El tiempo de ejecución resuelve la misma ruta en los ámbitos del espacio de trabajo, la aplicación y el personal durante la lectura: gana el ámbito más específico."
-{
-  "html": "<div class=\"ws-stack\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Workspace</span><small class=\"diagram-muted\">valores predeterminados de empresa desde Dispatch</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Organización / aplicación</span><small class=\"diagram-muted\">team override for one app</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Personal</span><small class=\"diagram-muted\">per-user override &mdash; wins</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Effective <code>context/brand.md</code></div></div>",
-  "css": ".ws-stack{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.ws-stack .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px;min-width:280px}.ws-stack .diagram-arrow{font-size:20px;align-self:center}.ws-stack code{font-size:.85em}.ws-stack .diagram-box{align-self:center;margin-top:4px}"
+<Diagram id="doc-block-pmpd5a" title="Tres alcances, un archivo efectivo" summary={"El tiempo de ejecución resuelve la misma ruta en los ámbitos del espacio de trabajo, la aplicación y el personal durante la lectura: gana el ámbito más específico."}>
+
+```html
+<div class="ws-stack">
+  <div class="diagram-card">
+    <span class="diagram-pill">Workspace</span
+    ><small class="diagram-muted"
+      >valores predeterminados de empresa desde Dispatch</small
+    ><code>context/brand.md</code>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">Organización / aplicación</span
+    ><small class="diagram-muted">team override for one app</small
+    ><code>context/brand.md</code>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Personal</span
+    ><small class="diagram-muted">per-user override &mdash; wins</small
+    ><code>context/brand.md</code>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">Effective <code>context/brand.md</code></div>
+</div>
+```
+
+```css
+.ws-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ws-stack .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  min-width: 280px;
+}
+.ws-stack .diagram-arrow {
+  font-size: 20px;
+  align-self: center;
+}
+.ws-stack code {
+  font-size: 0.85em;
+}
+.ws-stack .diagram-box {
+  align-self: center;
+  margin-top: 4px;
 }
 ```
+
+</Diagram>
 
 ## Primeros pasos: un tutorial de 1 minuto {#getting-started}
 

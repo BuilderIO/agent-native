@@ -14,12 +14,69 @@ Agent-Native **プラン** アプリは、1 つのインストール可能なバ
 - **2 つの skills** — `/visual-plan` (正規のエントリ ポイント) と `/visual-recap`。
 - **プラン MCP コネクタ** — `https://plan.agent-native.com` (MCP エンドポイント `https://plan.agent-native.com/_agent-native/mcp`、サーバー名 `plan`) でホストされているアプリに対して登録されています。
 
-```an-diagram title="3つのルート、1つのバンドル" summary="ユニバーサル CLI、Claude Code プラグイン、および Codex プラグインはすべて、同じ 2 つのスキルとホストされたプラン コネクタをインストールします。"
-{
-  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Claude Codeプラグイン<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Codexプラグイン<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
-  "css": ".diagram-routes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-routes .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-routes .diagram-arrow{font-size:22px;line-height:1}.diagram-routes .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-routes .center .diagram-pill{margin:2px}"
+<Diagram id="doc-block-istfxt" title={"3つのルート、1つのバンドル"} summary={"ユニバーサル CLI、Claude Code プラグイン、および Codex プラグインはすべて、同じ 2 つのスキルとホストされたプラン コネクタをインストールします。"}>
+
+```html
+<div class="diagram-routes">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Universal CLI<br /><small class="diagram-muted"
+        >skills add visual-plan</small
+      >
+    </div>
+    <div class="diagram-node">
+      Claude Codeプラグイン<br /><small class="diagram-muted"
+        >/plugin install</small
+      >
+    </div>
+    <div class="diagram-node">
+      Codexプラグイン<br /><small class="diagram-muted">codex plugin add</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">/visual-plan</span
+    ><span class="diagram-pill accent">/visual-recap</span
+    ><small class="diagram-muted">two skills</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Plan MCP connector<br /><small class="diagram-muted"
+      >plan.agent-native.com/_agent-native/mcp</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-routes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-routes .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-routes .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-routes .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-routes .center .diagram-pill {
+  margin: 2px;
 }
 ```
+
+</Diagram>
 
 デフォルトでは、両方の skills がホストされたプラン アプリに公開します。
 MCP コネクタを接続し、確認するためのリンクまたはインライン プランを渡します。彼らは決してダンプしません
@@ -82,12 +139,46 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 コメント、スクリーンショット、プラン履歴は、明示的にユーザーが指定するまで利用できません
 後で公開します。
 
-```an-diagram title="ホスト ファイル モードとローカル ファイル モード" summary="デフォルトでは、スキルはコネクタを通じて公開されます。ローカル ファイル モードは、MDX をディスクに書き込み、代わりにローカルホスト ブリッジ経由でプレビューします。"
-{
-  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">デフォルト · ホスト済み</span><strong>Planアプリに公開</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">ローカルファイルのプライバシー</span><strong>MDX をディスクに書き込む</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No DB 書き込みs until <code>publish-visual-plan</code>.</small></div></div>",
-  "css": ".diagram-modes{display:flex;gap:14px;flex-wrap:wrap}.diagram-modes .diagram-card{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;padding:16px 18px}"
+<Diagram id="doc-block-1isj86" title={"ホスト ファイル モードとローカル ファイル モード"} summary={"デフォルトでは、スキルはコネクタを通じて公開されます。ローカル ファイル モードは、MDX をディスクに書き込み、代わりにローカルホスト ブリッジ経由でプレビューします。"}>
+
+```html
+<div class="diagram-modes">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">デフォルト · ホスト済み</span
+    ><strong>Planアプリに公開</strong
+    ><small class="diagram-muted"
+      >MCP connector &rarr; hosted DB &rarr; share links, comments, history,
+      screenshots</small
+    >
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">ローカルファイルのプライバシー</span
+    ><strong>MDX をディスクに書き込む</strong
+    ><small class="diagram-muted"
+      >plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr;
+      hosted Plan UI reads local source. No DB 書き込みs until
+      <code>publish-visual-plan</code>.</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-modes {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-modes .diagram-card {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
 }
 ```
+
+</Diagram>
 
 Agent Native デスクトップには、ホスト型プラン用の別のローカル ファイル同期パスがあります:
 デスクトップ アプリは、ホストされたプランをローカルの MDX ファイルにミラーリングし、編集内容をインポートして戻すことができます

@@ -7,12 +7,55 @@ description: "Comment rédiger des instructions d'agent efficaces pour une appli
 
 Le comportement de l'agent dans une application native d'agent dépend des instructions que vous lui donnez. Trois surfaces portent ces conseils : `AGENTS.md` (la carte), skills (les analyses approfondies) et les descriptions d'actions/d'outils (comment l'agent choisit le bon outil). Écrivez chacun pour une récupération rapide, pas pour de la prose.
 
-```an-diagram title="Trois surfaces créées + une surface d'exécution" summary="AGENTS.md et les descriptions d'outils se chargent à chaque tour ; charge de compétences sur demande ; application_state est écrit en direct par votre interface utilisateur."
-{
-  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Chaque tour</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">la carte : objectif, règles clés, clés d’état, index actions + compétences</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Chaque tour</span><strong>Descriptions d’outils</strong><small class=\"diagram-muted\">guide le choix des outils — une phrase précise chacun</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">À la demande</span><strong>Compétences</strong><small class=\"diagram-muted\">guide approfondi, chargé quand la description correspond</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">écrit par votre UI : navigation, sélection, focus</small></div></div>",
-  "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+<Diagram id="doc-block-1ec0xdy" title={"Trois surfaces créées + une surface d'exécution"} summary={"AGENTS.md et les descriptions d'outils se chargent à chaque tour ; charge de compétences sur demande ; application_state est écrit en direct par votre interface utilisateur."}>
+
+```html
+<div class="diagram-surfaces">
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Chaque tour</span
+    ><strong>AGENTS.md</strong
+    ><small class="diagram-muted"
+      >la carte : objectif, règles clés, clés d’état, index actions +
+      compétences</small
+    >
+  </div>
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Chaque tour</span
+    ><strong>Descriptions d’outils</strong
+    ><small class="diagram-muted"
+      >guide le choix des outils — une phrase précise chacun</small
+    >
+  </div>
+  <div class="diagram-card ondemand" data-rough>
+    <span class="diagram-pill">À la demande</span><strong>Compétences</strong
+    ><small class="diagram-muted"
+      >guide approfondi, chargé quand la description correspond</small
+    >
+  </div>
+  <div class="diagram-card runtime" data-rough>
+    <span class="diagram-pill ok">Live</span><strong>application_state</strong
+    ><small class="diagram-muted"
+      >écrit par votre UI : navigation, sélection, focus</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-surfaces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.diagram-surfaces .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 ## Gardez AGENTS.md petit et écrémé {#small-agents-md}
 

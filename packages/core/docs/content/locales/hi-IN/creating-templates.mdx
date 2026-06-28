@@ -112,12 +112,61 @@ npx @agent-native/core@latest create my-platform
 
 प्रत्येक टेम्प्लेट के चार क्षेत्र एक साझा क्रिया सतह और एक SQL डेटाबेस के माध्यम से एक साथ जुड़ते हैं - एजेंट और UI समान संचालन में समान भागीदार हैं:
 
-```an-diagram title="किसी टेम्प्लेट के चार क्षेत्र कैसे जुड़ते हैं" summary="यूआई और एजेंट दोनों समान क्रियाओं के माध्यम से SQL तक पहुंचते हैं; एप्लिकेशन स्थिति और पोलिंग सिंक उन्हें संरेखित रखते हैं।"
-{
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React इंटरफेस<br><small class=\"diagram-muted\">app/routes · कंपोनेंट्स</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">क्रियाएँ</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Drizzle के ज़रिए SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">पोलing sync</div></div>",
-  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1l3djej" title={"किसी टेम्प्लेट के चार क्षेत्र कैसे जुड़ते हैं"} summary={"यूआई और एजेंट दोनों समान क्रियाओं के माध्यम से SQL तक पहुंचते हैं; एप्लिकेशन स्थिति और पोलिंग सिंक उन्हें संरेखित रखते हैं।"}>
+
+```html
+<div class="diagram-tmpl">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      React इंटरफेस<br /><small class="diagram-muted"
+        >app/routes · कंपोनेंट्स</small
+      >
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">AGENTS.md · skills</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">क्रियाएँ</span
+    ><small class="diagram-muted">defineAction()</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Drizzle के ज़रिए SQL<br /><small class="diagram-muted"
+      >additive schema</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">पोलing sync</div>
+</div>
+```
+
+```css
+.diagram-tmpl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-tmpl .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-tmpl .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-tmpl .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## SQL में मॉडल डेटा {#data-models}
 

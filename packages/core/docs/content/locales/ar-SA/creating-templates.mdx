@@ -112,12 +112,59 @@ npx @agent-native/core@latest create my-platform
 
 تربط المناطق الأربع لكل قالب معًا من خلال سطح عمل مشترك واحد وقاعدة بيانات SQL واحدة - الوكيل وUI شريكان متساويان في نفس العمليات:
 
-```an-diagram title="كيف تتصل المناطق الأربع للقالب" summary="يصل كل من واجهة المستخدم والوكيل إلى SQL من خلال نفس الإجراءات؛ حالة التطبيق ومزامنة الاستقصاء تحافظ على توافقهما."
-{
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">واجهة React<br><small class=\"diagram-muted\">app/routes · المكونات</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">الإجراءات</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL عبر Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">مزامنة بالاستقصاء</div></div>",
-  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-7npsk8" title={"كيف تتصل المناطق الأربع للقالب"} summary={"يصل كل من واجهة المستخدم والوكيل إلى SQL من خلال نفس الإجراءات؛ حالة التطبيق ومزامنة الاستقصاء تحافظ على توافقهما."}>
+
+```html
+<div class="diagram-tmpl">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      واجهة React<br /><small class="diagram-muted"
+        >app/routes · المكونات</small
+      >
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">AGENTS.md · skills</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">الإجراءات</span
+    ><small class="diagram-muted">defineAction()</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL عبر Drizzle<br /><small class="diagram-muted">additive schema</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">مزامنة بالاستقصاء</div>
+</div>
+```
+
+```css
+.diagram-tmpl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-tmpl .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-tmpl .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-tmpl .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## بيانات النموذج في SQL {#data-models}
 

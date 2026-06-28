@@ -26,12 +26,65 @@ Dies macht den Rollout sicher, auch wenn dabei Personen abgemeldet werden. **Abm
 
 Der Ablauf ist eine standardmäßige Autorisierung → Signiertes Token → Rückrufumleitung, wobei E-Mail das einzige ist, was die Vertrauensgrenze überschreitet.
 
-```an-diagram title="Ablauf der Identitätsföderation" summary="Dispatch authentifiziert den Benutzer und gibt eine kurzlebige signierte Bestätigung von etwas zurück – der verifizierten E-Mail. Die App wird per E-Mail verknüpft und erstellt eine eigene lokale Sitzung."
-{
-  "html": "<div class=\"diagram-sso\"><div class=\"diagram-card\" data-rough><strong>Client-App</strong><small class=\"diagram-muted\">own user store</small></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill\">authorize</span></div><div class=\"diagram-card\" data-rough><strong>Dispatch</strong><small class=\"diagram-muted\">identity authority</small><span class=\"diagram-pill accent\">authenticates human</span></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill accent\">302 + signed JWT</span></div><div class=\"diagram-card\" data-rough><strong>App-Callback</strong><small class=\"diagram-muted\">verify signature · scope:identity · exp &le; 2 min</small><span class=\"diagram-pill ok\">JIT-Verknüpfung per E-Mail</span><span class=\"diagram-pill ok\">mint local session</span></div></div>",
-  "css": ".diagram-sso{display:flex;align-items:stretch;gap:12px;flex-wrap:wrap}.diagram-sso .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px}.diagram-sso .diagram-step{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}.diagram-sso .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-yntn6c" title={"Ablauf der Identitätsföderation"} summary={"Dispatch authentifiziert den Benutzer und gibt eine kurzlebige signierte Bestätigung von etwas zurück – der verifizierten E-Mail. Die App wird per E-Mail verknüpft und erstellt eine eigene lokale Sitzung."}>
+
+```html
+<div class="diagram-sso">
+  <div class="diagram-card" data-rough>
+    <strong>Client-App</strong
+    ><small class="diagram-muted">own user store</small>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill">authorize</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>Dispatch</strong
+    ><small class="diagram-muted">identity authority</small
+    ><span class="diagram-pill accent">authenticates human</span>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill accent">302 + signed JWT</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>App-Callback</strong
+    ><small class="diagram-muted"
+      >verify signature · scope:identity · exp &le; 2 min</small
+    ><span class="diagram-pill ok">JIT-Verknüpfung per E-Mail</span
+    ><span class="diagram-pill ok">mint local session</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-sso {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-sso .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+}
+.diagram-sso .diagram-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.diagram-sso .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 1. **App → Versenden (autorisieren).** Die App sendet den Benutzer an die Identitätsbehörde:
 
@@ -125,12 +178,60 @@ Das gesamte Modell basiert auf ein paar bewusst kleinen Garantien:
 
 Der Just-in-Time-Link ist eine einzelne Entscheidung, die vollständig auf der verifizierten E-Mail basiert:
 
-```an-diagram title="JIT-link Entscheidung" summary="Die Verknüpfung basiert auf der verifizierten E-Mail und ist nur additiv – vorhandene Konten werden unverändert wiederverwendet, neue E-Mails erstellen einen neuen lokalen Benutzer."
-{
-  "html": "<div class=\"diagram-jit\"><div class=\"diagram-node\" data-rough>Verifizierte E-Mail<br><small class=\"diagram-muted\">aus signiertem Identitäts-JWT</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-branch\"><div class=\"diagram-box\" data-rough>Local user exists?<span class=\"diagram-pill ok\">yes &rarr; reuse unchanged</span><span class=\"diagram-pill accent\">no &rarr; create local user</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Normale lokale Sitzung ausstellen</div></div></div>",
-  "css": ".diagram-jit{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-node{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-jit .diagram-branch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-box{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-jit .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1u8o7kt" title="JIT-link Entscheidung" summary={"Die Verknüpfung basiert auf der verifizierten E-Mail und ist nur additiv – vorhandene Konten werden unverändert wiederverwendet, neue E-Mails erstellen einen neuen lokalen Benutzer."}>
+
+```html
+<div class="diagram-jit">
+  <div class="diagram-node" data-rough>
+    Verifizierte E-Mail<br /><small class="diagram-muted"
+      >aus signiertem Identitäts-JWT</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-branch">
+    <div class="diagram-box" data-rough>
+      Local user exists?<span class="diagram-pill ok"
+        >yes &rarr; reuse unchanged</span
+      ><span class="diagram-pill accent">no &rarr; create local user</span>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>Normale lokale Sitzung ausstellen</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-jit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-branch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Selbsthosting {#self-hosting}
 

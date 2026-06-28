@@ -152,12 +152,42 @@ pnpm dev
 이제 해당 작업은 UI, CLI, HTTP, MCP, A2A,
 예약된 작업 및 webhooks. 한 번 정의하면 어디에서나 전화할 수 있습니다.
 
-```an-diagram title="하나의 작업, 모든 표면" summary="추가 배선 없이 단일 defineAction 파일이 모든 소비자에게 전달됩니다."
-{
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">채팅 UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">예약된 작업</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
-  "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1gct831" title={"하나의 작업, 모든 표면"} summary={"추가 배선 없이 단일 defineAction 파일이 모든 소비자에게 전달됩니다."}>
+
+```html
+<div class="diagram-fan">
+  <div class="diagram-box" data-rough>defineAction</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-surfaces">
+    <span class="diagram-pill">채팅 UI</span
+    ><span class="diagram-pill">CLI</span><span class="diagram-pill">HTTP</span
+    ><span class="diagram-pill">MCP</span><span class="diagram-pill">A2A</span
+    ><span class="diagram-pill">예약된 작업</span
+    ><span class="diagram-pill">Webhooks</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-fan {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-fan .diagram-surfaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 420px;
+}
+.diagram-fan .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 상태 내장
 

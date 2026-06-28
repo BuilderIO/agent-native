@@ -21,13 +21,52 @@ Os aplicativos nativos do agente usam o **React Router v8** com roteamento basea
 
 Prefixe um segmento com `$` para um parâmetro dinâmico. Prefixe com `_` para torná-la uma rota de layout sem caminho (sem segmento URL). Os modelos usam `flatRoutes()` — o arquivo de notação de ponto acima é o principal; o formato de pasta aninhada `inbox/route.tsx` também funciona.
 
-```an-diagram title="Layout sem caminho envolve as páginas" summary="Um layout _app.tsx (sem segmento URL) renderiza o shell compartilhado uma vez; as páginas correspondentes são renderizadas dentro de seu <Outlet/>, para que a barra lateral do agente nunca seja remontada na navegação."
-{
-"html": "<div class=\"diagram-layout\" data-rough><div class=\"diagram-shell\"><span class=\"diagram-pill accent\">_app.tsx</span><small class=\"diagram-muted\">layout sem rota · shell persistente + barra do agente</small><div class=\"diagram-outlet\" data-rough><small class=\"diagram-muted\">&lt;Outlet/&gt; — the matched page</small><div class=\"diagram-row\"><span class=\"diagram-pill\">_index.tsx &rarr; /</span><span class=\"diagram-pill\">settings.tsx &rarr; /settings</span><span class=\"diagram-pill\">inbox.$threadId.tsx &rarr; /inbox/:threadId</span></div></div></div></div>",
-"css": ".diagram-layout .diagram-shell{display:flex;flex-direction:column;gap:8px;padding:16px}.diagram-layout .diagram-outlet{display:flex;flex-direction:column;gap:8px;padding:14px;margin-top:6px}.diagram-layout .diagram-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}"
-}
+<Diagram id="doc-block-1kqvwtx" title={"Layout sem caminho envolve as páginas"} summary={"Um layout _app.tsx (sem segmento URL) renderiza o shell compartilhado uma vez; as páginas correspondentes são renderizadas dentro de seu <Outlet/>, para que a barra lateral do agente nunca seja remontada na navegação."}>
 
+```html
+<div class="diagram-layout" data-rough>
+  <div class="diagram-shell">
+    <span class="diagram-pill accent">_app.tsx</span
+    ><small class="diagram-muted"
+      >layout sem rota · shell persistente + barra do agente</small
+    >
+    <div class="diagram-outlet" data-rough>
+      <small class="diagram-muted">&lt;Outlet/&gt; — the matched page</small>
+      <div class="diagram-row">
+        <span class="diagram-pill">_index.tsx &rarr; /</span
+        ><span class="diagram-pill">settings.tsx &rarr; /settings</span
+        ><span class="diagram-pill"
+          >inbox.$threadId.tsx &rarr; /inbox/:threadId</span
+        >
+      </div>
+    </div>
+  </div>
+</div>
 ```
+
+```css
+.diagram-layout .diagram-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+.diagram-layout .diagram-outlet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  margin-top: 6px;
+}
+.diagram-layout .diagram-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+```
+
+</Diagram>
 
 ## Adicionando uma nova página {#adding-a-page}
 

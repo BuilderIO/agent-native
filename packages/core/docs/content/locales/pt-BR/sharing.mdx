@@ -27,12 +27,53 @@ A visibilidade grosseira reside no próprio recurso; subsídios detalhados ficam
 
 `public` é um nível deliberadamente silencioso: um recurso público pode ser acessado por link direto, mas **não** aparece nas barras laterais, listas ou pesquisas de outros usuários. Isso mantém “público para compartilhar o URL” separado de “público para descoberta entre usuários”. Galerias e catálogos de modelos que realmente desejam a descoberta entre usuários optam explicitamente.
 
-```an-diagram title="Visibilidade, ampliando para fora" summary="A visibilidade aproximada do recurso define o terreno; concessões de compartilhamento explícitas na tabela complementar adicionam pessoas nomeadas no topo."
-{
-  "html": "<div class=\"share-tiers\"><div class=\"diagram-card\"><span class=\"diagram-pill\">private</span><small class=\"diagram-muted\">owner + explicit grants only &middot; <strong>default</strong></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">org</span><small class=\"diagram-muted\">+ anyone in the same org (read-only)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">public</span><small class=\"diagram-muted\">+ anyone with the link (read-only) &middot; hidden from others' lists/search</small></div></div>",
-  "css": ".share-tiers{display:flex;flex-direction:column;align-items:stretch;gap:8px}.share-tiers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.share-tiers .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
+<Diagram id="doc-block-1aash3d" title="Visibilidade, ampliando para fora" summary={"A visibilidade aproximada do recurso define o terreno; concessões de compartilhamento explícitas na tabela complementar adicionam pessoas nomeadas no topo."}>
+
+```html
+<div class="share-tiers">
+  <div class="diagram-card">
+    <span class="diagram-pill">private</span
+    ><small class="diagram-muted"
+      >owner + explicit grants only &middot; <strong>default</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">org</span
+    ><small class="diagram-muted">+ anyone in the same org (read-only)</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">public</span
+    ><small class="diagram-muted"
+      >+ anyone with the link (read-only) &middot; hidden from others'
+      lists/search</small
+    >
+  </div>
+</div>
+```
+
+```css
+.share-tiers {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.share-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.share-tiers .diagram-arrow {
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Funções em uma concessão de ações {#roles}
 

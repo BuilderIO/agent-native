@@ -9,12 +9,51 @@ An **automation** is a rule: _when X happens, do Y_ — described in natural lan
 
 Automations extend [recurring jobs](/docs/recurring-jobs) with **event triggers**, **natural-language conditions**, and **outbound HTTP** via the `web-request` tool. They use the same `jobs/<name>.md` file format, storage, and "create three ways" workflow as recurring jobs — see [Recurring Jobs](/docs/recurring-jobs#job-file) for the shared format. This page covers only what's new for event-driven automations.
 
-```an-diagram title="When X happens, do Y" summary="An event fires on the bus, an optional natural-language condition gates it, and the agent runs the automation body with full tool access."
-{
-  "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Event</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Condition</span><small class=\"diagram-muted\">Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">Agent runs the body</span><small class=\"diagram-muted\">actions &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
-  "css": ".auto-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.auto-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.auto-flow .diagram-arrow{font-size:22px}"
+<Diagram id="doc-block-jdto24" title="When X happens, do Y" summary="An event fires on the bus, an optional natural-language condition gates it, and the agent runs the automation body with full tool access.">
+
+```html
+<div class="auto-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Event</span
+    ><small class="diagram-muted"><code>calendar.booking.created</code></small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">Condition</span
+    ><small class="diagram-muted"
+      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">Agent runs the body</span
+    ><small class="diagram-muted"
+      >actions &middot; web-request &middot; MCP &middot; sub-agents</small
+    >
+  </div>
+</div>
+```
+
+```css
+.auto-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.auto-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.auto-flow .diagram-arrow {
+  font-size: 22px;
 }
 ```
+
+</Diagram>
 
 ## Two trigger types {#trigger-types}
 
@@ -225,12 +264,75 @@ Confirm an automation's wiring and condition without waiting for a real provider
 
 ## How dispatch works {#dispatch}
 
-```an-diagram title="The dispatch path" summary="From a fired event to a completed agent run, gated by ownership scope and the natural-language condition."
-{
-  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> with body as prompt, payload as context, 5-min timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
-  "css": ".disp{display:flex;flex-direction:column;gap:6px;max-width:540px}.disp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.disp .diagram-box{align-self:flex-start}.disp .diagram-arrow{font-size:18px;align-self:center}"
+<Diagram id="doc-block-1ee1cky" title="The dispatch path" summary="From a fired event to a completed agent run, gated by ownership scope and the natural-language condition.">
+
+```html
+<div class="disp">
+  <div class="diagram-box accent">event fired on the bus</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">match</span
+    ><small class="diagram-muted"
+      >load enabled automations subscribed to this event name</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">scope</span
+    ><small class="diagram-muted"
+      >keep only those owned by the event's owner (or shared)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">condition</span
+    ><small class="diagram-muted"
+      >Haiku yes/no on the payload &mdash; false &rarr;
+      <code>skipped</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">run</span
+    ><small class="diagram-muted"
+      ><code>runAgentLoop</code> with body as prompt, payload as context, 5-min
+      timeout</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">record</span
+    ><small class="diagram-muted"
+      >write <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.disp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 540px;
+}
+.disp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.disp .diagram-box {
+  align-self: flex-start;
+}
+.disp .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
 }
 ```
+
+</Diagram>
 
 ## Example {#example}
 

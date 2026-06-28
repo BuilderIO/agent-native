@@ -19,12 +19,60 @@ search: "クリップ ブラウザ ログ 開発者ログ コンソール ログ
 
 Loom + Granola + Wispr Flow を 1 つのアプリに統合したものと考えてください。ただし、エージェントはあらゆる面で一流の編集者であり、録音、会議、口述筆記は SaaS ベンダーのものではなく、あなたのものになります。また、Clips では、共有録画をエージェントが読み取り可能にします。通常の Clips 共有リンクをエージェントに貼り付けると、トランスクリプトをテキストとして「聞く」ことができ、タイムスタンプ付きの画面フレームを画像として「見る」ことができます。生のビデオは必要ありません。フレーム表示は、画像対応エージェント (ChatGPT、Claude コード、カーソル、Codex) で動作します。テキストのみの Web チャットでも完全なトランスクリプトを取得し、アップロードしたフレームを取得できます。
 
-```an-diagram title="キャプチャ、転写、再利用" summary="3 つのキャプチャ タイプが 1 つのライブラリに含まれます。エージェントが文字起こし、タイトル付け、要約を行うと、すべての文字起こしが検索可能で共有可能になります。"
-{
-  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">画面録画</div><div class=\"diagram-node\">カレンダー会議</div><div class=\"diagram-node\">Fn 長押しディクテーション</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>1 つのライブラリ<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">タイトル · 要約 · 章</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">検索</div><div class=\"diagram-pill\">共有</div><div class=\"diagram-pill\">エージェント可読 links</div></div></div>",
-  "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-yrru34" title={"キャプチャ、転写、再利用"} summary={"3 つのキャプチャ タイプが 1 つのライブラリに含まれます。エージェントが文字起こし、タイトル付け、要約を行うと、すべての文字起こしが検索可能で共有可能になります。"}>
+
+```html
+<div class="diagram-clips">
+  <div class="diagram-col">
+    <div class="diagram-node">画面録画</div>
+    <div class="diagram-node">カレンダー会議</div>
+    <div class="diagram-node">Fn 長押しディクテーション</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    1 つのライブラリ<br /><small class="diagram-muted"
+      >recordings + transcripts (SQL)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">タイトル · 要約 · 章</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">検索</div>
+    <div class="diagram-pill">共有</div>
+    <div class="diagram-pill">エージェント可読 links</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-clips {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-clips .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-clips .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-clips .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## それを使って何ができるか
 

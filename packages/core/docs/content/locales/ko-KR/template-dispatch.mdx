@@ -20,12 +20,65 @@ description: "Dispatch는 중앙 받은 편지함, 앱 간 오케스트레이션
 
 많은 앱과 함께 [multi-app workspace](/docs/multi-app-workspace)를 실행하는 경우 Dispatch가 접착제입니다.
 
-```an-diagram title="전문화하지 말고 편성하라" summary="모든 채널의 메시지는 하나의 받은 편지함에 보관됩니다. 오케스트레이터는 도메인 작업을 분류하고 A2A을 통해 올바른 전문가 앱에 위임합니다. 비밀, 리소스 및 승인은 중앙에 유지됩니다."
-{
-  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">A2A 요청</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">중앙 inbox · 분류 · 라우팅</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Mail 에이전트</div><div class=\"diagram-node\">Analytics 에이전트</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">비밀 저장소</span><span class=\"diagram-pill\">워크스페이스 리소스</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">예약된 작업</span></div>",
-  "css": ".diagram-dispatch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-dispatch .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-dispatch .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-dispatch .diagram-arrow{font-size:20px;line-height:1}.diagram-shared{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}"
+<Diagram id="doc-block-1mbldph" title={"전문화하지 말고 편성하라"} summary={"모든 채널의 메시지는 하나의 받은 편지함에 보관됩니다. 오케스트레이터는 도메인 작업을 분류하고 A2A을 통해 올바른 전문가 앱에 위임합니다. 비밀, 리소스 및 승인은 중앙에 유지됩니다."}>
+
+```html
+<div class="diagram-dispatch">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack · Telegram</div>
+    <div class="diagram-node">Email</div>
+    <div class="diagram-node">A2A 요청</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Orchestrator</span
+    ><small class="diagram-muted">중앙 inbox · 분류 · 라우팅</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">Mail 에이전트</div>
+    <div class="diagram-node">Analytics 에이전트</div>
+    <div class="diagram-node">Brain · Slides &hellip;</div>
+  </div>
+</div>
+<div class="diagram-shared">
+  <span class="diagram-pill">비밀 저장소</span
+  ><span class="diagram-pill">워크스페이스 리소스</span
+  ><span class="diagram-pill warn">Approvals</span
+  ><span class="diagram-pill">예약된 작업</span>
+</div>
+```
+
+```css
+.diagram-dispatch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-dispatch .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-dispatch .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-dispatch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-shared {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 ```
+
+</Diagram>
 
 ## 무엇을 하는가 {#what-it-does}
 

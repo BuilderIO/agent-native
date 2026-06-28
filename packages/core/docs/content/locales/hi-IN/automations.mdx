@@ -9,12 +9,51 @@ description: "प्राकृतिक-भाषा स्थितियो�
 
 ऑटोमेशन `web-request` टूल के माध्यम से **इवेंट ट्रिगर्स**, **प्राकृतिक-भाषा स्थितियों**, और **आउटबाउंड HTTP** के साथ [recurring jobs](/docs/recurring-jobs) का विस्तार करते हैं। वे आवर्ती नौकरियों के रूप में समान `jobs/<name>.md` फ़ाइल प्रारूप, भंडारण और "तीन तरीके बनाएं" वर्कफ़्लो का उपयोग करते हैं - साझा प्रारूप के लिए [Recurring Jobs](/docs/recurring-jobs#job-file) देखें। यह पृष्ठ केवल इवेंट-संचालित ऑटोमेशन के लिए जो नया है उसे कवर करता है।
 
-```an-diagram title="जब X हो तो Y करें" summary="एक घटना बस में सक्रिय हो जाती है, एक वैकल्पिक प्राकृतिक-भाषा की स्थिति इसे गेट करती है, और एजेंट पूर्ण टूल एक्सेस के साथ ऑटोमेशन बॉडी चलाता है।"
-{
-  "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Event</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Condition</span><small class=\"diagram-muted\">Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">एजेंट body चलाता है</span><small class=\"diagram-muted\">actions &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
-  "css": ".auto-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.auto-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.auto-flow .diagram-arrow{font-size:22px}"
+<Diagram id="doc-block-umhh0u" title={"जब X हो तो Y करें"} summary={"एक घटना बस में सक्रिय हो जाती है, एक वैकल्पिक प्राकृतिक-भाषा की स्थिति इसे गेट करती है, और एजेंट पूर्ण टूल एक्सेस के साथ ऑटोमेशन बॉडी चलाता है।"}>
+
+```html
+<div class="auto-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Event</span
+    ><small class="diagram-muted"><code>calendar.booking.created</code></small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">Condition</span
+    ><small class="diagram-muted"
+      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">एजेंट body चलाता है</span
+    ><small class="diagram-muted"
+      >actions &middot; web-request &middot; MCP &middot; sub-agents</small
+    >
+  </div>
+</div>
+```
+
+```css
+.auto-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.auto-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.auto-flow .diagram-arrow {
+  font-size: 22px;
 }
 ```
+
+</Diagram>
 
 ## दो ट्रिगर प्रकार {#trigger-types}
 
@@ -225,12 +264,75 @@ Confirm an automation's wiring and condition without waiting for a real provider
 
 ## डिस्पैच कैसे काम करता है {#dispatch}
 
-```an-diagram title="प्रेषण पथ" summary="एक निकाल दिए गए इवेंट से लेकर एक पूर्ण एजेंट रन तक, जो स्वामित्व के दायरे और प्राकृतिक-भाषा की स्थिति से निर्धारित होता है।"
-{
-  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> body को prompt, payload को context, 5-मिनट timeout के साथ</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
-  "css": ".disp{display:flex;flex-direction:column;gap:6px;max-width:540px}.disp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.disp .diagram-box{align-self:flex-start}.disp .diagram-arrow{font-size:18px;align-self:center}"
+<Diagram id="doc-block-1fvs24e" title={"प्रेषण पथ"} summary={"एक निकाल दिए गए इवेंट से लेकर एक पूर्ण एजेंट रन तक, जो स्वामित्व के दायरे और प्राकृतिक-भाषा की स्थिति से निर्धारित होता है।"}>
+
+```html
+<div class="disp">
+  <div class="diagram-box accent">event fired on the bus</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">match</span
+    ><small class="diagram-muted"
+      >load enabled automations subscribed to this event name</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">scope</span
+    ><small class="diagram-muted"
+      >keep only those owned by the event's owner (or shared)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">condition</span
+    ><small class="diagram-muted"
+      >Haiku yes/no on the payload &mdash; false &rarr;
+      <code>skipped</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">run</span
+    ><small class="diagram-muted"
+      ><code>runAgentLoop</code> body को prompt, payload को context, 5-मिनट
+      timeout के साथ</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">record</span
+    ><small class="diagram-muted"
+      >write <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.disp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 540px;
+}
+.disp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.disp .diagram-box {
+  align-self: flex-start;
+}
+.disp .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
 }
 ```
+
+</Diagram>
 
 ## उदाहरण {#example}
 

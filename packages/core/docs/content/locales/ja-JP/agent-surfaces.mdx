@@ -25,12 +25,68 @@ Agent-Native は意図的に構成可能です。 UI をあまり必要とせず
 エージェントは 1 つのアクションを持ち、表またはグラフとしてチャットに表示され、後にエージェントになります
 エージェントが呼び出す操作を変更せずにアプリを全画面表示します。
 
-```an-diagram title="表面スペクトル" summary="1 つのアクション サーフェス、4 つの製品シェイプ — それぞれが、その下の操作を変更せずに UI を追加します。"
-{
-  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions、ジョブ、スクリプト、他のエージェント</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>リッチチャット</strong><small class=\"diagram-muted\">コンポーザー、文字起こし、ツールカード</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>埋め込み sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">ほとんどの UI</span><strong>完全なアプリケーション</strong><small class=\"diagram-muted\">永続画面、データ、コラボレーション</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">同じ actions · 同じ SQL · 同じエージェントループ</span></div>",
-  "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-kmhk8i" title={"表面スペクトル"} summary={"1 つのアクション サーフェス、4 つの製品シェイプ — それぞれが、その下の操作を変更せずに UI を追加します。"}>
+
+```html
+<div class="diagram-spectrum">
+  <div class="diagram-card">
+    <strong>Headless</strong
+    ><small class="diagram-muted"
+      >actions、ジョブ、スクリプト、他のエージェント</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>リッチチャット</strong
+    ><small class="diagram-muted">コンポーザー、文字起こし、ツールカード</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>埋め込み sidecar</strong
+    ><small class="diagram-muted">agent beside an existing app</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">ほとんどの UI</span
+    ><strong>完全なアプリケーション</strong
+    ><small class="diagram-muted">永続画面、データ、コラボレーション</small>
+  </div>
+</div>
+<div class="diagram-base" data-rough>
+  <span class="diagram-muted"
+    >同じ actions · 同じ SQL · 同じエージェントループ</span
+  >
+</div>
+```
+
+```css
+.diagram-spectrum {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-spectrum .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+  flex: 1;
+}
+.diagram-spectrum .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-base {
+  margin-top: 12px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## ヘッドレスエージェント {#headless}
 
@@ -347,12 +403,64 @@ export function AppShell({ children }) {
 }
 ```
 
-```an-diagram title="サイドカーがホスト アプリにブリッジする方法" summary="プラグインは Agent-Native ルーティングをサーバー側にマウントします。 React サイドカーは、ページ コンテキストをストリーム入力し、ホスト コマンドを出力します。"
-{
-  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>ホストアプリ</strong><small class=\"diagram-muted\">既存の SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">ルート · 選択</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">ホストコマンド</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native ルート<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
-  "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-vsm8e2" title={"サイドカーがホスト アプリにブリッジする方法"} summary={"プラグインは Agent-Native ルーティングをサーバー側にマウントします。 React サイドカーは、ページ コンテキストをストリーム入力し、ホスト コマンドを出力します。"}>
+
+```html
+<div class="diagram-sidecar">
+  <div class="diagram-panel">
+    <strong>ホストアプリ</strong
+    ><small class="diagram-muted">既存の SaaS</small>
+    <div class="diagram-node">
+      getContext()<br /><small class="diagram-muted">ルート · 選択</small>
+    </div>
+    <div class="diagram-node">
+      onNavigate / onRefresh<br /><small class="diagram-muted"
+        >ホストコマンド</small
+      >
+    </div>
+  </div>
+  <div class="diagram-col-arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  </div>
+  <div class="diagram-panel accent-panel">
+    <span class="diagram-pill accent">AgentNativeEmbedded</span
+    ><small class="diagram-muted">agent + workspace</small>
+    <div class="diagram-box" data-rough>
+      Agent-Native ルート<br /><small class="diagram-muted"
+        >mounted by the server plugin</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-sidecar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-sidecar .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-width: 200px;
+}
+.diagram-sidecar .diagram-col-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-sidecar .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ホスト認証、データベース分離については、[Embedding SDK](/docs/embedding-sdk) を参照してください。
 iframe/ピッカー モード、および下位レベルのブリッジ API。

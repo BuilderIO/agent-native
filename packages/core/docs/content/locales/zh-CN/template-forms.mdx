@@ -18,12 +18,66 @@ Forms 是一个代理原生表单构建器。描述您想要的表单，在编�
 
 当您打开应用程序时，您会看到表单、当前编辑器和实时预览。代理可以根据提示创建表单、更新字段标签和选项、更改验证以及使用 UI 使用的相同 actions 连接提交目的地。
 
-```an-diagram title="构建、发布、收集" summary="代理和可视化编辑器编辑一个 SQL-backed 表单定义。公共填写页面未经身份验证，提交内容将通过服务器端路由到您的目的地。"
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">代理提示词<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">可视化编辑器<br><small class=\"diagram-muted\">标签、校验、顺序</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">字段 JSON，设置 JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">通过 Drizzle 使用 SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">公开填写页<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / 表格</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-ea4c07" title={"构建、发布、收集"} summary={"代理和可视化编辑器编辑一个 SQL-backed 表单定义。公共填写页面未经身份验证，提交内容将通过服务器端路由到您的目的地。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      代理提示词<br /><small class="diagram-muted">"add an NPS question"</small>
+    </div>
+    <div class="diagram-node">
+      可视化编辑器<br /><small class="diagram-muted">标签、校验、顺序</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · update-form</span
+    ><small class="diagram-muted">字段 JSON，设置 JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">通过 Drizzle 使用 SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      公开填写页<br /><small class="diagram-muted">unauthenticated</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / 表格</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 你可以用它做什么
 

@@ -27,6 +27,7 @@ import {
   DocBlocksProvider,
   resolveDocBlockType,
   splitDocSegments,
+  validateDocBlock,
   validateDocSegment,
 } from "./docBlocks";
 
@@ -44,6 +45,9 @@ type LoadedDoc = {
 
 type DocSegment = ReturnType<typeof splitDocSegments>[number];
 type BlockSegment = Extract<DocSegment, { kind: "block" }>;
+type ValidatableBlockSegment =
+  | BlockSegment
+  | Extract<DocSegment, { kind: "invalid-block" }>;
 type ParsedDoc = LoadedDoc & {
   segments: DocSegment[];
 };
@@ -105,6 +109,12 @@ function fileTreeTitle(segment: BlockSegment): unknown {
   return segment.source === "mdx" ? segment.title : segment.attrs.title;
 }
 
+function isValidatableBlockSegment(
+  segment: DocSegment,
+): segment is ValidatableBlockSegment {
+  return segment.kind === "block" || segment.kind === "invalid-block";
+}
+
 function markdownLinesOutsideFences(markdown: string): string[] {
   const lines: string[] = [];
   let inFence = false;
@@ -162,10 +172,21 @@ describe("docs visual blocks", () => {
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
   }, 30_000);
 
+  it("does not leave legacy an-* source fences in docs", () => {
+    const failures = allDocs
+      .map((doc) => {
+        const count = (doc.body.match(/^```an-[\w-]+/gm) ?? []).length;
+        return count > 0 ? `${docLabel(doc)}: ${count} legacy fences` : "";
+      })
+      .filter(Boolean);
+
+    expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
+  }, 30_000);
+
   it("does not leave registered MDX block tags behind as prose", () => {
     const failures: string[] = [];
     const rawBlockTagPattern =
-      /^\s*<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)(?:\s|>|\/|$)/;
+      /^\s*<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diagram|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)(?:\s|>|\/|$)/;
     for (const doc of allDocs) {
       const leaked = doc.segments
         .filter((segment) => segment.kind === "markdown")
@@ -189,12 +210,16 @@ describe("docs visual blocks", () => {
     const failures: string[] = [];
     for (const doc of allDocs) {
       doc.segments.forEach((segment, index) => {
-        if (segment.kind !== "block") return;
+        if (!isValidatableBlockSegment(segment)) return;
         const result = validateDocSegment(segment);
         if (!result.ok) {
           failures.push(
             `${docLabel(doc)} [block #${index} \`${
-              segment.source === "mdx" ? segment.type : segment.alias
+              segment.kind === "invalid-block"
+                ? segment.tag
+                : segment.source === "mdx"
+                  ? segment.type
+                  : segment.alias
             }\`]: ${result.error}`,
           );
         }
@@ -207,7 +232,7 @@ describe("docs visual blocks", () => {
     const failures: string[] = [];
     for (const doc of allDocs) {
       doc.segments.forEach((segment, index) => {
-        if (segment.kind !== "block") return;
+        if (!isValidatableBlockSegment(segment)) return;
         try {
           const html = renderToStaticMarkup(
             <DocBlocksProvider>
@@ -223,7 +248,11 @@ describe("docs visual blocks", () => {
         } catch (error) {
           failures.push(
             `${docLabel(doc)} [block #${index} \`${
-              segment.source === "mdx" ? segment.type : segment.alias
+              segment.kind === "invalid-block"
+                ? segment.tag
+                : segment.source === "mdx"
+                  ? segment.type
+                  : segment.alias
             }\`]: render threw — ${(error as Error).message}`,
           );
         }
@@ -248,6 +277,37 @@ describe("docs visual blocks", () => {
     );
 
     expect(renderToStaticMarkup(element)).toBe(renderToStaticMarkup(element));
+  });
+
+  it("fails registered MDX tags with unknown attributes", () => {
+    const segment = splitDocSegments(
+      `<Callout tone="info" typo="nope">\n\nHeads up.\n\n</Callout>`,
+    ).find(isValidatableBlockSegment);
+
+    expect(segment).toMatchObject({
+      kind: "invalid-block",
+      tag: "Callout",
+    });
+    expect(segment && validateDocSegment(segment)).toEqual({
+      ok: false,
+      error: "unknown attribute — typo",
+    });
+  });
+
+  it("fails fenced block JSON with unknown data keys", () => {
+    expect(
+      validateDocBlock(
+        "an-file-tree",
+        JSON.stringify({
+          title: "Files",
+          entries: [{ path: "app/page.tsx", surprise: true }],
+          extra: true,
+        }),
+      ),
+    ).toEqual({
+      ok: false,
+      error: "unknown keys — extra, entries[0].surprise",
+    });
   });
 
   it("localizes file-tree prose while preserving paths", () => {

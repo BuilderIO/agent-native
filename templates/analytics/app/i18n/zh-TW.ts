@@ -161,6 +161,7 @@ const messages = {
     untitledDashboard: "未命名儀表板",
   },
   common: {
+    docs: "檔案",
     noData: "無資料",
     noDataAvailable: "無可用資料",
     rowsPerPage: "每頁行數：",

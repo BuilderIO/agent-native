@@ -45,6 +45,13 @@ export const DOC_BLOCK_LANGUAGES = new Set(Object.keys(BLOCK_TYPE_ALIASES));
 export type DocSegment =
   | { kind: "markdown"; text: string }
   | {
+      kind: "invalid-block";
+      source: "mdx";
+      tag: string;
+      message: string;
+      body: string;
+    }
+  | {
       kind: "block";
       source: "fence";
       alias: string;
@@ -72,6 +79,8 @@ type DocMdxNode = {
   attributes?: unknown[];
   [key: string]: unknown;
 };
+
+const BASE_MDX_ATTRS = new Set(["id", "title", "summary", "editable"]);
 
 let cachedConfigRegistry: BlockRegistry | null = null;
 
@@ -152,45 +161,178 @@ function readMdxBase(node: MdxJsxNode): {
   };
 }
 
+function mdxAttributeNames(node: MdxJsxNode): string[] {
+  return (node.attributes ?? [])
+    .filter(
+      (attr) =>
+        attr.type === "mdxJsxAttribute" && typeof attr.name === "string",
+    )
+    .map((attr) => attr.name!);
+}
+
+function unknownMdxAttrs(
+  node: MdxJsxNode,
+  parsedType: string,
+  parsedData: unknown,
+): string[] {
+  const spec = getDocBlockConfigRegistry().get(parsedType);
+  if (!spec) return [];
+
+  const allowed = new Set([
+    ...BASE_MDX_ATTRS,
+    ...Object.keys(spec.mdx.toAttrs(parsedData as never)),
+  ]);
+
+  return mdxAttributeNames(node).filter((name) => !allowed.has(name));
+}
+
+function plainObject(value: unknown): value is Record<string, unknown> {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype
+  );
+}
+
+function formatPath(path: Array<string | number>): string {
+  return path
+    .map((part) => (typeof part === "number" ? `[${part}]` : part))
+    .join(".")
+    .replace(/\.\[/g, "[");
+}
+
+function findUnknownDataKeys(
+  raw: unknown,
+  parsed: unknown,
+  path: Array<string | number> = [],
+): string[] {
+  if (Array.isArray(raw) && Array.isArray(parsed)) {
+    return raw.flatMap((item, index) =>
+      findUnknownDataKeys(item, parsed[index], [...path, index]),
+    );
+  }
+
+  if (!plainObject(raw) || !plainObject(parsed)) return [];
+
+  const parsedKeys = new Set(Object.keys(parsed));
+  const unknown = Object.keys(raw)
+    .filter((key) => !parsedKeys.has(key))
+    .map((key) => formatPath([...path, key]));
+
+  const nested = Object.keys(raw)
+    .filter((key) => parsedKeys.has(key))
+    .flatMap((key) =>
+      findUnknownDataKeys(raw[key], parsed[key], [...path, key]),
+    );
+
+  return [...unknown, ...nested];
+}
+
+function validationError(error: {
+  issues: Array<{ path: PropertyKey[]; message: string }>;
+}) {
+  const issue = error.issues[0];
+  const path = issue?.path?.length ? `${issue.path.join(".")}: ` : "";
+  return `schema — ${path}${issue?.message ?? "invalid"}`;
+}
+
 function parseMdxBlockFragment(
   fragment: string,
   expectedTag: string,
-): Extract<DocSegment, { kind: "block"; source: "mdx" }> | undefined {
+):
+  | { ok: true; segment: Extract<DocSegment, { kind: "block"; source: "mdx" }> }
+  | { ok: false; error: string } {
   const registry = getDocBlockConfigRegistry();
   const masked = maskExplicitHeadingIds(fragment);
   let tree: DocMdxNode;
   try {
     tree = docMdxProcessor().parse(masked.markdown) as unknown as DocMdxNode;
-  } catch {
-    return undefined;
+  } catch (error) {
+    return {
+      ok: false,
+      error: `invalid MDX syntax — ${(error as Error).message}`,
+    };
   }
 
-  if ((tree.children ?? []).length !== 1) return undefined;
+  if ((tree.children ?? []).length !== 1) {
+    return {
+      ok: false,
+      error: `expected one <${expectedTag}> block, found ${
+        tree.children?.length ?? 0
+      } top-level nodes`,
+    };
+  }
   const child = tree.children?.[0];
-  if (!child) return undefined;
+  if (!child) return { ok: false, error: `missing <${expectedTag}> block` };
   const tag = elementName(child);
-  if (tag !== expectedTag || !registry.getByTag(tag)) return undefined;
+  if (tag !== expectedTag) {
+    return {
+      ok: false,
+      error: `expected <${expectedTag}> but parsed <${tag ?? "unknown"}>`,
+    };
+  }
+  if (!registry.getByTag(tag)) {
+    return { ok: false, error: `unregistered MDX block tag <${tag}>` };
+  }
 
-  const base = readMdxBase(child as unknown as MdxJsxNode);
+  let base: ReturnType<typeof readMdxBase>;
+  let parsed: { type: string; data: unknown } | null;
   const children = masked.restore(stringifyMarkdownNodes(child.children ?? []));
-  const parsed = parseSpecBlock(
-    registry,
+  try {
+    base = readMdxBase(child as unknown as MdxJsxNode);
+    parsed = parseSpecBlock(
+      registry,
+      child as unknown as MdxJsxNode,
+      { id: base.id ?? "", ...base },
+      children,
+      "doc-block",
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      error: `invalid MDX attribute — ${(error as Error).message}`,
+    };
+  }
+  if (!parsed) return { ok: false, error: `could not parse <${tag}> block` };
+
+  const spec = registry.get(parsed.type);
+  const validated = spec?.schema.safeParse(parsed.data);
+  if (!validated?.success) {
+    return {
+      ok: false,
+      error: validationError(
+        validated?.error ?? { issues: [{ path: [], message: "invalid" }] },
+      ),
+    };
+  }
+
+  const unknownAttrs = unknownMdxAttrs(
     child as unknown as MdxJsxNode,
-    { id: base.id ?? "", ...base },
-    children,
-    "doc-block",
+    parsed.type,
+    validated.data,
   );
-  if (!parsed) return undefined;
+  if (unknownAttrs.length > 0) {
+    return {
+      ok: false,
+      error: `unknown attribute${
+        unknownAttrs.length === 1 ? "" : "s"
+      } — ${unknownAttrs.join(", ")}`,
+    };
+  }
 
   return {
-    kind: "block",
-    source: "mdx",
-    type: parsed.type,
-    id: base.id,
-    title: base.title,
-    summary: base.summary,
-    editable: base.editable,
-    data: parsed.data,
+    ok: true,
+    segment: {
+      kind: "block",
+      source: "mdx",
+      type: parsed.type,
+      id: base.id,
+      title: base.title,
+      summary: base.summary,
+      editable: base.editable,
+      data: validated.data,
+    },
   };
 }
 
@@ -264,6 +406,9 @@ export function splitDocSegments(markdown: string): DocSegment[] {
     const tag = /^\s*<([A-Z][\w-]*)(?:[\s/>]|$)/.exec(line)?.[1];
     if (tag && registry.hasTag(tag)) {
       const maxEnd = Math.min(lines.length - 1, i + 500);
+      let parseFailure:
+        | { error: string; fragment: string; endIndex: number }
+        | undefined;
       for (let j = i; j <= maxEnd; j++) {
         const candidateEnd = lines[j];
         if (
@@ -273,14 +418,41 @@ export function splitDocSegments(markdown: string): DocSegment[] {
           continue;
         }
         const fragment = lines.slice(i, j + 1).join("\n");
-        const block = parseMdxBlockFragment(fragment, tag);
-        if (block) {
+        const result = parseMdxBlockFragment(fragment, tag);
+        if (result.ok) {
           flushProse();
-          segments.push(block);
+          segments.push(result.segment);
           i = j;
           continue lineLoop;
         }
+        parseFailure = {
+          error: result.error,
+          fragment,
+          endIndex: j,
+        };
       }
+
+      flushProse();
+      if (parseFailure) {
+        segments.push({
+          kind: "invalid-block",
+          source: "mdx",
+          tag,
+          message: parseFailure.error,
+          body: parseFailure.fragment,
+        });
+        i = parseFailure.endIndex;
+        continue;
+      }
+
+      segments.push({
+        kind: "invalid-block",
+        source: "mdx",
+        tag,
+        message: `missing closing </${tag}> or self-closing /> within 500 lines`,
+        body: line,
+      });
+      continue;
     }
 
     prose.push(line);
@@ -320,19 +492,34 @@ export function validateDocBlock(
 
   const parsed = spec.schema.safeParse(data);
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const path = issue?.path?.length ? `${issue.path.join(".")}: ` : "";
     return {
       ok: false,
-      error: `schema — ${path}${issue?.message ?? "invalid"}`,
+      error: validationError(parsed.error),
     };
   }
+
+  const unknownKeys = findUnknownDataKeys(data, parsed.data);
+  if (unknownKeys.length > 0) {
+    return {
+      ok: false,
+      error: `unknown key${
+        unknownKeys.length === 1 ? "" : "s"
+      } — ${unknownKeys.join(", ")}`,
+    };
+  }
+
   return { ok: true };
 }
 
 export function validateDocSegment(
-  segment: Extract<DocSegment, { kind: "block" }>,
+  segment:
+    | Extract<DocSegment, { kind: "block" }>
+    | Extract<DocSegment, { kind: "invalid-block" }>,
 ): { ok: true } | { ok: false; error: string } {
+  if (segment.kind === "invalid-block") {
+    return { ok: false, error: segment.message };
+  }
+
   if (segment.source !== "mdx") {
     return validateDocBlock(segment.alias, segment.body);
   }
@@ -347,11 +534,9 @@ export function validateDocSegment(
 
   const parsed = spec.schema.safeParse(segment.data);
   if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const path = issue?.path?.length ? `${issue.path.join(".")}: ` : "";
     return {
       ok: false,
-      error: `schema — ${path}${issue?.message ?? "invalid"}`,
+      error: validationError(parsed.error),
     };
   }
   return { ok: true };

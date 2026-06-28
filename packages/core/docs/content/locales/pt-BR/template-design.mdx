@@ -18,12 +18,66 @@ Design é um estúdio de prototipagem HTML nativo do agente. Em vez de uma tela 
 
 Quando você abre o aplicativo, o protótipo gerado é o centro da área de trabalho, com modos de visualização, revisões imediatas e controles de exportação à mão. Tudo o que o agente produz é HTML real que você pode refinar, exportar ou entregar.
 
-```an-diagram title="Um artefato, sem tradução" summary="O agente gera Alpine/Tailwind HTML autônomo; o iframe, a fonte editável e todas as exportações leem os mesmos arquivos. Um sistema de design vinculado alimenta tokens em cada passagem."
-{
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Sistema de design</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Gerar com agente</span><small class=\"diagram-muted\">arquivos HTML / JSX independentes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">ajuste controles · refine com Cmd+I</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · entrega</small></div></div>",
-  "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1d1e5bg" title={"Um artefato, sem tradução"} summary={"O agente gera Alpine/Tailwind HTML autônomo; o iframe, a fonte editável e todas as exportações leem os mesmos arquivos. Um sistema de design vinculado alimenta tokens em cada passagem."}>
+
+```html
+<div class="diagram-design">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Prompt<br /><small class="diagram-muted">describe screen / page</small>
+    </div>
+    <div class="diagram-pill">Sistema de design</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Gerar com agente</span
+    ><small class="diagram-muted">arquivos HTML / JSX independentes</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    iframe preview<br /><small class="diagram-muted"
+      >ajuste controles · refine com Cmd+I</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Export</span
+    ><small class="diagram-muted">HTML · ZIP · PDF · entrega</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-design {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-design .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-design .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-design .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-design .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Quando escolher
 

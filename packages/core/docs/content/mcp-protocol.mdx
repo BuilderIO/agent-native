@@ -30,12 +30,60 @@ Key concepts:
 - **Standard remote MCP OAuth** — OAuth 2.1 discovery, dynamic client registration, authorization-code + PKCE, refresh-token rotation
 - **Bearer auth fallback** — uses `ACCESS_TOKEN`, `ACCESS_TOKENS`, or connect-minted JWTs for clients that cannot run OAuth
 
-```an-diagram title="Your app as an MCP server" summary="External hosts connect over Streamable HTTP. Each action is one tool; ask-agent delegates to the full agent loop."
-{
-  "html": "<div class=\"diagram-mcp\"><div class=\"diagram-col\"><div class=\"diagram-node\">Claude</div><div class=\"diagram-node\">ChatGPT</div><div class=\"diagram-node\">Cursor · Codex</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill accent\">POST /_agent-native/mcp</span><small class=\"diagram-muted\">Streamable HTTP</small><small class=\"diagram-muted\">initialize &rarr; tools/list &rarr; tools/call</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\" data-rough>each action<br><small class=\"diagram-muted\">= one tool</small></div><div class=\"diagram-box\" data-rough>ask-agent<br><small class=\"diagram-muted\">&rarr; full agent loop</small></div></div></div>",
-  "css": ".diagram-mcp{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-mcp .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-mcp .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-mcp .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-1362vx8" title="Your app as an MCP server" summary={"External hosts connect over Streamable HTTP. Each action is one tool; ask-agent delegates to the full agent loop."}>
+
+```html
+<div class="diagram-mcp">
+  <div class="diagram-col">
+    <div class="diagram-node">Claude</div>
+    <div class="diagram-node">ChatGPT</div>
+    <div class="diagram-node">Cursor · Codex</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    ><small class="diagram-muted">Streamable HTTP</small
+    ><small class="diagram-muted"
+      >initialize &rarr; tools/list &rarr; tools/call</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box" data-rough>
+      each action<br /><small class="diagram-muted">= one tool</small>
+    </div>
+    <div class="diagram-box" data-rough>
+      ask-agent<br /><small class="diagram-muted">&rarr; full agent loop</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mcp {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-mcp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-mcp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-mcp .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## MCP vs A2A {#mcp-vs-a2a}
 
@@ -205,12 +253,61 @@ Discovery endpoints:
 | `/_agent-native/mcp/oauth/authorize`      | Browser authorization + consent             |
 | `/_agent-native/mcp/oauth/token`          | Authorization-code and refresh-token grants |
 
-```an-diagram title="OAuth discovery flow" summary="A 401 kicks off discovery, registration, and a PKCE authorize → token exchange. The Bearer token is audience-bound and scoped."
-{
-  "html": "<div class=\"diagram-oauth\"><div class=\"diagram-box\" data-rough>first request<br><small class=\"diagram-muted\">no token</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill warn\">401 · WWW-Authenticate</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">/.well-known/oauth-protected-resource</span><span class=\"diagram-pill\">/.well-known/oauth-authorization-server</span><small class=\"diagram-muted\">discover</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">register</div><div class=\"diagram-pill\">authorize (PKCE)</div><div class=\"diagram-pill\">token</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Bearer access token<br><small class=\"diagram-muted\">audience-bound · mcp:read / write / apps</small></div></div>",
-  "css": ".diagram-oauth{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-oauth .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-oauth .diagram-col{display:flex;flex-direction:column;gap:6px}.diagram-oauth .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-79kjly" title="OAuth discovery flow" summary={"A 401 kicks off discovery, registration, and a PKCE authorize → token exchange. The Bearer token is audience-bound and scoped."}>
+
+```html
+<div class="diagram-oauth">
+  <div class="diagram-box" data-rough>
+    first request<br /><small class="diagram-muted">no token</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill warn">401 · WWW-Authenticate</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill">/.well-known/oauth-protected-resource</span
+    ><span class="diagram-pill">/.well-known/oauth-authorization-server</span
+    ><small class="diagram-muted">discover</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">register</div>
+    <div class="diagram-pill">authorize (PKCE)</div>
+    <div class="diagram-pill">token</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Bearer access token<br /><small class="diagram-muted"
+      >audience-bound · mcp:read / write / apps</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-oauth {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-oauth .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-oauth .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-oauth .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Access tokens are signed JWTs whose audience is the exact MCP resource URL. The server accepts only tokens issued for itself and applies scopes before listing/calling tools:
 

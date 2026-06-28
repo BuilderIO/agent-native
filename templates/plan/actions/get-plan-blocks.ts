@@ -39,6 +39,8 @@ const AUTHORING_RULES_NOTE = `
 
 **MDX prose and component syntax**: write ordinary top-level prose as normal Markdown; it imports as rich-text automatically. Use \`<RichText id="...">…</RichText>\` only when prose needs explicit metadata such as \`title\`, \`summary\`, or \`editable\`, or when preserving a referenced block id. Every capitalized block component must be self-closing (\`<Diagram id="..." data={{ ... }} />\`) or have a matching closing tag around children (\`<RichText id="...">…</RichText>\`). Never write a bare opening tag like \`<RichText ...>\` as a paragraph; the MDX parser treats it as unclosed JSX and import fails before the plan can render.
 
+**Code-bearing blocks**: \`code\`, \`annotated-code\`, and \`diff\` are whitespace-sensitive. Prefer the exact MDX form emitted by the authoring examples / source exporter, where multiline code is encoded as JSON string attributes such as \`code={\"const x =\\\\n  y\"}\`. Static template literals are accepted and preserve indentation, but they must be static strings with no \`\${...}\` interpolation.
+
 **File maps**: prefer \`annotated-code\` blocks (real code + line-anchored notes) grouped in a vertical \`tabs\` block, one tab per key file. Drop to a plain \`code\` block only for throwaway snippets with nothing to call out.
 
 **Tabs grouping**: use horizontal \`TabsBlock\` groups for multiple related diffs so each split diff gets full document width.

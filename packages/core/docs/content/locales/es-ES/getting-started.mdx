@@ -152,12 +152,42 @@ pnpm dev
 Ahora se puede acceder a esa acción desde el chat UI, CLI, HTTP, MCP, A2A,
 trabajos programados y webhooks. Defina una vez y llame desde cualquier lugar.
 
-```an-diagram title="Una acción, cada superficie" summary="Un único archivo defineAction se distribuye a cada consumidor sin cableado adicional."
-{
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Interfaz de chat</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Trabajos programados</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
-  "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-xk8dna" title={"Una acción, cada superficie"} summary={"Un único archivo defineAction se distribuye a cada consumidor sin cableado adicional."}>
+
+```html
+<div class="diagram-fan">
+  <div class="diagram-box" data-rough>defineAction</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-surfaces">
+    <span class="diagram-pill">Interfaz de chat</span
+    ><span class="diagram-pill">CLI</span><span class="diagram-pill">HTTP</span
+    ><span class="diagram-pill">MCP</span><span class="diagram-pill">A2A</span
+    ><span class="diagram-pill">Trabajos programados</span
+    ><span class="diagram-pill">Webhooks</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-fan {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-fan .diagram-surfaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 420px;
+}
+.diagram-fan .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## El estado está integrado
 

@@ -58,16 +58,28 @@ describe("docsBodyToMarkdownMirror", () => {
     expect(docsBodyToMarkdownMirror(markdown)).toBe(`${markdown}\n`);
   });
 
-  it("keeps rough diagrams as an-diagram fences", () => {
+  it("lowers Diagram MDX child fences to crawlable markdown", () => {
     const markdown = [
-      '```an-diagram title="Lifecycle"',
-      '{ "html": "<div />" }',
+      '<Diagram title="Lifecycle" caption="Runtime lifecycle">',
+      "",
+      "```html",
+      "<div />",
       "```",
+      "",
+      "```css",
+      ".diagram {}",
+      "```",
+      "",
+      "</Diagram>",
     ].join("\n");
 
     const mirror = docsBodyToMarkdownMirror(markdown);
 
-    expect(mirror).toContain('```an-diagram title="Lifecycle"');
-    expect(mirror).toContain('{ "html": "<div />" }');
+    expect(mirror).toContain("### Lifecycle");
+    expect(mirror).toContain("#### Runtime lifecycle");
+    expect(mirror).toContain("```html\n<div />\n```");
+    expect(mirror).toContain("```css\n.diagram {}\n```");
+    expect(mirror).not.toContain("<Diagram");
+    expect(mirror).not.toContain("```an-diagram");
   });
 });

@@ -876,6 +876,8 @@ export {
   serializeSpecBlock,
   parseSpecBlock,
   createAttrReader,
+  childCodeFenceFields,
+  serializeChildCodeFenceFields,
   describeBlocksForAgent,
   renderBlockVocabularyReference,
   type BlockSpec,

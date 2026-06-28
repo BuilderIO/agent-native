@@ -17,12 +17,69 @@ description: "配置文件上传存储 - 用于开发的 SQL 后备、Builder.io
 2. **Builder.io 提供程序** — 内置，连接 Builder.io 时自动激活
 3. **SQL 后备** - 将文件作为 base64 存储在数据库中（适合开发，不适用于生产）
 
-```an-diagram title="提供商决议顺序" summary="uploadFile() 按顺序选择第一个配置的提供程序。 SQL 后备始终存在，因此上传可以零设置进行。"
-{
-  "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">用户注册<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">连接后自动启用——由 CDN 提供</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">SQL 兜底<br><small class=\"diagram-muted\">数据库中的 base64——仅开发使用</small></div></div></div></div>",
-  "css": ".diagram-upload{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-upload .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-upload .diagram-step{display:flex;align-items:center;gap:8px}.diagram-upload .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-4gomr8" title={"提供商决议顺序"} summary={"uploadFile() 按顺序选择第一个配置的提供程序。 SQL 后备始终存在，因此上传可以零设置进行。"}>
+
+```html
+<div class="diagram-upload">
+  <div class="diagram-box" data-rough>
+    uploadFile()<br /><small class="diagram-muted"
+      >POST /_agent-native/file-upload</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-step">
+      <span class="diagram-pill accent">1</span>
+      <div class="diagram-node">
+        用户注册<br /><small class="diagram-muted"
+          >registerFileUploadProvider() — S3, R2, GCS…</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">2</span>
+      <div class="diagram-node">
+        Builder.io<br /><small class="diagram-muted"
+          >连接后自动启用——由 CDN 提供</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill warn">3</span>
+      <div class="diagram-node">
+        SQL 兜底<br /><small class="diagram-muted"
+          >数据库中的 base64——仅开发使用</small
+        >
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-upload .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-upload .diagram-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-upload .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 <Endpoint id="doc-block-1p7mnrm" title={"上传端点"} method="POST" path="/_agent-native/file-upload" summary={"通过活动提供者上传文件并返回公共URL。"} request={{
   "contentType": "multipart/form-data"

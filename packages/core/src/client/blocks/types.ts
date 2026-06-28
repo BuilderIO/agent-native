@@ -76,10 +76,11 @@ export interface BlockMdxConfig<TData> {
    */
   childrenField?: keyof TData & string;
   /**
-   * Opt-in custom children serializer for blocks whose internals are nested MDX
-   * components rather than a single markdown string (e.g. wireframe → Screen/kit
-   * primitives). When present it overrides `childrenField`. `serializeChildren`
-   * returns the raw inner MDX; `parseChildren` receives the child MDX AST nodes.
+   * Opt-in custom children serializer/parser for blocks whose internals are
+   * nested MDX components or named child code fences rather than a single
+   * markdown string. When `serializeChildren` is present it overrides
+   * `childrenField`. `parseChildren` may also be used as a parse-only adapter
+   * for backward-compatible child forms.
    */
   serializeChildren?: (data: TData) => string;
   parseChildren?: (childNodes: unknown[], idContext: string) => Partial<TData>;

@@ -18,12 +18,51 @@ Conecta tu agente a Slack, correo electrónico, Telegram o WhatsApp para que pue
 - **Mismo agente, misma memoria.** Todo lo que diga en Slack se recordará cuando lo envíe por correo electrónico más tarde. El chat web y los mensajes externos comparten un historial de conversaciones.
 - Para alertas unidireccionales en la aplicación (icono de campana, webhooks), consulte [Notifications](/docs/notifications).
 
-```an-diagram title="Muchos canales, un agente" summary="Cada plataforma participa en el mismo bucle de agente y el mismo historial de hilos SQL, por lo que un DM Slack y un correo electrónico continúan la misma conversación."
-{
-  "html": "<div class=\"msg-fanin\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Telegram</div><div class=\"diagram-node\">WhatsApp</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Un bucle de agente</span><small class=\"diagram-muted\">misma memoria · mismas herramientas</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Un historial de hilo SQL<br><small class=\"diagram-muted\">web chat + external messages share it</small></div></div>",
-  "css": ".msg-fanin{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.msg-fanin .diagram-col{display:flex;flex-direction:column;gap:8px}.msg-fanin .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-10wl96d" title="Muchos canales, un agente" summary={"Cada plataforma participa en el mismo bucle de agente y el mismo historial de hilos SQL, por lo que un DM Slack y un correo electrónico continúan la misma conversación."}>
+
+```html
+<div class="msg-fanin">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack</div>
+    <div class="diagram-node">Email</div>
+    <div class="diagram-node">Telegram</div>
+    <div class="diagram-node">WhatsApp</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Un bucle de agente</span
+    ><small class="diagram-muted">misma memoria · mismas herramientas</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Un historial de hilo SQL<br /><small class="diagram-muted"
+      >web chat + external messages share it</small
+    >
+  </div>
+</div>
+```
+
+```css
+.msg-fanin {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.msg-fanin .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.msg-fanin .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Configurar Slack {#slack}
 
@@ -231,12 +270,80 @@ La plataforma de entrada webhooks utiliza un patrón de cola SQL multiplataforma
 3. El punto final del procesador se ejecuta en una **ejecución de función nueva** con su propio presupuesto de tiempo de espera completo. Reclama atómicamente la tarea (`pending` → `processing` vía `claimPendingTask`), ejecuta el bucle del agente, publica la respuesta a través del adaptador y marca la tarea `completed`.
 4. Un trabajo de reintento recurrente (`startPendingTasksRetryJob`, cada 60 s) barre las tareas atascadas en `pending` >90 s o `processing` >5 min y vuelve a encender el procesador. Limitado a 3 intentos, luego marcado como `failed`.
 
-```an-diagram title="Ciclo de vida del webhook entrante" summary="El webhook solo verifica, pone en cola y devuelve 200. Una nueva ejecución de función drena la cola y ejecuta el bucle del agente, con un trabajo de reintento de 60 segundos como red de seguridad."
-{
-  "html": "<div class=\"msg-flow\"><div class=\"msg-row\"><div class=\"diagram-node\">Platform<br><small class=\"diagram-muted\">Slack · correo · etc.</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/webhook</strong><br><small class=\"diagram-muted\">verify signature + parse</small><br><span class=\"diagram-pill\">INSERT tarea pendiente</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">return 200</div></div><div class=\"msg-fire\"><span class=\"diagram-muted\">fire-and-forget</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</span></div><div class=\"msg-row\"><div class=\"diagram-box\" data-rough><strong>/process-task</strong><br><small class=\"diagram-muted\">ejecución nueva · timeout propio</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">claim</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">agent loop</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">adapter.sendResponse</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">completed</div></div><div class=\"diagram-panel msg-retry\" data-rough><span class=\"diagram-pill warn\">every 60s</span> <span class=\"diagram-muted\">retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and re-fires /process-task &mdash; capped at 3 attempts, then <strong>failed</strong></span></div></div>",
-  "css": ".msg-flow{display:flex;flex-direction:column;gap:12px}.msg-flow .msg-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.msg-flow .msg-fire{display:flex;align-items:center;gap:8px;padding-inline-start:12px}.msg-flow .msg-retry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}"
+<Diagram id="doc-block-1o212y4" title="Ciclo de vida del webhook entrante" summary={"El webhook solo verifica, pone en cola y devuelve 200. Una nueva ejecución de función drena la cola y ejecuta el bucle del agente, con un trabajo de reintento de 60 segundos como red de seguridad."}>
+
+```html
+<div class="msg-flow">
+  <div class="msg-row">
+    <div class="diagram-node">
+      Platform<br /><small class="diagram-muted">Slack · correo · etc.</small>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>
+      <strong>/webhook</strong><br /><small class="diagram-muted"
+        >verify signature + parse</small
+      ><br /><span class="diagram-pill">INSERT tarea pendiente</span>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">return 200</div>
+  </div>
+  <div class="msg-fire">
+    <span class="diagram-muted">fire-and-forget</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</span>
+  </div>
+  <div class="msg-row">
+    <div class="diagram-box" data-rough>
+      <strong>/process-task</strong><br /><small class="diagram-muted"
+        >ejecución nueva · timeout propio</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">claim</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">agent loop</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">adapter.sendResponse</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">completed</div>
+  </div>
+  <div class="diagram-panel msg-retry" data-rough>
+    <span class="diagram-pill warn">every 60s</span>
+    <span class="diagram-muted"
+      >retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and
+      re-fires /process-task &mdash; capped at 3 attempts, then
+      <strong>failed</strong></span
+    >
+  </div>
+</div>
+```
+
+```css
+.msg-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.msg-flow .msg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.msg-flow .msg-fire {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline-start: 12px;
+}
+.msg-flow .msg-retry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 ```
+
+</Diagram>
 
 Las conversaciones entrantes y salientes viven en el mismo hilo SQL, por lo que puedes continuar un DM de Slack desde la web UI o viceversa.
 

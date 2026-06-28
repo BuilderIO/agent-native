@@ -28,12 +28,66 @@ Agent-native est destiné aux personnes qui souhaitent qu'une véritable applica
 
 La plupart des applications intègrent l'IA après coup, ce qui ne permet pas réellement de _faire_ des choses dans l'application. Dans une application native d'agent, l'agent est un citoyen de première classe qui partage le même actions, la même base de données et le même état que le UI, il peut donc faire tout ce que les boutons peuvent faire - et modifier le propre code de l'application. Voir [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
 
-```an-diagram title="IA intégrée contre agent-native" summary="Une barre latérale de discussion intégrée vit dans son propre monde. Un agent agent-native partage les mêmes actions, base de données et état que l'interface utilisateur."
-{
-  "html": "<div class=\"diagram-vs\"><div class=\"diagram-col\"><span class=\"diagram-pill warn\">IA ajoutée après coup</span><div class=\"diagram-node\">Barre latérale de chat</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>monde IA séparé<br><small class=\"diagram-muted\">ne peut pas modifier l’app</small></div><div class=\"diagram-box diagram-muted\">App UI &amp; data</div></div><div class=\"diagram-divider\" aria-hidden=\"true\"></div><div class=\"diagram-col\"><span class=\"diagram-pill ok\">Agent-native</span><div class=\"diagram-row2\"><div class=\"diagram-node\">UI</div><div class=\"diagram-node\">Agent</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>shared actions, DB &amp; state</div></div></div>",
-  "css": ".diagram-vs{display:flex;align-items:stretch;gap:18px;flex-wrap:wrap}.diagram-vs .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:center;flex:1;min-width:200px}.diagram-vs .diagram-row2{display:flex;gap:8px}.diagram-vs .diagram-arrow{font-size:20px;line-height:1}.diagram-vs .diagram-divider{width:1px;align-self:stretch;background:currentColor;opacity:.15}"
+<Diagram id="doc-block-1vp9cj1" title={"IA intégrée contre agent-native"} summary={"Une barre latérale de discussion intégrée vit dans son propre monde. Un agent agent-native partage les mêmes actions, base de données et état que l'interface utilisateur."}>
+
+```html
+<div class="diagram-vs">
+  <div class="diagram-col">
+    <span class="diagram-pill warn">IA ajoutée après coup</span>
+    <div class="diagram-node">Barre latérale de chat</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>
+      monde IA séparé<br /><small class="diagram-muted"
+        >ne peut pas modifier l’app</small
+      >
+    </div>
+    <div class="diagram-box diagram-muted">App UI &amp; data</div>
+  </div>
+  <div class="diagram-divider" aria-hidden="true"></div>
+  <div class="diagram-col">
+    <span class="diagram-pill ok">Agent-native</span>
+    <div class="diagram-row2">
+      <div class="diagram-node">UI</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>shared actions, DB &amp; state</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-vs {
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.diagram-vs .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+  min-width: 200px;
+}
+.diagram-vs .diagram-row2 {
+  display: flex;
+  gap: 8px;
+}
+.diagram-vs .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-vs .diagram-divider {
+  width: 1px;
+  align-self: stretch;
+  background: currentColor;
+  opacity: 0.15;
 }
 ```
+
+</Diagram>
 
 ### Est-ce open source ? {#is-this-open-source}
 
@@ -126,12 +180,48 @@ N'importe où. Le serveur fonctionne sur Nitro, qui se compile sur n'importe que
 
 SSE donne aux écritures du même processus un chemin immédiat vers le navigateur, et un sondage léger du compteur de versions reste la solution de secours car il fonctionne dans tous les environnements de déploiement, y compris sans serveur et en périphérie, où les sockets persistants peuvent ne pas être disponibles. Voir [Key Concepts — Synchronisation en direct](/docs/key-concepts#polling-sync).
 
-```an-diagram title="SSE en premier, interrogation de secours" summary="Le même processus écrit le flux instantanément ; une interrogation du compteur de versions maintient la convergence des écritures sans serveur, en périphérie et entre processus."
-{
-  "html": "<div class=\"diagram-transport\"><div class=\"diagram-box\" data-rough>Écriture BD</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">SSE<br><small class=\"diagram-muted\">/_agent-native/events &middot; instant</small></div><div class=\"diagram-node\">Sondage<br><small class=\"diagram-muted\">/_agent-native/poll &middot; universal fallback</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Rechargement navigateur</div></div>",
-  "css": ".diagram-transport{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-transport .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-transport .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1qqoxjp" title="SSE en premier, interrogation de secours" summary={"Le même processus écrit le flux instantanément ; une interrogation du compteur de versions maintient la convergence des écritures sans serveur, en périphérie et entre processus."}>
+
+```html
+<div class="diagram-transport">
+  <div class="diagram-box" data-rough>Écriture BD</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      SSE<br /><small class="diagram-muted"
+        >/_agent-native/events &middot; instant</small
+      >
+    </div>
+    <div class="diagram-node">
+      Sondage<br /><small class="diagram-muted"
+        >/_agent-native/poll &middot; universal fallback</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>Rechargement navigateur</div>
+</div>
+```
+
+```css
+.diagram-transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-transport .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-transport .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ### Pourquoi le UI ne peut-il pas appeler directement un LLM ? {#why-no-inline-llm-calls}
 

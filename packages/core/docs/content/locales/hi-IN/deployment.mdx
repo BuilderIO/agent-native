@@ -28,12 +28,59 @@ npx @agent-native/core@latest deploy
 
 प्रत्येक ऐप को `APP_BASE_PATH=/<name>` और `VITE_APP_BASE_PATH=/<name>` के साथ बनाया गया है, फिर लक्ष्य Nitro प्रीसेट के लिए पैक किया गया है। क्लाउडफ्लेयर पेज डिफ़ॉल्ट प्रीसेट है और `dist/_worker.js` पर जेनरेटेड डिस्पैचर वर्कर का उपयोग करता है; Netlify `.netlify/functions-internal/<app>-server` प्लस जेनरेटेड रीडायरेक्ट में प्रति ऐप एक फ़ंक्शन का उपयोग करता है; वर्सेल बिल्ड आउटपुट API का उपयोग करके एक कार्यक्षेत्र-स्तर `.vercel/output` लिखता है।
 
-```an-diagram title="एक मूल, अनेक ऐप्स" summary="प्रत्येक कार्यक्षेत्र ऐप अपने स्वयं के आधार पथ के साथ बनाया गया है और एक ही मूल पर पथ उपसर्ग के तहत माउंट किया गया है - इसलिए लॉगिन और क्रॉस-ऐप A2A समान-मूल और मुफ़्त हैं।"
-{
-  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">बिना कॉन्फिग क्रॉस-ऐप A2A</span></div></div>",
-  "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
+<Diagram id="doc-block-1vczq5r" title={"एक मूल, अनेक ऐप्स"} summary={"प्रत्येक कार्यक्षेत्र ऐप अपने स्वयं के आधार पथ के साथ बनाया गया है और एक ही मूल पर पथ उपसर्ग के तहत माउंट किया गया है - इसलिए लॉगिन और क्रॉस-ऐप A2A समान-मूल और मुफ़्त हैं।"}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">shared login session</span
+    ><span class="diagram-pill ok">बिना कॉन्फिग क्रॉस-ऐप A2A</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
 }
 ```
+
+</Diagram>
 
 समान-मूल परिनियोजन आपको निःशुल्क दो बड़ी जीत प्रदान करता है:
 
@@ -95,12 +142,60 @@ npx @agent-native/core@latest deploy --preset vercel
 
 आउटपुट स्व-निहित है - `.output/` को किसी भी वातावरण में कॉपी करें और इसे चलाएं।
 
-```an-diagram title="तैनात करने के लिए निर्माण करें" summary="एक स्रोत वृक्ष Nitro प्रीसेट बनाता है; वही स्व-निहित आउटपुट Node, Vercel, Netlify, Cloudflare, AWS, या Deno पर चलता है। प्रत्येक उदाहरण एक ही निरंतर DATABASE_URL पर इंगित करता है।"
-{
-  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>ऐप स्रोत</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>स्थायी DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
-  "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
+<Diagram id="doc-block-va4hix" title={"तैनात करने के लिए निर्माण करें"} summary={"एक स्रोत वृक्ष Nitro प्रीसेट बनाता है; वही स्व-निहित आउटपुट Node, Vercel, Netlify, Cloudflare, AWS, या Deno पर चलता है। प्रत्येक उदाहरण एक ही निरंतर DATABASE_URL पर इंगित करता है।"}>
+
+```html
+<div class="diagram-deploy">
+  <div class="diagram-box" data-rough>ऐप स्रोत</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">build</span
+    ><small class="diagram-muted">Nitro preset</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <span class="diagram-pill">Node.js</span
+    ><span class="diagram-pill">Vercel</span
+    ><span class="diagram-pill">Netlify</span
+    ><span class="diagram-pill">Cloudflare</span
+    ><span class="diagram-pill">AWS Lambda</span
+    ><span class="diagram-pill">Deno</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    स्थायी DATABASE_URL<br /><small class="diagram-muted"
+      >shared by every instance</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-deploy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-deploy .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-deploy .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-deploy .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 ```
+
+</Diagram>
 
 ## प्रीसेट सेट करना {#setting-the-preset}
 

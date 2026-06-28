@@ -28,12 +28,59 @@ npx @agent-native/core@latest deploy
 
 每個應用程式均使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 建置，然後打包為目標 Nitro 預設。 Cloudflare Pages 是預設預設，並使用 `dist/_worker.js` 產生的調度程式工作人員； Netlify 在 `.netlify/functions-internal/<app>-server` 中為每個應用程式使用一個函式以及產生的重新導向； Vercel 使用建置輸出 API 編寫工作區級 `.vercel/output`。
 
-```an-diagram title="一個來源，多個應用程式" summary="每個工作區應用程式都使用自己的基本路徑建置，並安裝在單一來源的路徑前綴下 - 因此登入和跨應用程式 A2A 是同來源且免費的。"
-{
-  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">跨應用 A2A 零設定</span></div></div>",
-  "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
+<Diagram id="doc-block-1b0mwds" title={"一個來源，多個應用程式"} summary={"每個工作區應用程式都使用自己的基本路徑建置，並安裝在單一來源的路徑前綴下 - 因此登入和跨應用程式 A2A 是同來源且免費的。"}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">shared login session</span
+    ><span class="diagram-pill ok">跨應用 A2A 零設定</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
 }
 ```
+
+</Diagram>
 
 同來源部署免費為您帶來兩大勝利：
 
@@ -95,12 +142,60 @@ npx @agent-native/core@latest deploy --preset vercel
 
 輸出是獨立的 - 將 `.output/` 複製到任何環境並執行它。
 
-```an-diagram title="建置部署" summary="一棵來源樹建置為 Nitro 預設；相同的獨立輸出在 Node、Vercel、Netlify、Cloudflare、AWS 或 Deno 上執行。每個執行個體都指向同一個持久的 DATABASE_URL。"
-{
-  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>應用來源碼</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>持久 DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
-  "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
+<Diagram id="doc-block-lny7zt" title={"建置部署"} summary={"一棵來源樹建置為 Nitro 預設；相同的獨立輸出在 Node、Vercel、Netlify、Cloudflare、AWS 或 Deno 上執行。每個執行個體都指向同一個持久的 DATABASE_URL。"}>
+
+```html
+<div class="diagram-deploy">
+  <div class="diagram-box" data-rough>應用來源碼</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">build</span
+    ><small class="diagram-muted">Nitro preset</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <span class="diagram-pill">Node.js</span
+    ><span class="diagram-pill">Vercel</span
+    ><span class="diagram-pill">Netlify</span
+    ><span class="diagram-pill">Cloudflare</span
+    ><span class="diagram-pill">AWS Lambda</span
+    ><span class="diagram-pill">Deno</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    持久 DATABASE_URL<br /><small class="diagram-muted"
+      >shared by every instance</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-deploy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-deploy .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-deploy .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-deploy .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 ```
+
+</Diagram>
 
 ## 設定預設 {#setting-the-preset}
 

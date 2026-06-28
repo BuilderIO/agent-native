@@ -142,12 +142,59 @@ pnpm dev
 
 병합은 파일 이름별로 이루어집니다. 앱이 업스트림에도 존재하는 로컬 파일을 제공하는 경우 로컬 파일이 우선합니다. 그렇지 않은 경우 작업공간 공유 버전이 적용됩니다. 공유가 둘 중 하나를 제공하지 않으면 프레임워크 기본값이 시작됩니다. 이는 플러그인 skills, actions 및 `AGENTS.md`에 적용됩니다.
 
-```an-diagram title="파일 이름으로 병합된 세 개의 레이어" summary="각 앱은 먼저 앱 로컬에서 플러그인, 기술, 작업 및 AGENTS.md을 확인한 다음 공유 패키지, 프레임워크 기본값을 차례로 확인합니다."
-{
-  "html": "<div class=\"layer\"><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">1 &middot; App local</span><small class=\"diagram-muted\"><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; Workspace shared</span><small class=\"diagram-muted\"><code>packages/shared/</code> &mdash; the mid-layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">3 &middot; Framework default</span><small class=\"diagram-muted\"><code>@agent-native/core</code> &mdash; lowest</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box ok\">first match wins</div></div>",
-  "css": ".layer{display:flex;flex-direction:column;align-items:center;gap:6px}.layer .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 16px;width:320px}.layer .diagram-arrow{font-size:18px;line-height:1}.layer .diagram-box{margin-top:2px}"
+<Diagram id="doc-block-qvfn6s" title={"파일 이름으로 병합된 세 개의 레이어"} summary={"각 앱은 먼저 앱 로컬에서 플러그인, 기술, 작업 및 AGENTS.md을 확인한 다음 공유 패키지, 프레임워크 기본값을 차례로 확인합니다."}>
+
+```html
+<div class="layer">
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">1 &middot; App local</span
+    ><small class="diagram-muted"
+      ><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2 &middot; Workspace shared</span
+    ><small class="diagram-muted"
+      ><code>packages/shared/</code> &mdash; the mid-layer</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">3 &middot; Framework default</span
+    ><small class="diagram-muted"
+      ><code>@agent-native/core</code> &mdash; lowest</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&darr;</div>
+  <div class="diagram-box ok">first match wins</div>
+</div>
+```
+
+```css
+.layer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.layer .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px;
+  width: 320px;
+}
+.layer .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+.layer .diagram-box {
+  margin-top: 2px;
 }
 ```
+
+</Diagram>
 
 한 앱에 다른 것이 필요한 경우 로컬 파일을 삭제하세요.
 
@@ -252,12 +299,48 @@ npx @agent-native/core@latest deploy
 
 각 앱은 `APP_BASE_PATH=/<name>` 및 `VITE_APP_BASE_PATH=/<name>`로 제작되었으며 선택한 Nitro 사전 설정을 통해 방출됩니다. Cloudflare Pages는 기본 사전 설정이며 `dist/_worker.js` 및 `_routes.json`의 디스패처 작업자를 사용합니다. Netlify는 `npx @agent-native/core@latest deploy --preset netlify`에서 지원됩니다. `.netlify/functions-internal/<app>-server`에서 앱 기능을 내보내고 정적 자산을 강제로 적용하지 않는 리디렉션을 생성하여 CDN가 파일을 먼저 제공합니다. Vercel은 `npx @agent-native/core@latest deploy --preset vercel`에서 지원됩니다. Vercel의 빌드 출력 API를 사용하여 루트 `.vercel/output` 번들을 작성합니다.
 
-```an-diagram title="통합 배포: 하나의 원본, 앱당 하나의 경로" summary="모든 앱은 단일 원본으로 제공되므로 로그인 세션과 앱 간 A2A은 무료입니다."
-{
-  "html": "<div class=\"deploy\"><div class=\"diagram-box accent\">your-agents.com<br><small class=\"diagram-muted\">one DNS record &middot; one cert &middot; one CDN</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"deploy-apps\"><div class=\"diagram-box\">/mail/*</div><div class=\"diagram-box\">/calendar/*</div><div class=\"diagram-box\">/forms/*</div></div><div class=\"diagram-pill ok\">shared login cookie on the apex &bull; same-origin A2A, no CORS</div></div>",
-  "css": ".deploy{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.deploy .deploy-apps{display:flex;flex-direction:column;gap:8px}.deploy .diagram-arrow{font-size:24px}.deploy .diagram-pill{flex-basis:100%}"
+<Diagram id="doc-block-1y0mlsh" title={"통합 배포: 하나의 원본, 앱당 하나의 경로"} summary={"모든 앱은 단일 원본으로 제공되므로 로그인 세션과 앱 간 A2A은 무료입니다."}>
+
+```html
+<div class="deploy">
+  <div class="diagram-box accent">
+    your-agents.com<br /><small class="diagram-muted"
+      >one DNS record &middot; one cert &middot; one CDN</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="deploy-apps">
+    <div class="diagram-box">/mail/*</div>
+    <div class="diagram-box">/calendar/*</div>
+    <div class="diagram-box">/forms/*</div>
+  </div>
+  <div class="diagram-pill ok">
+    shared login cookie on the apex &bull; same-origin A2A, no CORS
+  </div>
+</div>
+```
+
+```css
+.deploy {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.deploy .deploy-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.deploy .diagram-arrow {
+  font-size: 24px;
+}
+.deploy .diagram-pill {
+  flex-basis: 100%;
 }
 ```
+
+</Diagram>
 
 **동일한 출처**에 있다는 것이 진정한 보상이 되는 곳입니다:
 

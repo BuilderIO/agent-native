@@ -14,12 +14,60 @@ Esto es complementario a la puntuación post-hoc en [Observability](/docs/observ
 
 El ejecutor resuelve un motor/modelo independiente del proveedor a partir del registro existente (ningún modelo está codificado), por lo que el mismo conjunto se ejecuta en cualquier motor para el que esté configurada la aplicación.
 
-```an-diagram title="De entrada fija a puerta desplegable" summary="En realidad, el corredor ejecuta el ciclo del agente en cada caso, califica la salida y sale con un valor distinto de cero si algún puntaje cae por debajo del umbral, lo que la convierte en una puerta de CI directa."
-{
-  "html": "<div class=\"eval-flow\"><div class=\"diagram-node\">*.eval.ts<br><small class=\"diagram-muted\">prompt + expected behavior</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Ejecutar el bucle del agente<br><small class=\"diagram-muted\">real engine/model</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Scorers<br><small class=\"diagram-muted\">every one must pass threshold</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box ok\">exit 0 &rarr; deploy</div><div class=\"diagram-box warn\">exit 1 &rarr; block</div></div></div>",
-  "css": ".eval-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.eval-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.eval-flow .diagram-col{display:flex;flex-direction:column;gap:8px}.eval-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-wwpjhp" title="De entrada fija a puerta desplegable" summary={"En realidad, el corredor ejecuta el ciclo del agente en cada caso, califica la salida y sale con un valor distinto de cero si algún puntaje cae por debajo del umbral, lo que la convierte en una puerta de CI directa."}>
+
+```html
+<div class="eval-flow">
+  <div class="diagram-node">
+    *.eval.ts<br /><small class="diagram-muted"
+      >prompt + expected behavior</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Ejecutar el bucle del agente<br /><small class="diagram-muted"
+      >real engine/model</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Scorers<br /><small class="diagram-muted"
+      >every one must pass threshold</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box ok">exit 0 &rarr; deploy</div>
+    <div class="diagram-box warn">exit 1 &rarr; block</div>
+  </div>
+</div>
+```
+
+```css
+.eval-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.eval-flow .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.eval-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eval-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Escribir una evaluación {#writing}
 
@@ -80,12 +128,58 @@ Importado de `@agent-native/core/eval`:
 
 `createScorer` construye un anotador a partir de un proceso de 4 pasos estilo Mastra. Sólo se requiere `generateScore`:
 
-```an-diagram title="El proceso de anotador de 4 pasos" summary="preprocesar y analizar la identidad predeterminada; solo se requiere generateScore. analizar puede ejecutar JS simple o llamar a un juez LLM a través de ctx."
-{
-  "html": "<div class=\"scorer\"><div class=\"diagram-card\"><span class=\"diagram-pill\">preprocess(run)</span><small class=\"diagram-muted\">transform the run/output &middot; optional</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">analyze(x, ctx)</span><small class=\"diagram-muted\">plain JS or LLM judge &middot; optional</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">generateScore(a)</span><small class=\"diagram-muted\">&rarr; 0..1 normalized &middot; <strong>required</strong></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">generateReason</span><small class=\"diagram-muted\">human-readable why &middot; optional</small></div></div>",
-  "css": ".scorer{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.scorer .diagram-card{display:flex;flex-direction:column;gap:2px;padding:8px 12px}.scorer .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-1udflw2" title="El proceso de anotador de 4 pasos" summary={"preprocesar y analizar la identidad predeterminada; solo se requiere generateScore. analizar puede ejecutar JS simple o llamar a un juez LLM a través de ctx."}>
+
+```html
+<div class="scorer">
+  <div class="diagram-card">
+    <span class="diagram-pill">preprocess(run)</span
+    ><small class="diagram-muted"
+      >transform the run/output &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">analyze(x, ctx)</span
+    ><small class="diagram-muted"
+      >plain JS or LLM judge &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">generateScore(a)</span
+    ><small class="diagram-muted"
+      >&rarr; 0..1 normalized &middot; <strong>required</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">generateReason</span
+    ><small class="diagram-muted">human-readable why &middot; optional</small>
+  </div>
+</div>
+```
+
+```css
+.scorer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.scorer .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.scorer .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ```text
 preprocess(run)     → x          transform the run/output (optional)

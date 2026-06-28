@@ -112,12 +112,59 @@ No agregue un directorio `data/` para el estado de la aplicación. Los datos dur
 
 Las cuatro áreas de cada plantilla se conectan a través de una superficie de acción compartida y una base de datos SQL: el agente y el UI son socios iguales en las mismas operaciones:
 
-```an-diagram title="Cómo se conectan las cuatro áreas de una plantilla" summary="Tanto la UI como el agente llegan a SQL mediante las mismas acciones; el estado de la aplicación y la sincronización del sondeo los mantienen alineados."
-{
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">UI React<br><small class=\"diagram-muted\">app/routes · componentes</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Acciones</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL vía Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Sondeoing sync</div></div>",
-  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1reooa2" title={"Cómo se conectan las cuatro áreas de una plantilla"} summary={"Tanto la UI como el agente llegan a SQL mediante las mismas acciones; el estado de la aplicación y la sincronización del sondeo los mantienen alineados."}>
+
+```html
+<div class="diagram-tmpl">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      UI React<br /><small class="diagram-muted"
+        >app/routes · componentes</small
+      >
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">AGENTS.md · skills</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Acciones</span
+    ><small class="diagram-muted">defineAction()</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL vía Drizzle<br /><small class="diagram-muted">additive schema</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">Sondeoing sync</div>
+</div>
+```
+
+```css
+.diagram-tmpl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-tmpl .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-tmpl .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-tmpl .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Datos del modelo en SQL {#data-models}
 

@@ -7,12 +7,47 @@ description: "모델의 스트리밍된 출력과 도구 호출을 중간에 관
 
 `Processor`는 에이전트 실행을 위한 루프 내부 **관찰자/가드레일**입니다. 모델의 스트리밍된 출력을 관찰하고 도구는 _실행이 진행됨에 따라_ 요청을 호출하고 자체 스크래치 상태를 유지하며 "완료"가 요청되기 전에 실행을 **중단**할 수 있습니다. 이는 실시간 가드레일(허용되지 않는 출력 미드스트림 차단) 및 완료 증명/커버리지 게이트(모델이 수행할 작업을 검사하고 중지)에 대한 구조적 전제 조건입니다.
 
-```an-diagram title="세 개의 갈고리가 달려가는 곳" summary="processOutputStream은 모든 청크를 감시하고, processOutputStep은 응답당 도구 호출을 게이트하고, processOutputResult는 마지막에 판정을 기록합니다. 모든 후크는 TripWire을 사용하여 중단할 수 있습니다."
-{
-  "html": "<div class=\"diagram-proc\"><div class=\"diagram-node\" data-rough>stream chunks<br><small class=\"diagram-muted\">processOutputStream</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>per model response<br><small class=\"diagram-muted\">processOutputStep — 도구 호출 제어</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>run end<br><small class=\"diagram-muted\">processOutputResult — 판정</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-pill warn\">abort() &rarr; TripWire &rarr; tripwire event</div></div>",
-  "css": ".diagram-proc{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-proc .diagram-arrow{font-size:22px;line-height:1}.diagram-proc .diagram-pill{flex-basis:100%}"
+<Diagram id="doc-block-1efxdmn" title={"세 개의 갈고리가 달려가는 곳"} summary={"processOutputStream은 모든 청크를 감시하고, processOutputStep은 응답당 도구 호출을 게이트하고, processOutputResult는 마지막에 판정을 기록합니다. 모든 후크는 TripWire을 사용하여 중단할 수 있습니다."}>
+
+```html
+<div class="diagram-proc">
+  <div class="diagram-node" data-rough>
+    stream chunks<br /><small class="diagram-muted">processOutputStream</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    per model response<br /><small class="diagram-muted"
+      >processOutputStep — 도구 호출 제어</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    run end<br /><small class="diagram-muted">processOutputResult — 판정</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-pill warn">
+    abort() &rarr; TripWire &rarr; tripwire event
+  </div>
+</div>
+```
+
+```css
+.diagram-proc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-proc .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-proc .diagram-pill {
+  flex-basis: 100%;
 }
 ```
+
+</Diagram>
 
 > [!WARNING]
 > 프로세서는 **구성**이지 도구나 작업이 아니며 저작 DSL도 아닙니다. 프로세서는 자체 스트림 범위 상태와 `abort()`만 관찰하고 변경합니다. 앱 동작을 정의하거나 actions를 대체하거나 모델에 나타나지 않습니다. 앱 작업은 [actions](/docs/actions)에 속합니다.

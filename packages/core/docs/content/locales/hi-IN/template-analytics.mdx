@@ -18,12 +18,54 @@ description: "एनालिटिक्स प्रश्न सादे अ
 
 यह एम्प्लिट्यूड, मिक्सपैनल और लुकर के लिए एक ओपन-सोर्स प्रतिस्थापन है - उन टीमों के लिए जो कोड, क्वेरी और डेटा का मालिक बनना चाहते हैं।
 
-```an-diagram title="चार्ट के लिए प्रश्न" summary="एजेंट डेटा डिक्शनरी की जांच करता है, SQL लिखता है, इसे वेयरहाउस के विरुद्ध मान्य करता है, फिर एक चार्ट प्रस्तुत करता है या एक पैनल सहेजता है।"
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">सरल भाषा<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL लिखता है</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run वैलिडेट</div><small class=\"diagram-muted\">BigQuery / स्रोत</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">चार्ट, तालिका, या<br>saved panel</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-4wce3v" title={"चार्ट के लिए प्रश्न"} summary={"एजेंट डेटा डिक्शनरी की जांच करता है, SQL लिखता है, इसे वेयरहाउस के विरुद्ध मान्य करता है, फिर एक चार्ट प्रस्तुत करता है या एक पैनल सहेजता है।"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">सरल भाषा<br />question</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">reads data dictionary</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>SQL लिखता है</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill ok">Dry-run वैलिडेट</div>
+    <small class="diagram-muted">BigQuery / स्रोत</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">चार्ट, तालिका, या<br />saved panel</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## आप इसके साथ क्या कर सकते हैं
 

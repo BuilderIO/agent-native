@@ -20,12 +20,81 @@ Sie können auch [connect remote (HTTP) MCP servers at runtime](#remote-via-ui) 
 
 Jede Quelle wird in einen Laufzeit-**MCP-Manager** aufgelöst, und jedes erlernte Tool landet in der Tool-Registrierung des Agenten unter einem kollisionssicheren `mcp__<server-id>__<tool>`-Präfix – gezielt durchsuchbar über `tool-search`.
 
-```an-diagram title="Kundenanweisung: viele Quellen, eine Tool-Registrierung" summary="Konfigurationsdateien, Umgebung und Laufzeit-Benutzeroberfläche werden alle im MCP-Manager zusammengeführt; Seine Tools werden neben den Aktionen Ihrer App als Präfix angezeigt und sind durchsuchbar. Dies ist der Spiegel der Serverrichtung."
-{
-  "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">app-übergreifend geteilt</small></div><div class=\"diagram-box\" data-rough>App-Root <code>mcp.config.json</code><br><small class=\"diagram-muted\">Override pro App</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / Produktion</small></div><div class=\"diagram-box\" data-rough>Remote über Einstellungs-UI<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP-Manager</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">Agentenwerkzeug registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">nach Absicht entdecken</small></div></div></div>",
-  "css": ".mcp-merge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-merge .diagram-col{display:flex;flex-direction:column;gap:8px}.mcp-merge .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-merge .diagram-arrow{font-size:22px;line-height:1}.mcp-merge code{font-size:.85em}"
+<Diagram id="doc-block-71jtwy" title="Kundenanweisung: viele Quellen, eine Tool-Registrierung" summary={"Konfigurationsdateien, Umgebung und Laufzeit-Benutzeroberfläche werden alle im MCP-Manager zusammengeführt; Seine Tools werden neben den Aktionen Ihrer App als Präfix angezeigt und sind durchsuchbar. Dies ist der Spiegel der Serverrichtung."}>
+
+```html
+<div class="mcp-merge">
+  <div class="diagram-col sources">
+    <div class="diagram-box" data-rough>
+      Workspace <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >app-übergreifend geteilt</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      App-Root <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >Override pro App</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      <code>MCP_SERVERS</code> env<br /><small class="diagram-muted"
+        >CI / Produktion</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      Remote über Einstellungs-UI<br /><small class="diagram-muted"
+        >personal &amp; org scope</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">MCP-Manager</span
+    ><small class="diagram-muted">merge &middot; hot-reload</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col out">
+    <div class="diagram-node">
+      Agentenwerkzeug registry<br /><small class="diagram-muted"
+        ><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small
+      >
+    </div>
+    <div class="diagram-node">
+      <code>tool-search</code><br /><small class="diagram-muted"
+        >nach Absicht entdecken</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.mcp-merge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-merge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mcp-merge .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-merge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-merge code {
+  font-size: 0.85em;
 }
 ```
+
+</Diagram>
 
 > Die entgegengesetzte Richtung – _Ihre_ App zu einem MCP-Server zu machen, den andere Hosts nutzen – findet in [MCP Protocol](/docs/mcp-protocol) und [External Agents](/docs/external-agents) statt.
 
@@ -216,12 +285,68 @@ Wenn in Ihrem Arbeitsbereich mehrere agentennative Apps ausgeführt werden (z. B
 
 Dispatch ist der herkömmliche Hub – er koordiniert bereits alle Apps.
 
-```an-diagram title="Hub-Modell: Eine App bedient MCP-Server im Organisationsbereich" summary="Dispatch enthält die MCP-Server im Organisationsbereich; Verbraucher-Apps rufen sie ab und führen sie als mcp__hub_<orgId>_<name>__* zusammen. Es werden nur Zeilen für den Organisationsbereich freigegeben – persönliche Anmeldeinformationen bleiben erhalten."
-{
-  "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">MCP-Server mit Organisationsscope</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">Pull + Merge alle ~60 s</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
-  "css": ".mcp-hub{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-hub .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-hub .diagram-col{display:flex;flex-direction:column;gap:10px}.mcp-hub .arrows .diagram-arrow{font-size:22px;line-height:1}.mcp-hub .note{margin:8px 0 0;font-size:.85em}.mcp-hub code{font-size:.85em}"
+<Diagram id="doc-block-ahesy5" title="Hub-Modell: Eine App bedient MCP-Server im Organisationsbereich" summary={"Dispatch enthält die MCP-Server im Organisationsbereich; Verbraucher-Apps rufen sie ab und führen sie als mcp__hub_<orgId>_<name>__* zusammen. Es werden nur Zeilen für den Organisationsbereich freigegeben – persönliche Anmeldeinformationen bleiben erhalten."}>
+
+```html
+<div class="mcp-hub">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Dispatch hub</span
+    ><small class="diagram-muted">MCP-Server mit Organisationsscope</small
+    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+  </div>
+  <div class="diagram-col arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  </div>
+  <div class="diagram-col consumers">
+    <div class="diagram-box" data-rough>
+      Mail<br /><small class="diagram-muted"
+        ><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      Clips<br /><small class="diagram-muted">Pull + Merge alle ~60 s</small>
+    </div>
+  </div>
+</div>
+<p class="diagram-muted note">
+  Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope)
+  servers are never re-exposed.
+</p>
+```
+
+```css
+.mcp-hub {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-hub .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-hub .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-hub .arrows .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-hub .note {
+  margin: 8px 0 0;
+  font-size: 0.85em;
+}
+.mcp-hub code {
+  font-size: 0.85em;
 }
 ```
+
+</Diagram>
 
 Für neue Arbeitsbereich-Setups bevorzugen Sie **Verteilen Sie Arbeitsbereich-MCP-Ressourcen**, wenn Sie
 Sie möchten dasselbe Gewährungsmodell für alle Apps und ausgewählte Apps, das auch im Arbeitsbereich skills verwendet wird.

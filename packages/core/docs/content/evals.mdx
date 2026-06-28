@@ -14,12 +14,60 @@ This is complementary to the post-hoc scoring in [Observability](/docs/observabi
 
 The runner resolves a provider-agnostic engine/model from the existing registry — no model is hardcoded — so the same suite runs against whatever engine the app is configured for.
 
-```an-diagram title="From fixed input to deploy gate" summary="The runner actually runs the agent loop on each case, scores the output, and exits non-zero if any scorer falls below threshold — making it a drop-in CI gate."
-{
-  "html": "<div class=\"eval-flow\"><div class=\"diagram-node\">*.eval.ts<br><small class=\"diagram-muted\">prompt + expected behavior</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Run the agent loop<br><small class=\"diagram-muted\">real engine/model</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Scorers<br><small class=\"diagram-muted\">every one must pass threshold</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box ok\">exit 0 &rarr; deploy</div><div class=\"diagram-box warn\">exit 1 &rarr; block</div></div></div>",
-  "css": ".eval-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.eval-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.eval-flow .diagram-col{display:flex;flex-direction:column;gap:8px}.eval-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1c3v8wg" title="From fixed input to deploy gate" summary={"The runner actually runs the agent loop on each case, scores the output, and exits non-zero if any scorer falls below threshold — making it a drop-in CI gate."}>
+
+```html
+<div class="eval-flow">
+  <div class="diagram-node">
+    *.eval.ts<br /><small class="diagram-muted"
+      >prompt + expected behavior</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Run the agent loop<br /><small class="diagram-muted"
+      >real engine/model</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Scorers<br /><small class="diagram-muted"
+      >every one must pass threshold</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box ok">exit 0 &rarr; deploy</div>
+    <div class="diagram-box warn">exit 1 &rarr; block</div>
+  </div>
+</div>
+```
+
+```css
+.eval-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.eval-flow .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.eval-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eval-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Writing an eval {#writing}
 
@@ -80,12 +128,58 @@ Imported from `@agent-native/core/eval`:
 
 `createScorer` builds a scorer from a Mastra-style 4-step pipeline. Only `generateScore` is required:
 
-```an-diagram title="The 4-step scorer pipeline" summary="preprocess and analyze default to identity; only generateScore is required. analyze can run plain JS or call an LLM judge via ctx."
-{
-  "html": "<div class=\"scorer\"><div class=\"diagram-card\"><span class=\"diagram-pill\">preprocess(run)</span><small class=\"diagram-muted\">transform the run/output &middot; optional</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">analyze(x, ctx)</span><small class=\"diagram-muted\">plain JS or LLM judge &middot; optional</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">generateScore(a)</span><small class=\"diagram-muted\">&rarr; 0..1 normalized &middot; <strong>required</strong></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">generateReason</span><small class=\"diagram-muted\">human-readable why &middot; optional</small></div></div>",
-  "css": ".scorer{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.scorer .diagram-card{display:flex;flex-direction:column;gap:2px;padding:8px 12px}.scorer .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-x7o5bx" title="The 4-step scorer pipeline" summary={"preprocess and analyze default to identity; only generateScore is required. analyze can run plain JS or call an LLM judge via ctx."}>
+
+```html
+<div class="scorer">
+  <div class="diagram-card">
+    <span class="diagram-pill">preprocess(run)</span
+    ><small class="diagram-muted"
+      >transform the run/output &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">analyze(x, ctx)</span
+    ><small class="diagram-muted"
+      >plain JS or LLM judge &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">generateScore(a)</span
+    ><small class="diagram-muted"
+      >&rarr; 0..1 normalized &middot; <strong>required</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">generateReason</span
+    ><small class="diagram-muted">human-readable why &middot; optional</small>
+  </div>
+</div>
+```
+
+```css
+.scorer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.scorer .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.scorer .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ```text
 preprocess(run)     → x          transform the run/output (optional)

@@ -153,12 +153,42 @@ pnpm dev
 That one action is now reachable from the chat UI, the CLI, HTTP, MCP, A2A,
 scheduled jobs, and webhooks. Define once, call from anywhere.
 
-```an-diagram title="One action, every surface" summary="A single defineAction file fans out to every consumer with no extra wiring."
-{
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">Chat UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">Scheduled jobs</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
-  "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1myddxf" title="One action, every surface" summary="A single defineAction file fans out to every consumer with no extra wiring.">
+
+```html
+<div class="diagram-fan">
+  <div class="diagram-box" data-rough>defineAction</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-surfaces">
+    <span class="diagram-pill">Chat UI</span
+    ><span class="diagram-pill">CLI</span><span class="diagram-pill">HTTP</span
+    ><span class="diagram-pill">MCP</span><span class="diagram-pill">A2A</span
+    ><span class="diagram-pill">Scheduled jobs</span
+    ><span class="diagram-pill">Webhooks</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-fan {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-fan .diagram-surfaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 420px;
+}
+.diagram-fan .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## State is built in
 

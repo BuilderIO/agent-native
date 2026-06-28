@@ -27,12 +27,71 @@ Você não precisa criar um agente nativo do zero. O bate-papo do agente, a guia
 
 Todos eles são exportados de `@agent-native/core/client`.
 
-```an-diagram title="O modelo de montagem" summary="<AgentSidebar> envolve seu layout existente. Suas rotas são renderizadas na área principal; o painel do agente é montado ao lado deles. <AgentPanel> é o mesmo painel sem o wrapper."
-{
-  "html": "<div class=\"diagram-mount\"><div class=\"diagram-box sidebar\" data-rough><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><div class=\"inner\"><div class=\"diagram-node main\">Seu aplicativo<br><small class=\"diagram-muted\">children: header + &lt;Outlet/&gt;</small></div><div class=\"diagram-node panel\">Painel do agente<br><small class=\"diagram-muted\">chat &middot; CLI &middot; workspace</small></div></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card alt\"><span class=\"diagram-pill\">&lt;AgentPanel&gt;</span><small class=\"diagram-muted\">same panel, no wrapper &mdash; you own the layout</small></div></div>",
-  "css": ".diagram-mount{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mount .sidebar{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-mount .inner{display:flex;gap:10px}.diagram-mount .main{flex:2}.diagram-mount .panel{flex:1}.diagram-mount .alt{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-mount .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-kyw6fz" title="O modelo de montagem" summary={"<AgentSidebar> envolve seu layout existente. Suas rotas são renderizadas na área principal; o painel do agente é montado ao lado deles. <AgentPanel> é o mesmo painel sem o wrapper."}>
+
+```html
+<div class="diagram-mount">
+  <div class="diagram-box sidebar" data-rough>
+    <span class="diagram-pill accent">&lt;AgentSidebar&gt;</span>
+    <div class="inner">
+      <div class="diagram-node main">
+        Seu aplicativo<br /><small class="diagram-muted"
+          >children: header + &lt;Outlet/&gt;</small
+        >
+      </div>
+      <div class="diagram-node panel">
+        Painel do agente<br /><small class="diagram-muted"
+          >chat &middot; CLI &middot; workspace</small
+        >
+      </div>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-card alt">
+    <span class="diagram-pill">&lt;AgentPanel&gt;</span
+    ><small class="diagram-muted"
+      >same panel, no wrapper &mdash; you own the layout</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-mount {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mount .sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.diagram-mount .inner {
+  display: flex;
+  gap: 10px;
+}
+.diagram-mount .main {
+  flex: 2;
+}
+.diagram-mount .panel {
+  flex: 1;
+}
+.diagram-mount .alt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-mount .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## O caso 80%: `<AgentSidebar>` {#sidebar}
 

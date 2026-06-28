@@ -85,6 +85,12 @@ type EstreeNode = {
   kind?: string;
   property?: EstreeNode;
   object?: EstreeNode;
+  quasis?: Array<{
+    type?: string;
+    value?: { cooked?: string | null; raw?: string };
+    range?: unknown;
+  }>;
+  expressions?: EstreeNode[];
   sourceType?: string;
   comments?: unknown[];
   loc?: unknown;
@@ -975,7 +981,149 @@ function serializeArtboard(frame: PlanArtboard, indent = ""): string {
 }
 
 function parseMdx(source: string): MdxNode {
-  return mdxProcessor().parse(source) as unknown as MdxNode;
+  const tree = mdxProcessor().parse(source) as unknown as MdxNode;
+  restoreStaticTemplateLiteralAttributes(tree, source);
+  return tree;
+}
+
+function restoreStaticTemplateLiteralAttributes(tree: MdxNode, source: string) {
+  const walk = (node: MdxNode | undefined) => {
+    if (!node) return;
+    for (const attr of node.attributes ?? []) {
+      restoreStaticTemplateLiteralAttribute(attr, source);
+    }
+    for (const child of node.children ?? []) walk(child);
+  };
+  walk(tree);
+}
+
+function restoreStaticTemplateLiteralAttribute(
+  attr: MdxAttribute,
+  source: string,
+) {
+  if (attr.type !== "mdxJsxAttribute") return;
+  if (!attr.value || typeof attr.value !== "object") return;
+  const expression = staticTemplateLiteralExpression(attr.value);
+  if (!expression) return;
+  const range = expression.range;
+  if (
+    !Array.isArray(range) ||
+    range.length !== 2 ||
+    typeof range[0] !== "number" ||
+    typeof range[1] !== "number"
+  ) {
+    return;
+  }
+  const rawTemplate = source.slice(range[0], range[1]);
+  if (!rawTemplate.startsWith("`") || !rawTemplate.endsWith("`")) return;
+
+  const restored = decodeTemplateLiteralRaw(rawTemplate.slice(1, -1));
+  const quasi = expression.quasis?.[0];
+  if (quasi?.value) {
+    quasi.value.cooked = restored;
+    quasi.value.raw = rawTemplate.slice(1, -1);
+  }
+  attr.value.value = rawTemplate;
+}
+
+function staticTemplateLiteralExpression(
+  expression: MdxExpression,
+): EstreeNode | undefined {
+  const estree = (expression.data as { estree?: EstreeNode } | undefined)
+    ?.estree;
+  const statement = estree?.body?.[0];
+  const node = statement?.expression;
+  if (!node || node.type !== "TemplateLiteral") return undefined;
+  if ((node.expressions?.length ?? 0) > 0) return undefined;
+  if ((node.quasis?.length ?? 0) !== 1) return undefined;
+  return node;
+}
+
+function decodeTemplateLiteralRaw(raw: string): string {
+  let out = "";
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (char !== "\\") {
+      out += char;
+      continue;
+    }
+
+    const next = raw[index + 1];
+    if (next === undefined) {
+      out += "\\";
+      continue;
+    }
+    if (next === "\r" && raw[index + 2] === "\n") {
+      index += 2;
+      continue;
+    }
+    if (next === "\n" || next === "\r") {
+      index += 1;
+      continue;
+    }
+
+    switch (next) {
+      case "b":
+        out += "\b";
+        index += 1;
+        continue;
+      case "f":
+        out += "\f";
+        index += 1;
+        continue;
+      case "n":
+        out += "\n";
+        index += 1;
+        continue;
+      case "r":
+        out += "\r";
+        index += 1;
+        continue;
+      case "t":
+        out += "\t";
+        index += 1;
+        continue;
+      case "v":
+        out += "\v";
+        index += 1;
+        continue;
+      case "0":
+        out += "\0";
+        index += 1;
+        continue;
+      case "x": {
+        const hex = raw.slice(index + 2, index + 4);
+        if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+          out += String.fromCharCode(Number.parseInt(hex, 16));
+          index += 3;
+          continue;
+        }
+        break;
+      }
+      case "u": {
+        if (raw[index + 2] === "{") {
+          const close = raw.indexOf("}", index + 3);
+          const hex = close >= 0 ? raw.slice(index + 3, close) : "";
+          if (/^[0-9a-fA-F]+$/.test(hex)) {
+            out += String.fromCodePoint(Number.parseInt(hex, 16));
+            index = close;
+            continue;
+          }
+        }
+        const hex = raw.slice(index + 2, index + 6);
+        if (/^[0-9a-fA-F]{4}$/.test(hex)) {
+          out += String.fromCharCode(Number.parseInt(hex, 16));
+          index += 5;
+          continue;
+        }
+        break;
+      }
+    }
+
+    out += next;
+    index += 1;
+  }
+  return out;
 }
 
 function stringifyMdx(tree: MdxNode): string {

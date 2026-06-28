@@ -33,12 +33,60 @@ description: "تتبعات الوكيل، وعمليات التقييم، وال
 
 لا يلزم إجراء تغييرات على التعليمات البرمجية. يتم ربط الأجهزة بـ `production-agent.ts` بشفافية.
 
-```an-diagram title="كل شوط يغذي الحلقة" summary="ينتج عن تشغيل وكيل واحد تتبعًا ونتائج تلقائية وخطافًا للتعليقات - يتم تخزين كل ذلك في SQL الخاص بالتطبيق ويظهر على لوحة المعلومات. تقوم التجارب بتقسيم حركة المرور عبر متغيرات التكوين."
-{
-  "html": "<div class=\"obs-loop\"><div class=\"diagram-node\">تشغيل الوكيل<br><small class=\"diagram-muted\">production-agent.ts</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">يلتقط تلقائيا</span><small class=\"diagram-muted\">tokens &middot; cost &middot; latency &middot; tool calls</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Traces &amp; spans</div><div class=\"diagram-box\">Evals (5 scorers + LLM judge)</div><div class=\"diagram-box\">Feedback &amp; frustration index</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">Dashboard<br><small class=\"diagram-muted\">scoped to the signed-in user</small></div></div>",
-  "css": ".obs-loop{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.obs-loop .diagram-col{display:flex;flex-direction:column;gap:8px}.obs-loop .diagram-arrow{font-size:22px;line-height:1}.obs-loop .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-17pwj3a" title={"كل شوط يغذي الحلقة"} summary={"ينتج عن تشغيل وكيل واحد تتبعًا ونتائج تلقائية وخطافًا للتعليقات - يتم تخزين كل ذلك في SQL الخاص بالتطبيق ويظهر على لوحة المعلومات. تقوم التجارب بتقسيم حركة المرور عبر متغيرات التكوين."}>
+
+```html
+<div class="obs-loop">
+  <div class="diagram-node">
+    تشغيل الوكيل<br /><small class="diagram-muted">production-agent.ts</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">يلتقط تلقائيا</span
+    ><small class="diagram-muted"
+      >tokens &middot; cost &middot; latency &middot; tool calls</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">Traces &amp; spans</div>
+    <div class="diagram-box">Evals (5 scorers + LLM judge)</div>
+    <div class="diagram-box">Feedback &amp; frustration index</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    Dashboard<br /><small class="diagram-muted"
+      >scoped to the signed-in user</small
+    >
+  </div>
+</div>
+```
+
+```css
+.obs-loop {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.obs-loop .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.obs-loop .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.obs-loop .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## لوحة التحكم {#dashboard}
 
@@ -147,12 +195,58 @@ PUT /_agent-native/observability/experiments/:id
 
 استخدم معرفات الطراز الحقيقية التي يقبلها محركك بدلاً من `<your-model-id>` / `<other-model-id>` (تتغير أسماء الطرازات كثيرًا - تحقق من الموفر/المحرك الخاص بك لمعرفة المعرفات الحالية). تعمل حلقة الوكيل تلقائيًا على حل متغير المستخدم وتطبيق تجاوز التكوين. تستخدم المهمة تجزئة متسقة — يحصل المستخدم نفسه دائمًا على نفس المتغير.
 
-```an-diagram title="تعيين متغير التجزئة المتسق" summary="يقوم كل مستخدم بالتجزئة إلى متغير ثابت، وتطبق الحلقة تجاوز تكوين هذا المتغير، ويتم عرض النتائج لكل متغير مع فواصل الثقة."
-{
-  "html": "<div class=\"exp\"><div class=\"diagram-node\">معرف المستخدم<br><small class=\"diagram-muted\">تجزئة متسقة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-card\"><span class=\"diagram-pill\">control &middot; 50%</span><small class=\"diagram-muted\">تجاوز التكوين أ</small></div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">treatment &middot; 50%</span><small class=\"diagram-muted\">تجاوز التكوين ب</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">النتائج لكل متغير<br><small class=\"diagram-muted\">cost &middot; latency &middot; satisfaction</small></div></div>",
-  "css": ".exp{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.exp .diagram-col{display:flex;flex-direction:column;gap:8px}.exp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:8px 12px}.exp .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1vqpr2h" title={"تعيين متغير التجزئة المتسق"} summary={"يقوم كل مستخدم بالتجزئة إلى متغير ثابت، وتطبق الحلقة تجاوز تكوين هذا المتغير، ويتم عرض النتائج لكل متغير مع فواصل الثقة."}>
+
+```html
+<div class="exp">
+  <div class="diagram-node">
+    معرف المستخدم<br /><small class="diagram-muted">تجزئة متسقة</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-card">
+      <span class="diagram-pill">control &middot; 50%</span
+      ><small class="diagram-muted">تجاوز التكوين أ</small>
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill accent">treatment &middot; 50%</span
+      ><small class="diagram-muted">تجاوز التكوين ب</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    النتائج لكل متغير<br /><small class="diagram-muted"
+      >cost &middot; latency &middot; satisfaction</small
+    >
+  </div>
+</div>
+```
+
+```css
+.exp {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.exp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.exp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.exp .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## التكوين {#config}
 

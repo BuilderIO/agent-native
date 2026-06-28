@@ -18,12 +18,57 @@ description: "根據提示生成簡報、進行視覺化編輯並全螢幕呈現
 
 當您開啟幻燈片時，幻燈片畫布、大綱、註解和幻燈片保留在一個編輯器介面中，而代理仍然可以透過 actions 建立、修改和導覽幻燈片。
 
-```an-diagram title="提示到甲板" summary="請求一副牌，代理會透過您可以從 CLI 呼叫的相同操作一次滑入一張幻燈片。"
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">提示<br><small class=\"diagram-muted\">\"10-slide pitch deck\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">選取布局</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">create-deck</div><div class=\"diagram-pill\">add-slide &#215; n</div><small class=\"diagram-muted\">並行、流式傳輸</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>decks (SQL)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">編輯器即時渲染</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-16j4z6f" title={"提示到甲板"} summary={"請求一副牌，代理會透過您可以從 CLI 呼叫的相同操作一次滑入一張幻燈片。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    提示<br /><small class="diagram-muted">"10-slide pitch deck"</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">選取布局</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">create-deck</div>
+    <div class="diagram-pill">add-slide &#215; n</div>
+    <small class="diagram-muted">並行、流式傳輸</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>decks (SQL)</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">編輯器即時渲染</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 你可以用它做什麼
 

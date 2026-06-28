@@ -15,12 +15,50 @@ description: "एजेंट-नेटिव ऐप्स के लिए Reac
 
 ब्राउज़र से ऐप डेटा को पढ़ने और लिखने का प्राथमिक तरीका एक्शन हुक के माध्यम से है। `/_agent-native/*` मार्गों पर `fetch` कॉल को कभी भी हाथ से न लिखें - इसके बजाय नामित सहायकों का उपयोग करें ([Actions](/docs/actions) देखें)।
 
-```an-diagram title="ब्राउज़र डेटा लूप" summary="हुक क्रियाओं के माध्यम से पढ़ते और लिखते हैं; useDbSync डेटाबेस पर नज़र रखता है इसलिए एजेंट और बैकग्राउंड स्वचालित रूप से समान कैश पुनः प्राप्त करते हैं।"
-{
-  "html": "<div class=\"diagram-client\"><div class=\"diagram-col\"><div class=\"diagram-node\">useActionQuery<br><small class=\"diagram-muted\">cached read</small></div><div class=\"diagram-node\">useActionMutation<br><small class=\"diagram-muted\">write + invalidate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-box\" data-rough>Actions<br><small class=\"diagram-muted\">/_agent-native/actions/*</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>SQL डेटाबेस</strong></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">useDbSync &rarr; refetch on change</div></div>",
-  "css": ".diagram-client{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-client .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-client .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-f248eh" title={"ब्राउज़र डेटा लूप"} summary={"हुक क्रियाओं के माध्यम से पढ़ते और लिखते हैं; useDbSync डेटाबेस पर नज़र रखता है इसलिए एजेंट और बैकग्राउंड स्वचालित रूप से समान कैश पुनः प्राप्त करते हैं।"}>
+
+```html
+<div class="diagram-client">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useActionQuery<br /><small class="diagram-muted">cached read</small>
+    </div>
+    <div class="diagram-node">
+      useActionMutation<br /><small class="diagram-muted"
+        >write + invalidate</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    Actions<br /><small class="diagram-muted">/_agent-native/actions/*</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-panel" data-rough><strong>SQL डेटाबेस</strong></div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">useDbSync &rarr; refetch on change</div>
+</div>
+```
+
+```css
+.diagram-client {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-client .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-client .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ```tsx
 import {
@@ -376,12 +414,45 @@ function DashboardView({ id }) {
 - **UI-आरंभित उत्परिवर्तन:** जब आप `useActionMutation` का उपयोग करके UI से एक क्रिया निष्पादित करते हैं, तो उत्परिवर्तन तुरंत सफलता पर `source: "action"` के साथ एक स्थानीय घटना को सक्रिय करता है। यह उस क्रिया के आधार पर सभी क्वेरी कुंजियों का **तत्काल, आशावादी रीफ़ेच** ट्रिगर करता है, जिससे दृश्य विलंब से बचा जा सकता है।
 - **बैकग्राउंड या एजेंट म्यूटेशन:** जब एआई एजेंट, वेबहुक या बैकग्राउंड वर्कर डेटा को म्यूट करता है, तो अपडेट क्लाइंट को प्रसारित किया जाता है। क्लाइंट का `useDbSync` इसे या तो तुरंत SSE (सर्वर-भेजे गए इवेंट) पर कैप्चर करता है या **2-सेकंड पोलिंग टिक** पर वापस आ जाता है। इसके बाद क्वेरी कुंजी संस्करण चालू हो जाता है, जिससे पृष्ठभूमि रीफ़ेच ट्रिगर हो जाता है।
 
-```an-diagram title="रीफ़ेच के लिए दो रास्ते" summary="एक स्थानीय उत्परिवर्तन अपने स्वयं के कैश को तुरंत अमान्य कर देता है; एक दूरस्थ लेखन इस टैब पर SSE, या फ़ॉलबैक के रूप में पोलिंग टिक तक पहुंचता है।"
-{
-  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">यह टैब</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">एजेंट · webhook · दूसरा टैब</span><strong>रिमोट लेखन</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
-  "css": ".diagram-latency .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-latency .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px}"
+<Diagram id="doc-block-1o7phrk" title={"रीफ़ेच के लिए दो रास्ते"} summary={"एक स्थानीय उत्परिवर्तन अपने स्वयं के कैश को तुरंत अमान्य कर देता है; एक दूरस्थ लेखन इस टैब पर SSE, या फ़ॉलबैक के रूप में पोलिंग टिक तक पहुंचता है।"}>
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">यह टैब</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >fires source: "action" on success &rarr; instant local refetch</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">एजेंट · webhook · दूसरा टैब</span
+      ><strong>रिमोट लेखन</strong
+      ><small class="diagram-muted"
+        >SSE push, or the ~2s polling tick as fallback &rarr; version bumps
+        &rarr; background refetch</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 ## cn(...इनपुट) {#cn}
 

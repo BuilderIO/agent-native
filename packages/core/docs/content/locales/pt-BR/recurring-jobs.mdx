@@ -113,12 +113,67 @@ Summarize overnight emails.`,
 
 O agendador é um plugin de estrutura (a rotina interna `processRecurringJobs()`) que é executado no processo: um `setInterval` é acionado a cada 60 segundos (com um atraso de inicialização de 10 segundos) dentro do plugin de chat do agente, onde quer que o servidor esteja em execução.
 
-```an-diagram title="Um tick do agendador" summary="A cada 60 segundos, o agendador encontra tarefas vencidas, executa cada uma delas como um novo encadeamento de agente e grava o resultado de volta no arquivo de tarefas."
-{
-  "html": "<div class=\"sched\"><div class=\"diagram-box accent\"><code>setInterval</code> &bull; 60s &#8635;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">1 &middot; scan</span><small class=\"diagram-muted\">list every enabled <code>jobs/*.md</code> across all owners</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; due?</span><small class=\"diagram-muted\">compare <code>nextRun</code> to now</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">3 &middot; run</span><small class=\"diagram-muted\">fresh agent thread, job body as the user message &mdash; actions, SQL, A2A, email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">4 &middot; record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code>, recompute <code>nextRun</code></small></div></div>",
-  "css": ".sched{display:flex;flex-direction:column;gap:6px;max-width:520px}.sched .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.sched .diagram-box{align-self:flex-start}.sched .diagram-arrow{font-size:18px;align-self:center}"
+<Diagram id="doc-block-16bw537" title="Um tick do agendador" summary={"A cada 60 segundos, o agendador encontra tarefas vencidas, executa cada uma delas como um novo encadeamento de agente e grava o resultado de volta no arquivo de tarefas."}>
+
+```html
+<div class="sched">
+  <div class="diagram-box accent">
+    <code>setInterval</code> &bull; 60s &#8635;
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">1 &middot; scan</span
+    ><small class="diagram-muted"
+      >list every enabled <code>jobs/*.md</code> across all owners</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2 &middot; due?</span
+    ><small class="diagram-muted">compare <code>nextRun</code> to now</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">3 &middot; run</span
+    ><small class="diagram-muted"
+      >fresh agent thread, job body as the user message &mdash; actions, SQL,
+      A2A, email</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">4 &middot; record</span
+    ><small class="diagram-muted"
+      >write <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code>, recompute <code>nextRun</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.sched {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 520px;
+}
+.sched .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.sched .diagram-box {
+  align-self: flex-start;
+}
+.sched .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
 }
 ```
+
+</Diagram>
 
 <Callout id="doc-block-j6yn07" tone="risk">
 

@@ -20,6 +20,24 @@ const messages = {
       "録画を開始するには Clips 拡張機能をもう一度開いてください。",
     gotIt: "了解",
   },
+  builderCredits: {
+    pausedTitle: "Builder.io クレジットは一時停止中",
+    transcriptionDescription:
+      "バックアップ文字起こしを再開するには Builder.io をアップグレードしてください。既存のネイティブ文字起こしは表示されたままです。",
+    cleanupDescription:
+      "文字起こしのクリーンアップ、要約、AI タイトルを再開するには Builder.io をアップグレードしてください。ネイティブ文字起こしは保持されました。",
+    settingsDescription:
+      "バックアップ文字起こし、文字起こしのクリーンアップ、要約、AI タイトルを再開するには Builder.io をアップグレードしてください。既存のネイティブ文字起こしは表示されたままです。",
+    titleDescription:
+      "AI タイトル生成は一時停止中です。文字起こしは引き続き使えます。",
+    upgrade: "Builder.io をアップグレード",
+    retryAfterUpgrade: "アップグレード後に再試行",
+    openAiSetup: "AI 設定",
+    featureBackupTranscription: "バックアップ文字起こし",
+    featureCleanup: "文字起こしクリーンアップ",
+    featureSummaries: "要約",
+    featureTitles: "AI タイトル",
+  },
   recorder: {
     cameraBlurTitle: "背景をぼかす",
     cameraBlurDescription: "自分はくっきり、背景はぼかします",
@@ -336,6 +354,13 @@ const messages = {
       "この録音ではスピーチは聞き取れませんでした。それが意図的なものであれば、準備は完了です。そうでない場合は、マイクと音声の許可を確認して、文字起こしを再試行してください。",
     retry: "リトライ",
     transcriptUnavailable: "トランスクリプトは利用できません: {{reason}}",
+    transcriptUnavailableTitle: "文字起こしを利用できません",
+    providerNeedsAttention: "プロバイダーの確認が必要です",
+    providerNeedsAttentionDescription:
+      "現在のプロバイダーがこのリクエストを一時停止しました。Builder.io に切り替えるかキーを更新してから再試行してください。",
+    enableTranscriptionTitle: "文字起こしを有効にする",
+    enableTranscriptionDescription:
+      "この Clip のキャプション、文字起こし検索、要約を有効にします。",
     searchPlaceholder: "トランスクリプトの検索",
     copyTranscript: "トランスクリプトをコピーする",
     downloadSrt: ".srtをダウンロード",

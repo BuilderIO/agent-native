@@ -25,12 +25,63 @@ Agent-Native 是故意可组合的。不用太多就可以使用代理UI，
 代理只需执行一个操作，就会以表格或图表的形式出现在聊天中，然后成为
 应用程序中的全屏，而不更改代理调用的操作。
 
-```an-diagram title="表面光谱" summary="一个操作界面，四种产品形状——每一种都增加了 UI，而不改变下面的操作。"
-{
-  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions、任务、脚本、其他代理</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>丰富聊天</strong><small class=\"diagram-muted\">输入框、转录、工具卡片</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>嵌入式 sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">大部分 UI</span><strong>完整应用</strong><small class=\"diagram-muted\">持久屏幕、数据、协作</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">相同 actions · 相同 SQL · 相同代理循环</span></div>",
-  "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-qhr3cz" title={"表面光谱"} summary={"一个操作界面，四种产品形状——每一种都增加了 UI，而不改变下面的操作。"}>
+
+```html
+<div class="diagram-spectrum">
+  <div class="diagram-card">
+    <strong>Headless</strong
+    ><small class="diagram-muted">actions、任务、脚本、其他代理</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>丰富聊天</strong
+    ><small class="diagram-muted">输入框、转录、工具卡片</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>嵌入式 sidecar</strong
+    ><small class="diagram-muted">agent beside an existing app</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">大部分 UI</span><strong>完整应用</strong
+    ><small class="diagram-muted">持久屏幕、数据、协作</small>
+  </div>
+</div>
+<div class="diagram-base" data-rough>
+  <span class="diagram-muted">相同 actions · 相同 SQL · 相同代理循环</span>
+</div>
+```
+
+```css
+.diagram-spectrum {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-spectrum .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+  flex: 1;
+}
+.diagram-spectrum .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-base {
+  margin-top: 12px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## 无头代理 {#headless}
 
@@ -347,12 +398,61 @@ export function AppShell({ children }) {
 }
 ```
 
-```an-diagram title="Sidecar 如何桥接到主机应用程序" summary="该插件在服务器端挂载 Agent-Native 路由； React sidecar 流输入页面上下文并输出主机命令。"
-{
-  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>宿主应用</strong><small class=\"diagram-muted\">你现有的 SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">路由 · 选择</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">宿主命令</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native 路由<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
-  "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-oblpnz" title={"Sidecar 如何桥接到主机应用程序"} summary={"该插件在服务器端挂载 Agent-Native 路由； React sidecar 流输入页面上下文并输出主机命令。"}>
+
+```html
+<div class="diagram-sidecar">
+  <div class="diagram-panel">
+    <strong>宿主应用</strong><small class="diagram-muted">你现有的 SaaS</small>
+    <div class="diagram-node">
+      getContext()<br /><small class="diagram-muted">路由 · 选择</small>
+    </div>
+    <div class="diagram-node">
+      onNavigate / onRefresh<br /><small class="diagram-muted">宿主命令</small>
+    </div>
+  </div>
+  <div class="diagram-col-arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  </div>
+  <div class="diagram-panel accent-panel">
+    <span class="diagram-pill accent">AgentNativeEmbedded</span
+    ><small class="diagram-muted">agent + workspace</small>
+    <div class="diagram-box" data-rough>
+      Agent-Native 路由<br /><small class="diagram-muted"
+        >mounted by the server plugin</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-sidecar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-sidecar .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-width: 200px;
+}
+.diagram-sidecar .diagram-col-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-sidecar .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 请参阅 [Embedding SDK](/docs/embedding-sdk) 以了解主机身份验证、数据库隔离，
 iframe/picker 模式，以及较低级别的桥 APIs。

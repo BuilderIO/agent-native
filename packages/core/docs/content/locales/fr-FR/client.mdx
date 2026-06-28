@@ -15,12 +15,52 @@ Pour le routage basé sur des fichiers (ajout de pages, de paramètres dynamique
 
 Le principal moyen de lire et d'écrire des données d'application à partir du navigateur consiste à utiliser les crochets d'action. N'écrivez jamais manuellement les appels `fetch` vers les routes `/_agent-native/*` ; utilisez plutôt les assistants nommés (voir [Actions](/docs/actions)).
 
-```an-diagram title="La boucle de données du navigateur" summary="Les hooks lisent et écrivent via des actions ; useDbSync surveille la base de données afin que les écritures de l'agent et en arrière-plan récupèrent automatiquement les mêmes caches."
-{
-  "html": "<div class=\"diagram-client\"><div class=\"diagram-col\"><div class=\"diagram-node\">useActionQuery<br><small class=\"diagram-muted\">cached read</small></div><div class=\"diagram-node\">useActionMutation<br><small class=\"diagram-muted\">write + invalidate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-box\" data-rough>Actions<br><small class=\"diagram-muted\">/_agent-native/actions/*</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>base de données SQL</strong></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">useDbSync &rarr; refetch on change</div></div>",
-  "css": ".diagram-client{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-client .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-client .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-u8e2p3" title={"La boucle de données du navigateur"} summary={"Les hooks lisent et écrivent via des actions ; useDbSync surveille la base de données afin que les écritures de l'agent et en arrière-plan récupèrent automatiquement les mêmes caches."}>
+
+```html
+<div class="diagram-client">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useActionQuery<br /><small class="diagram-muted">cached read</small>
+    </div>
+    <div class="diagram-node">
+      useActionMutation<br /><small class="diagram-muted"
+        >write + invalidate</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    Actions<br /><small class="diagram-muted">/_agent-native/actions/*</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>base de données SQL</strong>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">useDbSync &rarr; refetch on change</div>
+</div>
+```
+
+```css
+.diagram-client {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-client .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-client .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ```tsx
 import {
@@ -376,12 +416,45 @@ function DashboardView({ id }) {
 - **Mutations initiées par UI :** Lorsque vous exécutez une action à partir du UI à l'aide de `useActionMutation`, la mutation déclenche immédiatement un événement local avec `source: "action"` en cas de succès. Cela déclenche une **récupération instantanée et optimiste** de toutes les clés de requête en fonction de cette action, évitant ainsi tout retard visuel.
 - **Mutations en arrière-plan ou par agent :** Lorsque l'agent IA, un webhook ou un travailleur en arrière-plan mute les données, la mise à jour est diffusée au client. Le `useDbSync` du client capture cela instantanément via SSE (événements envoyés par le serveur) ou revient au **tic d'interrogation de 2 secondes**. La version de la clé de requête est ensuite modifiée, déclenchant une récupération en arrière-plan.
 
-```an-diagram title="Deux chemins pour une récupération" summary="Une mutation locale invalide instantanément ses propres caches ; une écriture à distance atteint cet onglet via SSE, ou la coche d'interrogation comme solution de secours."
-{
-  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Cet onglet</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Agent · webhook · autre onglet</span><strong>Écriture distante</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
-  "css": ".diagram-latency .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-latency .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px}"
+<Diagram id="doc-block-sbx9k7" title={"Deux chemins pour une récupération"} summary={"Une mutation locale invalide instantanément ses propres caches ; une écriture à distance atteint cet onglet via SSE, ou la coche d'interrogation comme solution de secours."}>
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">Cet onglet</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >fires source: "action" on success &rarr; instant local refetch</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">Agent · webhook · autre onglet</span
+      ><strong>Écriture distante</strong
+      ><small class="diagram-muted"
+        >SSE push, or the ~2s polling tick as fallback &rarr; version bumps
+        &rarr; background refetch</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 ## cn(...entrées) {#cn}
 

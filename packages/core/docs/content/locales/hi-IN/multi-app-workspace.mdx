@@ -142,12 +142,59 @@ pnpm dev
 
 मर्ज फ़ाइल नाम से होता है। यदि कोई ऐप एक स्थानीय फ़ाइल प्रदान करता है जो अपस्ट्रीम में भी मौजूद है, तो स्थानीय जीतता है। यदि ऐसा नहीं होता है, तो कार्यस्थान साझा संस्करण लागू होता है। यदि साझा एक भी प्रदान नहीं करता है, तो फ्रेमवर्क डिफ़ॉल्ट शुरू हो जाता है। यह प्लगइन्स, skills, actions, और `AGENTS.md` पर लागू होता है।
 
-```an-diagram title="तीन परतें, फ़ाइल नाम से मर्ज की गईं" summary="प्रत्येक ऐप पहले ऐप-लोकल से प्लगइन्स, कौशल, क्रियाएं और AGENTS.md को हल करता है, फिर साझा पैकेज, फिर फ्रेमवर्क डिफ़ॉल्ट।"
-{
-  "html": "<div class=\"layer\"><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">1 &middot; App local</span><small class=\"diagram-muted\"><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; Workspace shared</span><small class=\"diagram-muted\"><code>packages/shared/</code> &mdash; the mid-layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">3 &middot; Framework default</span><small class=\"diagram-muted\"><code>@agent-native/core</code> &mdash; lowest</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box ok\">first match wins</div></div>",
-  "css": ".layer{display:flex;flex-direction:column;align-items:center;gap:6px}.layer .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 16px;width:320px}.layer .diagram-arrow{font-size:18px;line-height:1}.layer .diagram-box{margin-top:2px}"
+<Diagram id="doc-block-ut6wyu" title={"तीन परतें, फ़ाइल नाम से मर्ज की गईं"} summary={"प्रत्येक ऐप पहले ऐप-लोकल से प्लगइन्स, कौशल, क्रियाएं और AGENTS.md को हल करता है, फिर साझा पैकेज, फिर फ्रेमवर्क डिफ़ॉल्ट।"}>
+
+```html
+<div class="layer">
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">1 &middot; App local</span
+    ><small class="diagram-muted"
+      ><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2 &middot; Workspace shared</span
+    ><small class="diagram-muted"
+      ><code>packages/shared/</code> &mdash; the mid-layer</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">3 &middot; Framework default</span
+    ><small class="diagram-muted"
+      ><code>@agent-native/core</code> &mdash; lowest</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&darr;</div>
+  <div class="diagram-box ok">first match wins</div>
+</div>
+```
+
+```css
+.layer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.layer .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px;
+  width: 320px;
+}
+.layer .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+.layer .diagram-box {
+  margin-top: 2px;
 }
 ```
+
+</Diagram>
 
 जब एक ऐप को कुछ अलग चाहिए, तो एक स्थानीय फ़ाइल छोड़ें:
 
@@ -252,12 +299,48 @@ npx @agent-native/core@latest deploy
 
 प्रत्येक ऐप `APP_BASE_PATH=/<name>` और `VITE_APP_BASE_PATH=/<name>` के साथ बनाया गया है और चयनित Nitro प्रीसेट के माध्यम से उत्सर्जित होता है। क्लाउडफ्लेयर पेज डिफ़ॉल्ट प्रीसेट है और `dist/_worker.js` प्लस `_routes.json` पर एक डिस्पैचर वर्कर का उपयोग करता है। Netlify `npx @agent-native/core@latest deploy --preset netlify` के साथ समर्थित है; यह `.netlify/functions-internal/<app>-server` के तहत ऐप फ़ंक्शंस उत्सर्जित करता है और रीडायरेक्ट उत्पन्न करता है जो स्थैतिक संपत्तियों को अप्रचलित छोड़ देता है इसलिए CDN पहले फ़ाइलों को प्रस्तुत करता है। वर्सेल `npx @agent-native/core@latest deploy --preset vercel` के साथ समर्थित है; यह वर्सेल के बिल्ड आउटपुट API का उपयोग करके एक रूट `.vercel/output` बंडल लिखता है।
 
-```an-diagram title="एकीकृत परिनियोजन: प्रति ऐप एक मूल, एक पथ" summary="प्रत्येक ऐप एक ही मूल के पीछे शिप होता है, इसलिए लॉगिन सत्र और क्रॉस-ऐप A2A निःशुल्क हैं।"
-{
-  "html": "<div class=\"deploy\"><div class=\"diagram-box accent\">your-agents.com<br><small class=\"diagram-muted\">one DNS record &middot; one cert &middot; one CDN</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"deploy-apps\"><div class=\"diagram-box\">/mail/*</div><div class=\"diagram-box\">/calendar/*</div><div class=\"diagram-box\">/forms/*</div></div><div class=\"diagram-pill ok\">shared login cookie on the apex &bull; same-origin A2A, no CORS</div></div>",
-  "css": ".deploy{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.deploy .deploy-apps{display:flex;flex-direction:column;gap:8px}.deploy .diagram-arrow{font-size:24px}.deploy .diagram-pill{flex-basis:100%}"
+<Diagram id="doc-block-1xscygs" title={"एकीकृत परिनियोजन: प्रति ऐप एक मूल, एक पथ"} summary={"प्रत्येक ऐप एक ही मूल के पीछे शिप होता है, इसलिए लॉगिन सत्र और क्रॉस-ऐप A2A निःशुल्क हैं।"}>
+
+```html
+<div class="deploy">
+  <div class="diagram-box accent">
+    your-agents.com<br /><small class="diagram-muted"
+      >one DNS record &middot; one cert &middot; one CDN</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="deploy-apps">
+    <div class="diagram-box">/mail/*</div>
+    <div class="diagram-box">/calendar/*</div>
+    <div class="diagram-box">/forms/*</div>
+  </div>
+  <div class="diagram-pill ok">
+    shared login cookie on the apex &bull; same-origin A2A, no CORS
+  </div>
+</div>
+```
+
+```css
+.deploy {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.deploy .deploy-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.deploy .diagram-arrow {
+  font-size: 24px;
+}
+.deploy .diagram-pill {
+  flex-basis: 100%;
 }
 ```
+
+</Diagram>
 
 **समान मूल** पर होना ही वास्तविक लाभ है:
 

@@ -179,6 +179,7 @@ const enUS = {
     newAnalysisPlaceholder: "Describe the question you want to investigate...",
   },
   common: {
+    docs: "Docs",
     noData: "No data",
     noDataAvailable: "No data available",
     rowsPerPage: "Rows per page:",

@@ -12,12 +12,52 @@ description: "Gewähren Sie dem Agenten strukturierten Zugriff auf jedes CLI-Too
 
 Ein CLI-Adapter umschließt ein einzelnes Befehlszeilentool (`gh`, `ffmpeg`, `stripe`, `aws`), sodass der Agent es erkennen, prüfen kann, ob es installiert ist, und es mit einem konsistenten stdout/stderr/exit-code-Ergebnis ausführen kann. Ohne diese Naht erfindet jedes Skript die Art und Weise neu, wie ein CLI aufgerufen und seine Ausgabe analysiert wird.
 
-```an-diagram title="CLI Adapter → Registrierung → Aktionsoberfläche" summary="ShellCliAdapter umschließt eine Binärdatei; CliRegistry sammelt Adapter zur Erkennung; defineAction macht einen Aufruf auf der Aktionsoberfläche des Agenten und der Benutzeroberfläche verfügbar."
-{
-  "html": "<div class=\"diagram-cli\"><div class=\"diagram-node\" data-rough>gh · ffmpeg · stripe<br><small class=\"diagram-muted\">command-line tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>ShellCliAdapter<br><small class=\"diagram-muted\">isAvailable · execute</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>CliRegistry<br><small class=\"diagram-muted\">describe() for discovery</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">defineAction</div></div>",
-  "css": ".diagram-cli{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-cli .diagram-arrow{font-size:22px;line-height:1}.diagram-cli .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-ayy9kz" title={"CLI Adapter → Registrierung → Aktionsoberfläche"} summary={"ShellCliAdapter umschließt eine Binärdatei; CliRegistry sammelt Adapter zur Erkennung; defineAction macht einen Aufruf auf der Aktionsoberfläche des Agenten und der Benutzeroberfläche verfügbar."}>
+
+```html
+<div class="diagram-cli">
+  <div class="diagram-node" data-rough>
+    gh · ffmpeg · stripe<br /><small class="diagram-muted"
+      >command-line tools</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    ShellCliAdapter<br /><small class="diagram-muted"
+      >isAvailable · execute</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    CliRegistry<br /><small class="diagram-muted"
+      >describe() for discovery</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill accent">defineAction</div>
+</div>
+```
+
+```css
+.diagram-cli {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-cli .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-cli .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Die Schnittstelle {#the-interface}
 

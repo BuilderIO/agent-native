@@ -181,14 +181,22 @@ describe("session replay ingest parsing", () => {
     expect(parsed.chunks).toHaveLength(1);
   });
 
-  it("does not return malformed zero-event recordings from direct summary reads", async () => {
+  it("returns metadata-only recordings from direct summary reads", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
         id: "sr_empty",
+        clientRecordingId: "recording_1",
+        sessionId: "session_1",
         userId: "dev@example.com",
+        anonymousId: null,
+        userKey: "dev@example.com",
+        startedAt: "2026-01-01T00:00:00.000Z",
         chunkCount: 0,
         eventCount: 0,
+        ownerEmail: "owner@example.com",
+        orgId: "org_123",
+        visibility: "private",
       },
     });
 
@@ -197,9 +205,12 @@ describe("session replay ingest parsing", () => {
         userEmail: "owner@example.com",
         orgId: "org_123",
       }),
-    ).rejects.toMatchObject({
-      statusCode: 404,
-      message: "Session recording not found",
+    ).resolves.toMatchObject({
+      id: "sr_empty",
+      userId: "dev@example.com",
+      chunkCount: 0,
+      eventCount: 0,
+      role: "viewer",
     });
   });
 
@@ -247,7 +258,7 @@ describe("session replay ingest parsing", () => {
     });
   });
 
-  it("includes anonymous identities in session recording lists", async () => {
+  it("includes metadata-only anonymous identities in session recording lists", async () => {
     const listDb = createSessionReplayListDbMock([
       {
         id: "sr_anonymous",
@@ -259,9 +270,9 @@ describe("session replay ingest parsing", () => {
         startedAt: "2026-01-01T00:00:00.000Z",
         endedAt: null,
         durationMs: null,
-        chunkCount: 1,
-        eventCount: 1,
-        totalBytes: 128,
+        chunkCount: 0,
+        eventCount: 0,
+        totalBytes: 0,
         pageCount: 1,
         errorCount: 0,
         rageClickCount: 0,
@@ -288,12 +299,12 @@ describe("session replay ingest parsing", () => {
       id: "sr_anonymous",
       userId: null,
       anonymousId: "anon_1",
+      chunkCount: 0,
+      eventCount: 0,
     });
     const listCondition = conditionText(listDb.whereCondition);
     expect(listCondition).toContain("@");
     expect(listCondition).toContain("anonymous_id");
-    expect(listCondition).toContain("chunk_count");
-    expect(listCondition).toContain("event_count");
   });
 
   it("derives replay timing from rrweb event timestamps", () => {

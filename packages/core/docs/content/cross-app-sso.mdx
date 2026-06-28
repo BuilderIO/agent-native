@@ -26,12 +26,65 @@ This makes the rollout safe even though it logs people out. **Logout is expected
 
 The flow is a standard authorize → signed-token → callback redirect, with email as the only thing that crosses the trust boundary.
 
-```an-diagram title="Identity federation flow" summary="Dispatch authenticates the human and returns a short-lived signed assertion of one thing — the verified email. The app links by email and mints its own local session."
-{
-  "html": "<div class=\"diagram-sso\"><div class=\"diagram-card\" data-rough><strong>Client app</strong><small class=\"diagram-muted\">own user store</small></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill\">authorize</span></div><div class=\"diagram-card\" data-rough><strong>Dispatch</strong><small class=\"diagram-muted\">identity authority</small><span class=\"diagram-pill accent\">authenticates human</span></div><div class=\"diagram-step\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><span class=\"diagram-pill accent\">302 + signed JWT</span></div><div class=\"diagram-card\" data-rough><strong>App callback</strong><small class=\"diagram-muted\">verify signature · scope:identity · exp &le; 2 min</small><span class=\"diagram-pill ok\">JIT-link by email</span><span class=\"diagram-pill ok\">mint local session</span></div></div>",
-  "css": ".diagram-sso{display:flex;align-items:stretch;gap:12px;flex-wrap:wrap}.diagram-sso .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px}.diagram-sso .diagram-step{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px}.diagram-sso .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-137b24q" title="Identity federation flow" summary={"Dispatch authenticates the human and returns a short-lived signed assertion of one thing — the verified email. The app links by email and mints its own local session."}>
+
+```html
+<div class="diagram-sso">
+  <div class="diagram-card" data-rough>
+    <strong>Client app</strong
+    ><small class="diagram-muted">own user store</small>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill">authorize</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>Dispatch</strong
+    ><small class="diagram-muted">identity authority</small
+    ><span class="diagram-pill accent">authenticates human</span>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill accent">302 + signed JWT</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>App callback</strong
+    ><small class="diagram-muted"
+      >verify signature · scope:identity · exp &le; 2 min</small
+    ><span class="diagram-pill ok">JIT-link by email</span
+    ><span class="diagram-pill ok">mint local session</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-sso {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-sso .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+}
+.diagram-sso .diagram-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.diagram-sso .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 1. **App → Dispatch (authorize).** The app sends the user to the identity authority:
 
@@ -125,12 +178,60 @@ The whole model rests on a few deliberately small guarantees:
 
 The just-in-time link is a single decision keyed entirely on the verified email:
 
-```an-diagram title="JIT-link decision" summary="Linking is keyed on the verified email and is additive only — existing accounts are reused unchanged, new emails create a fresh local user."
-{
-  "html": "<div class=\"diagram-jit\"><div class=\"diagram-node\" data-rough>Verified email<br><small class=\"diagram-muted\">from signed identity JWT</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-branch\"><div class=\"diagram-box\" data-rough>Local user exists?<span class=\"diagram-pill ok\">yes &rarr; reuse unchanged</span><span class=\"diagram-pill accent\">no &rarr; create local user</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Mint normal local session</div></div></div>",
-  "css": ".diagram-jit{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-node{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-jit .diagram-branch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jit .diagram-box{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-jit .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-18fy48y" title="JIT-link decision" summary={"Linking is keyed on the verified email and is additive only — existing accounts are reused unchanged, new emails create a fresh local user."}>
+
+```html
+<div class="diagram-jit">
+  <div class="diagram-node" data-rough>
+    Verified email<br /><small class="diagram-muted"
+      >from signed identity JWT</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-branch">
+    <div class="diagram-box" data-rough>
+      Local user exists?<span class="diagram-pill ok"
+        >yes &rarr; reuse unchanged</span
+      ><span class="diagram-pill accent">no &rarr; create local user</span>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>Mint normal local session</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-jit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-branch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Self-hosting {#self-hosting}
 

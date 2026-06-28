@@ -18,12 +18,68 @@ Ein agentengesteuerter E-Mail-Client. Verknüpfen Sie Ihr Gmail-Konto und der Ag
 
 Wenn Sie die App öffnen, bleiben der Posteingang und die Thread-Ansicht mit der Tastatureingabe auf die E-Mail selbst fokussiert. Der Agent weiß immer, in welcher Ansicht Sie sich befinden und welchen Thread Sie geöffnet haben, sodass Sie „Archivieren“ oder „Einvernehmliche Ablehnung verfassen“ sagen können, ohne zu erklären, was „Das“ ist.
 
-```an-diagram title="Wie eine E-Mail-Anfrage abläuft" summary="Tastaturkürzel und Agentenaufforderungen führen dieselben Aktionen aus. E-Mail lebt in Gmail; Entwürfe, Automatisierungen und Nachverfolgung live in SQL und application_state."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Sie steuern<br><small class=\"diagram-muted\">J/K/E/R-Tastenkürzel</small></div><div class=\"diagram-node\">Sie fragen den Agenten<br><small class=\"diagram-muted\">\"eine freundliche Absage entwerfen\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-emails · get-thread · manage-draft · send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Gmail<br><small class=\"diagram-muted\">mehrere Konten, über OAuth</small></div><div class=\"diagram-box\">SQL + application_state<br><small class=\"diagram-muted\">Entwürfe · Automatisierungen · Tracking</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Posteingang aktualisiert sich live</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-o2xbcu" title={"Wie eine E-Mail-Anfrage abläuft"} summary={"Tastaturkürzel und Agentenaufforderungen führen dieselben Aktionen aus. E-Mail lebt in Gmail; Entwürfe, Automatisierungen und Nachverfolgung live in SQL und application_state."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Sie steuern<br /><small class="diagram-muted">J/K/E/R-Tastenkürzel</small>
+    </div>
+    <div class="diagram-node">
+      Sie fragen den Agenten<br /><small class="diagram-muted"
+        >"eine freundliche Absage entwerfen"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-emails · get-thread · manage-draft · send</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Gmail<br /><small class="diagram-muted">mehrere Konten, über OAuth</small>
+    </div>
+    <div class="diagram-box">
+      SQL + application_state<br /><small class="diagram-muted"
+        >Entwürfe · Automatisierungen · Tracking</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">Posteingang aktualisiert sich live</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Was Sie damit machen können
 

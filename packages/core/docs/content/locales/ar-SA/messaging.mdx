@@ -18,12 +18,51 @@ description: "تحدث إلى وكيلك من Slack أو البريد الإلك
 - **نفس الوكيل، نفس الذاكرة.** كل ما تقوله على Slack يتم تذكره عندما ترسله بالبريد الإلكتروني لاحقًا. تشترك دردشة الويب والرسائل الخارجية في سجل موضوع واحد.
 - للحصول على تنبيهات أحادية الاتجاه داخل التطبيق (رمز الجرس، webhooks)، راجع [Notifications](/docs/notifications).
 
-```an-diagram title="العديد من القنوات، وكيل واحد" summary="تنضم كل منصة إلى نفس حلقة الوكيل ونفس سجل سلاسل الرسائل SQL - لذلك تواصل رسالة مباشرة Slack وبريد إلكتروني نفس المحادثة."
-{
-  "html": "<div class=\"msg-fanin\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Telegram</div><div class=\"diagram-node\">WhatsApp</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">حلقة وكيل واحدة</span><small class=\"diagram-muted\">نفس الذاكرة · نفس الأدوات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>سجل محادثة SQL واحد<br><small class=\"diagram-muted\">web chat + external messages share it</small></div></div>",
-  "css": ".msg-fanin{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.msg-fanin .diagram-col{display:flex;flex-direction:column;gap:8px}.msg-fanin .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-13wwymq" title={"العديد من القنوات، وكيل واحد"} summary={"تنضم كل منصة إلى نفس حلقة الوكيل ونفس سجل سلاسل الرسائل SQL - لذلك تواصل رسالة مباشرة Slack وبريد إلكتروني نفس المحادثة."}>
+
+```html
+<div class="msg-fanin">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack</div>
+    <div class="diagram-node">Email</div>
+    <div class="diagram-node">Telegram</div>
+    <div class="diagram-node">WhatsApp</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">حلقة وكيل واحدة</span
+    ><small class="diagram-muted">نفس الذاكرة · نفس الأدوات</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    سجل محادثة SQL واحد<br /><small class="diagram-muted"
+      >web chat + external messages share it</small
+    >
+  </div>
+</div>
+```
+
+```css
+.msg-fanin {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.msg-fanin .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.msg-fanin .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## إعداد Slack {#slack}
 
@@ -231,12 +270,80 @@ https://your-clips.example.com/api/slack/unfurl
 3. تعمل نقطة نهاية المعالج في **تنفيذ وظيفة جديدة** بميزانية المهلة الكاملة الخاصة بها. فهو يطالب بالمهمة ذريًا (`pending` → `processing` عبر `claimPendingTask`)، ويقوم بتشغيل حلقة الوكيل، وينشر الرد من خلال المحول، ويضع علامة على المهمة `completed`.
 4. تقوم مهمة إعادة المحاولة المتكررة (`startPendingTasksRetryJob`، كل 60 ثانية) بمسح المهام العالقة في `pending` >90 ثانية أو `processing` > 5 دقائق وتعيد تشغيل المعالج. تم تحديد 3 محاولات، ثم تم وضع علامة `failed`.
 
-```an-diagram title="دورة حياة خطاف الويب الوارد" summary="يقوم خطاف الويب فقط بالتحقق من الرقم 200 وإدراجه في قائمة الانتظار وإرجاعه. يؤدي تنفيذ وظيفة جديدة إلى استنزاف قائمة الانتظار وتشغيل حلقة الوكيل، مع إعادة المحاولة لمدة 60 ثانية كشبكة أمان."
-{
-  "html": "<div class=\"msg-flow\"><div class=\"msg-row\"><div class=\"diagram-node\">Platform<br><small class=\"diagram-muted\">Slack · البريد · إلخ</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/webhook</strong><br><small class=\"diagram-muted\">verify signature + parse</small><br><span class=\"diagram-pill\">INSERT مهمة معلقة</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">return 200</div></div><div class=\"msg-fire\"><span class=\"diagram-muted\">fire-and-forget</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</span></div><div class=\"msg-row\"><div class=\"diagram-box\" data-rough><strong>/process-task</strong><br><small class=\"diagram-muted\">تنفيذ جديد · مهلة خاصة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">claim</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">agent loop</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">adapter.sendResponse</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">completed</div></div><div class=\"diagram-panel msg-retry\" data-rough><span class=\"diagram-pill warn\">every 60s</span> <span class=\"diagram-muted\">retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and re-fires /process-task &mdash; capped at 3 attempts, then <strong>failed</strong></span></div></div>",
-  "css": ".msg-flow{display:flex;flex-direction:column;gap:12px}.msg-flow .msg-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.msg-flow .msg-fire{display:flex;align-items:center;gap:8px;padding-inline-start:12px}.msg-flow .msg-retry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}"
+<Diagram id="doc-block-db7fc7" title={"دورة حياة خطاف الويب الوارد"} summary={"يقوم خطاف الويب فقط بالتحقق من الرقم 200 وإدراجه في قائمة الانتظار وإرجاعه. يؤدي تنفيذ وظيفة جديدة إلى استنزاف قائمة الانتظار وتشغيل حلقة الوكيل، مع إعادة المحاولة لمدة 60 ثانية كشبكة أمان."}>
+
+```html
+<div class="msg-flow">
+  <div class="msg-row">
+    <div class="diagram-node">
+      Platform<br /><small class="diagram-muted">Slack · البريد · إلخ</small>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>
+      <strong>/webhook</strong><br /><small class="diagram-muted"
+        >verify signature + parse</small
+      ><br /><span class="diagram-pill">INSERT مهمة معلقة</span>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">return 200</div>
+  </div>
+  <div class="msg-fire">
+    <span class="diagram-muted">fire-and-forget</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</span>
+  </div>
+  <div class="msg-row">
+    <div class="diagram-box" data-rough>
+      <strong>/process-task</strong><br /><small class="diagram-muted"
+        >تنفيذ جديد · مهلة خاصة</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">claim</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">agent loop</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">adapter.sendResponse</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">completed</div>
+  </div>
+  <div class="diagram-panel msg-retry" data-rough>
+    <span class="diagram-pill warn">every 60s</span>
+    <span class="diagram-muted"
+      >retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and
+      re-fires /process-task &mdash; capped at 3 attempts, then
+      <strong>failed</strong></span
+    >
+  </div>
+</div>
+```
+
+```css
+.msg-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.msg-flow .msg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.msg-flow .msg-fire {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline-start: 12px;
+}
+.msg-flow .msg-retry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 ```
+
+</Diagram>
 
 توجد المحادثات الواردة والصادرة في نفس سلسلة رسائل SQL، لذا يمكنك متابعة رسالة مباشرة Slack من الويب UI أو العكس.
 

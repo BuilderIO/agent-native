@@ -7,12 +7,53 @@ description: "So schreiben Sie großartige Agentenanweisungen für eine agentenn
 
 Das Verhalten des Agenten in einer agentennativen App ist nur so gut wie die Anweisungen, die Sie ihm geben. Drei Oberflächen tragen diese Anleitung: `AGENTS.md` (die Karte), skills (die tiefen Tauchgänge) und Aktions-/Werkzeugbeschreibungen (wie der Agent das richtige Werkzeug auswählt). Schreiben Sie jedes einzelne zum schnellen Auffinden, nicht für Prosa.
 
-```an-diagram title="Drei erstellte Oberflächen + eine Laufzeitoberfläche" summary="AGENTS.md und Werkzeugbeschreibungen werden bei jeder Runde geladen; Kompetenzbelastung bei Bedarf; application_state wird live von Ihrer Benutzeroberfläche geschrieben."
-{
-  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Jeder Turn</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">die Karte: Zweck, Kernregeln, State-Keys, Action- + Skill-Index</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Jeder Turn</span><strong>Tool-Beschreibungen</strong><small class=\"diagram-muted\">steuert Tool-Auswahl — je ein präziser Satz</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">Bei Bedarf</span><strong>Fähigkeiten</strong><small class=\"diagram-muted\">tiefes How-to, geladen wenn die Beschreibung greift</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">von deiner UI geschrieben: Navigation, Auswahl, Fokus</small></div></div>",
-  "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+<Diagram id="doc-block-uge8uk" title={"Drei erstellte Oberflächen + eine Laufzeitoberfläche"} summary={"AGENTS.md und Werkzeugbeschreibungen werden bei jeder Runde geladen; Kompetenzbelastung bei Bedarf; application_state wird live von Ihrer Benutzeroberfläche geschrieben."}>
+
+```html
+<div class="diagram-surfaces">
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Jeder Turn</span><strong>AGENTS.md</strong
+    ><small class="diagram-muted"
+      >die Karte: Zweck, Kernregeln, State-Keys, Action- + Skill-Index</small
+    >
+  </div>
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Jeder Turn</span
+    ><strong>Tool-Beschreibungen</strong
+    ><small class="diagram-muted"
+      >steuert Tool-Auswahl — je ein präziser Satz</small
+    >
+  </div>
+  <div class="diagram-card ondemand" data-rough>
+    <span class="diagram-pill">Bei Bedarf</span><strong>Fähigkeiten</strong
+    ><small class="diagram-muted"
+      >tiefes How-to, geladen wenn die Beschreibung greift</small
+    >
+  </div>
+  <div class="diagram-card runtime" data-rough>
+    <span class="diagram-pill ok">Live</span><strong>application_state</strong
+    ><small class="diagram-muted"
+      >von deiner UI geschrieben: Navigation, Auswahl, Fokus</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-surfaces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.diagram-surfaces .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 ## Halten Sie AGENTS.md klein und überstreichbar {#small-agents-md}
 

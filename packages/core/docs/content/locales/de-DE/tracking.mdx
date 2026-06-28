@@ -19,12 +19,62 @@ track(
 );
 ```
 
-```an-diagram title="Ein track()-Aufruf, jeder Anbieter" summary="Server- und Client-Anrufer treffen auf dasselbe Register, wodurch jedes Ereignis parallel an alle aktiven Anbieter weitergeleitet wird."
-{
-  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">Servercode<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">Browsercode<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">Fan-out, Fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
-  "css": ".trk{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.trk .diagram-col{display:flex;flex-direction:column;gap:8px}.trk .diagram-arrow{font-size:22px;line-height:1}.trk .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-6r36bg" title="Ein track()-Aufruf, jeder Anbieter" summary="Server- und Client-Anrufer treffen auf dasselbe Register, wodurch jedes Ereignis parallel an alle aktiven Anbieter weitergeleitet wird.">
+
+```html
+<div class="trk">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Servercode<br /><small class="diagram-muted"
+        >actions &middot; plugins &middot; routes</small
+      >
+    </div>
+    <div class="diagram-node">
+      Browsercode<br /><small class="diagram-muted"
+        >POST /_agent-native/track</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Provider registry</span
+    ><small class="diagram-muted">Fan-out, Fire-and-forget</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">PostHog</div>
+    <div class="diagram-box">Mixpanel</div>
+    <div class="diagram-box">Amplitude</div>
+    <div class="diagram-box">Webhook</div>
+  </div>
+</div>
+```
+
+```css
+.trk {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.trk .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trk .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.trk .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Eingebaute Anbieter {#built-in}
 

@@ -25,12 +25,68 @@ São etapas, não produtos separados. Um fluxo de trabalho pode começar sem int
 agente com uma ação, aparece no chat como uma tabela ou gráfico e depois se torna um
 tela inteira em um aplicativo sem alterar a operação que o agente chama.
 
-```an-diagram title="O espectro de superfície" summary="Uma superfície de ação, quatro formatos de produto – cada um adiciona UI sem alterar a operação subjacente."
-{
-  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, jobs, scripts, outros agentes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Chat enriquecido</strong><small class=\"diagram-muted\">composer, transcrição, cards de ferramentas</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Sidecar incorporado</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">maior parte do UI</span><strong>Aplicação completa</strong><small class=\"diagram-muted\">telas duráveis, dados, colaboração</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">mesmas actions · mesmo SQL · mesmo loop do agente</span></div>",
-  "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-10jsx4d" title={"O espectro de superfície"} summary={"Uma superfície de ação, quatro formatos de produto – cada um adiciona UI sem alterar a operação subjacente."}>
+
+```html
+<div class="diagram-spectrum">
+  <div class="diagram-card">
+    <strong>Headless</strong
+    ><small class="diagram-muted">actions, jobs, scripts, outros agentes</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Chat enriquecido</strong
+    ><small class="diagram-muted"
+      >composer, transcrição, cards de ferramentas</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Sidecar incorporado</strong
+    ><small class="diagram-muted">agent beside an existing app</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">maior parte do UI</span
+    ><strong>Aplicação completa</strong
+    ><small class="diagram-muted">telas duráveis, dados, colaboração</small>
+  </div>
+</div>
+<div class="diagram-base" data-rough>
+  <span class="diagram-muted"
+    >mesmas actions · mesmo SQL · mesmo loop do agente</span
+  >
+</div>
+```
+
+```css
+.diagram-spectrum {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-spectrum .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+  flex: 1;
+}
+.diagram-spectrum .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-base {
+  margin-top: 12px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## Agente sem cabeça {#headless}
 
@@ -347,12 +403,64 @@ export function AppShell({ children }) {
 }
 ```
 
-```an-diagram title="Como o sidecar faz a ponte para um aplicativo host" summary="O plugin monta rotas Agent-Native no lado do servidor; o sidecar React transmite o contexto da página e sai dos comandos do host."
-{
-  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>App host</strong><small class=\"diagram-muted\">seu SaaS existente</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">rota · seleção</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">comandos do host</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>rotas Agent-Native<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
-  "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-dejs3c" title="Como o sidecar faz a ponte para um aplicativo host" summary={"O plugin monta rotas Agent-Native no lado do servidor; o sidecar React transmite o contexto da página e sai dos comandos do host."}>
+
+```html
+<div class="diagram-sidecar">
+  <div class="diagram-panel">
+    <strong>App host</strong
+    ><small class="diagram-muted">seu SaaS existente</small>
+    <div class="diagram-node">
+      getContext()<br /><small class="diagram-muted">rota · seleção</small>
+    </div>
+    <div class="diagram-node">
+      onNavigate / onRefresh<br /><small class="diagram-muted"
+        >comandos do host</small
+      >
+    </div>
+  </div>
+  <div class="diagram-col-arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  </div>
+  <div class="diagram-panel accent-panel">
+    <span class="diagram-pill accent">AgentNativeEmbedded</span
+    ><small class="diagram-muted">agent + workspace</small>
+    <div class="diagram-box" data-rough>
+      rotas Agent-Native<br /><small class="diagram-muted"
+        >mounted by the server plugin</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-sidecar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-sidecar .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-width: 200px;
+}
+.diagram-sidecar .diagram-col-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-sidecar .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Consulte [Embedding SDK](/docs/embedding-sdk) para autenticação de host e isolamento de banco de dados
 modo iframe/seletor e ponte de nível inferior APIs.

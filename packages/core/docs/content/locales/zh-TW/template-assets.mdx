@@ -18,12 +18,66 @@ Assets 是一個 Agent-Native 工作區，用於建立和管理品牌一致的�
 
 當您開啟應用程式時，選定的庫、提示、參考文獻和產生的候選項將保留在一個工作區中。代理可以透過 UI 使用的同一個 actions 瀏覽、搜尋、生成、最佳化和匯出每個資產。
 
-```an-diagram title="生成、審查、重用" summary="參考和提示為生成和選取工作階段提供資訊；選定的資產進入庫並透過選取器或 A2A 流出到其他應用程式。"
-{
-  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">logo、產品截圖、風格</small></div><div class=\"diagram-node\">提示<br><small class=\"diagram-muted\">聊天或 Generate 控制項</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">生成工作階段</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">已選、符合品牌的 assets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / MCP 應用</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">幻燈片 · 設計 · 內容</small></div></div></div>",
-  "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-1fyv2jl" title={"生成、審查、重用"} summary={"參考和提示為生成和選取工作階段提供資訊；選定的資產進入庫並透過選取器或 A2A 流出到其他應用程式。"}>
+
+```html
+<div class="diagram-assets">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      References<br /><small class="diagram-muted">logo、產品截圖、風格</small>
+    </div>
+    <div class="diagram-node">
+      提示<br /><small class="diagram-muted">聊天或 Generate 控制項</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">生成工作階段</span
+    ><small class="diagram-muted"
+      >image &amp; video candidates · audit log</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Library</span
+    ><small class="diagram-muted">已選、符合品牌的 assets</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Picker<br /><small class="diagram-muted">iframe / MCP 應用</small>
+    </div>
+    <div class="diagram-node">
+      A2A<br /><small class="diagram-muted">幻燈片 · 設計 · 內容</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-assets {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-assets .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-assets .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-assets .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 何時采摘
 

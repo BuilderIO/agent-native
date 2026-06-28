@@ -17,12 +17,69 @@ El orden de resolución del proveedor es:
 2. **Proveedor Builder.io**: integrado, se activa automáticamente cuando se conecta Builder.io
 3. **SQL reserva**: almacena archivos como base64 en la base de datos (está bien para desarrollo, no para producción)
 
-```an-diagram title="Orden de resolución del proveedor" summary="uploadFile() elige el primer proveedor configurado en orden. El respaldo SQL siempre existe, por lo que las cargas funcionan sin configuración."
-{
-  "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">Registrado por el usuario<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">automático al conectar — servido por CDN</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">respaldo SQL<br><small class=\"diagram-muted\">base64 en BD — solo desarrollo</small></div></div></div></div>",
-  "css": ".diagram-upload{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-upload .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-upload .diagram-step{display:flex;align-items:center;gap:8px}.diagram-upload .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-12sluna" title={"Orden de resolución del proveedor"} summary={"uploadFile() elige el primer proveedor configurado en orden. El respaldo SQL siempre existe, por lo que las cargas funcionan sin configuración."}>
+
+```html
+<div class="diagram-upload">
+  <div class="diagram-box" data-rough>
+    uploadFile()<br /><small class="diagram-muted"
+      >POST /_agent-native/file-upload</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-step">
+      <span class="diagram-pill accent">1</span>
+      <div class="diagram-node">
+        Registrado por el usuario<br /><small class="diagram-muted"
+          >registerFileUploadProvider() — S3, R2, GCS…</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">2</span>
+      <div class="diagram-node">
+        Builder.io<br /><small class="diagram-muted"
+          >automático al conectar — servido por CDN</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill warn">3</span>
+      <div class="diagram-node">
+        respaldo SQL<br /><small class="diagram-muted"
+          >base64 en BD — solo desarrollo</small
+        >
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-upload .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-upload .diagram-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-upload .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 <Endpoint id="doc-block-7xne1g" title="El punto final de carga" method="POST" path="/_agent-native/file-upload" summary={"Cargue un archivo a través del proveedor activo y obtenga un URL público."} request={{
   "contentType": "multipart/form-data"

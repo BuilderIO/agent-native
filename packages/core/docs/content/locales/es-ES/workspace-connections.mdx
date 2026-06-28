@@ -16,12 +16,74 @@ Las conexiones del espacio de trabajo son el marco primitivo para los metadatos 
 - **credentialRef**: un puntero a un secreto de almacén (`{ key: "SLACK_BOT_TOKEN", scope: "org" }`). La conexión dice dónde vive el token; la bóveda guarda el valor.
 - **Preparación**: el estado combinado que ve una aplicación: `connected` (otorgado + credenciales presentes), `needs_grant`, `needs_credentials`, `needs_attention` o `not_configured`.
 
-```an-diagram title="Conéctese una vez, otorgue aplicaciones, reutilice credenciales" summary="Una conexión contiene metadatos del proveedor (nunca secretos) y referencias de credenciales que apuntan a la bóveda. Las subvenciones por aplicación lo desbloquean. Las aplicaciones leen un único estado de preparación."
-{
-  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, estado, permisos, configuración &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
-  "css": ".diagram-conn{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-conn .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-conn .diagram-arrow{font-size:22px;line-height:1}.diagram-conn .sev-row{display:flex;gap:8px;flex-wrap:wrap}"
+<Diagram id="doc-block-wj2qsa" title={"Conéctese una vez, otorgue aplicaciones, reutilice credenciales"} summary={"Una conexión contiene metadatos del proveedor (nunca secretos) y referencias de credenciales que apuntan a la bóveda. Las subvenciones por aplicación lo desbloquean. Las aplicaciones leen un único estado de preparación."}>
+
+```html
+<div class="diagram-conn">
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill accent">Connection</span>
+    <div class="diagram-box" data-rough>
+      named provider account<br /><small class="diagram-muted"
+        >provider, label, estado, permisos, configuración &middot; never stores
+        secret values</small
+      >
+    </div>
+    <div class="diagram-muted">
+      credentialRef &rarr; pointer to a vault secret
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill">Grant</span>
+    <div class="diagram-box" data-rough>
+      per-app permission<br /><small class="diagram-muted"
+        >no grant = no credential access</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill ok">Readiness</span
+    ><small class="diagram-muted">what the app sees</small>
+    <div class="sev-row">
+      <span class="diagram-pill ok">connected</span
+      ><span class="diagram-pill warn">needs_grant</span>
+    </div>
+    <div class="sev-row">
+      <span class="diagram-pill warn">needs_credentials</span
+      ><span class="diagram-pill warn">needs_attention</span>
+    </div>
+    <div class="sev-row"><span class="diagram-pill">not_configured</span></div>
+  </div>
+</div>
+```
+
+```css
+.diagram-conn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-conn .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  min-width: 220px;
+}
+.diagram-conn .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-conn .sev-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 ```
+
+</Diagram>
 
 ### Ejemplo resuelto: Slack
 
@@ -260,12 +322,70 @@ La bóveda de credenciales responde: "¿Dónde se almacena el secreto, quién pu
 
 Los metadatos del proveedor de conexión del espacio de trabajo responden: "¿Qué proveedor es este, qué puede hacer, qué claves de credenciales podría necesitar y qué plantillas deberían ofrecerlo?"
 
-```an-diagram title="Almacén de conexión versus bóveda" summary="La bóveda posee el valor secreto. La conexión posee los metadatos del proveedor más credentialRefs (punteros). En el momento de la ejecución, la aplicación resuelve la referencia a través de una conexión otorgada y lee el valor de la bóveda."
-{
-  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Almacén de conexiones</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">estado, permisos, configuración</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Acción de app</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">nunca se devuelve al agente ni a la UI</small></div></div></div>",
-  "css": ".diagram-vault{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-vault .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-vault .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-vault .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1aypycl" title={"Almacén de conexión versus bóveda"} summary={"La bóveda posee el valor secreto. La conexión posee los metadatos del proveedor más credentialRefs (punteros). En el momento de la ejecución, la aplicación resuelve la referencia a través de una conexión otorgada y lee el valor de la bóveda."}>
+
+```html
+<div class="diagram-vault">
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill accent">Almacén de conexiones</span>
+    <div class="diagram-box" data-rough>
+      provider account + metadata<br /><small class="diagram-muted"
+        >estado, permisos, configuración</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      credentialRef<br /><small class="diagram-muted"
+        >{ key: SLACK_BOT_TOKEN, scope: org }</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">Acción de app</span
+    ><small class="diagram-muted"
+      >resolves at execution time through a granted ref</small
+    >
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill ok">Vault</span>
+    <div class="diagram-box" data-rough>
+      secret value<br /><small class="diagram-muted"
+        >nunca se devuelve al agente ni a la UI</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-vault {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-vault .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  min-width: 220px;
+}
+.diagram-vault .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-vault .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Usar ambos juntos:
 

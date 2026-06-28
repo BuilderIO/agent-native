@@ -18,12 +18,74 @@ Assets est un espace de travail natif pour les agents permettant de créer et de
 
 Lorsque vous ouvrez l'application, la bibliothèque sélectionnée, l'invite, les références et les candidats générés restent dans un seul espace de travail. L'agent peut parcourir, rechercher, générer, affiner et exporter chaque actif via le même actions que le UI.
 
-```an-diagram title="Générer, réviser, réutiliser" summary="Les références et les invites alimentent une session de génération et de choix ; Les actifs choisis atterrissent dans une bibliothèque et sont diffusés vers d'autres applications via le sélecteur ou A2A."
-{
-  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">logos, visuels produit, style</small></div><div class=\"diagram-node\">Invite<br><small class=\"diagram-muted\">chat ou commandes Generate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Session de génération</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">assets choisis et cohérents avec la marque</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / application MCP</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">Diapositives · Design · Contenu</small></div></div></div>",
-  "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-9k2flm" title={"Générer, réviser, réutiliser"} summary={"Les références et les invites alimentent une session de génération et de choix ; Les actifs choisis atterrissent dans une bibliothèque et sont diffusés vers d'autres applications via le sélecteur ou A2A."}>
+
+```html
+<div class="diagram-assets">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      References<br /><small class="diagram-muted"
+        >logos, visuels produit, style</small
+      >
+    </div>
+    <div class="diagram-node">
+      Invite<br /><small class="diagram-muted"
+        >chat ou commandes Generate</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Session de génération</span
+    ><small class="diagram-muted"
+      >image &amp; video candidates · audit log</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Library</span
+    ><small class="diagram-muted"
+      >assets choisis et cohérents avec la marque</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Picker<br /><small class="diagram-muted">iframe / application MCP</small>
+    </div>
+    <div class="diagram-node">
+      A2A<br /><small class="diagram-muted"
+        >Diapositives · Design · Contenu</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-assets {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-assets .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-assets .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-assets .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Quand le choisir
 

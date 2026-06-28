@@ -25,12 +25,71 @@ Vermeiden Sie den Import von UI-Komponenten aus dem bloßen `@agent-native/core`
 `@agent-native/core/client` oder ein fokussierter `@agent-native/core/client/*`-Unterpfad
 daher wählen Bundler den browsersicheren Eintrag.
 
-```an-diagram title="Lassen Sie eine Ebene nach unten fallen, nicht aus dem Framework heraus" summary="Jede Ebene behält die gleiche Laufzeit bei – Aktionen, Thread-Status und SQL-backed-Synchronisierung – und gibt Ihnen gleichzeitig mehr Kontrolle über Chrome."
-{
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Ganze Seitenleiste um deine App. Der 80%-Fall.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">Das Panel oder eine Chat-Seite in deinem eigenen Layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Verfassenr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Gleiche Runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
-  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-6bst90" title="Lassen Sie eine Ebene nach unten fallen, nicht aus dem Framework heraus" summary={"Jede Ebene behält die gleiche Laufzeit bei – Aktionen, Thread-Status und SQL-backed-Synchronisierung – und gibt Ihnen gleichzeitig mehr Kontrolle über Chrome."}>
+
+```html
+<div class="diagram-layers">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">&lt;AgentSidebar&gt;</span
+    ><small class="diagram-muted"
+      >Ganze Seitenleiste um deine App. Der 80%-Fall.</small
+    >
+  </div>
+  <div class="diagram-card layer l2">
+    <span class="diagram-pill"
+      >&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span
+    ><small class="diagram-muted"
+      >Das Panel oder eine Chat-Seite in deinem eigenen Layout.</small
+    >
+  </div>
+  <div class="diagram-card layer l3">
+    <span class="diagram-pill">&lt;AssistantChat&gt; + runtime</span
+    ><small class="diagram-muted"
+      >Own the chrome; optionally pass a BYO AgentChatRuntime.</small
+    >
+  </div>
+  <div class="diagram-card layer l4">
+    <span class="diagram-pill"
+      >&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span
+    ><small class="diagram-muted"
+      >Verfassenr and transcript primitives only.</small
+    >
+  </div>
+  <div class="diagram-rail" data-rough>
+    Gleiche Runtime: actions &middot; thread state &middot; SQL-backed sync
+  </div>
+</div>
+```
+
+```css
+.diagram-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-layers .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-layers .l2 {
+  margin-inline-start: 24px;
+}
+.diagram-layers .l3 {
+  margin-inline-start: 48px;
+}
+.diagram-layers .l4 {
+  margin-inline-start: 72px;
+}
+.diagram-layers .diagram-rail {
+  margin-top: 6px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## Agent und Chat-Oberfläche {#agent-chat-ui}
 
@@ -178,12 +237,63 @@ Hooks für kollaborative Dokumente.
 | `useCollaborativeMap()` / `useCollaborativeArray()` | Experimentieren Sie mit dem strukturierten Y.Map/Y.Array-Status, wenn die Zusammenführung von Rich-Text-Körpern nicht passt. |
 | `dedupeCollabUsersByEmail()`                        | Erstellen Sie einen benutzerdefinierten Avatar-Stapel ohne doppelte Registerkarten für denselben Benutzer.                   |
 
-```an-diagram title="Präsenz: Menschen und der Agent teilen eine Bewusstseinsebene" summary="useCollaborativeDoc ist Eigentümer der Awareness-Instanz. Client-Hooks veröffentlichen Cursor und Auswahlen; Serverhelfer lassen eine Agentenaktion als Live-Teilnehmer erscheinen."
-{
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agentenaktion<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">alle rendern, Agent eingeschlossen</small></div></div>",
-  "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1x6f51b" title={"Präsenz: Menschen und der Agent teilen eine Bewusstseinsebene"} summary={"useCollaborativeDoc ist Eigentümer der Awareness-Instanz. Client-Hooks veröffentlichen Cursor und Auswahlen; Serverhelfer lassen eine Agentenaktion als Live-Teilnehmer erscheinen."}>
+
+```html
+<div class="diagram-presence">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Humans<br /><small class="diagram-muted"
+        >usePresence &middot; cursors, selection</small
+      >
+    </div>
+    <div class="diagram-node diagram-accent">
+      Agentenaktion<br /><small class="diagram-muted"
+        >agentUpdateSelection()</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">useCollaborativeDoc</span
+    ><small class="diagram-muted">awareness layer</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    &lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br /><small
+      class="diagram-muted"
+      >alle rendern, Agent eingeschlossen</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-presence {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-presence .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-presence .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-presence .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Serverseitige Agenten actions, die als Live-Teilnehmer auftreten möchten, verwenden die
 `@agent-native/core/collab` Agent Presence-Helfer auf niedrigerer Ebene:

@@ -50,12 +50,55 @@ description: "为什么大多数人工智能应用感觉是半成品，是什么
 
 这是第 3 级。这是代理本地的。
 
-```an-diagram title="阶梯原理" summary="大多数团队停在第 1 级或第 2 级。原生代理是第 3 级——一个真实的应用程序和一个共享操作界面上的真实代理。"
-{
-  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">第 3 阶 · agent-native</span><strong>代理 + UI 作为平等伙伴</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">第 2 阶</span><strong>带工具的聊天</strong><small class=\"diagram-muted\">代理可以行动，但它仍只是聊天窗口。没有仪表盘、列表或快捷键。</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">第 1 阶</span><strong>一次 LLM 调用</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
-  "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
+<Diagram id="doc-block-pral9e" title={"阶梯原理"} summary={"大多数团队停在第 1 级或第 2 级。原生代理是第 3 级——一个真实的应用程序和一个共享操作界面上的真实代理。"}>
+
+```html
+<div class="diagram-ladder">
+  <div class="diagram-card rung rung-3">
+    <span class="diagram-pill accent">第 3 阶 · agent-native</span
+    ><strong>代理 + UI 作为平等伙伴</strong
+    ><small class="diagram-muted"
+      >One action surface. Every agent tool is also a button; every button runs
+      the same logic the agent uses.</small
+    >
+  </div>
+  <div class="diagram-card rung rung-2">
+    <span class="diagram-pill">第 2 阶</span><strong>带工具的聊天</strong
+    ><small class="diagram-muted"
+      >代理可以行动，但它仍只是聊天窗口。没有仪表盘、列表或快捷键。</small
+    >
+  </div>
+  <div class="diagram-card rung rung-1">
+    <span class="diagram-pill warn">第 1 阶</span><strong>一次 LLM 调用</strong
+    ><small class="diagram-muted"
+      >Prompt in, string out. Impressive in a demo; breaks the moment reality
+      gets messy.</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-ladder .rung {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+}
+.diagram-ladder .rung-2 {
+  margin-inline-end: 48px;
+}
+.diagram-ladder .rung-1 {
+  margin-inline-end: 96px;
 }
 ```
+
+</Diagram>
 
 请参阅 [Key Concepts — Protocols](/docs/key-concepts#protocols)，了解所有这些如何挂在同一操作定义上。
 
@@ -89,12 +132,55 @@ description: "为什么大多数人工智能应用感觉是半成品，是什么
 >
 > **来自代理** — 自然语言，其他代理通过 A2A、Slack、Telegram。代理写入数据库； UI 自动更新。
 
-```an-diagram title="一套系统，两种方式" summary="代理和 UI 写入相同的操作和相同的数据库。无论一个人做什么，另一个人都会看到。"
-{
-  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">点击、表单、快捷键</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">自然语言 · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL 数据库</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">界面实时更新</div></div>",
-  "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-yp0zjg" title={"一套系统，两种方式"} summary={"代理和 UI 写入相同的操作和相同的数据库。无论一个人做什么，另一个人都会看到。"}>
+
+```html
+<div class="diagram-parity">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Human<br /><small class="diagram-muted">点击、表单、快捷键</small>
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">自然语言 · A2A · Slack</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted">defined once</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">SQL 数据库</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">界面实时更新</div>
+</div>
+```
+
+```css
+.diagram-parity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-parity .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-parity .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-parity .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 当代理创建电子邮件草稿时，它会显示在 UI 中。当您单击“发送”时，代理就知道它已发送。没有单独的“代理世界”和“UI 世界”——它是一个系统。请参阅 [Key Concepts](/docs/key-concepts) 了解实现此功能的架构。
 

@@ -19,12 +19,60 @@ search: "클립 브라우저 로그 개발자 로그 콘솔 로그 네트워크 
 
 Loom + Granola + Wispr Flow가 하나의 앱으로 통합되었다고 생각해보세요. 그러나 에이전트는 모든 표면에서 일류 편집자이며 녹음, 회의 및 받아쓰기는 SaaS 공급업체의 것이 아니라 귀하의 것입니다. Clips는 공유 녹음물을 상담원이 읽을 수 있도록 해줍니다. 일반 Clips 공유 링크를 상담원에 붙여넣으면 대본을 텍스트로 "듣고" 타임스탬프가 표시된 화면 프레임을 이미지로 "볼" 수 있습니다. 원본 비디오는 필요하지 않습니다. 프레임 보기는 모든 이미지 지원 에이전트(ChatGPT, Claude 코드, 커서, Codex)에서 작동합니다. 텍스트 전용 웹 채팅은 여전히 ​​전체 내용을 얻을 수 있으며 업로드한 프레임을 사용할 수 있습니다.
 
-```an-diagram title="캡처, 복사, 재사용" summary="세 가지 캡처 유형이 하나의 라이브러리에 포함됩니다. 상담원이 스크립트를 작성하고 제목을 지정하고 요약하면 모든 스크립트를 검색하고 공유할 수 있습니다."
-{
-  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">화면 녹화</div><div class=\"diagram-node\">캘린더 회의</div><div class=\"diagram-node\">Fn 길게 누르기 받아쓰기</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>하나의 라이브러리<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">제목 · 요약 · 챕터</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">검색</div><div class=\"diagram-pill\">공유</div><div class=\"diagram-pill\">에이전트가 읽을 수 있음 links</div></div></div>",
-  "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-wz0gsz" title={"캡처, 복사, 재사용"} summary={"세 가지 캡처 유형이 하나의 라이브러리에 포함됩니다. 상담원이 스크립트를 작성하고 제목을 지정하고 요약하면 모든 스크립트를 검색하고 공유할 수 있습니다."}>
+
+```html
+<div class="diagram-clips">
+  <div class="diagram-col">
+    <div class="diagram-node">화면 녹화</div>
+    <div class="diagram-node">캘린더 회의</div>
+    <div class="diagram-node">Fn 길게 누르기 받아쓰기</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    하나의 라이브러리<br /><small class="diagram-muted"
+      >recordings + transcripts (SQL)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">제목 · 요약 · 챕터</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">검색</div>
+    <div class="diagram-pill">공유</div>
+    <div class="diagram-pill">에이전트가 읽을 수 있음 links</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-clips {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-clips .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-clips .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-clips .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 그것으로 무엇을 할 수 있나요
 

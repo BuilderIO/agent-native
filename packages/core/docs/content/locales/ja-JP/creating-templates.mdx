@@ -112,12 +112,59 @@ npx @agent-native/core@latest create my-platform
 
 各テンプレートの 4 つの領域は、1 つの共有アクション サーフェスと 1 つの SQL データベースを介して連携します。エージェントと UI は、同じ操作に関して同等のパートナーです。
 
-```an-diagram title="テンプレートの 4 つの領域がどのように接続されるか" summary="UI とエージェントは両方とも同じアクションを通じて SQL に到達します。アプリケーションの状態とポーリング同期により、それらの整合性が維持されます。"
-{
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React UI画面<br><small class=\"diagram-muted\">app/routes · コンポーネント</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">アクション</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Drizzle 経由の SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">ポーリングing sync</div></div>",
-  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1e4ddix" title={"テンプレートの 4 つの領域がどのように接続されるか"} summary={"UI とエージェントは両方とも同じアクションを通じて SQL に到達します。アプリケーションの状態とポーリング同期により、それらの整合性が維持されます。"}>
+
+```html
+<div class="diagram-tmpl">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      React UI画面<br /><small class="diagram-muted"
+        >app/routes · コンポーネント</small
+      >
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">AGENTS.md · skills</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">アクション</span
+    ><small class="diagram-muted">defineAction()</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Drizzle 経由の SQL<br /><small class="diagram-muted">additive schema</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">ポーリングing sync</div>
+</div>
+```
+
+```css
+.diagram-tmpl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-tmpl .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-tmpl .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-tmpl .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## SQL のモデル データ {#data-models}
 

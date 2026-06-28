@@ -29,12 +29,76 @@ description: "チャット内のカスタム エージェント、接続され�
 
 どちらの場合も、メイン エージェントは応答を確認し、それを参照したり、それに基づいて構築したりできます。
 
-```an-diagram title="@メンションがルーティングされる場所" summary="サーバーは各メンションをタイプ別に分割します。カスタム エージェントはローカルで実行され、接続されたエージェントは A2A を経由します。両方の応答はメイン エージェントのコンテキストに折り返されます。"
-{
-  "html": "<div class=\"diagram-mention\"><div class=\"diagram-node\">@-mention<br><small class=\"diagram-muted\">in the composer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">サーバーが解決</span><small class=\"diagram-muted\">extract refs by type</small></div><div class=\"diagram-col\"><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">カスタムエージェント<br><small class=\"diagram-muted\">agents/*.md &middot; runs local</small></div></div><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">接続済みエージェント<br><small class=\"diagram-muted\">A2A peer &middot; remote call</small></div></div></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box diagram-accent\">&lt;agent-response&gt;<br><small class=\"diagram-muted\">injected into main agent</small></div></div>",
-  "css": ".diagram-mention{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-mention .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-mention .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mention .row{display:flex;align-items:center;gap:8px}.diagram-mention .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-e9e86s" title={"@メンションがルーティングされる場所"} summary={"サーバーは各メンションをタイプ別に分割します。カスタム エージェントはローカルで実行され、接続されたエージェントは A2A を経由します。両方の応答はメイン エージェントのコンテキストに折り返されます。"}>
+
+```html
+<div class="diagram-mention">
+  <div class="diagram-node">
+    @-mention<br /><small class="diagram-muted">in the composer</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">サーバーが解決</span
+    ><small class="diagram-muted">extract refs by type</small>
+  </div>
+  <div class="diagram-col">
+    <div class="row">
+      <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box">
+        カスタムエージェント<br /><small class="diagram-muted"
+          >agents/*.md &middot; runs local</small
+        >
+      </div>
+    </div>
+    <div class="row">
+      <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box">
+        接続済みエージェント<br /><small class="diagram-muted"
+          >A2A peer &middot; remote call</small
+        >
+      </div>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box diagram-accent">
+    &lt;agent-response&gt;<br /><small class="diagram-muted"
+      >injected into main agent</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-mention {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-mention .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-mention .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mention .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-mention .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 仕組み {#how-it-works}
 

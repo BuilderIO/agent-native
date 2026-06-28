@@ -24,12 +24,71 @@ Bei jedem PR-Push der Workflow:
 7. Fügt einen einzelnen PR-Kommentar ein, der die Screenshots **inline** mit einem `<picture>`-Element (bereitgestellt über den Camo-Image-Proxy von GitHub) neben dem Link zur interaktiven Zusammenfassung einbettet.
 8. Schließt die `Visual Recap`-Prüfung als erfolgreich, übersprungen oder neutral ab.
 
-```an-diagram title="Was passiert bei jedem PR-Push?" summary="Ein begrenztes Diff speist einen echten Codierungsagenten, der eine Zusammenfassung erstellt; Der Workflow macht einen Screenshot davon und fügt einen Sticky-Kommentar ein."
-{
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR-Push<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Coding-Agent<br><small class=\"diagram-muted\">Claude Code / Codex liest Diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Headless Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Ein angehefteter PR-Kommentar<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
-  "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
+<Diagram id="doc-block-xf7qil" title={"Was passiert bei jedem PR-Push?"} summary={"Ein begrenztes Diff speist einen echten Codierungsagenten, der eine Zusammenfassung erstellt; Der Workflow macht einen Screenshot davon und fügt einen Sticky-Kommentar ein."}>
+
+```html
+<div class="diagram-recap">
+  <div class="diagram-node">
+    PR-Push<br /><small class="diagram-muted"
+      >bounded base&hellip;head diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Coding-Agent<br /><small class="diagram-muted"
+      >Claude Code / Codex liest Diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-visual-recap</span
+    ><small class="diagram-muted">publishes recap plan</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Headless Chrome<br /><small class="diagram-muted"
+      >light + dark screenshots</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Ein angehefteter PR-Kommentar<br /><small class="diagram-muted"
+      >inline screenshot + plan link</small
+    >
+  </div>
+</div>
+<div class="diagram-foot diagram-muted">
+  Plus an informational <span class="diagram-pill">Visual Recap</span> check
+  &mdash; non-blocking, never required.
+</div>
+```
+
+```css
+.diagram-recap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-recap .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-recap .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-recap .diagram-foot {
+  flex-basis: 100%;
+  margin-top: 10px;
+  font-size: 13px;
 }
 ```
+
+</Diagram>
 
 Bei einem erneuten Push werden derselbe Plan und derselbe Sticky-Kommentar aktualisiert – keine verwaisten Pläne, kein Kommentar-Spam.
 
@@ -157,12 +216,70 @@ Wenn Sie Zusammenfassungen für Fork-PRs generieren möchten, steht eine zweite 
 
 Um es zu installieren, kopieren Sie die Datei von [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) in das `.github/workflows/`-Verzeichnis Ihres Repos neben dem vorhandenen `pr-visual-recap.yml`. Es gelten die gleichen Geheimnisse (`PLAN_RECAP_TOKEN`, `ANTHROPIC_API_KEY`).
 
-```an-diagram title="Fork PR-Zustimmungstor" summary="Fork-PRs erhalten standardmäßig keine Geheimnisse; Vertrauenswürdige Autoren werden automatisch ausgeführt und externe Mitwirkende benötigen ein neues Betreuer-Recap-Label."
-{
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork-PR geöffnet<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Vertrauenswürdiger Autor</span><small class=\"diagram-muted\">OWNER, MEMBER oder COLLABORATOR läuft automatisch</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Externer Mitwirkender</span><small class=\"diagram-muted\">Maintainer prüft Diff und wendet ihn dann an <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Gate-Checks<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Recap-Läufe<br><small class=\"diagram-muted\">nur Code aus Basis-Repo · Fork-Diff ist Texteingabe</small></div></div>",
-  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
+<Diagram id="doc-block-cd4zy4" title="Fork PR-Zustimmungstor" summary={"Fork-PRs erhalten standardmäßig keine Geheimnisse; Vertrauenswürdige Autoren werden automatisch ausgeführt und externe Mitwirkende benötigen ein neues Betreuer-Recap-Label."}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-node">
+    Fork-PR geöffnet<br /><small class="diagram-muted"
+      >main workflow has no secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">Vertrauenswürdiger Autor</span
+    ><small class="diagram-muted"
+      >OWNER, MEMBER oder COLLABORATOR läuft automatisch</small
+    >
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Externer Mitwirkender</span
+    ><small class="diagram-muted"
+      >Maintainer prüft Diff und wendet ihn dann an <code>recap</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    Gate-Checks<br /><small class="diagram-muted"
+      >fork PR? &amp; trusted or fresh label?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">
+    Recap-Läufe<br /><small class="diagram-muted"
+      >nur Code aus Basis-Repo · Fork-Diff ist Texteingabe</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-fork .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### So funktioniert das Label-Gate
 

@@ -112,12 +112,59 @@ Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구,
 
 모든 템플릿의 네 가지 영역은 하나의 공유 작업 표면과 하나의 SQL 데이터베이스를 통해 함께 연결됩니다. 에이전트와 UI는 동일한 작업에 대해 동등한 파트너입니다.
 
-```an-diagram title="템플릿의 네 가지 영역이 연결되는 방식" summary="UI와 에이전트는 모두 동일한 작업을 통해 SQL에 도달합니다. 애플리케이션 상태와 폴링 동기화가 정렬된 상태를 유지합니다."
-{
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React 사용자 인터페이스 화면<br><small class=\"diagram-muted\">app/routes · 컴포넌트</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">작업</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Drizzle 기반 SQL<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">폴링ing sync</div></div>",
-  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-hjg2nf" title={"템플릿의 네 가지 영역이 연결되는 방식"} summary={"UI와 에이전트는 모두 동일한 작업을 통해 SQL에 도달합니다. 애플리케이션 상태와 폴링 동기화가 정렬된 상태를 유지합니다."}>
+
+```html
+<div class="diagram-tmpl">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      React 사용자 인터페이스 화면<br /><small class="diagram-muted"
+        >app/routes · 컴포넌트</small
+      >
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">AGENTS.md · skills</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">작업</span
+    ><small class="diagram-muted">defineAction()</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Drizzle 기반 SQL<br /><small class="diagram-muted">additive schema</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">폴링ing sync</div>
+</div>
+```
+
+```css
+.diagram-tmpl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-tmpl .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-tmpl .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-tmpl .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## SQL의 모델 데이터 {#data-models}
 

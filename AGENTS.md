@@ -21,6 +21,11 @@ read the relevant skill before changing that area.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
+- When changing docs under `packages/core/docs/content`, update the matching
+  localized docs under `packages/core/docs/content/locales/*` when the source
+  meaning changes. If translations cannot be updated in the same change, call
+  out the specific locales that need follow-up; reviewers should flag docs
+  changes that only update one language.
 
 ## Final Status Block
 

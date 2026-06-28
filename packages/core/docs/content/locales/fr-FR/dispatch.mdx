@@ -11,12 +11,65 @@ Dispatch est l'application centrale qui se trouve devant toutes les autres appli
 
 Sans Dispatch, chaque application dans un espace de travail multi-applications finit par réimplémenter la même plomberie : son propre robot Slack, son propre magasin secret, ses propres tâches planifiées, sa propre copie des instructions de l'espace de travail. La rotation d’une clé API se transforme en dix redéploiements. L’ajout d’une nouvelle politique se transforme en dix copier-coller. Dispatch centralise tout cela dans une seule application afin que les autres restent concentrés sur leur domaine.
 
-```an-diagram title="Dispatch comme plan de contrôle de l'espace de travail" summary="Une boîte de réception, un coffre-fort, une passerelle MCP et des ressources partagées se trouvent devant les applications de domaine, que Dispatch atteint en tant que pairs A2A."
-{
-  "html": "<div class=\"dsp-hub\"><div class=\"diagram-node\">Users &amp; external agents<br><small class=\"diagram-muted\">Slack · e-mail · Telegram · WhatsApp · MCP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel dsp-control\" data-rough><span class=\"diagram-pill accent\">Dispatch &mdash; control plane</span><div class=\"dsp-caps\"><span class=\"diagram-pill\">Boîte de réception centrale</span><span class=\"diagram-pill\">Coffre des secrets</span><span class=\"diagram-pill\">Délégation inter-apps</span><span class=\"diagram-pill\">MCP gateway</span><span class=\"diagram-pill\">Ressources d’espace de travail</span></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"dsp-peers\"><div class=\"diagram-box\" data-rough>Mail</div><div class=\"diagram-box\" data-rough>Calendar</div><div class=\"diagram-box\" data-rough>Analytics</div></div><small class=\"diagram-muted\">domain apps &mdash; A2A peers</small></div>",
-  "css": ".dsp-hub{display:flex;flex-direction:column;align-items:center;gap:10px}.dsp-hub .dsp-control{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}.dsp-hub .dsp-caps{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.dsp-hub .dsp-peers{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}"
+<Diagram id="doc-block-1hl6pkw" title={"Dispatch comme plan de contrôle de l'espace de travail"} summary={"Une boîte de réception, un coffre-fort, une passerelle MCP et des ressources partagées se trouvent devant les applications de domaine, que Dispatch atteint en tant que pairs A2A."}>
+
+```html
+<div class="dsp-hub">
+  <div class="diagram-node">
+    Users &amp; external agents<br /><small class="diagram-muted"
+      >Slack · e-mail · Telegram · WhatsApp · MCP</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel dsp-control" data-rough>
+    <span class="diagram-pill accent">Dispatch &mdash; control plane</span>
+    <div class="dsp-caps">
+      <span class="diagram-pill">Boîte de réception centrale</span
+      ><span class="diagram-pill">Coffre des secrets</span
+      ><span class="diagram-pill">Délégation inter-apps</span
+      ><span class="diagram-pill">MCP gateway</span
+      ><span class="diagram-pill">Ressources d’espace de travail</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="dsp-peers">
+    <div class="diagram-box" data-rough>Mail</div>
+    <div class="diagram-box" data-rough>Calendar</div>
+    <div class="diagram-box" data-rough>Analytics</div>
+  </div>
+  <small class="diagram-muted">domain apps &mdash; A2A peers</small>
+</div>
+```
+
+```css
+.dsp-hub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.dsp-hub .dsp-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.dsp-hub .dsp-caps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.dsp-hub .dsp-peers {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 ```
+
+</Diagram>
 
 ## Quand vous souhaitez envoyer {#when}
 
@@ -108,12 +161,85 @@ Parcourez un exemple de bout en bout. Un utilisateur envoie un message privé au
 4. **Réponse publiée dans le fil de discussion.** L'agent d'analyse renvoie un résultat. Dispatch le formate et le publie dans le même fil de discussion Slack dans lequel l'utilisateur a écrit, en utilisant l'identité liée s'il en existe une (de sorte que l'agent agit avec les autorisations du demandeur, et non celles du propriétaire de l'espace de travail).
 5. **Récupération en cas de panne.** Si le processeur plante en plein vol (délai d'expiration A2A, erreur de l'agent en aval, gel des fonctions), une nouvelle tentative balaie les tâches bloquées toutes les 60 secondes et relance le processeur. Jusqu'à trois tentatives avant que la tâche ne soit marquée `failed`.
 
-```an-diagram title="Un message Slack via Dispatch" summary="Slack est mis en file d'attente dans SQL, une nouvelle exécution le draine, l'agent Dispatch délègue le travail de domaine sur A2A et la réponse revient dans le thread d'origine. Une nouvelle tentative de 60 s récupère tout ce qui meurt en plein vol."
-{
-  "html": "<div class=\"dsp-flow\"><div class=\"dsp-row\"><div class=\"diagram-node\">DM Slack<br><small class=\"diagram-muted\">\"summarize last week's signups\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/slack/webhook</strong><br><small class=\"diagram-muted\">vérifie + INSERT tâche en attente</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">200</div></div><div class=\"dsp-row\"><div class=\"diagram-box\" data-rough><strong>fresh processor</strong><br><small class=\"diagram-muted\">revendique la tâche · démarre la boucle agent</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">L’agent Dispatch décide</span><small class=\"diagram-muted\">analytics intent &rarr; call-agent</small></div></div><div class=\"dsp-row\"><div class=\"diagram-box\" data-rough>App d’analyse<br><small class=\"diagram-muted\">pair A2A · exécute le travail SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">reply posted in thread</div></div><div class=\"diagram-panel dsp-retry\" data-rough><span class=\"diagram-pill warn\">recovery</span> <span class=\"diagram-muted\">if the processor crashes &mdash; A2A timeout, downstream error, freeze &mdash; the 60s retry job re-fires it (&le;3 attempts) so the Slack reply still arrives</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</span></div></div>",
-  "css": ".dsp-flow{display:flex;flex-direction:column;gap:12px}.dsp-flow .dsp-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.dsp-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.dsp-flow .dsp-retry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}"
+<Diagram id="doc-block-1g3642t" title="Un message Slack via Dispatch" summary={"Slack est mis en file d'attente dans SQL, une nouvelle exécution le draine, l'agent Dispatch délègue le travail de domaine sur A2A et la réponse revient dans le thread d'origine. Une nouvelle tentative de 60 s récupère tout ce qui meurt en plein vol."}>
+
+```html
+<div class="dsp-flow">
+  <div class="dsp-row">
+    <div class="diagram-node">
+      DM Slack<br /><small class="diagram-muted"
+        >"summarize last week's signups"</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>
+      <strong>/slack/webhook</strong><br /><small class="diagram-muted"
+        >vérifie + INSERT tâche en attente</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">200</div>
+  </div>
+  <div class="dsp-row">
+    <div class="diagram-box" data-rough>
+      <strong>fresh processor</strong><br /><small class="diagram-muted"
+        >revendique la tâche · démarre la boucle agent</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-panel center" data-rough>
+      <span class="diagram-pill accent">L’agent Dispatch décide</span
+      ><small class="diagram-muted">analytics intent &rarr; call-agent</small>
+    </div>
+  </div>
+  <div class="dsp-row">
+    <div class="diagram-box" data-rough>
+      App d’analyse<br /><small class="diagram-muted"
+        >pair A2A · exécute le travail SQL</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">reply posted in thread</div>
+  </div>
+  <div class="diagram-panel dsp-retry" data-rough>
+    <span class="diagram-pill warn">recovery</span>
+    <span class="diagram-muted"
+      >if the processor crashes &mdash; A2A timeout, downstream error, freeze
+      &mdash; the 60s retry job re-fires it (&le;3 attempts) so the Slack reply
+      still arrives</span
+    >
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</span>
+  </div>
+</div>
+```
+
+```css
+.dsp-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dsp-flow .dsp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.dsp-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.dsp-flow .dsp-retry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 ```
+
+</Diagram>
 
 Le même flux s'applique aux e-mails, Telegram et WhatsApp : seul l'adaptateur change.
 

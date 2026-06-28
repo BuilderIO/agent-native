@@ -9,12 +9,59 @@ agent-native 背后的定义思想是，agent 和 UI 是**平等的伙伴** - �
 
 有一条简单的直通线。代理**看到**您正在查看的内容，您**将其引导**到您想要的内容，您可以**嵌入**它在任何地方，您可以在更合适的情况下完全**轻 UI**，并且您可以同时**共同编辑**相同的文档。其中每一个都是本节中的一个页面。
 
-```an-diagram title="日复一日的循环" summary="使用对接代理的五种方式 - 每种方式都是本节中的一个页面。"
-{
-  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>轻 UI</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">协同编辑</span><small class=\"diagram-muted\">实时，并排</small></div></div>",
-  "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
+<Diagram id="doc-block-17jz6ip" title={"日复一日的循环"} summary={"使用对接代理的五种方式 - 每种方式都是本节中的一个页面。"}>
+
+```html
+<div class="diagram-loop">
+  <div class="diagram-card">
+    <strong>Sees</strong
+    ><small class="diagram-muted">your view &amp; selection</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Direct</strong
+    ><small class="diagram-muted">@-mentions &amp; voice</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Embed</strong><small class="diagram-muted">drop into any app</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>轻 UI</strong
+    ><small class="diagram-muted">chat is the product</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">协同编辑</span
+    ><small class="diagram-muted">实时，并排</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-loop {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-loop .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 130px;
+  flex: 1;
+}
+.diagram-loop .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 它能看到你在看什么 {#it-sees}
 

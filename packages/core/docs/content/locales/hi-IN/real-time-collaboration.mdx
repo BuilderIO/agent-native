@@ -36,12 +36,56 @@ description: "बहु-उपयोगकर्ता सहयोगात्�
 
 सहयोग प्रणाली में पांच इंटरलॉकिंग परतें हैं।
 
-```an-diagram title="पांच इंटरलॉकिंग परतें" summary="इन-मेमोरी CRDT से लेकर ट्रांसपोर्ट तक जो साथियों के बीच अपडेट पहुंचाता है - प्रत्येक परत में एक काम होता है।"
-{
-  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; conflict-free merge, कोई coordinator नहीं</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL canonical content</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt-gated reconcile</span><small class=\"diagram-muted\">एजेंट edits SQL bump से propagate होते हैं</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; लीड-क्लाइंट चुनाव</span><small class=\"diagram-muted\">ठीक एक टैब snapshot लागू करता है</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE fast-path + polling</span><small class=\"diagram-muted\">~दर्जनों ms, कहीं भी 2s polling तक degrade</small></div></div>",
-  "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+<Diagram id="doc-block-uebsfx" title={"पांच इंटरलॉकिंग परतें"} summary={"इन-मेमोरी CRDT से लेकर ट्रांसपोर्ट तक जो साथियों के बीच अपडेट पहुंचाता है - प्रत्येक परत में एक काम होता है।"}>
+
+```html
+<div class="diagram-stack">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">1 &middot; Yjs Y.Doc</span
+    ><small class="diagram-muted"
+      >CRDT &mdash; conflict-free merge, कोई coordinator नहीं</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">2 &middot; SQL canonical content</span
+    ><small class="diagram-muted"
+      >_collab_docs &mdash; durable source of truth, versioned</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">3 &middot; updatedAt-gated reconcile</span
+    ><small class="diagram-muted"
+      >एजेंट edits SQL bump से propagate होते हैं</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">4 &middot; लीड-क्लाइंट चुनाव</span
+    ><small class="diagram-muted">ठीक एक टैब snapshot लागू करता है</small>
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill ok">5 &middot; SSE fast-path + polling</span
+    ><small class="diagram-muted"
+      >~दर्जनों ms, कहीं भी 2s polling तक degrade</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-stack .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### 1. Yjs Y.Doc (CRDT परत)
 
@@ -100,12 +144,66 @@ Yjs स्थिति `_collab_docs` तालिका में बेस64-�
 
 नेटवर्क त्रुटियाँ घबराहट के साथ घातीय बैकऑफ़ का उपयोग करती हैं, जिसकी सीमा ~15 सेकंड है।
 
-```an-diagram title="दो संपादन पथ, एक विलय" summary="मानव कीस्ट्रोक्स प्रवाह Y.Doc → सर्वर → SSE। एजेंट संपादन SQL से होकर गुजरते हैं: एक्शन बम्प अपडेटेडएट पर होता है, लीड क्लाइंट सामंजस्य स्थापित करता है, फिर परिवर्तन Yjs में पुनः प्रवेश करता है।"
-{
-  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">मानवीय संपादन</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce लगभग 80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">एजेंट संपादन</span><div class=\"diagram-node\">Action SQL लिखता है<br><small class=\"diagram-muted\">updatedAt अपडेट करता है</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>लीड क्लाइंट<br><small class=\"diagram-muted\">setContent को Y.Doc में</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
-  "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-vgqd7e" title={"दो संपादन पथ, एक विलय"} summary={"मानव कीस्ट्रोक्स प्रवाह Y.Doc → सर्वर → SSE। एजेंट संपादन SQL से होकर गुजरते हैं: एक्शन बम्प अपडेटेडएट पर होता है, लीड क्लाइंट सामंजस्य स्थापित करता है, फिर परिवर्तन Yjs में पुनः प्रवेश करता है।"}>
+
+```html
+<div class="diagram-collab">
+  <div class="lane">
+    <span class="diagram-pill">मानवीय संपादन</span>
+    <div class="diagram-node">
+      Y.Doc update<br /><small class="diagram-muted">debounce लगभग 80ms</small>
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      POST /update<br /><small class="diagram-muted">apply + persist</small>
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      SSE push<br /><small class="diagram-muted">to all peers</small>
+    </div>
+  </div>
+  <div class="lane">
+    <span class="diagram-pill warn">एजेंट संपादन</span>
+    <div class="diagram-node">
+      Action SQL लिखता है<br /><small class="diagram-muted"
+        >updatedAt अपडेट करता है</small
+      >
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      लीड क्लाइंट<br /><small class="diagram-muted"
+        >setContent को Y.Doc में</small
+      >
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      POST /update<br /><small class="diagram-muted"
+        >re-enters Yjs &middot; SSE push</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-collab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-collab .lane {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-collab .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## त्वरित प्रारंभ {#quickstart}
 

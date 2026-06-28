@@ -9,12 +9,58 @@ description: "Branching, CODEOWNERS, revisão de PR e como o Dispatch lida com a
 
 Este guia aborda o lado operacional da execução de um espaço de trabalho nativo do agente: como ramificar, quem revisa o quê, como configurar a propriedade do código e como o plano de controle do Dispatch se ajusta ao seu modelo de governança.
 
-```an-diagram title="Dois planos de governança" summary="Git governa o código; Dispatch rege o tempo de execução. Eles são complementares – não reproduzam um dentro do outro."
-{
-  "html": "<div class=\"gov\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Git e GitHub</span><strong>Governança de código</strong><div class=\"gov-list\"><span class=\"diagram-pill\">CODEOWNERS</span><span class=\"diagram-pill\">branch protection</span><span class=\"diagram-pill\">Revisão de PR</span><span class=\"diagram-pill\">git log / blame</span></div></div><div class=\"diagram-pill diagram-muted\">+</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Dispatch</span><strong>Runtime governance</strong><div class=\"gov-list\"><span class=\"diagram-pill\">vault secrets &amp; grants</span><span class=\"diagram-pill\">workspace resources</span><span class=\"diagram-pill\">agent profiles</span><span class=\"diagram-pill\">approvals &amp; audit</span></div></div></div>",
-  "css": ".gov{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.gov .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:240px}.gov .gov-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}"
+<Diagram id="doc-block-ps96tz" title={"Dois planos de governança"} summary={"Git governa o código; Dispatch rege o tempo de execução. Eles são complementares – não reproduzam um dentro do outro."}>
+
+```html
+<div class="gov">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Git e GitHub</span
+    ><strong>Governança de código</strong>
+    <div class="gov-list">
+      <span class="diagram-pill">CODEOWNERS</span
+      ><span class="diagram-pill">branch protection</span
+      ><span class="diagram-pill">Revisão de PR</span
+      ><span class="diagram-pill">git log / blame</span>
+    </div>
+  </div>
+  <div class="diagram-pill diagram-muted">+</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Dispatch</span
+    ><strong>Runtime governance</strong>
+    <div class="gov-list">
+      <span class="diagram-pill">vault secrets &amp; grants</span
+      ><span class="diagram-pill">workspace resources</span
+      ><span class="diagram-pill">agent profiles</span
+      ><span class="diagram-pill">approvals &amp; audit</span>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.gov {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.gov .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 240px;
+}
+.gov .gov-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }
 ```
+
+</Diagram>
 
 ## Ramificação
 

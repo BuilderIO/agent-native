@@ -142,12 +142,59 @@ pnpm dev
 
 合并按文件名进行。如果应用程序提供的本地文件也存在于上游，则本地文件获胜。如果没有，则应用工作区共享版本。如果共享也没有提供，则框架默认启动。这适用于插件、skills、actions 和 `AGENTS.md`。
 
-```an-diagram title="三层，按文件名合并" summary="每个应用程序首先从应用程序本地解析插件、技能、操作和 AGENTS.md，然后是共享包，然后是框架默认值。"
-{
-  "html": "<div class=\"layer\"><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">1 &middot; App local</span><small class=\"diagram-muted\"><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; Workspace shared</span><small class=\"diagram-muted\"><code>packages/shared/</code> &mdash; the mid-layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">3 &middot; Framework default</span><small class=\"diagram-muted\"><code>@agent-native/core</code> &mdash; lowest</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box ok\">first match wins</div></div>",
-  "css": ".layer{display:flex;flex-direction:column;align-items:center;gap:6px}.layer .diagram-card{display:flex;flex-direction:column;gap:3px;padding:12px 16px;width:320px}.layer .diagram-arrow{font-size:18px;line-height:1}.layer .diagram-box{margin-top:2px}"
+<Diagram id="doc-block-dlh9tt" title={"三层，按文件名合并"} summary={"每个应用程序首先从应用程序本地解析插件、技能、操作和 AGENTS.md，然后是共享包，然后是框架默认值。"}>
+
+```html
+<div class="layer">
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">1 &middot; App local</span
+    ><small class="diagram-muted"
+      ><code>apps/&lt;name&gt;/</code> &mdash; highest priority</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2 &middot; Workspace shared</span
+    ><small class="diagram-muted"
+      ><code>packages/shared/</code> &mdash; the mid-layer</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">3 &middot; Framework default</span
+    ><small class="diagram-muted"
+      ><code>@agent-native/core</code> &mdash; lowest</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&darr;</div>
+  <div class="diagram-box ok">first match wins</div>
+</div>
+```
+
+```css
+.layer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.layer .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 16px;
+  width: 320px;
+}
+.layer .diagram-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+.layer .diagram-box {
+  margin-top: 2px;
 }
 ```
+
+</Diagram>
 
 当一个应用需要不同的东西时，删除本地文件：
 
@@ -252,12 +299,48 @@ npx @agent-native/core@latest deploy
 
 每个应用程序均使用 `APP_BASE_PATH=/<name>` 和 `VITE_APP_BASE_PATH=/<name>` 构建，并通过选定的 Nitro 预设发出。 Cloudflare Pages 是默认预设，并使用 `dist/_worker.js` 和 `_routes.json` 的调度程序工作人员。 `npx @agent-native/core@latest deploy --preset netlify` 支持 Netlify；它在 `.netlify/functions-internal/<app>-server` 下发出应用程序功能，并生成重定向，使静态资产不受强制，因此 CDN 首先提供文件。 `npx @agent-native/core@latest deploy --preset vercel` 支持 Vercel；它使用 Vercel 的构建输出 API 编写根 `.vercel/output` 包。
 
-```an-diagram title="统一部署：一个源，每个应用一个路径" summary="每个应用程序都遵循单一来源，因此登录会话和跨应用程序 A2A 是免费的。"
-{
-  "html": "<div class=\"deploy\"><div class=\"diagram-box accent\">your-agents.com<br><small class=\"diagram-muted\">one DNS record &middot; one cert &middot; one CDN</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"deploy-apps\"><div class=\"diagram-box\">/mail/*</div><div class=\"diagram-box\">/calendar/*</div><div class=\"diagram-box\">/forms/*</div></div><div class=\"diagram-pill ok\">shared login cookie on the apex &bull; same-origin A2A, no CORS</div></div>",
-  "css": ".deploy{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.deploy .deploy-apps{display:flex;flex-direction:column;gap:8px}.deploy .diagram-arrow{font-size:24px}.deploy .diagram-pill{flex-basis:100%}"
+<Diagram id="doc-block-1ncqr0k" title={"统一部署：一个源，每个应用一个路径"} summary={"每个应用程序都遵循单一来源，因此登录会话和跨应用程序 A2A 是免费的。"}>
+
+```html
+<div class="deploy">
+  <div class="diagram-box accent">
+    your-agents.com<br /><small class="diagram-muted"
+      >one DNS record &middot; one cert &middot; one CDN</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="deploy-apps">
+    <div class="diagram-box">/mail/*</div>
+    <div class="diagram-box">/calendar/*</div>
+    <div class="diagram-box">/forms/*</div>
+  </div>
+  <div class="diagram-pill ok">
+    shared login cookie on the apex &bull; same-origin A2A, no CORS
+  </div>
+</div>
+```
+
+```css
+.deploy {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.deploy .deploy-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.deploy .diagram-arrow {
+  font-size: 24px;
+}
+.deploy .diagram-pill {
+  flex-basis: 100%;
 }
 ```
+
+</Diagram>
 
 同源\*\*才是真正的回报所在：
 

@@ -18,12 +18,66 @@ Design est un studio de prototypage HTML natif avec agent. Au lieu d'un canevas 
 
 Lorsque vous ouvrez l'application, le prototype généré est au centre de l'espace de travail, avec des modes de prévisualisation, des révisions rapides et des contrôles d'exportation à portée de main. Tout ce que l'agent produit est du vrai HTML que vous pouvez affiner, exporter ou transférer.
 
-```an-diagram title="Un artefact, pas de traduction" summary="L'agent génère Alpine/Tailwind HTML autonome ; l'iframe, la source modifiable et chaque exportation lisent tous les mêmes fichiers. Un système de conception lié alimente les jetons dans chaque passe."
-{
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">Invite<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Système de design</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Génération agent</span><small class=\"diagram-muted\">fichiers HTML / JSX autonomes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">ajuster les réglages · affiner avec Cmd+I</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · transfert</small></div></div>",
-  "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1wpnkhw" title="Un artefact, pas de traduction" summary={"L'agent génère Alpine/Tailwind HTML autonome ; l'iframe, la source modifiable et chaque exportation lisent tous les mêmes fichiers. Un système de conception lié alimente les jetons dans chaque passe."}>
+
+```html
+<div class="diagram-design">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Invite<br /><small class="diagram-muted">describe screen / page</small>
+    </div>
+    <div class="diagram-pill">Système de design</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Génération agent</span
+    ><small class="diagram-muted">fichiers HTML / JSX autonomes</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    iframe preview<br /><small class="diagram-muted"
+      >ajuster les réglages · affiner avec Cmd+I</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Export</span
+    ><small class="diagram-muted">HTML · ZIP · PDF · transfert</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-design {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-design .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-design .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-design .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-design .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Quand le choisir
 

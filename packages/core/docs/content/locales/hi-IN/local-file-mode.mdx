@@ -46,12 +46,66 @@ UI और एजेंट actions को दोनों मोड में ए
 संपादक अभी भी दस्तावेज़ों का संपादन करता है; अंतर यह है कि क्या वे दस्तावेज़ हल हो जाते हैं
 SQL पंक्तियों या स्थानीय फ़ाइलों तक।
 
-```an-diagram title="समान कार्य, सत्य के दो स्रोत" summary="यूआई और एजेंट दोनों मोड में समान क्रियाएं कहते हैं। कार्रवाई परत यह तय करती है कि प्रत्येक कॉल SQL पंक्तियों या रेपो फ़ाइलों का समाधान करती है या नहीं।"
-{
-  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">सामग्री UI</div><div class=\"diagram-node\">एजेंट + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">डेटाबेस मोड</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">होस्टेड · साझाकरण · टिप्पणियां · इतिहास</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git समीक्षा · कोडिंग-एजेंट संपादन</small></div></div></div>",
-  "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+<Diagram id="doc-block-n52rso" title={"समान कार्य, सत्य के दो स्रोत"} summary={"यूआई और एजेंट दोनों मोड में समान क्रियाएं कहते हैं। कार्रवाई परत यह तय करती है कि प्रत्येक कॉल SQL पंक्तियों या रेपो फ़ाइलों का समाधान करती है या नहीं।"}>
+
+```html
+<div class="diagram-mode">
+  <div class="diagram-col entry">
+    <div class="diagram-node">सामग्री UI</div>
+    <div class="diagram-node">
+      एजेंट + actions<br /><small class="diagram-muted"
+        >list/get/update-document</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-row resolve">
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">डेटाबेस मोड</span
+      ><small class="diagram-muted">SQL rows via Drizzle</small
+      ><small class="diagram-muted"
+        >होस्टेड · साझाकरण · टिप्पणियां · इतिहास</small
+      >
+    </div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill ok">Local File Mode</span
+      ><small class="diagram-muted">repo files via agent-native.json</small
+      ><small class="diagram-muted">Git समीक्षा · कोडिंग-एजेंट संपादन</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mode {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mode .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mode .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-mode .resolve {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-mode .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ## उदाहरण रेपो
 

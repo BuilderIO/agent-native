@@ -19,12 +19,73 @@ Brain عبارة عن دردشة شركة نظيفة مدعومة بالذاكر
 الخبرة، في حين أن **المصادر** و**المراجعة** و**المعرفة** هي المشرف/الدعم
 أسطح لتوصيل البيانات، والموافقة على المقترحات، وفحص الذاكرة المستشهد بها.
 
-```an-diagram title="من المصدر إلى الإجابة المذكورة" summary="يستوعب الدماغ المصادر المعتمدة في لقطات أولية، ويقطر الذاكرة الدائمة، ويمررها عبر المراجعة، وعندها فقط يجيب على الاستشهادات."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Sources</span><small class=\"diagram-muted\">Slack · Granola · GitHub · Clips · webhooks</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>اللقطات الخام<br><small class=\"diagram-muted\">مزال التكرار، منقح</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Distill<br><small class=\"diagram-muted\">حقائق · قرارات · عمليات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Review</span><small class=\"diagram-muted\">sensitive / low-confidence queue</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Knowledge</span><small class=\"diagram-muted\">معتمد، ذري</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Ask</span><small class=\"diagram-muted\">cited answer</small></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.diagram-flow .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-flow .diagram-arrow{font-size:20px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-139f5ge" title={"من المصدر إلى الإجابة المذكورة"} summary={"يستوعب الدماغ المصادر المعتمدة في لقطات أولية، ويقطر الذاكرة الدائمة، ويمررها عبر المراجعة، وعندها فقط يجيب على الاستشهادات."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Sources</span
+    ><small class="diagram-muted"
+      >Slack · Granola · GitHub · Clips · webhooks</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    اللقطات الخام<br /><small class="diagram-muted">مزال التكرار، منقح</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Distill<br /><small class="diagram-muted">حقائق · قرارات · عمليات</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Review</span
+    ><small class="diagram-muted">sensitive / low-confidence queue</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Knowledge</span
+    ><small class="diagram-muted">معتمد، ذري</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Ask</span
+    ><small class="diagram-muted">cited answer</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.diagram-flow .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 <WireframeBlock id="doc-block-1uh7c1t">
   <Screen

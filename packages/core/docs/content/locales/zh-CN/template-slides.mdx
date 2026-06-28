@@ -18,12 +18,57 @@ description: "根据提示生成套牌、进行可视化编辑并全屏呈现。
 
 当您打开幻灯片时，幻灯片画布、大纲、注释和幻灯片保留在一个编辑器界面中，而代理仍然可以通过 actions 创建、修改和导航幻灯片。
 
-```an-diagram title="提示到甲板" summary="请求一副牌，代理会通过您可以从 CLI 调用的相同操作一次滑入一张幻灯片。"
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">提示<br><small class=\"diagram-muted\">\"10-slide pitch deck\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">选择布局</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">create-deck</div><div class=\"diagram-pill\">add-slide &#215; n</div><small class=\"diagram-muted\">并行、流式传输</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>decks (SQL)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">编辑器实时渲染</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-v2vwut" title={"提示到甲板"} summary={"请求一副牌，代理会通过您可以从 CLI 调用的相同操作一次滑入一张幻灯片。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    提示<br /><small class="diagram-muted">"10-slide pitch deck"</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">选择布局</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">create-deck</div>
+    <div class="diagram-pill">add-slide &#215; n</div>
+    <small class="diagram-muted">并行、流式传输</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>decks (SQL)</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">编辑器实时渲染</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 你可以用它做什么
 

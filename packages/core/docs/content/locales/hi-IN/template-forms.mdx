@@ -18,12 +18,72 @@ description: "एजेंट-नेटिव फॉर्म बिल्डर
 
 जब आप ऐप खोलते हैं, तो आपको अपने फॉर्म, वर्तमान संपादक और एक लाइव पूर्वावलोकन दिखाई देता है। एजेंट प्रॉम्प्ट से एक फॉर्म बना सकता है, फ़ील्ड लेबल और विकल्प अपडेट कर सकता है, सत्यापन बदल सकता है, और UI द्वारा उपयोग किए जाने वाले समान actions का उपयोग करके सबमिशन गंतव्यों को कनेक्ट कर सकता है।
 
-```an-diagram title="निर्माण करें, प्रकाशित करें, संग्रह करें" summary="एजेंट और विज़ुअल एडिटर एक SQL-backed फॉर्म परिभाषा को संपादित करते हैं। सार्वजनिक भरण पृष्ठ अप्रमाणित है, और सबमिशन सर्वर-साइड को आपके गंतव्य तक ले जाता है।"
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">एजेंट प्रॉम्प्ट<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">विजुअल एडिटर<br><small class=\"diagram-muted\">लेबल, वैलिडेशन, क्रम</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">fields JSON और settings JSON सेटिंग्स</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">Drizzle के ज़रिए SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">सार्वजनिक भरने वाला पेज<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">Slack / webhook / Sheets जोड़ें</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-37vrmw" title={"निर्माण करें, प्रकाशित करें, संग्रह करें"} summary={"एजेंट और विज़ुअल एडिटर एक SQL-backed फॉर्म परिभाषा को संपादित करते हैं। सार्वजनिक भरण पृष्ठ अप्रमाणित है, और सबमिशन सर्वर-साइड को आपके गंतव्य तक ले जाता है।"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      एजेंट प्रॉम्प्ट<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      विजुअल एडिटर<br /><small class="diagram-muted"
+        >लेबल, वैलिडेशन, क्रम</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · update-form</span
+    ><small class="diagram-muted">fields JSON और settings JSON सेटिंग्स</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">Drizzle के ज़रिए SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      सार्वजनिक भरने वाला पेज<br /><small class="diagram-muted"
+        >unauthenticated</small
+      >
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >Slack / webhook / Sheets जोड़ें</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## आप इसके साथ क्या कर सकते हैं
 

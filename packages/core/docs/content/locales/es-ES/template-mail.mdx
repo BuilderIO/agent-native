@@ -18,12 +18,68 @@ Un cliente de correo electrónico impulsado por agentes. Conecte su cuenta Gmail
 
 Cuando abres la aplicación, la bandeja de entrada del teclado y la vista del hilo permanecen enfocadas en el correo mismo. El agente siempre sabe en qué vista se encuentra y qué hilo tiene abierto, por lo que puede decir "archivar esto" o "redactar un rechazo amistoso" sin explicar qué es "esto".
 
-```an-diagram title="Cómo fluye una solicitud por correo" summary="Los atajos de teclado y las indicaciones del agente ejecutan las mismas acciones. El correo electrónico vive en Gmail; borradores, automatizaciones y seguimiento en vivo en SQL y application_state."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Tú controlas<br><small class=\"diagram-muted\">atajos J/K/E/R</small></div><div class=\"diagram-node\">Le pides al agente<br><small class=\"diagram-muted\">\"redacta un rechazo amable\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-emails · get-thread · manage-draft · send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Gmail<br><small class=\"diagram-muted\">varias cuentas, vía OAuth</small></div><div class=\"diagram-box\">SQL + application_state<br><small class=\"diagram-muted\">borradores · automatizaciones · seguimiento</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">La bandeja se actualiza en vivo</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-z9ug9h" title={"Cómo fluye una solicitud por correo"} summary={"Los atajos de teclado y las indicaciones del agente ejecutan las mismas acciones. El correo electrónico vive en Gmail; borradores, automatizaciones y seguimiento en vivo en SQL y application_state."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Tú controlas<br /><small class="diagram-muted">atajos J/K/E/R</small>
+    </div>
+    <div class="diagram-node">
+      Le pides al agente<br /><small class="diagram-muted"
+        >"redacta un rechazo amable"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-emails · get-thread · manage-draft · send</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Gmail<br /><small class="diagram-muted">varias cuentas, vía OAuth</small>
+    </div>
+    <div class="diagram-box">
+      SQL + application_state<br /><small class="diagram-muted"
+        >borradores · automatizaciones · seguimiento</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">La bandeja se actualiza en vivo</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Qué puedes hacer con él
 

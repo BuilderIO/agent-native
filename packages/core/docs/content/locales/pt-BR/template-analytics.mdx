@@ -18,12 +18,54 @@ Faça perguntas analíticas em inglês simples e receba gráficos e painéis de 
 
 É um substituto de código aberto para Amplitude, Mixpanel e Looker — para equipes que desejam possuir o código, as consultas e os dados.
 
-```an-diagram title="Pergunta para traçar" summary="O agente consulta o dicionário de dados, escreve SQL, valida-o no armazém e depois renderiza um gráfico ou salva um painel."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Linguagem simples<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Grava SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Validar dry-run</div><small class=\"diagram-muted\">BigQuery / fonte</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Gráfico, tabela ou<br>saved panel</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1lfh70i" title={"Pergunta para traçar"} summary={"O agente consulta o dicionário de dados, escreve SQL, valida-o no armazém e depois renderiza um gráfico ou salva um painel."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">Linguagem simples<br />question</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">reads data dictionary</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>Grava SQL</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill ok">Validar dry-run</div>
+    <small class="diagram-muted">BigQuery / fonte</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Gráfico, tabela ou<br />saved panel</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## O que você pode fazer com isso
 

@@ -17,12 +17,50 @@ agent-native add provider stripe | claude
 agent-native add channel discord  | codex
 ```
 
-```an-diagram title="新增列印配方；您的編碼代理應用它" summary="agent-native 向 stdout 發出 Markdown 藍圖（對 stderr 進行診斷）；您可以將其透過管道傳輸到 Claude Code 或 Codex，這將使用完整的脈絡編輯您的即時儲存庫。"
-{
-  "html": "<div class=\"diagram-bp\"><div class=\"diagram-node\" data-rough>agent-native add<br><small class=\"diagram-muted\">&lt;kind&gt; &lt;name|URL&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Markdown 藍圖<br><small class=\"diagram-muted\">stdout · 要觸碰的檔案 · 規則 · 驗證</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>編碼 Agent<br><small class=\"diagram-muted\">claude · codex</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">edits your live repo</div></div>",
-  "css": ".diagram-bp{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bp .diagram-arrow{font-size:22px;line-height:1}.diagram-bp .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1lzc98y" title={"新增列印配方；您的編碼代理應用它"} summary={"agent-native 向 stdout 發出 Markdown 藍圖（對 stderr 進行診斷）；您可以將其透過管道傳輸到 Claude Code 或 Codex，這將使用完整的脈絡編輯您的即時儲存庫。"}>
+
+```html
+<div class="diagram-bp">
+  <div class="diagram-node" data-rough>
+    agent-native add<br /><small class="diagram-muted"
+      >&lt;kind&gt; &lt;name|URL&gt;</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Markdown 藍圖<br /><small class="diagram-muted"
+      >stdout · 要觸碰的檔案 · 規則 · 驗證</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    編碼 Agent<br /><small class="diagram-muted">claude · codex</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill ok">edits your live repo</div>
+</div>
+```
+
+```css
+.diagram-bp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-bp .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-bp .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 用法 {#usage}
 

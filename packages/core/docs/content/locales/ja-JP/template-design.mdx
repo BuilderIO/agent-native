@@ -18,12 +18,68 @@ Design は、エージェントネイティブの HTML プロトタイピング 
 
 アプリを開くと、生成されたプロトタイプがワークスペースの中心となり、プレビュー モード、プロンプト リビジョン、およびエクスポート コントロールがすぐ近くにあります。エージェントが生成するものはすべて本物の HTML であり、調整したり、エクスポートしたり、引き渡したりすることができます。
 
-```an-diagram title="成果物は 1 つ、翻訳なし" summary="エージェントはスタンドアロン Alpine/Tailwind HTML を生成します。 iframe、編集可能なソース、およびすべてのエクスポートはすべて同じファイルを読み取ります。リンクされた設計システムは、トークンを各パスに供給します。"
-{
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">プロンプト<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">デザインシステム</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">エージェント生成</span><small class=\"diagram-muted\">独立したHTML / JSXファイル</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">ノブを調整 · Cmd+Iで refine</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · 引き継ぎ</small></div></div>",
-  "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1u8a9cl" title={"成果物は 1 つ、翻訳なし"} summary={"エージェントはスタンドアロン Alpine/Tailwind HTML を生成します。 iframe、編集可能なソース、およびすべてのエクスポートはすべて同じファイルを読み取ります。リンクされた設計システムは、トークンを各パスに供給します。"}>
+
+```html
+<div class="diagram-design">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      プロンプト<br /><small class="diagram-muted"
+        >describe screen / page</small
+      >
+    </div>
+    <div class="diagram-pill">デザインシステム</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">エージェント生成</span
+    ><small class="diagram-muted">独立したHTML / JSXファイル</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    iframe preview<br /><small class="diagram-muted"
+      >ノブを調整 · Cmd+Iで refine</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Export</span
+    ><small class="diagram-muted">HTML · ZIP · PDF · 引き継ぎ</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-design {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-design .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-design .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-design .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-design .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## いつ選択するか
 

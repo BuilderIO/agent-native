@@ -18,12 +18,68 @@ Forms는 에이전트 기반 양식 작성 도구입니다. 원하는 양식을 
 
 앱을 열면 양식, 현재 편집기 및 실시간 미리보기가 표시됩니다. 에이전트는 프롬프트에서 양식을 생성하고, 필드 레이블 및 옵션을 업데이트하고, 유효성 검사를 변경하고, UI가 사용하는 것과 동일한 actions를 사용하여 제출 대상을 연결할 수 있습니다.
 
-```an-diagram title="구축, 게시, 수집" summary="에이전트와 시각적 편집기는 하나의 SQL-backed 양식 정의를 편집합니다. 공개 채우기 페이지는 인증되지 않으며 제출 내용은 서버 측에서 대상으로 라우팅됩니다."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">에이전트 프롬프트<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">비주얼 편집기<br><small class=\"diagram-muted\">레이블, 검증, 순서</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">필드 JSON, 설정 JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">Drizzle 기반 SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">공개 작성 페이지<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">Slack / webhook / Sheets 추가</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-19nq67h" title={"구축, 게시, 수집"} summary={"에이전트와 시각적 편집기는 하나의 SQL-backed 양식 정의를 편집합니다. 공개 채우기 페이지는 인증되지 않으며 제출 내용은 서버 측에서 대상으로 라우팅됩니다."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      에이전트 프롬프트<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      비주얼 편집기<br /><small class="diagram-muted">레이블, 검증, 순서</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · update-form</span
+    ><small class="diagram-muted">필드 JSON, 설정 JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">Drizzle 기반 SQL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      공개 작성 페이지<br /><small class="diagram-muted">unauthenticated</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >Slack / webhook / Sheets 추가</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 그것으로 무엇을 할 수 있나요
 

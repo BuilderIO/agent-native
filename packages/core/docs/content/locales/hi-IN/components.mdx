@@ -25,12 +25,67 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` या एक केंद्रित `@agent-native/core/client/*` उपपथ
 इसलिए बंडलर ब्राउज़र-सुरक्षित प्रविष्टि चुनते हैं।
 
-```an-diagram title="एक परत नीचे गिराएं, ढांचे से बाहर नहीं" summary="प्रत्येक परत आपको क्रोम पर अधिक नियंत्रण प्रदान करते हुए समान रनटाइम - क्रियाएं, थ्रेड स्थिति और SQL-backed सिंक रखती है।"
-{
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">आपके ऐप के चारों ओर पूरी साइडबार। 80% वाला केस।</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">आपके अपने layout में पैनल या चैट पेज।</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">लिखेंr and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>वही runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
-  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-109zkj3" title={"एक परत नीचे गिराएं, ढांचे से बाहर नहीं"} summary={"प्रत्येक परत आपको क्रोम पर अधिक नियंत्रण प्रदान करते हुए समान रनटाइम - क्रियाएं, थ्रेड स्थिति और SQL-backed सिंक रखती है।"}>
+
+```html
+<div class="diagram-layers">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">&lt;AgentSidebar&gt;</span
+    ><small class="diagram-muted"
+      >आपके ऐप के चारों ओर पूरी साइडबार। 80% वाला केस।</small
+    >
+  </div>
+  <div class="diagram-card layer l2">
+    <span class="diagram-pill"
+      >&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span
+    ><small class="diagram-muted">आपके अपने layout में पैनल या चैट पेज।</small>
+  </div>
+  <div class="diagram-card layer l3">
+    <span class="diagram-pill">&lt;AssistantChat&gt; + runtime</span
+    ><small class="diagram-muted"
+      >Own the chrome; optionally pass a BYO AgentChatRuntime.</small
+    >
+  </div>
+  <div class="diagram-card layer l4">
+    <span class="diagram-pill"
+      >&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span
+    ><small class="diagram-muted">लिखेंr and transcript primitives only.</small>
+  </div>
+  <div class="diagram-rail" data-rough>
+    वही runtime: actions &middot; thread state &middot; SQL-backed sync
+  </div>
+</div>
+```
+
+```css
+.diagram-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-layers .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-layers .l2 {
+  margin-inline-start: 24px;
+}
+.diagram-layers .l3 {
+  margin-inline-start: 48px;
+}
+.diagram-layers .l4 {
+  margin-inline-start: 72px;
+}
+.diagram-layers .diagram-rail {
+  margin-top: 6px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## एजेंट और चैट UI {#agent-chat-ui}
 
@@ -178,12 +233,63 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 | `useCollaborativeMap()` / `useCollaborativeArray()` | रिच-टेक्स्ट बॉडी कोलाब गलत फिट होने पर संरचित Y.Map/Y.Array स्थिति के साथ प्रयोग करें। |
 | `dedupeCollabUsersByEmail()`                        | एक ही उपयोगकर्ता के लिए डुप्लिकेट टैब के बिना एक कस्टम अवतार स्टैक बनाएं।              |
 
-```an-diagram title="उपस्थिति: मनुष्य और एजेंट एक जागरूकता परत साझा करते हैं" summary="useCollaborativeDoc जागरूकता उदाहरण का स्वामी है; क्लाइंट हुक कर्सर और चयन प्रकाशित करते हैं; सर्वर सहायक एजेंट की कार्रवाई को लाइव भागीदार के रूप में प्रदर्शित होने देते हैं।"
-{
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">एजेंट action<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">सभी को रेंडर करें, एजेंट सहित</small></div></div>",
-  "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-kmrihf" title={"उपस्थिति: मनुष्य और एजेंट एक जागरूकता परत साझा करते हैं"} summary={"useCollaborativeDoc जागरूकता उदाहरण का स्वामी है; क्लाइंट हुक कर्सर और चयन प्रकाशित करते हैं; सर्वर सहायक एजेंट की कार्रवाई को लाइव भागीदार के रूप में प्रदर्शित होने देते हैं।"}>
+
+```html
+<div class="diagram-presence">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Humans<br /><small class="diagram-muted"
+        >usePresence &middot; cursors, selection</small
+      >
+    </div>
+    <div class="diagram-node diagram-accent">
+      एजेंट action<br /><small class="diagram-muted"
+        >agentUpdateSelection()</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">useCollaborativeDoc</span
+    ><small class="diagram-muted">awareness layer</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    &lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br /><small
+      class="diagram-muted"
+      >सभी को रेंडर करें, एजेंट सहित</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-presence {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-presence .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-presence .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-presence .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 सर्वर-साइड एजेंट actions जो लाइव प्रतिभागी के रूप में दिखना चाहते हैं, इसका उपयोग करें
 निचले स्तर के `@agent-native/core/collab` एजेंट उपस्थिति सहायक:

@@ -19,12 +19,62 @@ track(
 );
 ```
 
-```an-diagram title="One track() call, every provider" summary="Server and client callers hit the same registry, which fans every event out to all active providers in parallel."
-{
-  "html": "<div class=\"trk\"><div class=\"diagram-col\"><div class=\"diagram-node\">Server code<br><small class=\"diagram-muted\">actions &middot; plugins &middot; routes</small></div><div class=\"diagram-node\">Browser code<br><small class=\"diagram-muted\">POST /_agent-native/track</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Provider registry</span><small class=\"diagram-muted\">fan-out, fire-and-forget</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">PostHog</div><div class=\"diagram-box\">Mixpanel</div><div class=\"diagram-box\">Amplitude</div><div class=\"diagram-box\">Webhook</div></div></div>",
-  "css": ".trk{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.trk .diagram-col{display:flex;flex-direction:column;gap:8px}.trk .diagram-arrow{font-size:22px;line-height:1}.trk .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-w1opwu" title="One track() call, every provider" summary="Server and client callers hit the same registry, which fans every event out to all active providers in parallel.">
+
+```html
+<div class="trk">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Server code<br /><small class="diagram-muted"
+        >actions &middot; plugins &middot; routes</small
+      >
+    </div>
+    <div class="diagram-node">
+      Browser code<br /><small class="diagram-muted"
+        >POST /_agent-native/track</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Provider registry</span
+    ><small class="diagram-muted">fan-out, fire-and-forget</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">PostHog</div>
+    <div class="diagram-box">Mixpanel</div>
+    <div class="diagram-box">Amplitude</div>
+    <div class="diagram-box">Webhook</div>
+  </div>
+</div>
+```
+
+```css
+.trk {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.trk .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trk .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.trk .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Built-in providers {#built-in}
 

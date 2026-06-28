@@ -18,12 +18,61 @@ Ein programmatisches Videostudio für die Art von Bewegungsgrafiken, Produktdemo
 
 Wenn Sie das Studio öffnen, wird auf dem Startbildschirm eine Liste der Kompositionen angezeigt. Klicken Sie darauf und Sie erhalten oben einen Player, unten eine Zeitleiste und rechts ein Eigenschaftenfenster. Der Agent weiß immer, welche Komposition Sie geöffnet haben.
 
-```an-diagram title="Animation als Daten" summary="Eine Komposition ist eine React-Komponente; Jede Animation liest von einer Spur, sodass der Agent und die Zeitleiste dieselben Daten bearbeiten."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Timeline<br><small class=\"diagram-muted\">ziehen, Größe ändern, scrubben</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">\"fade in at 2s\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">AnimationTrack</span><small class=\"diagram-muted\">startFrame / easing / animatedProps</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>React-Komposition<br><small class=\"diagram-muted\">Remotion &lt;Player&gt;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">MP4 / WebM</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-jrff69" title="Animation als Daten" summary={"Eine Komposition ist eine React-Komponente; Jede Animation liest von einer Spur, sodass der Agent und die Zeitleiste dieselben Daten bearbeiten."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Timeline<br /><small class="diagram-muted"
+        >ziehen, Größe ändern, scrubben</small
+      >
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">"fade in at 2s"</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">AnimationTrack</span
+    ><small class="diagram-muted">startFrame / easing / animatedProps</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    React-Komposition<br /><small class="diagram-muted"
+      >Remotion &lt;Player&gt;</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">MP4 / WebM</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Was Sie damit machen können
 

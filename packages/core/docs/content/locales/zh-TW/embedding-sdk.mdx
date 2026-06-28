@@ -11,12 +11,55 @@ description: "使用頁面脈絡和主機指令將 Agent-Native sidecar 嵌入�
 嵌入式邊車，或完整的應用程式，從
 [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="包埋膜" summary="主機應用程式提供伺服器端驗證和即時頁面脈絡； Agent-Native 執行持久 sidecar 並透過用戶端操作和主機指令到達開啟的分頁。"
-{
-  "html": "<div class=\"diagram-embed\"><div class=\"diagram-box\" data-rough><strong>主機 SaaS 應用</strong><small class=\"diagram-muted\">你的介面，你的認證</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">getContext &rarr;</div><div class=\"diagram-pill\">&larr; 用戶端操作</div><div class=\"diagram-pill\">&larr; 主機指令</div></div><div class=\"diagram-panel center\" data-rough><strong>Agent-Native sidecar</strong><small class=\"diagram-muted\">持久聊天 · 應用狀態 · 擴充功能</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL<br><small class=\"diagram-muted\">框架表</small></div></div>",
-  "css": ".diagram-embed{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-embed .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-g4vq16" title={"包埋膜"} summary={"主機應用程式提供伺服器端驗證和即時頁面脈絡； Agent-Native 執行持久 sidecar 並透過用戶端操作和主機指令到達開啟的分頁。"}>
+
+```html
+<div class="diagram-embed">
+  <div class="diagram-box" data-rough>
+    <strong>主機 SaaS 應用</strong
+    ><small class="diagram-muted">你的介面，你的認證</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill accent">getContext &rarr;</div>
+    <div class="diagram-pill">&larr; 用戶端操作</div>
+    <div class="diagram-pill">&larr; 主機指令</div>
+  </div>
+  <div class="diagram-panel center" data-rough>
+    <strong>Agent-Native sidecar</strong
+    ><small class="diagram-muted">持久聊天 · 應用狀態 · 擴充功能</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL<br /><small class="diagram-muted">框架表</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 從這裡開始：包含電池的外掛 {#batteries-included}
 
@@ -373,12 +416,44 @@ const hostTools = createAgentNativeHostTools({
 
 對於 CLAW 風格的同事，iframe 還可以向 sidecar 後端註冊其即時瀏覽器分頁。然後，代理取得正常的後端工具，將請求排入佇列，iframe 聲明它，主機頁面執行它，後端將結果返回給代理。
 
-```an-diagram title="伺服器介導的瀏覽器工作階段橋" summary="後端工具將工作排隊；註冊的分頁聲明它，在即時頁面上執行它，並將結果返回給代理 - 因此 backend/Slack/A2A 代理仍然可以觸摸開啟的分頁。"
-{
-  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-node\" data-rough>後端代理<br><small class=\"diagram-muted\">聊天 · Slack · A2A</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>enqueue request<br><small class=\"diagram-muted\">/_agent-native/browser-sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>活動標籤頁面接管它<br><small class=\"diagram-muted\">registered bridge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">result &rarr; agent</div></div>",
-  "css": ".diagram-bridge{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-m1fbf9" title={"伺服器介導的瀏覽器工作階段橋"} summary={"後端工具將工作排隊；註冊的分頁聲明它，在即時頁面上執行它，並將結果返回給代理 - 因此 backend/Slack/A2A 代理仍然可以觸摸開啟的分頁。"}>
+
+```html
+<div class="diagram-bridge">
+  <div class="diagram-node" data-rough>
+    後端代理<br /><small class="diagram-muted">聊天 · Slack · A2A</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    enqueue request<br /><small class="diagram-muted"
+      >/_agent-native/browser-sessions</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    活動標籤頁面接管它<br /><small class="diagram-muted"
+      >registered bridge</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill ok">result &rarr; agent</div>
+</div>
+```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 在 sidecar 應用程式中，當 iframe 安裝時啟動一次瀏覽器工作階段橋：
 

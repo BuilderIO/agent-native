@@ -14,12 +14,58 @@ description: "编写 *.eval.ts 测试用例，根据固定输入运行真实代�
 
 运行程序从现有注册表中解析与提供者无关的引擎/模型 - 没有模型被硬编码 - 因此相同的套件可以针对应用程序配置的任何引擎运行。
 
-```an-diagram title="从固定输入到部署门" summary="跑步者实际上在每种情况下运行代理循环，对输出进行评分，如果任何评分者低于阈值，则以非零值退出——使其成为一个插入式 CI 门。"
-{
-  "html": "<div class=\"eval-flow\"><div class=\"diagram-node\">*.eval.ts<br><small class=\"diagram-muted\">prompt + expected behavior</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">运行代理循环<br><small class=\"diagram-muted\">real engine/model</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Scorers<br><small class=\"diagram-muted\">every one must pass threshold</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box ok\">exit 0 &rarr; deploy</div><div class=\"diagram-box warn\">exit 1 &rarr; block</div></div></div>",
-  "css": ".eval-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.eval-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.eval-flow .diagram-col{display:flex;flex-direction:column;gap:8px}.eval-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-oh2llz" title={"从固定输入到部署门"} summary={"跑步者实际上在每种情况下运行代理循环，对输出进行评分，如果任何评分者低于阈值，则以非零值退出——使其成为一个插入式 CI 门。"}>
+
+```html
+<div class="eval-flow">
+  <div class="diagram-node">
+    *.eval.ts<br /><small class="diagram-muted"
+      >prompt + expected behavior</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    运行代理循环<br /><small class="diagram-muted">real engine/model</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Scorers<br /><small class="diagram-muted"
+      >every one must pass threshold</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box ok">exit 0 &rarr; deploy</div>
+    <div class="diagram-box warn">exit 1 &rarr; block</div>
+  </div>
+</div>
+```
+
+```css
+.eval-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.eval-flow .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.eval-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eval-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 编写评估 {#writing}
 
@@ -80,12 +126,58 @@ interface AgentRunOutput {
 
 `createScorer` 从 Mastra 风格的 4 步管道构建一个记分器。仅需要 `generateScore`：
 
-```an-diagram title="4 步评分管道" summary="预处理和分析默认身份；仅需要generateScore。 analyze 可以运行普通 JS 或通过 ctx 调用 LLM 判断。"
-{
-  "html": "<div class=\"scorer\"><div class=\"diagram-card\"><span class=\"diagram-pill\">preprocess(run)</span><small class=\"diagram-muted\">transform the run/output &middot; optional</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">analyze(x, ctx)</span><small class=\"diagram-muted\">plain JS or LLM judge &middot; optional</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">generateScore(a)</span><small class=\"diagram-muted\">&rarr; 0..1 normalized &middot; <strong>required</strong></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">generateReason</span><small class=\"diagram-muted\">human-readable why &middot; optional</small></div></div>",
-  "css": ".scorer{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.scorer .diagram-card{display:flex;flex-direction:column;gap:2px;padding:8px 12px}.scorer .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-1jksl4h" title={"4 步评分管道"} summary={"预处理和分析默认身份；仅需要generateScore。 analyze 可以运行普通 JS 或通过 ctx 调用 LLM 判断。"}>
+
+```html
+<div class="scorer">
+  <div class="diagram-card">
+    <span class="diagram-pill">preprocess(run)</span
+    ><small class="diagram-muted"
+      >transform the run/output &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">analyze(x, ctx)</span
+    ><small class="diagram-muted"
+      >plain JS or LLM judge &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">generateScore(a)</span
+    ><small class="diagram-muted"
+      >&rarr; 0..1 normalized &middot; <strong>required</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">generateReason</span
+    ><small class="diagram-muted">human-readable why &middot; optional</small>
+  </div>
+</div>
+```
+
+```css
+.scorer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.scorer .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.scorer .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ```text
 preprocess(run)     → x          transform the run/output (optional)

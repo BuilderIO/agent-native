@@ -20,12 +20,52 @@ Key concepts:
 - **Tasks** — each message creates a task with a lifecycle (submitted, working, completed, failed, canceled)
 - **JWT bearer auth** — production A2A requires `A2A_SECRET` or an explicit legacy `apiKeyEnv`
 
-```an-diagram title="One agent hands work to another" summary="A mail agent discovers the analytics agent's card, sends a JSON-RPC message, and gets a completed task back."
-{
-  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>Mail agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">task · completed</div></div><div class=\"diagram-card\" data-rough><strong>Analytics agent</strong><small class=\"diagram-muted\">runs run-query, returns result</small></div></div>",
-  "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-3a1ebt" title="One agent hands work to another" summary={"A mail agent discovers the analytics agent's card, sends a JSON-RPC message, and gets a completed task back."}>
+
+```html
+<div class="diagram-handoff">
+  <div class="diagram-card">
+    <strong>Mail agent</strong
+    ><small class="diagram-muted">needs analytics</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill">GET /.well-known/agent-card.json</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">
+      POST /_agent-native/a2a<br /><small class="diagram-muted"
+        >message/send</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+    <div class="diagram-pill ok">task · completed</div>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>Analytics agent</strong
+    ><small class="diagram-muted">runs run-query, returns result</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-handoff {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-handoff .diagram-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.diagram-handoff .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Server setup {#server-setup}
 
@@ -176,13 +216,61 @@ JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `ta
 
 When `message/send` is called with `async: true`, the JSON-RPC handler enqueues the task and self-fires a POST to an internal `/_agent-native/a2a/_process-task` route so the handler runs in a fresh function execution with its own full timeout. This route is authenticated with an HMAC token bound to the task ID (5-minute lifetime, signed with `A2A_SECRET`). It is mounted before the `/_agent-native/a2a` JSON-RPC route so h3's prefix matching does not swallow it.
 
-```an-diagram title="Async task lifecycle on serverless" summary="async:true returns working in milliseconds, then a fresh execution runs the agent loop while the caller polls."
-{
-  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">~milliseconds</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>self-fire POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · fresh execution · full timeout</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
-  "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
-  "caption": "A recurring sweeper re-claims any task left in flight if the function execution dies mid-run."
+<Diagram id="doc-block-1nl4ck7" title="Async task lifecycle on serverless" summary="async:true returns working in milliseconds, then a fresh execution runs the agent loop while the caller polls." caption="A recurring sweeper re-claims any task left in flight if the function execution dies mid-run.">
+
+```html
+<div class="diagram-async">
+  <div class="diagram-box" data-rough>
+    message/send<br /><small class="diagram-muted">async: true</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill">enqueue task</span
+    ><span class="diagram-pill warn">return working</span
+    ><small class="diagram-muted">~milliseconds</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    self-fire POST /_agent-native/a2a/_process-task<br /><small
+      class="diagram-muted"
+      >HMAC token · fresh execution · full timeout</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">tasks/get (poll)</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+    <div class="diagram-pill ok">completed</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-async {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-async .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.diagram-async .diagram-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.diagram-async .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 > [!IMPORTANT]
 > **Serverless Webhook & Gateway Timeouts:**

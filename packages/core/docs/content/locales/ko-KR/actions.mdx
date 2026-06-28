@@ -19,12 +19,71 @@ Actions는 앱이 수행하는 모든 작업에 대한 단일 정보 소스입�
 작업을 헤드리스로 노출할지 여부를 결정하는 경우 채팅,
 embedded sidecar, or as a full app screen, see [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="하나의 정의, 7명의 소비자" summary="단일 defineAction()은 하나의 검증된 스키마와 하나의 run() 본문을 사용하여 에이전트, UI, HTTP, MCP, A2A 및 CLI 등 모든 표면으로 확장됩니다."
-{
-  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), 한 번만 정의</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">에이전트 도구<br><small class=\"diagram-muted\">컨텍스트의 JSON Schema</small></div><div class=\"diagram-node\">React 훅<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">명령형 클라이언트</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP 도구<br><small class=\"diagram-muted\">외부 호스트</small></div><div class=\"diagram-node\">A2A 도구<br><small class=\"diagram-muted\">다른 agent-native 앱</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
-  "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
+<Diagram id="doc-block-r6tbam" title={"하나의 정의, 7명의 소비자"} summary={"단일 defineAction()은 하나의 검증된 스키마와 하나의 run() 본문을 사용하여 에이전트, UI, HTTP, MCP, A2A 및 CLI 등 모든 표면으로 확장됩니다."}>
+
+```html
+<div class="diagram-fanout">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">defineAction()</span
+    ><small class="diagram-muted">schema + run(), 한 번만 정의</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <div class="diagram-node">
+      에이전트 도구<br /><small class="diagram-muted"
+        >컨텍스트의 JSON Schema</small
+      >
+    </div>
+    <div class="diagram-node">
+      React 훅<br /><small class="diagram-muted">useActionQuery/Mutation</small>
+    </div>
+    <div class="diagram-node">
+      callAction()<br /><small class="diagram-muted">명령형 클라이언트</small>
+    </div>
+    <div class="diagram-node">
+      HTTP<br /><small class="diagram-muted"
+        >/_agent-native/actions/:name</small
+      >
+    </div>
+    <div class="diagram-node">
+      MCP 도구<br /><small class="diagram-muted">외부 호스트</small>
+    </div>
+    <div class="diagram-node">
+      A2A 도구<br /><small class="diagram-muted">다른 agent-native 앱</small>
+    </div>
+    <div class="diagram-node">
+      CLI<br /><small class="diagram-muted">pnpm action &lt;name&gt;</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fanout {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-fanout .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-fanout .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-fanout .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 ```
+
+</Diagram>
 
 UI와 상담원 모두가 뭔가를 해야 하는 경우 맞춤 작업이 아닌 작업을 수행하세요.
 경로. 경로 형태의 프로토콜이 올바른 호출일 _is_ 경우에는 [Actions 선호

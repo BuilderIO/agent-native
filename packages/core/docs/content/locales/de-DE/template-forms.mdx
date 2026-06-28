@@ -18,12 +18,72 @@ Forms ist ein agentennativer Formularersteller. Beschreiben Sie das gewünschte 
 
 Wenn Sie die App öffnen, sehen Sie Ihre Formulare, den aktuellen Editor und eine Live-Vorschau. Der Agent kann aus einer Eingabeaufforderung heraus ein Formular erstellen, Feldbeschriftungen und Optionen aktualisieren, die Validierung ändern und Übermittlungsziele mit demselben actions verbinden, den UI verwendet.
 
-```an-diagram title="Erstellen, veröffentlichen, sammeln" summary="Der Agent und der visuelle Editor bearbeiten eine SQL-backed-Formulardefinition. Die öffentliche Ausfüllseite ist nicht authentifiziert und Übermittlungen werden serverseitig an Ihre Ziele weitergeleitet."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Agentenprompt<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Visueller Editor<br><small class=\"diagram-muted\">Labels, Validierung, Reihenfolge</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">Felder-JSON, Einstellungs-JSON</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL über Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Öffentliche Ausfüllseite<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / Webhook / Sheets</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-shncoo" title={"Erstellen, veröffentlichen, sammeln"} summary={"Der Agent und der visuelle Editor bearbeiten eine SQL-backed-Formulardefinition. Die öffentliche Ausfüllseite ist nicht authentifiziert und Übermittlungen werden serverseitig an Ihre Ziele weitergeleitet."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Agentenprompt<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      Visueller Editor<br /><small class="diagram-muted"
+        >Labels, Validierung, Reihenfolge</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · update-form</span
+    ><small class="diagram-muted">Felder-JSON, Einstellungs-JSON</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">SQL über Drizzle</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Öffentliche Ausfüllseite<br /><small class="diagram-muted"
+        >unauthenticated</small
+      >
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / Webhook / Sheets</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Was Sie damit machen können
 

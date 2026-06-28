@@ -18,12 +18,72 @@ Forms é um construtor de formulários nativo do agente. Descreva o formulário 
 
 Ao abrir o aplicativo, você vê seus formulários, o editor atual e uma visualização ao vivo. O agente pode criar um formulário a partir de um prompt, atualizar rótulos e opções de campos, alterar a validação e conectar destinos de envio usando o mesmo actions que o UI usa.
 
-```an-diagram title="Construa, publique, colete" summary="O agente e o editor visual editam uma definição de formulário SQL-backed. A página de preenchimento público não é autenticada e os envios são direcionados do lado do servidor para seus destinos."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Prompt do agente<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Editor visual<br><small class=\"diagram-muted\">rótulos, validação, ordem</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">JSON de campos, JSON de configurações</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL com Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Página pública de preenchimento<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / Planilhas</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-8ltf14" title="Construa, publique, colete" summary={"O agente e o editor visual editam uma definição de formulário SQL-backed. A página de preenchimento público não é autenticada e os envios são direcionados do lado do servidor para seus destinos."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Prompt do agente<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      Editor visual<br /><small class="diagram-muted"
+        >rótulos, validação, ordem</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · update-form</span
+    ><small class="diagram-muted">JSON de campos, JSON de configurações</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">SQL com Drizzle</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Página pública de preenchimento<br /><small class="diagram-muted"
+        >unauthenticated</small
+      >
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / Planilhas</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## O que você pode fazer com isso
 

@@ -7,12 +7,49 @@ description: "Schleifeninterne Beobachter-/Leitplanken-Hooks, die die gestreamte
 
 Ein `Processor` ist ein schleifeninterner **Beobachter/Leitplanke** für den Agentenlauf. Es überwacht die gestreamte Ausgabe des Modells und die von ihm aufgerufenen Tool-Anfragen _während der Ausführung fortschreitet_, behält seinen eigenen Scratch-Status bei und kann die Ausführung **abbrechen**, bevor ein „Fertig“-Status beansprucht wird. Dies ist die strukturelle Voraussetzung für Echtzeit-Leitlinien (Blockieren unzulässiger Ausgaben mitten im Stream) und ein Proof-of-Done/Coverage-Gate (überprüfen, was das Modell tun wird, und anhalten).
 
-```an-diagram title="Wo die drei Haken im Lauf feuern" summary="processOutputStream überwacht jeden Block, processOutputStep steuert Tool-Aufrufe pro Antwort, processOutputResult zeichnet am Ende ein Urteil auf. Jeder Hook kann mit einem TripWire abgebrochen werden."
-{
-  "html": "<div class=\"diagram-proc\"><div class=\"diagram-node\" data-rough>stream chunks<br><small class=\"diagram-muted\">processOutputStream</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>per model response<br><small class=\"diagram-muted\">processOutputStep — Tool-Aufrufe prüfen</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>run end<br><small class=\"diagram-muted\">processOutputResult — Urteil</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-pill warn\">abort() &rarr; TripWire &rarr; tripwire event</div></div>",
-  "css": ".diagram-proc{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-proc .diagram-arrow{font-size:22px;line-height:1}.diagram-proc .diagram-pill{flex-basis:100%}"
+<Diagram id="doc-block-fvp37q" title="Wo die drei Haken im Lauf feuern" summary={"processOutputStream überwacht jeden Block, processOutputStep steuert Tool-Aufrufe pro Antwort, processOutputResult zeichnet am Ende ein Urteil auf. Jeder Hook kann mit einem TripWire abgebrochen werden."}>
+
+```html
+<div class="diagram-proc">
+  <div class="diagram-node" data-rough>
+    stream chunks<br /><small class="diagram-muted">processOutputStream</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    per model response<br /><small class="diagram-muted"
+      >processOutputStep — Tool-Aufrufe prüfen</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    run end<br /><small class="diagram-muted"
+      >processOutputResult — Urteil</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-pill warn">
+    abort() &rarr; TripWire &rarr; tripwire event
+  </div>
+</div>
+```
+
+```css
+.diagram-proc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-proc .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-proc .diagram-pill {
+  flex-basis: 100%;
 }
 ```
+
+</Diagram>
 
 > [!WARNING]
 > Ein Prozessor ist eine **Konfiguration**, kein Werkzeug, keine Aktion und kein Authoring DSL. Prozessoren beobachten nur, verändern ihren eigenen Stream-Scope-Status und `abort()`. Sie definieren niemals das App-Verhalten, ersetzen actions oder erscheinen im Modell. App-Vorgänge gehören zu [actions](/docs/actions).

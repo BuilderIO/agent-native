@@ -24,12 +24,71 @@ Le récapitulatif est **informatif et non bloquant**. Il crée une ligne de vér
 7. Insère un seul commentaire PR collant qui intègre les captures d'écran **en ligne** avec un élément `<picture>` (servi via le proxy d'image camouflage de GitHub) à côté du lien vers le récapitulatif interactif.
 8. Termine la vérification `Visual Recap` comme étant réussie, ignorée ou neutre.
 
-```an-diagram title="Que se passe-t-il à chaque poussée de relations publiques" summary="Une différence limitée alimente un véritable agent de codage, qui rédige un récapitulatif ; le flux de travail en fait une capture d'écran et insère un commentaire collant."
-{
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">Push du PR<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Agent de code<br><small class=\"diagram-muted\">Claude Code / Codex lit le diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Chrome sans interface<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Un commentaire PR persistant<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
-  "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
+<Diagram id="doc-block-1a4ar0y" title={"Que se passe-t-il à chaque poussée de relations publiques"} summary={"Une différence limitée alimente un véritable agent de codage, qui rédige un récapitulatif ; le flux de travail en fait une capture d'écran et insère un commentaire collant."}>
+
+```html
+<div class="diagram-recap">
+  <div class="diagram-node">
+    Push du PR<br /><small class="diagram-muted"
+      >bounded base&hellip;head diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Agent de code<br /><small class="diagram-muted"
+      >Claude Code / Codex lit le diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-visual-recap</span
+    ><small class="diagram-muted">publishes recap plan</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Chrome sans interface<br /><small class="diagram-muted"
+      >light + dark screenshots</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Un commentaire PR persistant<br /><small class="diagram-muted"
+      >inline screenshot + plan link</small
+    >
+  </div>
+</div>
+<div class="diagram-foot diagram-muted">
+  Plus an informational <span class="diagram-pill">Visual Recap</span> check
+  &mdash; non-blocking, never required.
+</div>
+```
+
+```css
+.diagram-recap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-recap .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-recap .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-recap .diagram-foot {
+  flex-basis: 100%;
+  margin-top: 10px;
+  font-size: 13px;
 }
 ```
+
+</Diagram>
 
 Une nouvelle diffusion met à jour le même plan et le même commentaire persistant : pas de plans orphelins, pas de spam de commentaires.
 
@@ -157,12 +216,71 @@ Si vous souhaitez générer des récapitulatifs pour les fork PR, un deuxième f
 
 Pour l'installer, copiez le fichier de [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) dans le répertoire `.github/workflows/` de votre dépôt aux côtés du `pr-visual-recap.yml` existant. Les mêmes secrets (`PLAN_RECAP_TOKEN`, `ANTHROPIC_API_KEY`) s'appliquent.
 
-```an-diagram title="Porte de consentement Fork PR" summary="Les PR de Fork n'ont aucun secret par défaut ; les auteurs de confiance s'exécutent automatiquement et les contributeurs externes nécessitent une nouvelle étiquette récapitulative du responsable."
-{
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">PR de fork ouverte<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Auteur de confiance</span><small class=\"diagram-muted\">OWNER, MEMBER ou COLLABORATOR s’exécute automatiquement</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Contributeur externe</span><small class=\"diagram-muted\">le mainteneur examine le diff, puis l’applique <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Vérifications de garde<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Exécutions de récapitulatif<br><small class=\"diagram-muted\">code du repo de base uniquement · le diff du fork est une entrée texte</small></div></div>",
-  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
+<Diagram id="doc-block-sqtdd5" title="Porte de consentement Fork PR" summary={"Les PR de Fork n'ont aucun secret par défaut ; les auteurs de confiance s'exécutent automatiquement et les contributeurs externes nécessitent une nouvelle étiquette récapitulative du responsable."}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-node">
+    PR de fork ouverte<br /><small class="diagram-muted"
+      >main workflow has no secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">Auteur de confiance</span
+    ><small class="diagram-muted"
+      >OWNER, MEMBER ou COLLABORATOR s’exécute automatiquement</small
+    >
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Contributeur externe</span
+    ><small class="diagram-muted"
+      >le mainteneur examine le diff, puis l’applique <code>recap</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    Vérifications de garde<br /><small class="diagram-muted"
+      >fork PR? &amp; trusted or fresh label?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">
+    Exécutions de récapitulatif<br /><small class="diagram-muted"
+      >code du repo de base uniquement · le diff du fork est une entrée
+      texte</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-fork .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### Fonctionnement de la porte d'étiquettes
 

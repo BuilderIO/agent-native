@@ -9,17 +9,22 @@
  * and the docs light/dark theme, so a diagram in the docs looks identical to one
  * in the Plan app.
  *
- * Authoring: blocks are embedded in the markdown docs as fenced code blocks whose
- * info string names a block type, e.g.
+ * Authoring: blocks are embedded in the markdown docs as standard MDX
+ * components, e.g.
  *
- *     ```diagram title="Request lifecycle"
- *     { "html": "<div class='diagram-row'>…</div>" }
+ *     <Diagram title="Request lifecycle">
+ *
+ *     ```html
+ *     <div class="diagram-row">…</div>
  *     ```
  *
- * The fence body is JSON for the block's `data` (mermaid takes raw text). The
- * renderer ({@link DocContent}) splits the markdown into prose runs and block
- * runs, rendering prose through the existing markdown pipeline and blocks through
- * the shared `BlockView`.
+ *     </Diagram>
+ *
+ * Legacy `an-*` JSON fences are still parseable for migration compatibility,
+ * and mermaid stays as ordinary `mermaid` fences. The renderer
+ * ({@link DocContent}) splits the markdown into prose runs and block runs,
+ * rendering prose through the existing markdown pipeline and blocks through the
+ * shared `BlockView`.
  */
 
 import {
@@ -165,11 +170,17 @@ export function DocBlock({
   segment,
   index,
 }: {
-  segment: Extract<DocSegment, { kind: "block" }>;
+  segment:
+    | Extract<DocSegment, { kind: "block" }>
+    | Extract<DocSegment, { kind: "invalid-block" }>;
   /** Stable position of this block within its doc. Used to derive a fallback id
    * so SSR and client hydration agree (no module-level mutable counter). */
   index?: number;
 }) {
+  if (segment.kind === "invalid-block") {
+    return <DocBlockError alias={segment.tag} message={segment.message} />;
+  }
+
   const { registry, ctx } = useBlockRegistry();
   const t = useT();
   const type =

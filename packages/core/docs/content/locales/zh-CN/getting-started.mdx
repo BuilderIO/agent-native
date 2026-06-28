@@ -152,12 +152,42 @@ pnpm dev
 现在可以通过聊天 UI、CLI、HTTP、MCP、A2A 访问该操作
 计划作业和 webhooks。定义一次，从任何地方调用。
 
-```an-diagram title="一个动作，每个表面" summary="单个 defineAction 文件扇出到每个消费者，无需额外接线。"
-{
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">聊天界面</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">计划任务</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
-  "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1yg8bd4" title={"一个动作，每个表面"} summary={"单个 defineAction 文件扇出到每个消费者，无需额外接线。"}>
+
+```html
+<div class="diagram-fan">
+  <div class="diagram-box" data-rough>defineAction</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-surfaces">
+    <span class="diagram-pill">聊天界面</span
+    ><span class="diagram-pill">CLI</span><span class="diagram-pill">HTTP</span
+    ><span class="diagram-pill">MCP</span><span class="diagram-pill">A2A</span
+    ><span class="diagram-pill">计划任务</span
+    ><span class="diagram-pill">Webhooks</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-fan {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-fan .diagram-surfaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 420px;
+}
+.diagram-fan .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 状态是内置的
 

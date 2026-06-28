@@ -20,12 +20,81 @@ description: "将您的代理本机应用程序连接到本地 MCP 服务器（c
 
 每个源都会解析为一个运行时 **MCP 管理器**，并且它学习的每个工具都会以防碰撞 `mcp__<server-id>__<tool>` 前缀登录到代理的工具注册表中 - 可通过 `tool-search` 进行意图搜索。
 
-```an-diagram title="客户端方向：多种来源，一种工具注册表" summary="配置文件、环境和运行时 UI 全部合并到 MCP 管理器中；它的工具与您的应用程序的操作一起显示为前缀并且可通过工具搜索。这是服务器方向的镜像。"
-{
-  "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">跨应用共享</small></div><div class=\"diagram-box\" data-rough>应用根 <code>mcp.config.json</code><br><small class=\"diagram-muted\">每个应用覆盖</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / 生产</small></div><div class=\"diagram-box\" data-rough>通过设置界面远程配置<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP 管理器</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">Agent 工具 registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">按意图发现</small></div></div></div>",
-  "css": ".mcp-merge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-merge .diagram-col{display:flex;flex-direction:column;gap:8px}.mcp-merge .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-merge .diagram-arrow{font-size:22px;line-height:1}.mcp-merge code{font-size:.85em}"
+<Diagram id="doc-block-tho29x" title={"客户端方向：多种来源，一种工具注册表"} summary={"配置文件、环境和运行时 UI 全部合并到 MCP 管理器中；它的工具与您的应用程序的操作一起显示为前缀并且可通过工具搜索。这是服务器方向的镜像。"}>
+
+```html
+<div class="mcp-merge">
+  <div class="diagram-col sources">
+    <div class="diagram-box" data-rough>
+      Workspace <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >跨应用共享</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      应用根 <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >每个应用覆盖</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      <code>MCP_SERVERS</code> env<br /><small class="diagram-muted"
+        >CI / 生产</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      通过设置界面远程配置<br /><small class="diagram-muted"
+        >personal &amp; org scope</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">MCP 管理器</span
+    ><small class="diagram-muted">merge &middot; hot-reload</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col out">
+    <div class="diagram-node">
+      Agent 工具 registry<br /><small class="diagram-muted"
+        ><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small
+      >
+    </div>
+    <div class="diagram-node">
+      <code>tool-search</code><br /><small class="diagram-muted"
+        >按意图发现</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.mcp-merge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-merge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mcp-merge .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-merge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-merge code {
+  font-size: 0.85em;
 }
 ```
+
+</Diagram>
 
 > 相反的方向 - 使 _your_ 应用程序成为其他主机使用的 MCP 服务器 - 位于 [MCP Protocol](/docs/mcp-protocol) 和 [External Agents](/docs/external-agents) 中。
 
@@ -216,12 +285,68 @@ Stdio 服务器在 Node 运行时之外仍然是无操作的，但远程 HTTP MC
 
 Dispatch 是传统的中心 - 它已经跨应用进行协调。
 
-```an-diagram title="中心模型：一个应用程序为组织范围的 MCP 服务器提供服务" summary="Dispatch 拥有组织范围 MCP 服务器；消费者应用程序将它们拉取并合并为 mcp__hub_<orgId>_<name>__*。仅共享组织范围的行 - 个人凭据保持不变。"
-{
-  "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">组织范围 MCP 服务器</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">约每 60 秒 pull + merge</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
-  "css": ".mcp-hub{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-hub .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-hub .diagram-col{display:flex;flex-direction:column;gap:10px}.mcp-hub .arrows .diagram-arrow{font-size:22px;line-height:1}.mcp-hub .note{margin:8px 0 0;font-size:.85em}.mcp-hub code{font-size:.85em}"
+<Diagram id="doc-block-x58r34" title={"中心模型：一个应用程序为组织范围的 MCP 服务器提供服务"} summary={"Dispatch 拥有组织范围 MCP 服务器；消费者应用程序将它们拉取并合并为 mcp__hub_<orgId>_<name>__*。仅共享组织范围的行 - 个人凭据保持不变。"}>
+
+```html
+<div class="mcp-hub">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Dispatch hub</span
+    ><small class="diagram-muted">组织范围 MCP 服务器</small
+    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+  </div>
+  <div class="diagram-col arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  </div>
+  <div class="diagram-col consumers">
+    <div class="diagram-box" data-rough>
+      Mail<br /><small class="diagram-muted"
+        ><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      Clips<br /><small class="diagram-muted">约每 60 秒 pull + merge</small>
+    </div>
+  </div>
+</div>
+<p class="diagram-muted note">
+  Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope)
+  servers are never re-exposed.
+</p>
+```
+
+```css
+.mcp-hub {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-hub .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-hub .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-hub .arrows .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-hub .note {
+  margin: 8px 0 0;
+  font-size: 0.85em;
+}
+.mcp-hub code {
+  font-size: 0.85em;
 }
 ```
+
+</Diagram>
 
 对于新的工作区设置，首选\*\*在您
 想要工作区 skills 使用相同的全应用与选定应用授权模型，

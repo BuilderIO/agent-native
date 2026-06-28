@@ -23,12 +23,65 @@ Codex、Claude 代码、Markdown 或将实施计划粘贴到结构化中
 相同的审阅界面，因此您可以注释、评论并将反馈返回给
 以同样的方式代理。
 
-```an-diagram title="两个命令，一个查看界面" summary="这两个命令都通过托管的 Plan MCP 连接器发布到相同的注释和评论界面。"
-{
-  "html": "<div class=\"diagram-plan\"><div class=\"diagram-col\"><div class=\"diagram-node\"><span class=\"diagram-pill accent\">/visual-plan</span><small class=\"diagram-muted\">写代码前 — 架构、UI、重构</small></div><div class=\"diagram-node\"><span class=\"diagram-pill\">/visual-recap</span><small class=\"diagram-muted\">写代码后 — PR、提交、分支、diff</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Plan MCP 连接器<br><small class=\"diagram-muted\">plan.agent-native.com</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">审阅界面<br><small class=\"diagram-muted\">图表 · 线框图 · 带注释的代码 · 评论</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-node\">编码代理<br><small class=\"diagram-muted\">反馈已交回</small></div></div>",
-  "css": ".diagram-plan{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-plan .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-plan .diagram-arrow{font-size:22px;line-height:1}.diagram-plan .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}"
+<Diagram id="doc-block-yriai1" title={"两个命令，一个查看界面"} summary={"这两个命令都通过托管的 Plan MCP 连接器发布到相同的注释和评论界面。"}>
+
+```html
+<div class="diagram-plan">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      <span class="diagram-pill accent">/visual-plan</span
+      ><small class="diagram-muted">写代码前 — 架构、UI、重构</small>
+    </div>
+    <div class="diagram-node">
+      <span class="diagram-pill">/visual-recap</span
+      ><small class="diagram-muted">写代码后 — PR、提交、分支、diff</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    Plan MCP 连接器<br /><small class="diagram-muted"
+      >plan.agent-native.com</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    审阅界面<br /><small class="diagram-muted"
+      >图表 · 线框图 · 带注释的代码 · 评论</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-node">
+    编码代理<br /><small class="diagram-muted">反馈已交回</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-plan {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-plan .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-plan .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-plan .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 <WireframeBlock id="doc-block-gnscq3">
   <Screen

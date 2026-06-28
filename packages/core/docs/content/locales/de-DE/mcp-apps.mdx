@@ -30,13 +30,69 @@ In seltenen Fällen ist das richtige Ziel eine fokussierte App-Route, die eine g
 
 Schreiben Sie keine einmaligen einfachen HTML MCP-Apps für das Produkt UI von Hand. Wenn die Aktion eine benutzerdefinierte Oberfläche benötigt, fügen Sie zuerst eine echte App-Route/-Komponente hinzu oder verwenden Sie sie erneut und betten Sie diese Route ein.
 
-```an-diagram title="MCP App-Einbettungs-Roundtrip" summary="Das Linkziel der Aktion ist auch das Einbettungsziel. Fähige Hosts laden dieselbe signierte App-Route inline; Alle anderen greifen auf den Deep Link zurück."
-{
-  "html": "<div class=\"diagram-embed\"><div class=\"diagram-card\" data-rough><strong>Action</strong><small class=\"diagram-muted\">`link` target = MCP App embed target</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>embedApp()</strong><span class=\"diagram-pill accent\">create_embed_session</span><small class=\"diagram-muted\">mints short-lived embed session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>/_agent-native/embed/start</strong><small class=\"diagram-muted\">tauscht einmaliges SQL-Ticket aus</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>Signed app route</strong><span class=\"diagram-pill ok\">echte React-Route</span><small class=\"diagram-muted\">short-lived browser session</small></div><div class=\"diagram-fallback\"><span class=\"diagram-pill warn\">keine MCP-Apps-Unterstützung</span><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>&quot;Open in … &rarr;&quot; deep link</div></div></div>",
-"css": ".diagram-embed{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-embed .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:140px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .diagram-fallback{display:flex;flex-direction:column;align-items:center;gap:6px;margin-inline-start:8px}"
-}
+<Diagram id="doc-block-1kkqpz8" title="MCP App-Einbettungs-Roundtrip" summary={"Das Linkziel der Aktion ist auch das Einbettungsziel. Fähige Hosts laden dieselbe signierte App-Route inline; Alle anderen greifen auf den Deep Link zurück."}>
 
+```html
+<div class="diagram-embed">
+  <div class="diagram-card" data-rough>
+    <strong>Action</strong
+    ><small class="diagram-muted">`link` target = MCP App embed target</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>embedApp()</strong
+    ><span class="diagram-pill accent">create_embed_session</span
+    ><small class="diagram-muted">mints short-lived embed session</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>/_agent-native/embed/start</strong
+    ><small class="diagram-muted">tauscht einmaliges SQL-Ticket aus</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>Signed app route</strong
+    ><span class="diagram-pill ok">echte React-Route</span
+    ><small class="diagram-muted">short-lived browser session</small>
+  </div>
+  <div class="diagram-fallback">
+    <span class="diagram-pill warn">keine MCP-Apps-Unterstützung</span>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>
+      &quot;Open in … &rarr;&quot; deep link
+    </div>
+  </div>
+</div>
 ```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 140px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .diagram-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: 8px;
+}
+```
+
+</Diagram>
 
 ```ts
 import { embedApp } from "@agent-native/core";
@@ -93,13 +149,67 @@ Innerhalb dieser `embedApp()`-Routen ist `sendToAgentChat()` einbettungsfähig. 
 
 MCP App-Einbettungen sind Routeneinbettungen, keine separaten Miniprodukte. `embedApp()` startet vom `link`-Ziel der Aktion, erstellt eine kurzlebige Einbettungssitzung und startet die signierte App-Route. Standard-MCP-Apps-Hosts können im MCP-App-Frame selbst navigieren, wenn der Host die Route direkt hydrieren kann.
 
-```an-diagram title="Zwei Host-Bridge-Pfade, eine ausgeschilderte Route" summary="Claude verpflanzt die hydratisierte Route und verwendet den direkten ui/_bridge; ChatGPT erhält einen kontrollierten Iframe über window.openai und leitet Host-Aktionen über postMessage weiter. Beide verweisen auf dieselbe signierte App-Route."
-{
-  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><strong>Claude web</strong><span class=\"diagram-pill accent\">single-frame transplant</span><small class=\"diagram-muted\">hydratisiert signiertes App-HTML in Claudes iframe, dann direkte `ui/_`-Host-Bridge</small></div><div class=\"diagram-card\" data-rough><strong>ChatGPT web</strong><span class=\"diagram-pill accent\">controlled route iframe</span><small class=\"diagram-muted\">`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Same signed app route<br><small class=\"diagram-muted\">normale Route + React-Komponenten</small></div></div>",
-"css": ".diagram-bridge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-bridge .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-bridge .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;max-width:300px}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}.diagram-bridge .diagram-box{padding:16px 18px;text-align:center}"
-}
+<Diagram id="doc-block-6ky2qy" title="Zwei Host-Bridge-Pfade, eine ausgeschilderte Route" summary={"Claude verpflanzt die hydratisierte Route und verwendet den direkten ui/_bridge; ChatGPT erhält einen kontrollierten Iframe über window.openai und leitet Host-Aktionen über postMessage weiter. Beide verweisen auf dieselbe signierte App-Route."}>
 
+```html
+<div class="diagram-bridge">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <strong>Claude web</strong
+      ><span class="diagram-pill accent">single-frame transplant</span
+      ><small class="diagram-muted"
+        >hydratisiert signiertes App-HTML in Claudes iframe, dann direkte
+        `ui/_`-Host-Bridge</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <strong>ChatGPT web</strong
+      ><span class="diagram-pill accent">controlled route iframe</span
+      ><small class="diagram-muted"
+        >`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage
+        relay</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Same signed app route<br /><small class="diagram-muted"
+      >normale Route + React-Komponenten</small
+    >
+  </div>
+</div>
 ```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-bridge .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  max-width: 300px;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-bridge .diagram-box {
+  padding: 16px 18px;
+  text-align: center;
+}
+```
+
+</Diagram>
 
 Claude Web verwendet einen Single-Frame-Transplantationspfad: Das Ressourcendokument ruft die signierte App HTML ab und hydratisiert sie im MCP-App-Iframe von Claude, da Claude App-eigene untergeordnete Iframes oder externe Frame-Navigation nicht zuverlässig zulässt. Das ChatGPT-Web erhält einen kontrollierten Routen-Iframe, da die Apps-Brücke uns stabile `window.openai`-Host-APIs und eine begrenzte Höhenkontrolle bietet. Alle Pfade verweisen auf dieselbe signierte App-Route und rendern die normale Route und die React-Komponenten. Entwerfen Sie eingebettete Routen, sodass ein Neuladen mit demselben signierten URL dieselbe Ansicht wiederherstellt.
 

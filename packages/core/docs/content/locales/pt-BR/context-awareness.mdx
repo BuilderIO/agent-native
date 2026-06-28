@@ -24,12 +24,67 @@ Seis padrões resolvem isso:
 5. **Transferência imediata** -- UI controla a chamada `sendToAgentChat()` quando um clique deve se tornar uma vez do agente
 6. **`navigate`** – um comando único do agente que informa ao UI para onde ir
 
-```an-diagram title="Como o agente vê o que você vê" summary="A UI grava chaves de estado leves; view-screen os hidrata em registros reais; o agente pode escrever e navegar de volta para mover a IU."
-{
-  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI escreve</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">visualização, IDs abertos</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">linhas, blocos, formas</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agente age<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">agente move a UI</small></div></div>",
-  "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-104616q" title={"Como o agente vê o que você vê"} summary={"A UI grava chaves de estado leves; view-screen os hidrata em registros reais; o agente pode escrever e navegar de volta para mover a IU."}>
+
+```html
+<div class="diagram-ctx">
+  <div class="diagram-card col">
+    <span class="diagram-pill">UI escreve</span>
+    <div class="diagram-node">
+      navigation<br /><small class="diagram-muted"
+        >visualização, IDs abertos</small
+      >
+    </div>
+    <div class="diagram-node">
+      __url__<br /><small class="diagram-muted">shareable filters</small>
+    </div>
+    <div class="diagram-node">
+      selection<br /><small class="diagram-muted">linhas, blocos, formas</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">view-screen</span
+    ><small class="diagram-muted">reads state &middot; fetches records</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Agente age<br /><small class="diagram-muted">on the real object</small>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box diagram-accent">
+    navigate<br /><small class="diagram-muted">agente move a UI</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-ctx {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-ctx .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.diagram-ctx .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-ctx .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Camadas de contexto {#context-layers}
 
@@ -382,9 +437,46 @@ Como funciona:
 - Ao processar eventos de sincronização, o UI filtra os eventos que correspondem ao seu próprio valor `ignoreSource` - para que ele não recupere os dados que acabou de gravar
 - Eventos de agentes, outras guias e actions ainda ocorrem normalmente
 
-```an-diagram title="A marcação de origem interrompe o jitter de auto-rebusca" summary="Uma guia ignora eventos de sincronização marcados com seu próprio TAB_ID, mas ainda reage às gravações do agente e de outras guias."
-{
-  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">Esta aba escreve<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Servidor armazena origem<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">sem refetch, sem piscar</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">A UI atualiza ao vivo</small></div></div>",
-  "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-kn5blq" title={"A marcação de origem interrompe o jitter de auto-rebusca"} summary={"Uma guia ignora eventos de sincronização marcados com seu próprio TAB_ID, mas ainda reage às gravações do agente e de outras guias."}>
+
+```html
+<div class="diagram-jitter">
+  <div class="diagram-node">
+    Esta aba escreve<br /><small class="diagram-muted"
+      >X-Request-Source: TAB_ID</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Servidor armazena origem<br />on the event
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card col">
+    <div class="diagram-pill warn">source == TAB_ID &rarr; ignored</div>
+    <small class="diagram-muted">sem refetch, sem piscar</small>
+    <div class="diagram-pill ok">agent / other tab &rarr; applied</div>
+    <small class="diagram-muted">A UI atualiza ao vivo</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-jitter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jitter .col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-jitter .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>

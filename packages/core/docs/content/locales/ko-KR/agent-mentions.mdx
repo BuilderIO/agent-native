@@ -29,12 +29,76 @@ description: "@멘션을 사용하여 사용자 정의 에이전트, 연결된 �
 
 두 경우 모두 주 상담원이 응답을 보고 이를 참조하거나 구축할 수 있습니다.
 
-```an-diagram title="@-멘션이 라우팅되는 위치" summary="서버는 각 멘션을 유형별로 분할합니다. 사용자 정의 에이전트는 로컬에서 실행되고 연결된 에이전트는 A2A을 통해 이동합니다. 두 응답 모두 기본 에이전트의 컨텍스트로 다시 접힙니다."
-{
-  "html": "<div class=\"diagram-mention\"><div class=\"diagram-node\">@-mention<br><small class=\"diagram-muted\">in the composer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">서버가 해석</span><small class=\"diagram-muted\">extract refs by type</small></div><div class=\"diagram-col\"><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">사용자 지정 에이전트<br><small class=\"diagram-muted\">agents/*.md &middot; runs local</small></div></div><div class=\"row\"><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\">연결된 에이전트<br><small class=\"diagram-muted\">A2A peer &middot; remote call</small></div></div></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box diagram-accent\">&lt;agent-response&gt;<br><small class=\"diagram-muted\">injected into main agent</small></div></div>",
-  "css": ".diagram-mention{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-mention .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-mention .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mention .row{display:flex;align-items:center;gap:8px}.diagram-mention .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-r5nrdf" title={"@-멘션이 라우팅되는 위치"} summary={"서버는 각 멘션을 유형별로 분할합니다. 사용자 정의 에이전트는 로컬에서 실행되고 연결된 에이전트는 A2A을 통해 이동합니다. 두 응답 모두 기본 에이전트의 컨텍스트로 다시 접힙니다."}>
+
+```html
+<div class="diagram-mention">
+  <div class="diagram-node">
+    @-mention<br /><small class="diagram-muted">in the composer</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">서버가 해석</span
+    ><small class="diagram-muted">extract refs by type</small>
+  </div>
+  <div class="diagram-col">
+    <div class="row">
+      <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box">
+        사용자 지정 에이전트<br /><small class="diagram-muted"
+          >agents/*.md &middot; runs local</small
+        >
+      </div>
+    </div>
+    <div class="row">
+      <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+      <div class="diagram-box">
+        연결된 에이전트<br /><small class="diagram-muted"
+          >A2A peer &middot; remote call</small
+        >
+      </div>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box diagram-accent">
+    &lt;agent-response&gt;<br /><small class="diagram-muted"
+      >injected into main agent</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-mention {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-mention .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-mention .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mention .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-mention .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 작동 방식 {#how-it-works}
 

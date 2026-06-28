@@ -9,12 +9,59 @@ A ideia definidora por trás do agente nativo é que o agente e o UI são **parc
 
 Existe uma linha direta simples. O agente **vê** o que você está vendo, você o **direciona** para o que deseja, pode **incorporá-lo** em qualquer lugar, pode usar totalmente **UI leve** quando for mais adequado e pode **coeditar** os mesmos documentos ao mesmo tempo. Cada uma delas é uma página nesta seção.
 
-```an-diagram title="O ciclo do dia a dia" summary="Cinco maneiras de trabalhar com um agente acoplado — cada uma é uma página nesta seção."
-{
-  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI leve</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Coeditar</span><small class=\"diagram-muted\">ao vivo, lado a lado</small></div></div>",
-  "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
+<Diagram id="doc-block-16kdlwj" title="O ciclo do dia a dia" summary={"Cinco maneiras de trabalhar com um agente acoplado — cada uma é uma página nesta seção."}>
+
+```html
+<div class="diagram-loop">
+  <div class="diagram-card">
+    <strong>Sees</strong
+    ><small class="diagram-muted">your view &amp; selection</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Direct</strong
+    ><small class="diagram-muted">@-mentions &amp; voice</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Embed</strong><small class="diagram-muted">drop into any app</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>UI leve</strong
+    ><small class="diagram-muted">chat is the product</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">Coeditar</span
+    ><small class="diagram-muted">ao vivo, lado a lado</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-loop {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-loop .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 130px;
+  flex: 1;
+}
+.diagram-loop .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Ele vê o que você está vendo {#it-sees}
 

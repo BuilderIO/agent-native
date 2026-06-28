@@ -20,12 +20,65 @@ El envío es el **plano de control del espacio de trabajo**. Mientras que otras 
 
 Si está ejecutando un [multi-app workspace](/docs/multi-app-workspace) con muchas aplicaciones, Dispatch es el pegamento.
 
-```an-diagram title="Orquesta, no te especializas" summary="Los mensajes de todos los canales llegan a una bandeja de entrada; el orquestador clasifica y delega el trabajo de dominio en la aplicación especializada adecuada a través de A2A: los secretos, los recursos y las aprobaciones siguen siendo centrales."
-{
-  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">Solicitudes A2A</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">bandeja central · triaje · enruta</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Agente de Mail</div><div class=\"diagram-node\">Agente de Analytics</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">Bóveda de secretos</span><span class=\"diagram-pill\">Recursos del espacio de trabajo</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">Trabajos programados</span></div>",
-  "css": ".diagram-dispatch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-dispatch .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-dispatch .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-dispatch .diagram-arrow{font-size:20px;line-height:1}.diagram-shared{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}"
+<Diagram id="doc-block-u1hize" title="Orquesta, no te especializas" summary={"Los mensajes de todos los canales llegan a una bandeja de entrada; el orquestador clasifica y delega el trabajo de dominio en la aplicación especializada adecuada a través de A2A: los secretos, los recursos y las aprobaciones siguen siendo centrales."}>
+
+```html
+<div class="diagram-dispatch">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack · Telegram</div>
+    <div class="diagram-node">Email</div>
+    <div class="diagram-node">Solicitudes A2A</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Orchestrator</span
+    ><small class="diagram-muted">bandeja central · triaje · enruta</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">Agente de Mail</div>
+    <div class="diagram-node">Agente de Analytics</div>
+    <div class="diagram-node">Brain · Slides &hellip;</div>
+  </div>
+</div>
+<div class="diagram-shared">
+  <span class="diagram-pill">Bóveda de secretos</span
+  ><span class="diagram-pill">Recursos del espacio de trabajo</span
+  ><span class="diagram-pill warn">Approvals</span
+  ><span class="diagram-pill">Trabajos programados</span>
+</div>
+```
+
+```css
+.diagram-dispatch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-dispatch .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-dispatch .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-dispatch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-shared {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 ```
+
+</Diagram>
 
 ## Qué hace {#what-it-does}
 

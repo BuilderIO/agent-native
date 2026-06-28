@@ -7,12 +7,49 @@ description: "Loop-internal observer/guardrail hooks that watch the model's stre
 
 A `Processor` is a loop-internal **observer/guardrail** for the agent run. It watches the model's streamed output and the tool calls it requests _as the run progresses_, keeps its own scratch state, and can **abort** the run before a "done" is claimed. This is the structural prerequisite for real-time guardrails (block disallowed output mid-stream) and a proof-of-done / coverage gate (inspect what the model is about to do and halt it).
 
-```an-diagram title="Where the three hooks fire in the run" summary="processOutputStream watches every chunk, processOutputStep gates tool calls per response, processOutputResult records a verdict at the end. Any hook can abort with a TripWire."
-{
-  "html": "<div class=\"diagram-proc\"><div class=\"diagram-node\" data-rough>stream chunks<br><small class=\"diagram-muted\">processOutputStream</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>per model response<br><small class=\"diagram-muted\">processOutputStep — gate tool calls</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>run end<br><small class=\"diagram-muted\">processOutputResult — verdict</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-pill warn\">abort() &rarr; TripWire &rarr; tripwire event</div></div>",
-  "css": ".diagram-proc{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-proc .diagram-arrow{font-size:22px;line-height:1}.diagram-proc .diagram-pill{flex-basis:100%}"
+<Diagram id="doc-block-1nd9bkn" title="Where the three hooks fire in the run" summary={"processOutputStream watches every chunk, processOutputStep gates tool calls per response, processOutputResult records a verdict at the end. Any hook can abort with a TripWire."}>
+
+```html
+<div class="diagram-proc">
+  <div class="diagram-node" data-rough>
+    stream chunks<br /><small class="diagram-muted">processOutputStream</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    per model response<br /><small class="diagram-muted"
+      >processOutputStep — gate tool calls</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    run end<br /><small class="diagram-muted"
+      >processOutputResult — verdict</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-pill warn">
+    abort() &rarr; TripWire &rarr; tripwire event
+  </div>
+</div>
+```
+
+```css
+.diagram-proc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-proc .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-proc .diagram-pill {
+  flex-basis: 100%;
 }
 ```
+
+</Diagram>
 
 > [!WARNING]
 > A processor is **configuration**, not a tool, not an action, and not an authoring DSL. Processors only observe, mutate their own stream-scoped state, and `abort()`. They never define app behavior, replace actions, or appear to the model. App operations belong in [actions](/docs/actions).

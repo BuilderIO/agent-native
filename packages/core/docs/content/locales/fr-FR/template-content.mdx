@@ -22,12 +22,72 @@ résultat, que vous le fassiez vous-même ou que vous le demandiez.
 
 Lorsque vous ouvrez l'application, vous verrez une arborescence de pages à côté de l'éditeur. L'agent sait toujours quelle page vous consultez et quel texte vous avez sélectionné, de sorte que les modifications du document peuvent rester ancrées dans la page actuelle.
 
-```an-diagram title="Un document, plusieurs éditeurs" summary="Vous et l’agent écrivez tous les deux via le même pipeline Yjs. SQL est le magasin canonique ; les fichiers locaux et Notion sont des surfaces de synchronisation facultatives."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Vous saisissez<br><small class=\"diagram-muted\">menu slash, barre d’outils</small></div><div class=\"diagram-node\">Modifications par l’agent<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">en direct, fusion sans conflit</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">stockage SQL canonique</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Fichiers locaux .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Pages Notion<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1iq20h5" title={"Un document, plusieurs éditeurs"} summary={"Vous et l’agent écrivez tous les deux via le même pipeline Yjs. SQL est le magasin canonique ; les fichiers locaux et Notion sont des surfaces de synchronisation facultatives."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Vous saisissez<br /><small class="diagram-muted"
+        >menu slash, barre d’outils</small
+      >
+    </div>
+    <div class="diagram-node">
+      Modifications par l’agent<br /><small class="diagram-muted"
+        >edit-document find/replace</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Yjs CRDT</span
+    ><small class="diagram-muted">en direct, fusion sans conflit</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    documents (markdown)<br /><small class="diagram-muted"
+      >stockage SQL canonique</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Fichiers locaux .md / .mdx<br /><small class="diagram-muted"
+        >/local-files</small
+      >
+    </div>
+    <div class="diagram-box">
+      Pages Notion<br /><small class="diagram-muted">pull · push</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Ce que vous pouvez en faire
 

@@ -30,12 +30,60 @@ MCP 是用於將 AI 工具連線到外部功能的標準協議。當您部署 Ag
 - **標準遠端 MCP OAuth** — OAuth 2.1 發現、動態用戶端註冊、授權程式碼 + PKCE、重新整理權杖輪換
 - **承載驗證回退** - 對於無法執行 OAuth 的用戶端使用 `ACCESS_TOKEN`、`ACCESS_TOKENS` 或 connect-minted JWT
 
-```an-diagram title="您的應用程式作為 MCP 伺服器" summary="外部主機透過 Streamable HTTP 連線。每個動作都是一個工具； Ask-agent 委托給完整的代理迴圈。"
-{
-  "html": "<div class=\"diagram-mcp\"><div class=\"diagram-col\"><div class=\"diagram-node\">Claude</div><div class=\"diagram-node\">ChatGPT</div><div class=\"diagram-node\">Cursor · Codex</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill accent\">POST /_agent-native/mcp</span><small class=\"diagram-muted\">Streamable HTTP</small><small class=\"diagram-muted\">initialize &rarr; tools/list &rarr; tools/call</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\" data-rough>each action<br><small class=\"diagram-muted\">= one tool</small></div><div class=\"diagram-box\" data-rough>ask-agent<br><small class=\"diagram-muted\">&rarr; full agent loop</small></div></div></div>",
-  "css": ".diagram-mcp{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-mcp .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-mcp .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-mcp .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-1mjrzq" title={"您的應用程式作為 MCP 伺服器"} summary={"外部主機透過 Streamable HTTP 連線。每個動作都是一個工具； Ask-agent 委托給完整的代理迴圈。"}>
+
+```html
+<div class="diagram-mcp">
+  <div class="diagram-col">
+    <div class="diagram-node">Claude</div>
+    <div class="diagram-node">ChatGPT</div>
+    <div class="diagram-node">Cursor · Codex</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    ><small class="diagram-muted">Streamable HTTP</small
+    ><small class="diagram-muted"
+      >initialize &rarr; tools/list &rarr; tools/call</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box" data-rough>
+      each action<br /><small class="diagram-muted">= one tool</small>
+    </div>
+    <div class="diagram-box" data-rough>
+      ask-agent<br /><small class="diagram-muted">&rarr; full agent loop</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mcp {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-mcp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-mcp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-mcp .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## MCP vs A2A {#mcp-vs-a2a}
 
@@ -205,12 +253,61 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 | `/_agent-native/mcp/oauth/authorize`      | 瀏覽器授權+同意              |
 | `/_agent-native/mcp/oauth/token`          | 授權程式碼和重新整理權杖授予 |
 
-```an-diagram title="OAuth 發現流程" summary="401 啟動發現、註冊和 PKCE 授權 → 權杖交換。不記名權杖是受受眾限制和範圍的。"
-{
-  "html": "<div class=\"diagram-oauth\"><div class=\"diagram-box\" data-rough>first request<br><small class=\"diagram-muted\">no token</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill warn\">401 · WWW-Authenticate</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">/.well-known/oauth-protected-resource</span><span class=\"diagram-pill\">/.well-known/oauth-authorization-server</span><small class=\"diagram-muted\">discover</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">register</div><div class=\"diagram-pill\">authorize (PKCE)</div><div class=\"diagram-pill\">token</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Bearer access token<br><small class=\"diagram-muted\">綁定 audience · mcp:read / write / apps</small></div></div>",
-  "css": ".diagram-oauth{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-oauth .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-oauth .diagram-col{display:flex;flex-direction:column;gap:6px}.diagram-oauth .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-cy0fgf" title={"OAuth 發現流程"} summary={"401 啟動發現、註冊和 PKCE 授權 → 權杖交換。不記名權杖是受受眾限制和範圍的。"}>
+
+```html
+<div class="diagram-oauth">
+  <div class="diagram-box" data-rough>
+    first request<br /><small class="diagram-muted">no token</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill warn">401 · WWW-Authenticate</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill">/.well-known/oauth-protected-resource</span
+    ><span class="diagram-pill">/.well-known/oauth-authorization-server</span
+    ><small class="diagram-muted">discover</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">register</div>
+    <div class="diagram-pill">authorize (PKCE)</div>
+    <div class="diagram-pill">token</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Bearer access token<br /><small class="diagram-muted"
+      >綁定 audience · mcp:read / write / apps</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-oauth {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-oauth .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-oauth .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-oauth .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 存取權杖是經過簽名的 JWT，其受眾是確切的 MCP 資源 URL。伺服器僅接受為其自身頒發的權杖，並在列出/呼叫工具之前應用範圍：
 

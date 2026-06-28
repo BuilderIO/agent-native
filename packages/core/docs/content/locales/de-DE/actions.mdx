@@ -19,12 +19,75 @@ Eine Definition, sieben Verbraucher. Dies ist Sprosse 3 des [ladder](/docs/what-
 Wenn Sie entscheiden, ob Sie einen Vorgang kopflos, im Chat oder in einem
 eingebetteter Sidecar oder als vollständiger App-Bildschirm, siehe [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="Eine Definition, sieben Verbraucher" summary="Ein einzelner defineAction() verteilt sich auf jede Oberfläche – Agent, UI, HTTP, MCP, A2A und CLI – mit einem validierten Schema und einem run()-Körper."
-{
-  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run(), einmal definiert</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agentenwerkzeug<br><small class=\"diagram-muted\">JSON Schema im Kontext</small></div><div class=\"diagram-node\">React-Hooks<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">imperativer Client</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP-Werkzeug<br><small class=\"diagram-muted\">externe Hosts</small></div><div class=\"diagram-node\">A2A-Tool<br><small class=\"diagram-muted\">andere agent-native Apps</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
-  "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
+<Diagram id="doc-block-12eu8ac" title="Eine Definition, sieben Verbraucher" summary={"Ein einzelner defineAction() verteilt sich auf jede Oberfläche – Agent, UI, HTTP, MCP, A2A und CLI – mit einem validierten Schema und einem run()-Körper."}>
+
+```html
+<div class="diagram-fanout">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">defineAction()</span
+    ><small class="diagram-muted">schema + run(), einmal definiert</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <div class="diagram-node">
+      Agentenwerkzeug<br /><small class="diagram-muted"
+        >JSON Schema im Kontext</small
+      >
+    </div>
+    <div class="diagram-node">
+      React-Hooks<br /><small class="diagram-muted"
+        >useActionQuery/Mutation</small
+      >
+    </div>
+    <div class="diagram-node">
+      callAction()<br /><small class="diagram-muted">imperativer Client</small>
+    </div>
+    <div class="diagram-node">
+      HTTP<br /><small class="diagram-muted"
+        >/_agent-native/actions/:name</small
+      >
+    </div>
+    <div class="diagram-node">
+      MCP-Werkzeug<br /><small class="diagram-muted">externe Hosts</small>
+    </div>
+    <div class="diagram-node">
+      A2A-Tool<br /><small class="diagram-muted"
+        >andere agent-native Apps</small
+      >
+    </div>
+    <div class="diagram-node">
+      CLI<br /><small class="diagram-muted">pnpm action &lt;name&gt;</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fanout {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-fanout .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-fanout .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-fanout .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 ```
+
+</Diagram>
 
 Wenn sowohl der UI als auch der Agent etwas tun müssen, greifen Sie zu einer Aktion – nicht zu einer benutzerdefinierten Aktion
 Route. Wenn ein routenförmiges Protokoll der richtige Aufruf ist, lesen Sie [Bevorzugen Sie Actions

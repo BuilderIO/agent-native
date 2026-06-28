@@ -24,12 +24,71 @@ Em cada push de PR, o fluxo de trabalho:
 7. Insere um único comentário de PR fixo que incorpora as capturas de tela **inline** com um elemento `<picture>` (veiculado por meio do proxy de imagem camuflada do GitHub) ao lado do link para a recapitulação interativa.
 8. Conclui a verificação `Visual Recap` como bem-sucedida, ignorada ou neutra.
 
-```an-diagram title="O que acontece em cada push de relações públicas" summary="Uma comparação limitada alimenta um agente de codificação real, que cria uma recapitulação; o fluxo de trabalho faz uma captura de tela e exibe um comentário fixo."
-{
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">Push do PR<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Agente de código<br><small class=\"diagram-muted\">Claude Code / Codex lê o diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Chrome headless<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Um comentário fixo no PR<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
-  "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
+<Diagram id="doc-block-8iqfz5" title={"O que acontece em cada push de relações públicas"} summary={"Uma comparação limitada alimenta um agente de codificação real, que cria uma recapitulação; o fluxo de trabalho faz uma captura de tela e exibe um comentário fixo."}>
+
+```html
+<div class="diagram-recap">
+  <div class="diagram-node">
+    Push do PR<br /><small class="diagram-muted"
+      >bounded base&hellip;head diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Agente de código<br /><small class="diagram-muted"
+      >Claude Code / Codex lê o diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-visual-recap</span
+    ><small class="diagram-muted">publishes recap plan</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Chrome headless<br /><small class="diagram-muted"
+      >light + dark screenshots</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Um comentário fixo no PR<br /><small class="diagram-muted"
+      >inline screenshot + plan link</small
+    >
+  </div>
+</div>
+<div class="diagram-foot diagram-muted">
+  Plus an informational <span class="diagram-pill">Visual Recap</span> check
+  &mdash; non-blocking, never required.
+</div>
+```
+
+```css
+.diagram-recap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-recap .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-recap .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-recap .diagram-foot {
+  flex-basis: 100%;
+  margin-top: 10px;
+  font-size: 13px;
 }
 ```
+
+</Diagram>
 
 Um re-push atualiza o mesmo plano e o mesmo comentário fixo em vigor – sem planos órfãos, sem spam de comentários.
 
@@ -157,12 +216,70 @@ Se você deseja gerar recapitulações para PRs de bifurcação, um segundo arqu
 
 Para instalá-lo, copie o arquivo de [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) para o diretório `.github/workflows/` do seu repositório junto com o `pr-visual-recap.yml` existente. Os mesmos segredos (`PLAN_RECAP_TOKEN`, `ANTHROPIC_API_KEY`) se aplicam.
 
-```an-diagram title="Portão de consentimento de RP do Fork" summary="Os PRs do Fork não recebem segredos por padrão; autores confiáveis ​​são executados automaticamente e colaboradores externos exigem um novo rótulo de recapitulação do mantenedor."
-{
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">PR de fork aberto<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Autor confiável</span><small class=\"diagram-muted\">OWNER, MEMBER ou COLLABORATOR roda automaticamente</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Contribuidor externo</span><small class=\"diagram-muted\">mantenedor revisa o diff e depois aplica <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Verificações de gate<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Execuções de recapitulação<br><small class=\"diagram-muted\">apenas código do repo base · diff do fork é entrada de texto</small></div></div>",
-  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
+<Diagram id="doc-block-t1ajfw" title={"Portão de consentimento de RP do Fork"} summary={"Os PRs do Fork não recebem segredos por padrão; autores confiáveis ​​são executados automaticamente e colaboradores externos exigem um novo rótulo de recapitulação do mantenedor."}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-node">
+    PR de fork aberto<br /><small class="diagram-muted"
+      >main workflow has no secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">Autor confiável</span
+    ><small class="diagram-muted"
+      >OWNER, MEMBER ou COLLABORATOR roda automaticamente</small
+    >
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Contribuidor externo</span
+    ><small class="diagram-muted"
+      >mantenedor revisa o diff e depois aplica <code>recap</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    Verificações de gate<br /><small class="diagram-muted"
+      >fork PR? &amp; trusted or fresh label?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">
+    Execuções de recapitulação<br /><small class="diagram-muted"
+      >apenas código do repo base · diff do fork é entrada de texto</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-fork .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### Como funciona o portão de rótulos
 

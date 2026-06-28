@@ -24,12 +24,69 @@ description: "एजेंट को कैसे पता चलता है 
 5. **प्रॉम्प्ट हैंडऑफ़** -- UI कॉल `sendToAgentChat()` को नियंत्रित करता है जब एक क्लिक एजेंट टर्न बन जाना चाहिए
 6. **`navigate`** -- एजेंट का एक-शॉट कमांड जो UI को बताता है कि कहां जाना है
 
-```an-diagram title="आप जो देखते हैं उसे एजेंट कैसे देखता है" summary="यूआई हल्के राज्य कुंजी लिखता है; व्यू-स्क्रीन उन्हें वास्तविक रिकॉर्ड में हाइड्रेट करता है; एजेंट यूआई को स्थानांतरित करने के लिए वापस नेविगेट लिख सकता है।"
-{
-  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI लिखता है</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">व्यू, खुले ID</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">पंक्तियां, ब्लॉक, आकृतियां</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">एजेंट कार्य करता है<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">एजेंट UI को चलाता है</small></div></div>",
-  "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-t8korc" title={"आप जो देखते हैं उसे एजेंट कैसे देखता है"} summary={"यूआई हल्के राज्य कुंजी लिखता है; व्यू-स्क्रीन उन्हें वास्तविक रिकॉर्ड में हाइड्रेट करता है; एजेंट यूआई को स्थानांतरित करने के लिए वापस नेविगेट लिख सकता है।"}>
+
+```html
+<div class="diagram-ctx">
+  <div class="diagram-card col">
+    <span class="diagram-pill">UI लिखता है</span>
+    <div class="diagram-node">
+      navigation<br /><small class="diagram-muted">व्यू, खुले ID</small>
+    </div>
+    <div class="diagram-node">
+      __url__<br /><small class="diagram-muted">shareable filters</small>
+    </div>
+    <div class="diagram-node">
+      selection<br /><small class="diagram-muted"
+        >पंक्तियां, ब्लॉक, आकृतियां</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">view-screen</span
+    ><small class="diagram-muted">reads state &middot; fetches records</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    एजेंट कार्य करता है<br /><small class="diagram-muted"
+      >on the real object</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box diagram-accent">
+    navigate<br /><small class="diagram-muted">एजेंट UI को चलाता है</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-ctx {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-ctx .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.diagram-ctx .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-ctx .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## संदर्भ परतें {#context-layers}
 
@@ -382,9 +439,46 @@ useDbSync({
 - सिंक ईवेंट को संसाधित करते समय, UI अपने स्वयं के `ignoreSource` मान से मेल खाने वाले ईवेंट को फ़िल्टर करता है - इसलिए यह अभी लिखे गए डेटा को दोबारा प्राप्त नहीं करता है
 - एजेंटों, अन्य टैब और actions से ईवेंट अभी भी सामान्य रूप से आते हैं
 
-```an-diagram title="सोर्स टैगिंग सेल्फ-रिफ़ेच घबराहट को रोकता है" summary="एक टैब अपने स्वयं के TAB_ID से मुद्रित सिंक घटनाओं को अनदेखा करता है, लेकिन फिर भी एजेंट और अन्य-टैब लिखने पर प्रतिक्रिया करता है।"
-{
-  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">यह टैब लिखता है<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>सर्वर स्रोत सहेजता है<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">कोई refetch नहीं, कोई flicker नहीं</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI लाइव अपडेट होती है</small></div></div>",
-  "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1ydjp9d" title={"सोर्स टैगिंग सेल्फ-रिफ़ेच घबराहट को रोकता है"} summary={"एक टैब अपने स्वयं के TAB_ID से मुद्रित सिंक घटनाओं को अनदेखा करता है, लेकिन फिर भी एजेंट और अन्य-टैब लिखने पर प्रतिक्रिया करता है।"}>
+
+```html
+<div class="diagram-jitter">
+  <div class="diagram-node">
+    यह टैब लिखता है<br /><small class="diagram-muted"
+      >X-Request-Source: TAB_ID</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    सर्वर स्रोत सहेजता है<br />on the event
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card col">
+    <div class="diagram-pill warn">source == TAB_ID &rarr; ignored</div>
+    <small class="diagram-muted">कोई refetch नहीं, कोई flicker नहीं</small>
+    <div class="diagram-pill ok">agent / other tab &rarr; applied</div>
+    <small class="diagram-muted">UI लाइव अपडेट होती है</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-jitter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jitter .col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-jitter .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>

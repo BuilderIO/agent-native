@@ -17,12 +17,67 @@ description: "كيفية عمل تطبيقات الوكيل الأصلية: acti
 >
 > **الكمبيوتر** — قاعدة البيانات، المتصفح، تنفيذ التعليمات البرمجية. يعمل الوكلاء مباشرةً باستخدام SQL والأدوات المضمنة؛ خوادم MCP هي إضافات اختيارية وليست أساسية.
 
-```an-diagram title="الوكيل والتطبيق والكمبيوتر" summary="ثلاث طبقات تعمل معًا في متجر SQL واحد مشترك. يقوم كل من الوكيل والتطبيق بقراءة وكتابة نفس البيانات."
-{
-  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">يقرأ + يكتب البيانات، وينفذ الإجراءات، ويعدل التعليمات البرمجية</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">الإجراء فقط، أو الدردشة، أو مستوى التحكم، أو واجهة المستخدم React الكاملة</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>حاسوب<br><small class=\"diagram-muted\">SQL قاعدة البيانات · المتصفح · تنفيذ التعليمات البرمجية</small></div></div>",
-  "css": ".diagram-arch{display:flex;flex-direction:column;align-items:center;gap:10px}.diagram-arch .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-arch .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:220px}.diagram-arch .diagram-arrow{font-size:20px;line-height:1}.diagram-arch .diagram-box{text-align:center;padding:12px 18px}"
+<Diagram id="doc-block-u19iga" title={"الوكيل والتطبيق والكمبيوتر"} summary={"ثلاث طبقات تعمل معًا في متجر SQL واحد مشترك. يقوم كل من الوكيل والتطبيق بقراءة وكتابة نفس البيانات."}>
+
+```html
+<div class="diagram-arch">
+  <div class="diagram-row">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Agent</span
+      ><small class="diagram-muted"
+        >يقرأ + يكتب البيانات، وينفذ الإجراءات، ويعدل التعليمات البرمجية</small
+      >
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Application</span
+      ><small class="diagram-muted"
+        >الإجراء فقط، أو الدردشة، أو مستوى التحكم، أو واجهة المستخدم React
+        الكاملة</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">
+    &darr;&nbsp;&uarr;
+  </div>
+  <div class="diagram-box" data-rough>
+    حاسوب<br /><small class="diagram-muted"
+      >SQL قاعدة البيانات · المتصفح · تنفيذ التعليمات البرمجية</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-arch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.diagram-arch .diagram-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.diagram-arch .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 220px;
+}
+.diagram-arch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-arch .diagram-box {
+  text-align: center;
+  padding: 12px 18px;
 }
 ```
+
+</Diagram>
 
 يمكن للتطبيقات مقطوعة الرأس تشغيل نفس حلقة وكيل تطبيق الإنتاج من المجلد باستخدام `pnpm agent`، بينما تقوم تطبيقات UI بتثبيت لوحة الوكيل المضمنة وتشغيلها محليًا باستخدام `pnpm dev`. في السحابة، يوفر Builder.io إطارًا مُدارًا - البيئة التي تستضيف الوكيل بجوار تطبيقك - مع التعاون والتحرير المرئي والبنية الأساسية المُدارة للفرق.
 
@@ -273,12 +328,56 @@ useDbSync({ queryClient });
 4. إعادة جلب الخطافات `useActionQuery` والخطافات `useQuery` ذات الإصدار المصدر
 5. تعرض المكونات البيانات الجديدة دون إعادة تحميل الصفحة
 
-```an-diagram title="تدفق المزامنة الحية" summary="تصبح كتابة الوكيل عرضًا لواجهة المستخدم بدون تحديث يدوي - SSE أولاً، ويتم الاستقصاء كإجراء احتياطي عالمي."
-{
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">إجراء الوكيل<br><small class=\"diagram-muted\">يكتب في قاعدة البيانات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">حدث تغيير<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">إعادة جلب الاستعلام<br><small class=\"diagram-muted\">عرض دون إعادة تحميل</small></div></div>",
-  "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"
+<Diagram id="doc-block-g3q9ep" title={"تدفق المزامنة الحية"} summary={"تصبح كتابة الوكيل عرضًا لواجهة المستخدم بدون تحديث يدوي - SSE أولاً، ويتم الاستقصاء كإجراء احتياطي عالمي."}>
+
+```html
+<div class="diagram-sync">
+  <div class="diagram-node">
+    إجراء الوكيل<br /><small class="diagram-muted"
+      >يكتب في قاعدة البيانات</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    حدث تغيير<br /><small class="diagram-muted"
+      >source: action / settings</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">useDbSync</span
+    ><small class="diagram-muted">SSE &middot; poll fallback</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    إعادة جلب الاستعلام<br /><small class="diagram-muted"
+      >عرض دون إعادة تحميل</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-sync {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-sync .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
 }
 ```
+
+</Diagram>
 
 يعمل هذا في جميع بيئات النشر - بما في ذلك بيئات النشر بدون خادم وبيئات Edge - لأنه يستخدم قاعدة البيانات، وليس مراقبي حالة الذاكرة أو نظام الملفات.
 

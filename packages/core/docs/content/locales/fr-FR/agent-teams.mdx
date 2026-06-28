@@ -20,12 +20,71 @@ Agent Teams s'exécute sur le gestionnaire d'exécution principal : les événe
 
 L'état du sous-agent est conservé dans la table `application_state` SQL (sous `agent-task:<taskId>`), de sorte que les tâches survivent aux démarrages à froid sans serveur et fonctionnent sur plusieurs processus.
 
-```an-diagram title="Orchestrateur et spécialistes" summary="Le chat principal délègue à des sous-agents qui s'exécutent dans leurs propres threads et rendent compte sous forme de puces en ligne."
-{
-  "html": "<div class=\"at-orc\"><div class=\"diagram-card main\"><span class=\"diagram-pill accent\">Chat principal</span><small class=\"diagram-muted\">orchestrator &mdash; reads your request, delegates</small></div><div class=\"at-fan\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"at-subs\"><div class=\"diagram-box\">Revue de code<br><small class=\"diagram-muted\">own thread &amp; prompt</small></div><div class=\"diagram-box\">Analyse BigQuery<br><small class=\"diagram-muted\">own tools</small></div><div class=\"diagram-box\">E-mail à la voix<br><small class=\"diagram-muted\">own context</small></div></div></div><div class=\"diagram-pill\">each appears inline as a live chip &#8635;</div></div>",
-  "css": ".at-orc{display:flex;flex-direction:column;align-items:center;gap:12px}.at-orc .diagram-card{padding:14px 18px;display:flex;flex-direction:column;gap:4px;align-items:center}.at-orc .at-fan{display:flex;flex-direction:column;align-items:center;gap:8px}.at-orc .diagram-arrow{font-size:22px}.at-orc .at-subs{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.at-orc .diagram-box{text-align:center}"
+<Diagram id="doc-block-1pvbwrf" title={"Orchestrateur et spécialistes"} summary={"Le chat principal délègue à des sous-agents qui s'exécutent dans leurs propres threads et rendent compte sous forme de puces en ligne."}>
+
+```html
+<div class="at-orc">
+  <div class="diagram-card main">
+    <span class="diagram-pill accent">Chat principal</span
+    ><small class="diagram-muted"
+      >orchestrator &mdash; reads your request, delegates</small
+    >
+  </div>
+  <div class="at-fan">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="at-subs">
+      <div class="diagram-box">
+        Revue de code<br /><small class="diagram-muted"
+          >own thread &amp; prompt</small
+        >
+      </div>
+      <div class="diagram-box">
+        Analyse BigQuery<br /><small class="diagram-muted">own tools</small>
+      </div>
+      <div class="diagram-box">
+        E-mail à la voix<br /><small class="diagram-muted">own context</small>
+      </div>
+    </div>
+  </div>
+  <div class="diagram-pill">each appears inline as a live chip &#8635;</div>
+</div>
+```
+
+```css
+.at-orc {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.at-orc .diagram-card {
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+.at-orc .at-fan {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.at-orc .diagram-arrow {
+  font-size: 22px;
+}
+.at-orc .at-subs {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.at-orc .diagram-box {
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## Quand générer un sous-agent {#when-to-spawn}
 
@@ -85,12 +144,69 @@ La plupart des codes d'application n'appellent pas cela directement : le framew
 
 ## Cycle de vie des tâches {#lifecycle}
 
-```an-diagram title="Que fait spawnTask()" summary="Chaque apparition crée un thread, conserve son état dans SQL et diffuse les événements de puce jusqu'à leur achèvement."
-{
-  "html": "<div class=\"at-life\"><div class=\"diagram-box\"><code>spawnTask()</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">create thread</span><small class=\"diagram-muted\">new row in <code>chat_threads</code>, description as first message</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">persist state</span><small class=\"diagram-muted\"><code>agent-task:&lt;id&gt;</code> &rarr; <code>application_state</code>, status=running</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">stream</span><small class=\"diagram-muted\"><code>agent_task_started</code> &rarr; chip appears; <code>agent_task_step</code> &rarr; chip updates live</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">complete</span><small class=\"diagram-muted\">status=completed, write summary + preview, emit <code>agent_task_done</code></small></div></div>",
-  "css": ".at-life{display:flex;flex-direction:column;align-items:stretch;gap:6px;max-width:560px}.at-life .diagram-card{display:flex;flex-direction:column;gap:3px;padding:10px 14px}.at-life .diagram-box{align-self:flex-start}.at-life .diagram-arrow{font-size:18px;align-self:center}"
+<Diagram id="doc-block-xepm95" title="Que fait spawnTask()" summary={"Chaque apparition crée un thread, conserve son état dans SQL et diffuse les événements de puce jusqu'à leur achèvement."}>
+
+```html
+<div class="at-life">
+  <div class="diagram-box"><code>spawnTask()</code></div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">create thread</span
+    ><small class="diagram-muted"
+      >new row in <code>chat_threads</code>, description as first message</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">persist state</span
+    ><small class="diagram-muted"
+      ><code>agent-task:&lt;id&gt;</code> &rarr; <code>application_state</code>,
+      status=running</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">stream</span
+    ><small class="diagram-muted"
+      ><code>agent_task_started</code> &rarr; chip appears;
+      <code>agent_task_step</code> &rarr; chip updates live</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">complete</span
+    ><small class="diagram-muted"
+      >status=completed, write summary + preview, emit
+      <code>agent_task_done</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.at-life {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  max-width: 560px;
+}
+.at-life .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 14px;
+}
+.at-life .diagram-box {
+  align-self: flex-start;
+}
+.at-life .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
 }
 ```
+
+</Diagram>
 
 À tout moment, l'agent parent peut reprendre le sous-agent avec un suivi via `sendToTask(taskId, message)`. En cas d'erreur du sous-agent, `markTaskErrored(taskId, reason)` enregistre l'échec et le signale à l'utilisateur.
 
@@ -138,12 +254,56 @@ Les sous-agents peuvent engendrer des sous-agents, ce qui représente un risque 
 
 Le chat de niveau supérieur est la profondeur `0`. Un sous-agent qu'il génère est la profondeur `1` ; ce sous-agent peut réapparaître (profondeur `2`) ; un spawn qui créerait un sous-agent de profondeur `3` est **refusé**. La limite par défaut est **2**.
 
-```an-diagram title="Garde de profondeur de délégation (capuchon par défaut 2)" summary="Chaque niveau peut en générer un plus profond jusqu'au plafond ; un spawn passé est refusé côté serveur."
-{
-  "html": "<div class=\"at-depth\"><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 0</span><strong>Chat de niveau supérieur</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card ok\"><span class=\"diagram-pill\">depth 1</span><strong>Sous-agent</strong><small class=\"diagram-muted ok\">may spawn &darr;</small></div><div class=\"diagram-card warn\"><span class=\"diagram-pill warn\">depth 2</span><strong>Sous-agent's sub-agent</strong><small class=\"diagram-muted\">at the cap &mdash; may NOT spawn</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">depth 3</span><strong>Refused</strong><small class=\"diagram-muted\">server-side error</small></div></div>",
-  "css": ".at-depth{display:flex;flex-direction:column;gap:8px}.at-depth .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.at-depth .rung-1,.at-depth .diagram-card:nth-child(2){margin-inline-start:24px}.at-depth .diagram-card:nth-child(3){margin-inline-start:48px}.at-depth .diagram-card:nth-child(4){margin-inline-start:72px}"
+<Diagram id="doc-block-gbv1tz" title={"Garde de profondeur de délégation (capuchon par défaut 2)"} summary={"Chaque niveau peut en générer un plus profond jusqu'au plafond ; un spawn passé est refusé côté serveur."}>
+
+```html
+<div class="at-depth">
+  <div class="diagram-card ok">
+    <span class="diagram-pill">depth 0</span
+    ><strong>Chat de niveau supérieur</strong
+    ><small class="diagram-muted ok">may spawn &darr;</small>
+  </div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill">depth 1</span><strong>Sous-agent</strong
+    ><small class="diagram-muted ok">may spawn &darr;</small>
+  </div>
+  <div class="diagram-card warn">
+    <span class="diagram-pill warn">depth 2</span
+    ><strong>Sous-agent's sub-agent</strong
+    ><small class="diagram-muted">at the cap &mdash; may NOT spawn</small>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">depth 3</span><strong>Refused</strong
+    ><small class="diagram-muted">server-side error</small>
+  </div>
+</div>
+```
+
+```css
+.at-depth {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.at-depth .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.at-depth .rung-1,
+.at-depth .diagram-card:nth-child(2) {
+  margin-inline-start: 24px;
+}
+.at-depth .diagram-card:nth-child(3) {
+  margin-inline-start: 48px;
+}
+.at-depth .diagram-card:nth-child(4) {
+  margin-inline-start: 72px;
 }
 ```
+
+</Diagram>
 
 L'application est ambiante : chaque sous-agent s'exécute à l'intérieur d'un `AsyncLocalStorage` qui enregistre sa propre profondeur, de sorte que tout `spawnTask` atteint de manière transitive à partir de cette exécution lit la profondeur de son parent et refuse une fois le plafond atteint - même si l'outil `agent-teams` a été remis à un sous-agent qui n'aurait pas dû l'avoir. La décision est exposée comme un `evaluateSubagentDepth(parentDepth)` pur et testable unitairement. Un spawn refusé renvoie une erreur claire : _"Limite de profondeur de délégation atteinte (max N) ; impossible de générer un autre sous-agent."_
 

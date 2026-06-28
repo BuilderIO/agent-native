@@ -19,12 +19,67 @@ Une application agent native est accessible par n'importe quel hôte compatible 
 
 Le pont d'agent externe ferme la boucle. Tout d'abord, vous connectez votre propre agent à une application **hébergée**, soit en collant le MCP URL distant de l'application dans un hôte de discussion comme Claude ou ChatGPT, soit en exécutant le flux de développeur CLI pour les agents de codage locaux. Ensuite, l'agent effectue le travail sur MCP et remet à l'utilisateur soit une **application MCP** UI en ligne sur des hôtes compatibles, soit un seul lien **"Ouvrir dans &lt;app&gt; →"** qui ouvre la véritable application axée sur exactement ce qui a été produit. Il réutilise le contrat `navigate` / `application_state` existant, le UI se vide déjà toutes les 2 secondes (voir [Context Awareness](/docs/context-awareness)) — il n'y a pas de deuxième mécanisme de navigation.
 
-```an-diagram title="L’aller-retour des agents externes" summary="Un hôte externe appelle un outil via MCP ; l'application renvoie un artefact plus un lien Ouvrir. En cliquant dessus, vous résolvez la session du navigateur et concentrez l'artefact dans l'interface utilisateur en cours d'exécution : le lien ne comporte aucun état privilégié."
-{
-  "html": "<div class=\"xa-trip\"><div class=\"diagram-box\" data-rough>Hôte externe<br><small class=\"diagram-muted\">Claude &middot; ChatGPT &middot; Codex &middot; Cursor</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Outil MCP call</span><small class=\"diagram-muted\">e.g. <code>manage-draft</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>L’app produit un artefact<br><small class=\"diagram-muted\">+ <code>Open in &lt;app&gt; &rarr;</code> deep link / MCP App</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>L’utilisateur clique sur le lien</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill ok\"><code>/_agent-native/open</code></span><small class=\"diagram-muted\">resolves the <strong>browser</strong> session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Writes <code>navigate</code> app-state<br><small class=\"diagram-muted\">L’UI focalise l’artefact</small></div></div>",
-  "css": ".xa-trip{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.xa-trip .center{display:flex;flex-direction:column;align-items:center;gap:4px}.xa-trip .diagram-arrow{font-size:22px;line-height:1}.xa-trip code{font-size:.85em}"
+<Diagram id="doc-block-4ree95" title={"L’aller-retour des agents externes"} summary={"Un hôte externe appelle un outil via MCP ; l'application renvoie un artefact plus un lien Ouvrir. En cliquant dessus, vous résolvez la session du navigateur et concentrez l'artefact dans l'interface utilisateur en cours d'exécution : le lien ne comporte aucun état privilégié."}>
+
+```html
+<div class="xa-trip">
+  <div class="diagram-box" data-rough>
+    Hôte externe<br /><small class="diagram-muted"
+      >Claude &middot; ChatGPT &middot; Codex &middot; Cursor</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Outil MCP call</span
+    ><small class="diagram-muted">e.g. <code>manage-draft</code></small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    L’app produit un artefact<br /><small class="diagram-muted"
+      >+ <code>Open in &lt;app&gt; &rarr;</code> deep link / MCP App</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>L’utilisateur clique sur le lien</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill ok"><code>/_agent-native/open</code></span
+    ><small class="diagram-muted"
+      >resolves the <strong>browser</strong> session</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Writes <code>navigate</code> app-state<br /><small class="diagram-muted"
+      >L’UI focalise l’artefact</small
+    >
+  </div>
+</div>
+```
+
+```css
+.xa-trip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.xa-trip .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.xa-trip .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.xa-trip code {
+  font-size: 0.85em;
 }
 ```
+
+</Diagram>
 
 La règle d'identité est la charnière de sécurité : le lien est simplement `view` + identifiants d'enregistrement + filtres, et l'écriture `navigate` ciblant l'enregistrement s'adresse à toute personne connectée au **navigateur** – jamais au jeton MCP de l'agent externe. C'est pourquoi le lien peut être collé en toute sécurité dans un terminal ou dans une transcription de discussion.
 
@@ -247,12 +302,68 @@ Voici l'explication canonique des niveaux du catalogue MCP – d'autres pages s
 
 Le serveur MCP propose par défaut un **catalogue compact à chaque appelant** : connecteurs hébergés (ChatGPT, Claude), clients de code (Claude Code, Cursor, Codex) et proxy local CLI/stdio. La surface d'action complète n'est servie que sur adhésion explicite. Le catalogue n'est jamais déduit du nom du client ou de l'agent utilisateur.
 
-```an-diagram title="Deux niveaux de catalogue" summary="Chaque appelant obtient le niveau compact par défaut ; la surface complète d'environ 105 outils est uniquement facultative. la recherche par outils comble le fossé afin que rien ne soit jamais vraiment caché."
-{
-  "html": "<div class=\"xa-tiers\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Compact / connector tier &middot; default</span><strong>~20&ndash;30 tools</strong><small class=\"diagram-muted\">Template-declared app actions + cross-app builtins (<code>list_apps</code>, <code>open_app</code>, <code>ask_app</code>, <code>create_embed_session</code>) + always-present <code>tool-search</code>.</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Full tier &middot; opt-in</span><strong>~105 outils</strong><small class=\"diagram-muted\">Explicit opt-in only: <code>--full-catalog</code> token or <code>AGENT_NATIVE_MCP_FULL_CATALOG=1</code>.</small></div></div><p class=\"diagram-muted note\"><code>tool-search</code> reaches any full-tier tool on demand &mdash; so the compact default keeps context small without hiding capability.</p>",
-  "css": ".xa-tiers{display:flex;align-items:stretch;gap:14px;flex-wrap:wrap}.xa-tiers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;flex:1;min-width:240px}.xa-tiers .diagram-arrow{align-self:center;font-size:24px;line-height:1}.xa-tiers .note{flex-basis:100%;margin:4px 0 0;font-size:.85em}.xa-tiers code{font-size:.85em}"
+<Diagram id="doc-block-13pys8t" title="Deux niveaux de catalogue" summary={"Chaque appelant obtient le niveau compact par défaut ; la surface complète d'environ 105 outils est uniquement facultative. la recherche par outils comble le fossé afin que rien ne soit jamais vraiment caché."}>
+
+```html
+<div class="xa-tiers">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill ok"
+      >Compact / connector tier &middot; default</span
+    ><strong>~20&ndash;30 tools</strong
+    ><small class="diagram-muted"
+      >Template-declared app actions + cross-app builtins
+      (<code>list_apps</code>, <code>open_app</code>, <code>ask_app</code>,
+      <code>create_embed_session</code>) + always-present
+      <code>tool-search</code>.</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill accent">Full tier &middot; opt-in</span
+    ><strong>~105 outils</strong
+    ><small class="diagram-muted"
+      >Explicit opt-in only: <code>--full-catalog</code> token or
+      <code>AGENT_NATIVE_MCP_FULL_CATALOG=1</code>.</small
+    >
+  </div>
+</div>
+<p class="diagram-muted note">
+  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
+  compact default keeps context small without hiding capability.
+</p>
+```
+
+```css
+.xa-tiers {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.xa-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  flex: 1;
+  min-width: 240px;
+}
+.xa-tiers .diagram-arrow {
+  align-self: center;
+  font-size: 24px;
+  line-height: 1;
+}
+.xa-tiers .note {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 0.85em;
+}
+.xa-tiers code {
+  font-size: 0.85em;
 }
 ```
+
+</Diagram>
 
 ### Niveau Compact/Connecteur (par défaut) {#connector-tier}
 

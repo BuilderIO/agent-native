@@ -28,12 +28,59 @@ npx @agent-native/core@latest deploy
 
 Chaque application est construite avec `APP_BASE_PATH=/<name>` et `VITE_APP_BASE_PATH=/<name>`, puis packagée pour le préréglage cible Nitro. Cloudflare Pages est le préréglage par défaut et utilise un répartiteur généré sur `dist/_worker.js` ; Netlify utilise une fonction par application dans `.netlify/functions-internal/<app>-server` ainsi que les redirections générées ; Vercel écrit un `.vercel/output` au niveau de l'espace de travail à l'aide de la sortie de construction API.
 
-```an-diagram title="Une origine, de nombreuses applications" summary="Chaque application d'espace de travail est créée avec son propre chemin de base et montée sous un préfixe de chemin sur une seule origine. Ainsi, la connexion et l'application inter-application A2A sont de même origine et gratuites."
-{
-  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">A2A inter-apps sans configuration</span></div></div>",
-  "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
+<Diagram id="doc-block-1nkghk7" title="Une origine, de nombreuses applications" summary={"Chaque application d'espace de travail est créée avec son propre chemin de base et montée sous un préfixe de chemin sur une seule origine. Ainsi, la connexion et l'application inter-application A2A sont de même origine et gratuites."}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">shared login session</span
+    ><span class="diagram-pill ok">A2A inter-apps sans configuration</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
 }
 ```
+
+</Diagram>
 
 Le déploiement de même origine vous offre deux gros gains gratuits :
 
@@ -95,12 +142,60 @@ Lorsque vous exécutez `npx @agent-native/core@latest build`, Nitro crée à la 
 
 La sortie est autonome : copiez `.output/` dans n'importe quel environnement et exécutez-le.
 
-```an-diagram title="Construire pour déployer" summary="Une arborescence source se construit selon un préréglage Nitro ; la même sortie autonome s'exécute sur Node, Vercel, Netlify, Cloudflare, AWS ou Deno. Chaque instance pointe vers le même DATABASE_URL persistant."
-{
-  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>Source de l’app</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL persistante<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
-  "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
+<Diagram id="doc-block-zwkq9a" title={"Construire pour déployer"} summary={"Une arborescence source se construit selon un préréglage Nitro ; la même sortie autonome s'exécute sur Node, Vercel, Netlify, Cloudflare, AWS ou Deno. Chaque instance pointe vers le même DATABASE_URL persistant."}>
+
+```html
+<div class="diagram-deploy">
+  <div class="diagram-box" data-rough>Source de l’app</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">build</span
+    ><small class="diagram-muted">Nitro preset</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <span class="diagram-pill">Node.js</span
+    ><span class="diagram-pill">Vercel</span
+    ><span class="diagram-pill">Netlify</span
+    ><span class="diagram-pill">Cloudflare</span
+    ><span class="diagram-pill">AWS Lambda</span
+    ><span class="diagram-pill">Deno</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    DATABASE_URL persistante<br /><small class="diagram-muted"
+      >shared by every instance</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-deploy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-deploy .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-deploy .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-deploy .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 ```
+
+</Diagram>
 
 ## Définition du préréglage {#setting-the-preset}
 

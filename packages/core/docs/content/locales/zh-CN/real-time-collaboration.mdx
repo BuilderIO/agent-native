@@ -36,12 +36,52 @@ description: "多用户协作编辑，其中 AI 代理是一流的同行：CRDT 
 
 协作系统有五个互锁层。
 
-```an-diagram title="五层互锁" summary="从内存中的 CRDT 到在对等点之间传送更新的传输 — 每一层都有一项工作。"
-{
-  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; 无冲突合并，无协调器</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL 规范内容</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; 由 updatedAt 门控的对账</span><small class=\"diagram-muted\">代理编辑通过 SQL 更新时间传播</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; 主客户端选举</span><small class=\"diagram-muted\">恰好一个标签页应用快照</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE 快速路径 + 轮询</span><small class=\"diagram-muted\">约几十毫秒，任何地方都可降级为 2 秒轮询</small></div></div>",
-  "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+<Diagram id="doc-block-ilxaw7" title={"五层互锁"} summary={"从内存中的 CRDT 到在对等点之间传送更新的传输 — 每一层都有一项工作。"}>
+
+```html
+<div class="diagram-stack">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">1 &middot; Yjs Y.Doc</span
+    ><small class="diagram-muted">CRDT &mdash; 无冲突合并，无协调器</small>
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">2 &middot; SQL 规范内容</span
+    ><small class="diagram-muted"
+      >_collab_docs &mdash; durable source of truth, versioned</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">3 &middot; 由 updatedAt 门控的对账</span
+    ><small class="diagram-muted">代理编辑通过 SQL 更新时间传播</small>
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">4 &middot; 主客户端选举</span
+    ><small class="diagram-muted">恰好一个标签页应用快照</small>
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill ok">5 &middot; SSE 快速路径 + 轮询</span
+    ><small class="diagram-muted"
+      >约几十毫秒，任何地方都可降级为 2 秒轮询</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-stack .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### 1。 Yjs Y.Doc（CRDT层）
 
@@ -100,12 +140,62 @@ gate 确保仅采用真正较新的内容 - 滞后的民意调查响应
 
 网络错误使用带抖动的指数退避，上限约为 15 秒。
 
-```an-diagram title="两条编辑路径，一条合并" summary="人类击键流程 Y.Doc → 服务器 → SSE。代理编辑经过 SQL：操作在更新时发生碰撞，主要客户进行协调，然后更改重新进入 Yjs。"
-{
-  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">人工编辑</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce 约 80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">代理编辑</span><div class=\"diagram-node\">Action 写入 SQL<br><small class=\"diagram-muted\">更新 updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>主客户端<br><small class=\"diagram-muted\">setContent 写入 Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
-  "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1oqvb9x" title={"两条编辑路径，一条合并"} summary={"人类击键流程 Y.Doc → 服务器 → SSE。代理编辑经过 SQL：操作在更新时发生碰撞，主要客户进行协调，然后更改重新进入 Yjs。"}>
+
+```html
+<div class="diagram-collab">
+  <div class="lane">
+    <span class="diagram-pill">人工编辑</span>
+    <div class="diagram-node">
+      Y.Doc update<br /><small class="diagram-muted">debounce 约 80ms</small>
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      POST /update<br /><small class="diagram-muted">apply + persist</small>
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      SSE push<br /><small class="diagram-muted">to all peers</small>
+    </div>
+  </div>
+  <div class="lane">
+    <span class="diagram-pill warn">代理编辑</span>
+    <div class="diagram-node">
+      Action 写入 SQL<br /><small class="diagram-muted">更新 updatedAt</small>
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      主客户端<br /><small class="diagram-muted">setContent 写入 Y.Doc</small>
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      POST /update<br /><small class="diagram-muted"
+        >re-enters Yjs &middot; SSE push</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-collab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-collab .lane {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-collab .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 快速入门 {#quickstart}
 

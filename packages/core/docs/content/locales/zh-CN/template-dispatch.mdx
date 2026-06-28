@@ -20,12 +20,65 @@ Dispatch 是**工作区控制平面**。其他模板是域应用程序（邮件�
 
 如果您正在运行带有许多应用程序的 [multi-app workspace](/docs/multi-app-workspace)，Dispatch 就是粘合剂。
 
-```an-diagram title="统筹安排，不要专门化" summary="来自每个渠道的消息都会集中在一个收件箱中；编排器通过 A2A 对域工作进行分类和委托给正确的专业应用程序 — 秘密、资源和批准保持核心。"
-{
-  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">A2A 请求</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">中央收件箱 · 分诊 · 路由</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">邮件 Agent</div><div class=\"diagram-node\">分析 Agent</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">密钥保险库</span><span class=\"diagram-pill\">工作区资源</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">计划任务</span></div>",
-  "css": ".diagram-dispatch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-dispatch .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-dispatch .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-dispatch .diagram-arrow{font-size:20px;line-height:1}.diagram-shared{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}"
+<Diagram id="doc-block-1io92sj" title={"统筹安排，不要专门化"} summary={"来自每个渠道的消息都会集中在一个收件箱中；编排器通过 A2A 对域工作进行分类和委托给正确的专业应用程序 — 秘密、资源和批准保持核心。"}>
+
+```html
+<div class="diagram-dispatch">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack · Telegram</div>
+    <div class="diagram-node">Email</div>
+    <div class="diagram-node">A2A 请求</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Orchestrator</span
+    ><small class="diagram-muted">中央收件箱 · 分诊 · 路由</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">邮件 Agent</div>
+    <div class="diagram-node">分析 Agent</div>
+    <div class="diagram-node">Brain · Slides &hellip;</div>
+  </div>
+</div>
+<div class="diagram-shared">
+  <span class="diagram-pill">密钥保险库</span
+  ><span class="diagram-pill">工作区资源</span
+  ><span class="diagram-pill warn">Approvals</span
+  ><span class="diagram-pill">计划任务</span>
+</div>
+```
+
+```css
+.diagram-dispatch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-dispatch .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-dispatch .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-dispatch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-shared {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 ```
+
+</Diagram>
 
 ## 它的作用 {#what-it-does}
 

@@ -24,12 +24,71 @@ PR Visual Recap 是一个 GitHub 操作，它将每个拉取请求转变为**可
 7. 在交互式回顾的链接旁边插入一条粘性公关评论，将屏幕截图**内联**嵌入到 `<picture>` 元素（通过 GitHub 的迷彩图像代理提供）。
 8. 以成功、跳过或中立的方式完成 `Visual Recap` 检查。
 
-```an-diagram title="每次 PR 推送都会发生什么" summary="有界差异为真正的编码代理提供信息，该代理编写了回顾；工作流程会对其进行屏幕截图并插入一条粘性评论。"
-{
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR 推送<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">编码 Agent<br><small class=\"diagram-muted\">Claude Code / Codex 读取 diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">无头 Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">一条置顶 PR 评论<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
-  "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
+<Diagram id="doc-block-wztleo" title={"每次 PR 推送都会发生什么"} summary={"有界差异为真正的编码代理提供信息，该代理编写了回顾；工作流程会对其进行屏幕截图并插入一条粘性评论。"}>
+
+```html
+<div class="diagram-recap">
+  <div class="diagram-node">
+    PR 推送<br /><small class="diagram-muted"
+      >bounded base&hellip;head diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    编码 Agent<br /><small class="diagram-muted"
+      >Claude Code / Codex 读取 diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-visual-recap</span
+    ><small class="diagram-muted">publishes recap plan</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    无头 Chrome<br /><small class="diagram-muted"
+      >light + dark screenshots</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    一条置顶 PR 评论<br /><small class="diagram-muted"
+      >inline screenshot + plan link</small
+    >
+  </div>
+</div>
+<div class="diagram-foot diagram-muted">
+  Plus an informational <span class="diagram-pill">Visual Recap</span> check
+  &mdash; non-blocking, never required.
+</div>
+```
+
+```css
+.diagram-recap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-recap .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-recap .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-recap .diagram-foot {
+  flex-basis: 100%;
+  margin-top: 10px;
+  font-size: 13px;
 }
 ```
+
+</Diagram>
 
 重新推送会更新相同的计划和相同的粘性评论 - 没有孤立的计划，没有垃圾评论。
 
@@ -157,12 +216,68 @@ npx @agent-native/core@latest recap setup
 
 要安装它，请将文件从 [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) 与现有的 `pr-visual-recap.yml` 一起复制到存储库的 `.github/workflows/` 目录中。相同的秘密（`PLAN_RECAP_TOKEN`、`ANTHROPIC_API_KEY`）适用。
 
-```an-diagram title="分叉 PR 同意门" summary="默认情况下，分叉 PR 没有任何秘密；受信任的作者自动运行，外部贡献者需要新的维护者回顾标签。"
-{
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR 已打开<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">可信作者</span><small class=\"diagram-muted\">OWNER、MEMBER 或 COLLABORATOR 自动运行</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">外部贡献者</span><small class=\"diagram-muted\">维护者审核 diff 后再应用 <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">门禁检查<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">回顾运行<br><small class=\"diagram-muted\">仅基础 repo 代码 · fork diff 作为文本输入</small></div></div>",
-  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
+<Diagram id="doc-block-1n6pvin" title={"分叉 PR 同意门"} summary={"默认情况下，分叉 PR 没有任何秘密；受信任的作者自动运行，外部贡献者需要新的维护者回顾标签。"}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-node">
+    Fork PR 已打开<br /><small class="diagram-muted"
+      >main workflow has no secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">可信作者</span
+    ><small class="diagram-muted">OWNER、MEMBER 或 COLLABORATOR 自动运行</small>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">外部贡献者</span
+    ><small class="diagram-muted"
+      >维护者审核 diff 后再应用 <code>recap</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    门禁检查<br /><small class="diagram-muted"
+      >fork PR? &amp; trusted or fresh label?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">
+    回顾运行<br /><small class="diagram-muted"
+      >仅基础 repo 代码 · fork diff 作为文本输入</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-fork .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### 标签门如何工作
 

@@ -32,7 +32,7 @@ export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
 
 function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
+  return value.replace(/[!%_]/g, (char) => `!${char}`);
 }
 
 function prefixLike(value: string): string {
@@ -635,7 +635,7 @@ async function selectGrantedWorkspaceResourceRows(input: {
     args.push(input.path);
   }
   if (input.pathPrefix) {
-    conditions.push("wr.path LIKE ? ESCAPE '\\'");
+    conditions.push("wr.path LIKE ? ESCAPE '!'");
     args.push(prefixLike(input.pathPrefix));
   }
 
@@ -1358,7 +1358,7 @@ export async function resourceList(
 
   if (pathPrefix) {
     const { rows } = await client.execute({
-      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}`,
+      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
       args: [owner, prefixLike(pathPrefix)],
     });
     const resources = rows.map(rowToMeta);
@@ -1406,11 +1406,11 @@ export async function resourceListAccessible(
 
   if (pathPrefix) {
     const { rows } = await client.execute({
-      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}
+      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}
             UNION
-            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}
+            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}
             UNION
-            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '\\'${visibilitySql}`,
+            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
       args: [
         userEmail,
         prefixLike(pathPrefix),
@@ -1534,7 +1534,7 @@ export async function resourceListAllOwners(
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '\\'`,
+    sql: `SELECT * FROM resources WHERE path LIKE ? ESCAPE '!'`,
     args: [prefixLike(pathPrefix)],
   });
   const localResources = (

@@ -112,12 +112,59 @@ Fügen Sie kein `data/`-Verzeichnis für den Anwendungsstatus hinzu. Dauerhafte 
 
 Die vier Bereiche jeder Vorlage sind über eine gemeinsame Aktionsoberfläche und eine SQL-Datenbank miteinander verbunden – der Agent und der UI sind gleichberechtigte Partner bei denselben Vorgängen:
 
-```an-diagram title="Wie die vier Bereiche einer Vorlage miteinander verbunden sind" summary="Die Benutzeroberfläche und der Agent erreichen SQL beide über dieselben Aktionen; Anwendungsstatus und Abfragesynchronisierung sorgen dafür, dass sie aufeinander abgestimmt sind."
-{
-  "html": "<div class=\"diagram-tmpl\"><div class=\"diagram-col\"><div class=\"diagram-node\">React-UI<br><small class=\"diagram-muted\">app/routes · Komponenten</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">AGENTS.md · skills</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Aktionen</span><small class=\"diagram-muted\">defineAction()</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL über Drizzle<br><small class=\"diagram-muted\">additive schema</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">Polling-Sync</div></div>",
-  "css": ".diagram-tmpl{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-tmpl .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-tmpl .diagram-arrow{font-size:22px;line-height:1}.diagram-tmpl .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1pikucf" title="Wie die vier Bereiche einer Vorlage miteinander verbunden sind" summary={"Die Benutzeroberfläche und der Agent erreichen SQL beide über dieselben Aktionen; Anwendungsstatus und Abfragesynchronisierung sorgen dafür, dass sie aufeinander abgestimmt sind."}>
+
+```html
+<div class="diagram-tmpl">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      React-UI<br /><small class="diagram-muted"
+        >app/routes · Komponenten</small
+      >
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">AGENTS.md · skills</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Aktionen</span
+    ><small class="diagram-muted">defineAction()</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL über Drizzle<br /><small class="diagram-muted">additive schema</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">Polling-Sync</div>
+</div>
+```
+
+```css
+.diagram-tmpl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-tmpl .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-tmpl .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-tmpl .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Modelldaten in SQL {#data-models}
 

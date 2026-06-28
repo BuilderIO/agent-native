@@ -1,24 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  convertDocsBlockFence,
   convertDocsBlocksMarkdown,
   findDocsBlockFences,
 } from "./codemod-doc-blocks";
 
 describe("docs block codemod helpers", () => {
-  it("keeps an-diagram fences unchanged", () => {
+  it("converts an-diagram fences to Diagram MDX child fences", () => {
     const markdown = [
       '```an-diagram title="Flow"',
-      '{ "html": "<div />" }',
+      '{ "html": "<div />", "css": ".flow {}", "caption": "Caption" }',
       "```",
     ].join("\n");
 
-    const [fence] = findDocsBlockFences(markdown);
-    const result = convertDocsBlockFence(fence);
+    const report = convertDocsBlocksMarkdown(markdown);
 
-    expect(result.action).toBe("keep-diagram");
-    expect(result.output).toBe(markdown);
+    expect(report.changed).toBe(true);
+    expect(report.errors).toEqual([]);
+    expect(report.output).toContain('<Diagram id="doc-block-');
+    expect(report.output).toContain('title="Flow"');
+    expect(report.output).toContain('caption="Caption"');
+    expect(report.output).toContain("```html\n<div />\n```");
+    expect(report.output).toContain("```css\n.flow {}\n```");
+    expect(report.output).not.toContain("```an-diagram");
   });
 
   it("converts an-mermaid to a standard mermaid fence", () => {

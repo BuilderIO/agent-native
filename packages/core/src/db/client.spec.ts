@@ -201,6 +201,18 @@ describe("sqliteToPostgresParams", () => {
       'SELECT "weird?column", $$literal ? value$$ FROM analytics_events -- comment ?\nWHERE owner_email = $1 /* block ? */ AND org_id = $2',
     );
   });
+
+  it("converts placeholders after a backslash SQL string literal", async () => {
+    const { sqliteToPostgresParams } = await import("./client.js");
+
+    expect(
+      sqliteToPostgresParams(
+        "SELECT * FROM org_members WHERE email LIKE ? ESCAPE '\\' AND role = ? LIMIT ? OFFSET ?",
+      ),
+    ).toBe(
+      "SELECT * FROM org_members WHERE email LIKE $1 ESCAPE '\\' AND role = $2 LIMIT $3 OFFSET $4",
+    );
+  });
 });
 
 describe("retryOnDdlRace", () => {

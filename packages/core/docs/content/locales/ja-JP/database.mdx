@@ -7,12 +7,60 @@ description: "ポータブル SQL データベースをエージェント ネイ
 
 エージェント ネイティブ アプリは [Drizzle ORM](https://orm.drizzle.team) を使用し、ポータブル SQL バックエンドをサポートします。ローカル開発以外の場合は、`DATABASE_URL` を設定して、永続的な SQL データベース (Postgres、libSQL/Turso、または別の Drizzle 互換バックエンド) に接続します。この変数の設定が解除されると、アプリは設定ゼロのローカル SQLite ファイルに戻るため、すぐに開発を開始できます。
 
-```an-diagram title="1 つのスキーマ、多数のバックエンド" summary="アプリ コードは、フレームワークの方言に依存しないヘルパーを使用します。方言は実行時に DATABASE_URL から自動検出されます。 unset はローカルの SQLite ファイルを意味します。"
-{
-  "html": "<div class=\"diagram-db\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">@agent-native/core/db/schema</span><small class=\"diagram-muted\">table · text · integer · real · now</small><small class=\"diagram-muted\">+ Drizzle query DSL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL<br><small class=\"diagram-muted\">dialect auto-detected</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Postgres<br><small class=\"diagram-muted\">Neon · Supabase</small></span><span class=\"diagram-pill\">libSQL / Turso</span><span class=\"diagram-pill\">Cloudflare D1</span><span class=\"diagram-pill warn\">SQLite file<br><small class=\"diagram-muted\">unset = local dev only</small></span></div></div>",
-  "css": ".diagram-db{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-db .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-db .diagram-arrow{font-size:22px;line-height:1}.diagram-db .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
+<Diagram id="doc-block-1rc6zom" title={"1 つのスキーマ、多数のバックエンド"} summary={"アプリ コードは、フレームワークの方言に依存しないヘルパーを使用します。方言は実行時に DATABASE_URL から自動検出されます。 unset はローカルの SQLite ファイルを意味します。"}>
+
+```html
+<div class="diagram-db">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">@agent-native/core/db/schema</span
+    ><small class="diagram-muted">table · text · integer · real · now</small
+    ><small class="diagram-muted">+ Drizzle query DSL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    DATABASE_URL<br /><small class="diagram-muted">dialect auto-detected</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <span class="diagram-pill"
+      >Postgres<br /><small class="diagram-muted">Neon · Supabase</small></span
+    ><span class="diagram-pill">libSQL / Turso</span
+    ><span class="diagram-pill">Cloudflare D1</span
+    ><span class="diagram-pill warn"
+      >SQLite file<br /><small class="diagram-muted"
+        >unset = local dev only</small
+      ></span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-db {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-db .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-db .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-db .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 ```
+
+</Diagram>
 
 ## ローカルのデフォルト: SQLite ファイル {#default-sqlite}
 

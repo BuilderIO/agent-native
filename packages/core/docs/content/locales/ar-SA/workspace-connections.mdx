@@ -16,12 +16,74 @@ description: "البيانات الوصفية للموفر المشترك وال
 - **credentialRef** — مؤشر إلى سر المخزن (`{ key: "SLACK_BOT_TOKEN", scope: "org" }`). يشير الاتصال إلى المكان الذي يعيش فيه الرمز المميز؛ القبو يحمل القيمة.
 - **الاستعداد** — الحالة المدمجة التي يراها التطبيق: `connected` (تم منحه + وجود بيانات الاعتماد)، أو `needs_grant`، أو `needs_credentials`، أو `needs_attention`، أو `not_configured`.
 
-```an-diagram title="اتصل مرة واحدة، وامنح التطبيقات، وأعد استخدام بيانات الاعتماد" summary="يحتوي الاتصال على بيانات تعريف الموفر (ليست أسرارًا أبدًا) وبيانات الاعتماد التي تشير إلى المخزن. تفتح المنح لكل تطبيق هذه الميزة. تقرأ التطبيقات حالة استعداد واحدة."
-{
-  "html": "<div class=\"diagram-conn\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">Connection</span><div class=\"diagram-box\" data-rough>named provider account<br><small class=\"diagram-muted\">provider, label, الحالة، النطاقات، الإعدادات &middot; never stores secret values</small></div><div class=\"diagram-muted\">credentialRef &rarr; pointer to a vault secret</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill\">Grant</span><div class=\"diagram-box\" data-rough>per-app permission<br><small class=\"diagram-muted\">no grant = no credential access</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Readiness</span><small class=\"diagram-muted\">what the app sees</small><div class=\"sev-row\"><span class=\"diagram-pill ok\">connected</span><span class=\"diagram-pill warn\">needs_grant</span></div><div class=\"sev-row\"><span class=\"diagram-pill warn\">needs_credentials</span><span class=\"diagram-pill warn\">needs_attention</span></div><div class=\"sev-row\"><span class=\"diagram-pill\">not_configured</span></div></div></div>",
-  "css": ".diagram-conn{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-conn .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-conn .diagram-arrow{font-size:22px;line-height:1}.diagram-conn .sev-row{display:flex;gap:8px;flex-wrap:wrap}"
+<Diagram id="doc-block-17u3697" title={"اتصل مرة واحدة، وامنح التطبيقات، وأعد استخدام بيانات الاعتماد"} summary={"يحتوي الاتصال على بيانات تعريف الموفر (ليست أسرارًا أبدًا) وبيانات الاعتماد التي تشير إلى المخزن. تفتح المنح لكل تطبيق هذه الميزة. تقرأ التطبيقات حالة استعداد واحدة."}>
+
+```html
+<div class="diagram-conn">
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill accent">Connection</span>
+    <div class="diagram-box" data-rough>
+      named provider account<br /><small class="diagram-muted"
+        >provider, label, الحالة، النطاقات، الإعدادات &middot; never stores
+        secret values</small
+      >
+    </div>
+    <div class="diagram-muted">
+      credentialRef &rarr; pointer to a vault secret
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill">Grant</span>
+    <div class="diagram-box" data-rough>
+      per-app permission<br /><small class="diagram-muted"
+        >no grant = no credential access</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill ok">Readiness</span
+    ><small class="diagram-muted">what the app sees</small>
+    <div class="sev-row">
+      <span class="diagram-pill ok">connected</span
+      ><span class="diagram-pill warn">needs_grant</span>
+    </div>
+    <div class="sev-row">
+      <span class="diagram-pill warn">needs_credentials</span
+      ><span class="diagram-pill warn">needs_attention</span>
+    </div>
+    <div class="sev-row"><span class="diagram-pill">not_configured</span></div>
+  </div>
+</div>
+```
+
+```css
+.diagram-conn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-conn .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  min-width: 220px;
+}
+.diagram-conn .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-conn .sev-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 ```
+
+</Diagram>
 
 ### مثال عملي: Slack
 
@@ -260,12 +322,70 @@ const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
 
 تجيب البيانات الوصفية لموفر اتصال مساحة العمل على السؤال التالي: "ما هو هذا الموفر، وما الذي يمكنه فعله، وما هي مفاتيح الاعتماد التي قد يحتاجها، وما هي القوالب التي يجب أن تقدمه؟"
 
-```an-diagram title="مخزن الاتصال مقابل المخزن" summary="يمتلك القبو القيمة السرية. يمتلك الاتصال بيانات تعريف الموفر بالإضافة إلى بيانات الاعتماد (المؤشرات). في وقت التنفيذ، يقوم التطبيق بحل المرجع من خلال اتصال ممنوح ويقرأ القيمة من المخزن."
-{
-  "html": "<div class=\"diagram-vault\"><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill accent\">مخزن الاتصالات</span><div class=\"diagram-box\" data-rough>provider account + metadata<br><small class=\"diagram-muted\">الحالة، النطاقات، الإعدادات</small></div><div class=\"diagram-box\" data-rough>credentialRef<br><small class=\"diagram-muted\">{ key: SLACK_BOT_TOKEN, scope: org }</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">إجراء التطبيق</span><small class=\"diagram-muted\">resolves at execution time through a granted ref</small><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel col\" data-rough><span class=\"diagram-pill ok\">Vault</span><div class=\"diagram-box\" data-rough>secret value<br><small class=\"diagram-muted\">لا تعاد أبدا إلى الوكيل أو الواجهة</small></div></div></div>",
-  "css": ".diagram-vault{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-vault .col{display:flex;flex-direction:column;gap:8px;padding:14px;min-width:220px}.diagram-vault .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}.diagram-vault .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1r591ch" title={"مخزن الاتصال مقابل المخزن"} summary={"يمتلك القبو القيمة السرية. يمتلك الاتصال بيانات تعريف الموفر بالإضافة إلى بيانات الاعتماد (المؤشرات). في وقت التنفيذ، يقوم التطبيق بحل المرجع من خلال اتصال ممنوح ويقرأ القيمة من المخزن."}>
+
+```html
+<div class="diagram-vault">
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill accent">مخزن الاتصالات</span>
+    <div class="diagram-box" data-rough>
+      provider account + metadata<br /><small class="diagram-muted"
+        >الحالة، النطاقات، الإعدادات</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      credentialRef<br /><small class="diagram-muted"
+        >{ key: SLACK_BOT_TOKEN, scope: org }</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">إجراء التطبيق</span
+    ><small class="diagram-muted"
+      >resolves at execution time through a granted ref</small
+    >
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel col" data-rough>
+    <span class="diagram-pill ok">Vault</span>
+    <div class="diagram-box" data-rough>
+      secret value<br /><small class="diagram-muted"
+        >لا تعاد أبدا إلى الوكيل أو الواجهة</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-vault {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-vault .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  min-width: 220px;
+}
+.diagram-vault .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-vault .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 استخدم كلاهما معًا:
 

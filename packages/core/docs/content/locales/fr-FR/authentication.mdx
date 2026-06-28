@@ -15,12 +15,72 @@ L'authentification est configurée automatiquement via `autoMountAuth(app)` dans
 - **MCP OAuth à distance :** Standard OAuth 2.1 pour les hôtes MCP tels que le code Claude et les connecteurs ChatGPT.
 - **Personnalisé :** Apportez votre propre authentification via le rappel `getSession`.
 
-```an-diagram title="Trois façons d'entrer, une seule séance" summary="Les visiteurs du navigateur, les clients programmatiques MCP et les fournisseurs personnalisés résolvent tous la même AuthSession que celle lue par la portée en aval."
-{
-  "html": "<div class=\"auth-modes\"><div class=\"diagram-col\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default</span><strong>Better Auth</strong><small class=\"diagram-muted\">email/password &middot; Google &middot; GitHub</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Remote MCP OAuth</span><strong>OAuth 2.1 + PKCE</strong><small class=\"diagram-muted\">connecteurs Claude Code et ChatGPT</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Custom</span><strong>getSession callback</strong><small class=\"diagram-muted\">Clerk &middot; Auth0 &middot; Firebase</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">AuthSession</span><small class=\"diagram-muted\">email &middot; orgId &middot; orgRole</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Request context &amp; data scoping</div></div>",
-  "css": ".auth-modes{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.auth-modes .diagram-col{display:flex;flex-direction:column;gap:10px}.auth-modes .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.auth-modes .diagram-arrow{font-size:22px;line-height:1}.auth-modes .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-16302hf" title={"Trois façons d'entrer, une seule séance"} summary={"Les visiteurs du navigateur, les clients programmatiques MCP et les fournisseurs personnalisés résolvent tous la même AuthSession que celle lue par la portée en aval."}>
+
+```html
+<div class="auth-modes">
+  <div class="diagram-col">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Default</span
+      ><strong>Better Auth</strong
+      ><small class="diagram-muted"
+        >email/password &middot; Google &middot; GitHub</small
+      >
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Remote MCP OAuth</span
+      ><strong>OAuth 2.1 + PKCE</strong
+      ><small class="diagram-muted">connecteurs Claude Code et ChatGPT</small>
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Custom</span
+      ><strong>getSession callback</strong
+      ><small class="diagram-muted"
+        >Clerk &middot; Auth0 &middot; Firebase</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">AuthSession</span
+    ><small class="diagram-muted">email &middot; orgId &middot; orgRole</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Request context &amp; data scoping</div>
+</div>
+```
+
+```css
+.auth-modes {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.auth-modes .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auth-modes .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.auth-modes .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.auth-modes .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 Le flux du navigateur est le même flux Better Auth partout : il n'y a **pas de contournement d'authentification de développement** et `getSession()` ne revient jamais à une sentinelle `local@localhost`. Ce qui change entre les environnements, ce sont les frictions d'inscription, pas le mur de connexion :
 
@@ -164,12 +224,66 @@ https://mail.agent-native.com/_agent-native/mcp
 
 Les requêtes MCP non authentifiées renvoient un défi `WWW-Authenticate` pointant vers `/.well-known/oauth-protected-resource`. Le client découvre ensuite les métadonnées OAuth de l'application, enregistre dynamiquement un client public, ouvre la page d'autorisation de l'application et échange un code d'autorisation avec PKCE pour les jetons d'accès et d'actualisation.
 
-```an-diagram title="Prise de contact à distance MCP OAuth" summary="Un client compatible OAuth démarre uniquement à partir du MCP URL : défi, découverte, enregistrement dynamique, puis échange de code PKCE."
-{
-  "html": "<div class=\"mcp-flow\"><div class=\"diagram-node\">1 &middot; MCP request<br><small class=\"diagram-muted\">no token</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node warn\">2 &middot; 401 challenge<br><small class=\"diagram-muted\">WWW-Authenticate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">3 &middot; Discover metadata<br><small class=\"diagram-muted\">.well-known</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">4 &middot; Register client<br><small class=\"diagram-muted\">dynamique, public</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">5 &middot; Authorize + PKCE<br><small class=\"diagram-muted\">code exchange</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">6 &middot; Access + refresh<br><small class=\"diagram-muted\">audience-bound</small></div></div>",
-  "css": ".mcp-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.mcp-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:8px 12px}.mcp-flow .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-10nnoa3" title={"Prise de contact à distance MCP OAuth"} summary={"Un client compatible OAuth démarre uniquement à partir du MCP URL : défi, découverte, enregistrement dynamique, puis échange de code PKCE."}>
+
+```html
+<div class="mcp-flow">
+  <div class="diagram-node">
+    1 &middot; MCP request<br /><small class="diagram-muted">no token</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node warn">
+    2 &middot; 401 challenge<br /><small class="diagram-muted"
+      >WWW-Authenticate</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    3 &middot; Discover metadata<br /><small class="diagram-muted"
+      >.well-known</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    4 &middot; Register client<br /><small class="diagram-muted"
+      >dynamique, public</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    5 &middot; Authorize + PKCE<br /><small class="diagram-muted"
+      >code exchange</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    6 &middot; Access + refresh<br /><small class="diagram-muted"
+      >audience-bound</small
+    >
+  </div>
+</div>
+```
+
+```css
+.mcp-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mcp-flow .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.mcp-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Les jetons d'accès sont signés avec `A2A_SECRET` lorsqu'ils sont définis, sinon `BETTER_AUTH_SECRET`. Ils portent l'identité d'utilisateur/d'organisation signée et les étendues `mcp:read`, `mcp:write` et/ou `mcp:apps`, et sont liés à l'audience à la ressource MCP exacte, URL. Les jetons d'actualisation sont stockés uniquement sous forme de hachages et tournent à chaque actualisation. Les appels d'outils et les lectures de ressources d'applications MCP s'exécutent dans le même contexte de demande que l'utilisateur connecté ; l'iframe de l'application MCP intégrée ne reçoit jamais de jetons OAuth bruts.
 

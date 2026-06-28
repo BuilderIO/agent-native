@@ -9,12 +9,44 @@ Agent-native Apps sind standardmäßig sicher konzipiert. Das Framework bietet a
 
 ## Was Sie kostenlos bekommen und was Sie besitzen {#what-you-own}
 
-```an-diagram title="Verteidigung in Schichten" summary="Das Framework besitzt den größten Teil der Bedrohungsoberfläche. Sie besitzen zwei Dinge – das Markieren von Tabellen zur Festlegung des Gültigkeitsbereichs und die Validierung externer Eingaben."
-{
-  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Framework besitzt</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">Du behältst die Kontrolle</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
-  "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+<Diagram id="doc-block-1761arz" title="Verteidigung in Schichten" summary={"Das Framework besitzt den größten Teil der Bedrohungsoberfläche. Sie besitzen zwei Dinge – das Markieren von Tabellen zur Festlegung des Gültigkeitsbereichs und die Validierung externer Eingaben."}>
+
+```html
+<div class="sec-layers">
+  <div class="diagram-card free">
+    <span class="diagram-pill ok">Framework besitzt</span
+    ><small class="diagram-muted"
+      >SQL isolation &middot; parameterized queries &middot; XSS escaping
+      &middot; auth guard &middot; CSRF cookies &middot; secret
+      encryption</small
+    >
+  </div>
+  <div class="diagram-card you">
+    <span class="diagram-pill warn">Du behältst die Kontrolle</span
+    ><small class="diagram-muted"
+      >A. tag tables with ownableColumns() &amp; route through access guards<br />B.
+      give every action a Zod schema &amp; send user URLs through the SSRF
+      guard</small
+    >
+  </div>
+</div>
+```
+
+```css
+.sec-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sec-layers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 Wenn Sie auf den Standardmustern aufbauen, verwaltet das Framework bereits den größten Teil der Bedrohungsoberfläche für Sie:
 
@@ -122,12 +154,52 @@ Scoping fließt von der authentifizierten Sitzung bis hinunter zu SQL, den der A
 session.orgId → AGENT_ORG_ID → SQL row scoping
 ```
 
-```an-diagram title="Die Scoping-Pipeline" summary="Agenten-SQL berührt Basistabellen nie direkt – er liest eine temporäre Ansicht, die auf die aktuelle Identität beschränkt ist, sodass ein bloßer Tabellenname nur eigene Zeilen zurückgeben kann."
-{
-  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Angemeldete Sitzung<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">Agenten-SQL<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
-  "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1g8dkya" title="Die Scoping-Pipeline" summary={"Agenten-SQL berührt Basistabellen nie direkt – er liest eine temporäre Ansicht, die auf die aktuelle Identität beschränkt ist, sodass ein bloßer Tabellenname nur eigene Zeilen zurückgeben kann."}>
+
+```html
+<div class="scope-pipe">
+  <div class="diagram-node">
+    Angemeldete Sitzung<br /><small class="diagram-muted"
+      >email &middot; orgId</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Request context<br /><small class="diagram-muted">AGENT_ORG_ID</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Temporary VIEW<br /><small class="diagram-muted"
+      >WHERE owner_email = ? AND org_id = ?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    Agenten-SQL<br /><small class="diagram-muted">bare table names only</small>
+  </div>
+</div>
+```
+
+```css
+.scope-pipe {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.scope-pipe .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.scope-pipe .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Die angemeldete Sitzung trägt `email` und (wenn eine Organisation aktiv ist) `orgId`. Das Framework stellt den Anforderungskontext dieser Sitzung her, stellt die aktive Organisation dem Agenten SQL als `AGENT_ORG_ID` zur Verfügung und schreibt jede Abfrage neu, sodass nur Zeilen angezeigt werden können, die der aktuellen Identität gehören. Der gleiche Pfad gilt unabhängig davon, ob die Abfrage von UI, einer Aktion oder dem Agenten kommt – der Agent kann keine Daten für eine Organisation lesen, der der Benutzer nicht angehört.
 

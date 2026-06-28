@@ -14,12 +14,69 @@ Une installation vous offre :
 - **Deux skills** — `/visual-plan` (le point d'entrée canonique) et `/visual-recap`.
 - **Le connecteur Plan MCP** — enregistré auprès de l'application hébergée sur `https://plan.agent-native.com` (point de terminaison MCP `https://plan.agent-native.com/_agent-native/mcp`, nom de serveur `plan`).
 
-```an-diagram title="Trois itinéraires, un forfait" summary="Les plugins universels CLI, Claude Code et Codex installent tous les mêmes deux compétences plus le connecteur Plan hébergé."
-{
-  "html": "<div class=\"diagram-routes\"><div class=\"diagram-col\"><div class=\"diagram-node\">Universal CLI<br><small class=\"diagram-muted\">skills add visual-plan</small></div><div class=\"diagram-node\">Plugin Claude Code<br><small class=\"diagram-muted\">/plugin install</small></div><div class=\"diagram-node\">Plugin Codex<br><small class=\"diagram-muted\">codex plugin add</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">/visual-plan</span><span class=\"diagram-pill accent\">/visual-recap</span><small class=\"diagram-muted\">two skills</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Plan MCP connector<br><small class=\"diagram-muted\">plan.agent-native.com/_agent-native/mcp</small></div></div>",
-  "css": ".diagram-routes{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-routes .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-routes .diagram-arrow{font-size:22px;line-height:1}.diagram-routes .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-routes .center .diagram-pill{margin:2px}"
+<Diagram id="doc-block-1il4uk9" title={"Trois itinéraires, un forfait"} summary={"Les plugins universels CLI, Claude Code et Codex installent tous les mêmes deux compétences plus le connecteur Plan hébergé."}>
+
+```html
+<div class="diagram-routes">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Universal CLI<br /><small class="diagram-muted"
+        >skills add visual-plan</small
+      >
+    </div>
+    <div class="diagram-node">
+      Plugin Claude Code<br /><small class="diagram-muted"
+        >/plugin install</small
+      >
+    </div>
+    <div class="diagram-node">
+      Plugin Codex<br /><small class="diagram-muted">codex plugin add</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">/visual-plan</span
+    ><span class="diagram-pill accent">/visual-recap</span
+    ><small class="diagram-muted">two skills</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Plan MCP connector<br /><small class="diagram-muted"
+      >plan.agent-native.com/_agent-native/mcp</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-routes {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-routes .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-routes .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-routes .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-routes .center .diagram-pill {
+  margin: 2px;
 }
 ```
+
+</Diagram>
 
 Par défaut, les deux skills publient sur l'application Plan hébergée : ils créent un plan via
 le connecteur MCP et vous remettra un lien ou un plan en ligne à examiner. Ils ne jettent jamais
@@ -82,12 +139,46 @@ Cela maintient le contenu du plan hors de la base de données du plan Agent-Nati
 les commentaires, les captures d'écran et l'historique du plan ne sont pas disponibles jusqu'à ce que vous l'ayez explicitement
 publier plus tard.
 
-```an-diagram title="Mode hébergé ou fichiers locaux" summary="Par défaut, les compétences sont publiées via le connecteur ; Le mode fichiers locaux écrit MDX sur le disque et prévisualise via un pont localhost à la place."
-{
-  "html": "<div class=\"diagram-modes\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Par défaut · hébergé</span><strong>Publier dans l’app Plan</strong><small class=\"diagram-muted\">MCP connector &rarr; hosted DB &rarr; share links, comments, history, screenshots</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Confidentialité fichiers locaux</span><strong>Écrire le MDX sur disque</strong><small class=\"diagram-muted\">plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr; hosted Plan UI reads local source. No Écriture BDs until <code>publish-visual-plan</code>.</small></div></div>",
-  "css": ".diagram-modes{display:flex;gap:14px;flex-wrap:wrap}.diagram-modes .diagram-card{flex:1 1 260px;display:flex;flex-direction:column;gap:6px;padding:16px 18px}"
+<Diagram id="doc-block-1o9ncnx" title={"Mode hébergé ou fichiers locaux"} summary={"Par défaut, les compétences sont publiées via le connecteur ; Le mode fichiers locaux écrit MDX sur le disque et prévisualise via un pont localhost à la place."}>
+
+```html
+<div class="diagram-modes">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Par défaut · hébergé</span
+    ><strong>Publier dans l’app Plan</strong
+    ><small class="diagram-muted"
+      >MCP connector &rarr; hosted DB &rarr; share links, comments, history,
+      screenshots</small
+    >
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Confidentialité fichiers locaux</span
+    ><strong>Écrire le MDX sur disque</strong
+    ><small class="diagram-muted"
+      >plan.mdx + canvas.mdx + prototype.mdx &rarr; localhost bridge &rarr;
+      hosted Plan UI reads local source. No Écriture BDs until
+      <code>publish-visual-plan</code>.</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-modes {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-modes .diagram-card {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
 }
 ```
+
+</Diagram>
 
 Agent Native Desktop dispose d'un chemin de synchronisation de fichiers locaux distinct pour les forfaits hébergés : le
 L'application de bureau peut refléter un plan hébergé dans des fichiers MDX locaux et réimporter les modifications

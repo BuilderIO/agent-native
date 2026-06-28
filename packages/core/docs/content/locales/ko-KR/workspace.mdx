@@ -11,12 +11,67 @@ description: "Claude-사용자별 코드 수준 사용자 정의 — skills, 메
 
 비틀림: **파일 시스템 파일이 아니라 SQL 행입니다.** 각 사용자는 데이터베이스에 저장된 자신의 작업 공간을 얻습니다. 가동할 개발 상자도 없고, 사용자당 컨테이너도 없고, 마운트할 파일도 없습니다. 멀티 테넌트 SaaS는 개인 메모리, 개인 MCP 서버, 개인 skills, 개인 하위 에이전트 등 모든 행이 행으로 구성되어 있고 공유 코드베이스가 이 모든 것을 한 번에 호스팅하기 때문에 모든 사용자에게 본질적으로 무료로 완전히 사용자 정의 가능한 에이전트를 제공할 수 있습니다.
 
-```an-diagram title="Claude-Code 작업 공간이지만 SQL에 저장됨" summary="동일한 사용자 정의 계층(지침, 기술, 메모리, 에이전트, 작업, MCP)은 모든 파일이 공유 다중 테넌트 데이터베이스의 행이라는 점을 제외합니다."
-{
-  "html": "<div class=\"ws-map\"><div class=\"diagram-card cc\"><span class=\"diagram-pill warn\">Claude Code / Codex</span><small class=\"diagram-muted\">~/.claude/ on a local disk</small><div class=\"ws-files\"><span class=\"diagram-box\">CLAUDE.md</span><span class=\"diagram-box\">skills/</span><span class=\"diagram-box\">memory</span><span class=\"diagram-box\">mcp.json</span></div><small class=\"diagram-muted\">one codebase per developer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card an\"><span class=\"diagram-pill accent\">Agent-native 워크스페이스</span><small class=\"diagram-muted\">rows in one SQL 데이터베이스</small><div class=\"ws-rows\"><span class=\"diagram-pill\">AGENTS.md</span><span class=\"diagram-pill\">skills/&hellip;</span><span class=\"diagram-pill\">memory/&hellip;</span><span class=\"diagram-pill\">mcp-servers/&hellip;</span></div><small class=\"diagram-muted\">하나의 코드베이스, 여러 사용자, 범위 지정 <code>u:&lt;email&gt;:&hellip;</code></small></div></div>",
-  "css": ".ws-map{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.ws-map .diagram-card{display:flex;flex-direction:column;gap:8px;padding:16px 18px;flex:1;min-width:220px}.ws-map .ws-files,.ws-map .ws-rows{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0}.ws-map .diagram-arrow{font-size:24px}"
+<Diagram id="doc-block-19r4wnf" title={"Claude-Code 작업 공간이지만 SQL에 저장됨"} summary={"동일한 사용자 정의 계층(지침, 기술, 메모리, 에이전트, 작업, MCP)은 모든 파일이 공유 다중 테넌트 데이터베이스의 행이라는 점을 제외합니다."}>
+
+```html
+<div class="ws-map">
+  <div class="diagram-card cc">
+    <span class="diagram-pill warn">Claude Code / Codex</span
+    ><small class="diagram-muted">~/.claude/ on a local disk</small>
+    <div class="ws-files">
+      <span class="diagram-box">CLAUDE.md</span
+      ><span class="diagram-box">skills/</span
+      ><span class="diagram-box">memory</span
+      ><span class="diagram-box">mcp.json</span>
+    </div>
+    <small class="diagram-muted">one codebase per developer</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card an">
+    <span class="diagram-pill accent">Agent-native 워크스페이스</span
+    ><small class="diagram-muted">rows in one SQL 데이터베이스</small>
+    <div class="ws-rows">
+      <span class="diagram-pill">AGENTS.md</span
+      ><span class="diagram-pill">skills/&hellip;</span
+      ><span class="diagram-pill">memory/&hellip;</span
+      ><span class="diagram-pill">mcp-servers/&hellip;</span>
+    </div>
+    <small class="diagram-muted"
+      >하나의 코드베이스, 여러 사용자, 범위 지정
+      <code>u:&lt;email&gt;:&hellip;</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.ws-map {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.ws-map .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  flex: 1;
+  min-width: 220px;
+}
+.ws-map .ws-files,
+.ws-map .ws-rows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0;
+}
+.ws-map .diagram-arrow {
+  font-size: 24px;
 }
 ```
+
+</Diagram>
 
 | Claude 코드 / Codex                  | 에이전트 기반 작업공간                         |
 | ------------------------------------ | ---------------------------------------------- |
@@ -51,12 +106,60 @@ description: "Claude-사용자별 코드 수준 사용자 정의 — skills, 메
 
 이러한 경로는 작업 영역, 조직/앱, 개인의 세 가지 범위 모두에 적용됩니다. 동일한 경로가 여러 수준에 존재하는 경우 나중 범위가 우선합니다.
 
-```an-diagram title="세 가지 범위, 하나의 유효 파일" summary="런타임은 읽기 시 작업 영역, 앱 및 개인 범위에서 동일한 경로를 확인합니다. 가장 구체적인 범위가 우선합니다."
-{
-  "html": "<div class=\"ws-stack\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Workspace</span><small class=\"diagram-muted\">Dispatch의 회사 전체 기본값</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">조직 / 앱</span><small class=\"diagram-muted\">team override for one app</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Personal</span><small class=\"diagram-muted\">per-user override &mdash; wins</small><code>context/brand.md</code></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Effective <code>context/brand.md</code></div></div>",
-  "css": ".ws-stack{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.ws-stack .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px;min-width:280px}.ws-stack .diagram-arrow{font-size:20px;align-self:center}.ws-stack code{font-size:.85em}.ws-stack .diagram-box{align-self:center;margin-top:4px}"
+<Diagram id="doc-block-1ckc1ao" title={"세 가지 범위, 하나의 유효 파일"} summary={"런타임은 읽기 시 작업 영역, 앱 및 개인 범위에서 동일한 경로를 확인합니다. 가장 구체적인 범위가 우선합니다."}>
+
+```html
+<div class="ws-stack">
+  <div class="diagram-card">
+    <span class="diagram-pill">Workspace</span
+    ><small class="diagram-muted">Dispatch의 회사 전체 기본값</small
+    ><code>context/brand.md</code>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">조직 / 앱</span
+    ><small class="diagram-muted">team override for one app</small
+    ><code>context/brand.md</code>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Personal</span
+    ><small class="diagram-muted">per-user override &mdash; wins</small
+    ><code>context/brand.md</code>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">Effective <code>context/brand.md</code></div>
+</div>
+```
+
+```css
+.ws-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ws-stack .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+  min-width: 280px;
+}
+.ws-stack .diagram-arrow {
+  font-size: 20px;
+  align-self: center;
+}
+.ws-stack code {
+  font-size: 0.85em;
+}
+.ws-stack .diagram-box {
+  align-self: center;
+  margin-top: 4px;
 }
 ```
+
+</Diagram>
 
 ## 시작하기: 1분 둘러보기 {#getting-started}
 

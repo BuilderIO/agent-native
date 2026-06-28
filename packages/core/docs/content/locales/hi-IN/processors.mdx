@@ -7,12 +7,49 @@ description: "लूप-आंतरिक पर्यवेक्षक/रे
 
 ए `Processor` एजेंट रन के लिए एक लूप-आंतरिक **ऑब्जर्वर/रेलिंग** है। यह मॉडल के स्ट्रीम किए गए आउटपुट को देखता है और टूल इसे अनुरोध कहता है _जैसे-जैसे रन आगे बढ़ता है_, अपनी स्वयं की स्क्रैच स्थिति रखता है, और "पूर्ण" का दावा करने से पहले रन को **निरस्त** कर सकता है। यह वास्तविक समय रेलिंग (मध्य-धारा में अस्वीकृत आउटपुट को ब्लॉक करें) और एक प्रूफ-ऑफ-डन/कवरेज गेट (मॉडल क्या करने वाला है और इसे रोकें) के लिए संरचनात्मक शर्त है।
 
-```an-diagram title="जहां तीन हुक दौड़कर फायर करते हैं" summary="processOutputStream प्रत्येक भाग को देखता है, processOutputStep प्रति प्रतिक्रिया के लिए टूल कॉल को गेट करता है, processOutputResult अंत में एक निर्णय रिकॉर्ड करता है। कोई भी हुक TripWire के साथ समाप्त हो सकता है।"
-{
-  "html": "<div class=\"diagram-proc\"><div class=\"diagram-node\" data-rough>stream chunks<br><small class=\"diagram-muted\">processOutputStream</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>per model response<br><small class=\"diagram-muted\">processOutputStep — टूल कॉल गेट करता है</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>run end<br><small class=\"diagram-muted\">processOutputResult — निर्णय</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-pill warn\">abort() &rarr; TripWire &rarr; tripwire event</div></div>",
-  "css": ".diagram-proc{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-proc .diagram-arrow{font-size:22px;line-height:1}.diagram-proc .diagram-pill{flex-basis:100%}"
+<Diagram id="doc-block-1n738fz" title={"जहां तीन हुक दौड़कर फायर करते हैं"} summary={"processOutputStream प्रत्येक भाग को देखता है, processOutputStep प्रति प्रतिक्रिया के लिए टूल कॉल को गेट करता है, processOutputResult अंत में एक निर्णय रिकॉर्ड करता है। कोई भी हुक TripWire के साथ समाप्त हो सकता है।"}>
+
+```html
+<div class="diagram-proc">
+  <div class="diagram-node" data-rough>
+    stream chunks<br /><small class="diagram-muted">processOutputStream</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    per model response<br /><small class="diagram-muted"
+      >processOutputStep — टूल कॉल गेट करता है</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    run end<br /><small class="diagram-muted"
+      >processOutputResult — निर्णय</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-pill warn">
+    abort() &rarr; TripWire &rarr; tripwire event
+  </div>
+</div>
+```
+
+```css
+.diagram-proc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-proc .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-proc .diagram-pill {
+  flex-basis: 100%;
 }
 ```
+
+</Diagram>
 
 > [!WARNING]
 > एक प्रोसेसर **कॉन्फिगरेशन** है, एक उपकरण नहीं, एक क्रिया नहीं, और एक संलेखन DSL नहीं है। प्रोसेसर केवल अपने स्वयं के स्ट्रीम-स्कोप्ड राज्य और `abort()` का निरीक्षण करते हैं, उन्हें बदलते हैं। वे कभी भी ऐप व्यवहार को परिभाषित नहीं करते हैं, actions को प्रतिस्थापित नहीं करते हैं, या मॉडल में दिखाई नहीं देते हैं। ऐप संचालन [actions](/docs/actions) से संबंधित है।

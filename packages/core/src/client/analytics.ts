@@ -570,8 +570,48 @@ function ensureAmplitude(): boolean {
   return true;
 }
 
+function hasOnlySourcelessFrames(value: {
+  stacktrace?: {
+    frames?: Array<{
+      filename?: unknown;
+      abs_path?: unknown;
+      function?: unknown;
+    }>;
+  };
+}): boolean {
+  const frames = value.stacktrace?.frames ?? [];
+  return (
+    frames.length === 0 ||
+    frames.every((frame) => {
+      const filename = String(frame.filename ?? frame.abs_path ?? "")
+        .trim()
+        .toLowerCase();
+      const functionName = String(frame.function ?? "").trim();
+      return (
+        !functionName &&
+        (!filename || filename === "undefined" || filename === "<anonymous>")
+      );
+    })
+  );
+}
+
+function isAgentNativeDocsUrl(url: string): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.hostname === "www.agent-native.com" ||
+      parsed.hostname === "agent-native.com"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
   const exceptionValues = event.exception?.values ?? [];
+  const requestUrl = event.request?.url?.toLowerCase() ?? "";
+  const isDocsPage = isAgentNativeDocsUrl(requestUrl);
   // AgentAutoContinueSignal is a control-flow sentinel thrown to bubble
   // out of the SSE stream parser when the agent run needs to be
   // auto-continued. It's caught by the chat adapter and is never a real
@@ -622,21 +662,35 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
       ) {
         return false;
       }
-      const frames = value.stacktrace?.frames ?? [];
+      return hasOnlySourcelessFrames(value);
+    })
+  ) {
+    return true;
+  }
+  if (
+    isDocsPage &&
+    exceptionValues.some((value) => {
+      const exceptionValue = String(value.value ?? "").toLowerCase();
+      return exceptionValue.includes(
+        "window.webkit.messagehandlers.scrolleventhandler.postmessage",
+      );
+    })
+  ) {
+    return true;
+  }
+  if (
+    isDocsPage &&
+    exceptionValues.some((value) => {
+      const exceptionType = String(value.type ?? "")
+        .trim()
+        .toLowerCase();
+      const exceptionValue = String(value.value ?? "")
+        .trim()
+        .toLowerCase();
       return (
-        frames.length === 0 ||
-        frames.every((frame) => {
-          const filename = String(frame.filename ?? frame.abs_path ?? "")
-            .trim()
-            .toLowerCase();
-          const functionName = String(frame.function ?? "").trim();
-          return (
-            !functionName &&
-            (!filename ||
-              filename === "undefined" ||
-              filename === "<anonymous>")
-          );
-        })
+        exceptionType === "rangeerror" &&
+        exceptionValue.includes("maximum call stack") &&
+        hasOnlySourcelessFrames(value)
       );
     })
   ) {
@@ -669,7 +723,6 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
     .map((value) => `${value.type ?? ""} ${value.value ?? ""}`)
     .join(" ")
     .toLowerCase();
-  const requestUrl = event.request?.url?.toLowerCase() ?? "";
   const breadcrumbText = (event.breadcrumbs ?? [])
     .map((crumb) => {
       const data = crumb.data as Record<string, unknown> | undefined;

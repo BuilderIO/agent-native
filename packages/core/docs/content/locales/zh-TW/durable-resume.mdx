@@ -13,12 +13,53 @@ description: "當託管代理執行被中斷並恢復時，已完成的副作用
 
 持久的簡歷彌補了這一差距。恢復時，框架知道哪個副作用工具呼叫已經完成，並拒絕在兩層重新執行它們。
 
-```an-diagram title="兩層可阻止簡歷上重複的副作用" summary="記錄讀取持久帳本並對之前的呼叫進行分類；第 1 層告訴模型，第 2 層硬阻止與已完成條目匹配的重新分派寫入。"
-{
-  "html": "<div class=\"diagram-durable\"><div class=\"diagram-box\" data-rough>Run-event ledger<br><small class=\"diagram-muted\">tool_start / tool_done</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><strong>Tool-call journal</strong><small class=\"diagram-ok\">completed = start+done</small><small class=\"diagram-warn\">interrupted = start, no done</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">Layer 1 · prompt note &rarr; model</div><div class=\"diagram-pill accent\">第 2 層 · 硬阻塞重新派發寫入</div></div></div>",
-  "css": ".diagram-durable{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-durable .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-durable .diagram-arrow{font-size:22px;line-height:1}.diagram-durable .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1stduqo" title={"兩層可阻止簡歷上重複的副作用"} summary={"記錄讀取持久帳本並對之前的呼叫進行分類；第 1 層告訴模型，第 2 層硬阻止與已完成條目匹配的重新分派寫入。"}>
+
+```html
+<div class="diagram-durable">
+  <div class="diagram-box" data-rough>
+    Run-event ledger<br /><small class="diagram-muted"
+      >tool_start / tool_done</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <strong>Tool-call journal</strong
+    ><small class="diagram-ok">completed = start+done</small
+    ><small class="diagram-warn">interrupted = start, no done</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill">Layer 1 · prompt note &rarr; model</div>
+    <div class="diagram-pill accent">第 2 層 · 硬阻塞重新派發寫入</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-durable {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-durable .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-durable .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-durable .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 工具呼叫記錄 {#journal}
 
