@@ -756,23 +756,25 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
     emit_native_upload_progress(&app, "finalizing", "Optimizing clip", None, None);
+    // The recorder's ScreenCaptureKit stream is now fully stopped and its moov
+    // atom is written (or has definitively failed). Signal the UI so it can tear
+    // down the separate live-transcription SCStream (system_audio.rs) now,
+    // without racing the recorder finalize: tearing that stream down while the
+    // recorder is still writing its moov interrupts ScreenCaptureKit
+    // (RPRecordingErrorDomain -5814) and corrupts the clip. We emit from inside
+    // the finalize helper — after the moov write but BEFORE segment
+    // consolidation — so a paused multi-segment recording stops transcription
+    // promptly instead of letting it run through the merge window and push the
+    // saved transcript past the clip's real end. See recorder.ts `handle.stop()`.
     let StoppedSession {
         session,
         duration_ms,
         stop_outcome,
         consolidate_outcome,
         multi_segment,
-    } = take_and_finalize_active_session(&state)?;
-
-    // The recorder's ScreenCaptureKit stream is now fully stopped and its moov
-    // atom is written (or has definitively failed). Signal the UI so it can tear
-    // down the separate live-transcription SCStream (system_audio.rs) now,
-    // without racing the recorder finalize: tearing that stream down while the
-    // recorder is still writing its moov interrupts ScreenCaptureKit
-    // (RPRecordingErrorDomain -5814) and corrupts the clip. Emitting here, before
-    // the slow upload, lets transcription stop promptly while the clip duration
-    // stays anchored to the real Stop click. See recorder.ts `handle.stop()`.
-    let _ = app.emit("clips:native-recording-finalized", &recording_id);
+    } = take_and_finalize_active_session(&state, |_session| {
+        let _ = app.emit("clips:native-recording-finalized", &recording_id);
+    })?;
 
     // The camera bubble is the ONE overlay we deliberately leave
     // capture-included (see `show_bubble`), so it has to stay on-screen
@@ -906,7 +908,7 @@ pub async fn native_fullscreen_recording_stop_and_save(
         stop_outcome,
         consolidate_outcome,
         multi_segment,
-    } = take_and_finalize_active_session(&state)?;
+    } = take_and_finalize_active_session(&state, |_session| {})?;
     // Capture is finalized — drop the camera bubble now so the face
     // doesn't linger while the clip saves (mirrors the upload path).
     let _ = crate::clips::close_bubble(app.clone()).await;
@@ -1207,8 +1209,17 @@ struct StoppedSession {
 /// Take the active session out of state, finalize its backend, and merge
 /// any pause/resume segments into the canonical output path. Shared by
 /// the upload and save-locally stop commands.
+///
+/// `on_capture_finalized` runs in the narrow window after the capture
+/// backend is fully stopped (moov atom written) but before segment
+/// consolidation begins. The upload path uses it to tell the UI to stop
+/// live transcription: doing it here keeps the saved transcript anchored
+/// to the clip's real end instead of running through the (multi-segment)
+/// merge, while still avoiding the -5814 corruption from tearing the
+/// transcription SCStream down before the recorder's moov is written.
 fn take_and_finalize_active_session(
     state: &State<'_, NativeFullscreenRecordingState>,
+    on_capture_finalized: impl FnOnce(&NativeFullscreenSession),
 ) -> Result<StoppedSession, String> {
     let mut session = {
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
@@ -1233,6 +1244,13 @@ fn take_and_finalize_active_session(
         stop_outcome.is_ok(),
         describe_recording_path(&session.path)
     );
+    // The capture backend is fully stopped and its moov atom is written.
+    // Signal callers now — before the (potentially slow) segment merge — so
+    // live transcription can stop while the clip duration is still anchored
+    // to the real Stop click. Tearing it down here is safe from the -5814
+    // corruption because the recorder's SCStream is already finalized; the
+    // remaining work is plain on-disk file merging.
+    on_capture_finalized(&session);
     // With one segment this is a cheap rename. With multiple segments a
     // failure would silently lose everything after the first pause, so
     // callers check `multi_segment` and surface the merge error.
