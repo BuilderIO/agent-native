@@ -177,12 +177,13 @@ export function DocBlock({
    * so SSR and client hydration agree (no module-level mutable counter). */
   index?: number;
 }) {
+  const { registry, ctx } = useBlockRegistry();
+  const t = useT();
+
   if (segment.kind === "invalid-block") {
     return <DocBlockError alias={segment.tag} message={segment.message} />;
   }
 
-  const { registry, ctx } = useBlockRegistry();
-  const t = useT();
   const type =
     segment.source === "mdx"
       ? segment.type
