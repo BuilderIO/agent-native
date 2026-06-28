@@ -764,6 +764,16 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         multi_segment,
     } = take_and_finalize_active_session(&state)?;
 
+    // The recorder's ScreenCaptureKit stream is now fully stopped and its moov
+    // atom is written (or has definitively failed). Signal the UI so it can tear
+    // down the separate live-transcription SCStream (system_audio.rs) now,
+    // without racing the recorder finalize: tearing that stream down while the
+    // recorder is still writing its moov interrupts ScreenCaptureKit
+    // (RPRecordingErrorDomain -5814) and corrupts the clip. Emitting here, before
+    // the slow upload, lets transcription stop promptly while the clip duration
+    // stays anchored to the real Stop click. See recorder.ts `handle.stop()`.
+    let _ = app.emit("clips:native-recording-finalized", &recording_id);
+
     // The camera bubble is the ONE overlay we deliberately leave
     // capture-included (see `show_bubble`), so it has to stay on-screen
     // until the SCStream stops. Now that capture is finalized, tear it
