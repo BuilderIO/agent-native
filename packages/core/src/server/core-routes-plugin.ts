@@ -167,6 +167,39 @@ export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
 
+export function getFrameworkEnvKeys(): EnvKeyConfig[] {
+  return [
+    { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+    {
+      key: "AGENT_ENGINE_PREFER_BYO_KEY",
+      label:
+        "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
+    },
+    {
+      key: "RESEND_API_KEY",
+      label: "Resend API key",
+      helpText:
+        "Enables transactional email, including password resets, invitations, share notifications, and dashboard reports.",
+    },
+    {
+      key: "SENDGRID_API_KEY",
+      label: "SendGrid API key",
+      helpText:
+        "Enables transactional email, including password resets, invitations, share notifications, and dashboard reports.",
+    },
+    {
+      key: "EMAIL_FROM",
+      label: "Email from address",
+      helpText:
+        "Sender address for transactional email. Required when using SendGrid.",
+    },
+    ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
+      key: envVar,
+      label,
+    })),
+  ];
+}
+
 /** Result of the `/_agent-native/health` liveness + DB-warmup probe. */
 export interface DbHealthProbeResult {
   /** The serverless function is live and served the request. */
@@ -2199,18 +2232,7 @@ export function createCoreRoutesPlugin(
       );
 
       // Env key management — framework keys are always included
-      const frameworkEnvKeys: EnvKeyConfig[] = [
-        { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
-        {
-          key: "AGENT_ENGINE_PREFER_BYO_KEY",
-          label:
-            "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
-        },
-        ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
-          key: envVar,
-          label,
-        })),
-      ];
+      const frameworkEnvKeys = getFrameworkEnvKeys();
       {
         const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];
         const allowedEnvKeyNames = envKeys.map(({ key }) => key);
