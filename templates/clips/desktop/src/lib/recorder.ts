@@ -1881,6 +1881,28 @@ async function startNativeFullscreenRecording(
 
         let uploadResult: NativeFullscreenUploadResult | null = null;
         const viewUrl = `/r/${id}`;
+
+        // Stop the live-transcription capture BEFORE finalizing the recording.
+        // The screen recorder and the whisper system-audio recognizer each run
+        // their own ScreenCaptureKit stream (see src-tauri system_audio.rs,
+        // which opens an SCStream with `with_captures_audio(true)`). Tearing the
+        // transcription stream down while the recorder stream is flushing its
+        // trailing fragment and writing the final `moov` atom interrupts
+        // ScreenCaptureKit ("Application connection interrupted",
+        // RPRecordingErrorDomain -5814): the recorder's SCRecordingOutput aborts
+        // before the moov is written and the MP4 is left permanently corrupt.
+        // This used to run concurrently with the finalize+upload invoke below,
+        // so whether a clip survived was a race that the finalize usually won,
+        // but not always. Stopping transcription here, while the recorder is
+        // still capturing, removes the race: the recorder then finalizes with no
+        // other SCStream being torn down underneath it.
+        const capturedTranscript = await transcriptionCapture
+          ?.stop()
+          .catch((err) => {
+            console.warn("[clips-recorder] transcript stop failed:", err);
+            return null;
+          });
+
         const uploadPromise = invoke<NativeFullscreenUploadResult>(
           "native_fullscreen_recording_stop_and_upload",
           {
@@ -1894,12 +1916,6 @@ async function startNativeFullscreenRecording(
         );
         uploadPromise.catch(() => {});
         try {
-          const capturedTranscript = await transcriptionCapture
-            ?.stop()
-            .catch((err) => {
-              console.warn("[clips-recorder] transcript stop failed:", err);
-              return null;
-            });
           if (capturedTranscript?.text.trim()) {
             await saveRecordingTranscript(
               params.serverUrl,
