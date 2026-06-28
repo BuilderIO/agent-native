@@ -55,16 +55,36 @@ import {
   IconDotsVertical,
   IconArrowBackUp,
   IconArrowForwardUp,
+  IconPointer,
+  IconTypography,
+  IconHandStop,
+  IconSquare,
+  IconVectorBezier,
+  IconScale,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { useParams, useNavigate, Link } from "react-router";
 import { toast } from "sonner";
 import * as Y from "yjs";
 
+import { CanvasContextMenu } from "@/components/design/CanvasContextMenu";
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { DesignEditorSkeleton } from "@/components/design/DesignEditorSkeleton";
 import { EditPanel } from "@/components/design/EditPanel";
+import type { ExportSettingsValue } from "@/components/design/inspector";
+import {
+  LayersPanel,
+  type LayersPanelFile,
+  type LayersPanelNode,
+} from "@/components/design/LayersPanel";
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { TweaksPanel } from "@/components/design/TweaksPanel";
@@ -105,6 +125,7 @@ import {
   DESIGN_VARIANT_PICKED_EVENT,
   useVariantFlow,
 } from "@/hooks/use-variant-flow";
+import { useDesignHotkeys } from "@/hooks/useDesignHotkeys";
 import {
   clearPendingGeneration,
   hasFreshPendingGeneration,
@@ -135,6 +156,17 @@ const MAX_GENERATION_ATTEMPTS = 3;
 const AUTO_RETRY_DELAY_MS = 1200;
 
 type EditorMode = "comment" | "edit" | "draw";
+type DesignTool =
+  | "move"
+  | "frame"
+  | "rect"
+  | "text"
+  | "pen"
+  | "hand"
+  | "comment"
+  | "draw"
+  | "scale"
+  | "overview";
 
 interface DesignFile {
   id: string;
@@ -153,6 +185,41 @@ interface DesignData {
   designSystemId?: string | null;
   data?: string | null;
   files: DesignFile[];
+}
+
+interface CanvasFrameGeometry {
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
+  z?: number;
+}
+
+type CanvasFrameGeometryById = Record<string, CanvasFrameGeometry>;
+
+type PatchProofStatus =
+  | "runtime"
+  | "queued"
+  | "applied"
+  | "failed"
+  | "rolledBack";
+
+interface PatchProofState {
+  id: string;
+  fileId: string;
+  filename: string;
+  selector: string;
+  sourceId?: string;
+  property: string;
+  previousValue?: string;
+  nextValue: string;
+  previousContent?: string;
+  capability: string;
+  confidence?: number;
+  status: PatchProofStatus;
+  error?: string;
+  createdAt: number;
 }
 
 function formatUploadedFileContext(files: UploadedFile[]): string {
@@ -247,12 +314,22 @@ function applyInlineStyleToHtml(
   property: string,
   value: string,
 ): string | null {
+  return applyInlineStylesToHtml(content, selector, { [property]: value });
+}
+
+function applyInlineStylesToHtml(
+  content: string,
+  selector: string,
+  styles: Record<string, string>,
+): string | null {
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
     const element = doc.querySelector(selector) as HTMLElement | null;
     if (!element) return null;
-    (element.style as any)[property] = value;
+    Object.entries(styles).forEach(([property, value]) => {
+      (element.style as any)[property] = value;
+    });
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
   } catch {
     return null;
@@ -273,6 +350,499 @@ function getBodyInlineStyles(content: string): Record<string, string> {
   } catch {
     return {};
   }
+}
+
+function nextDuplicatedFilename(files: DesignFile[], filename: string): string {
+  const existing = new Set(files.map((file) => file.filename));
+  const dotIndex = filename.lastIndexOf(".");
+  const base = dotIndex > 0 ? filename.slice(0, dotIndex) : filename;
+  const extension = dotIndex > 0 ? filename.slice(dotIndex) : "";
+  let candidate = `${base}-copy${extension}`;
+  let index = 2;
+  while (existing.has(candidate)) {
+    candidate = `${base}-copy-${index}${extension}`;
+    index += 1;
+  }
+  return candidate;
+}
+
+function normalizedDesignFileType(
+  fileType: string,
+): "html" | "css" | "jsx" | "asset" {
+  return fileType === "css" ||
+    fileType === "jsx" ||
+    fileType === "asset" ||
+    fileType === "html"
+    ? fileType
+    : "html";
+}
+
+function nextFrameFilename(files: DesignFile[]): string {
+  const existing = new Set(files.map((file) => file.filename));
+  let index = 1;
+  while (true) {
+    const filename = index === 1 ? "frame.html" : `frame-${index}.html`;
+    if (!existing.has(filename)) return filename;
+    index += 1;
+  }
+}
+
+function escapeHtmlText(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function createFrameHtml(title: string): string {
+  const safeTitle = escapeHtmlText(title);
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${safeTitle}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #ffffff;
+      color: #111827;
+    }
+    [data-agent-native-node-id="frame-root"] {
+      min-height: 100vh;
+      position: relative;
+      padding: 64px;
+    }
+  </style>
+</head>
+<body>
+  <main data-agent-native-node-id="frame-root"></main>
+</body>
+</html>`;
+}
+
+function insertTextLayer(
+  content: string,
+  label: string,
+  position: { x: number; y: number },
+): string {
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? `text-${crypto.randomUUID()}`
+      : `text-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const layer = `<div data-agent-native-node-id="${id}" style="position:absolute;left:${Math.max(
+    24,
+    Math.round(position.x),
+  )}px;top:${Math.max(
+    24,
+    Math.round(position.y),
+  )}px;z-index:10;padding:4px 6px;font:600 32px/1.15 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;color:#111827;background:transparent;">${escapeHtmlText(
+    label,
+  )}</div>`;
+  if (/<\/body>/i.test(content)) {
+    return content.replace(/<\/body>/i, `${layer}\n</body>`);
+  }
+  return `${content}\n${layer}`;
+}
+
+function insertRectLayer(
+  content: string,
+  position: { x: number; y: number },
+): string {
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? `rect-${crypto.randomUUID()}`
+      : `rect-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const layer = `<div data-agent-native-node-id="${id}" style="position:absolute;left:${Math.max(
+    24,
+    Math.round(position.x),
+  )}px;top:${Math.max(
+    24,
+    Math.round(position.y),
+  )}px;width:160px;height:104px;z-index:9;border-radius:16px;background:#e5e7eb;border:1px solid rgba(17,24,39,0.12);"></div>`;
+  if (/<\/body>/i.test(content)) {
+    return content.replace(/<\/body>/i, `${layer}\n</body>`);
+  }
+  return `${content}\n${layer}`;
+}
+
+function insertPenLayer(
+  content: string,
+  position: { x: number; y: number },
+): string {
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? `path-${crypto.randomUUID()}`
+      : `path-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const layer = `<svg data-agent-native-node-id="${id}" viewBox="0 0 160 96" style="position:absolute;left:${Math.max(
+    24,
+    Math.round(position.x),
+  )}px;top:${Math.max(
+    24,
+    Math.round(position.y),
+  )}px;width:160px;height:96px;z-index:10;overflow:visible;"><path d="M12 72 C44 8 90 8 148 72" fill="none" stroke="#111827" stroke-width="8" stroke-linecap="round"/></svg>`;
+  if (/<\/body>/i.test(content)) {
+    return content.replace(/<\/body>/i, `${layer}\n</body>`);
+  }
+  return `${content}\n${layer}`;
+}
+
+function uniqueLayerId(prefix: string): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? `${prefix}-${crypto.randomUUID()}`
+    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function cloneHtmlLayerAtPosition(
+  content: string,
+  layerHtml: string,
+  position: { x: number; y: number },
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const layerDoc = new DOMParser().parseFromString(
+      `<template>${layerHtml}</template>`,
+      "text/html",
+    );
+    const source =
+      layerDoc.querySelector("template")?.content.firstElementChild ??
+      layerDoc.body.firstElementChild;
+    if (!source || !doc.body) return null;
+    const clone = doc.importNode(source, true) as HTMLElement | SVGElement;
+    clone.setAttribute("data-agent-native-node-id", uniqueLayerId("copy"));
+    if (clone instanceof HTMLElement || clone instanceof SVGElement) {
+      const style = (clone as HTMLElement | SVGElement).getAttribute("style");
+      const prefix = `position:absolute;left:${Math.max(
+        0,
+        Math.round(position.x),
+      )}px;top:${Math.max(0, Math.round(position.y))}px;`;
+      (clone as HTMLElement | SVGElement).setAttribute(
+        "style",
+        style ? `${prefix}${style}` : prefix,
+      );
+    }
+    doc.body.appendChild(clone);
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return null;
+  }
+}
+
+function getElementOuterHtml(content: string, selector: string): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    return doc.querySelector(selector)?.outerHTML ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function removeElementFromHtml(
+  content: string,
+  selector: string,
+): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    const element = doc.querySelector(selector);
+    if (!element) return null;
+    element.remove();
+    return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+  } catch {
+    return null;
+  }
+}
+
+function elementLayerId(element: ElementInfo | null): string | null {
+  if (!element) return null;
+  return `element:${element.sourceId ?? element.selector ?? element.id ?? element.tagName}`;
+}
+
+const DESIGN_TEXT_TAGS = new Set([
+  "p",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "span",
+  "a",
+  "strong",
+  "em",
+  "label",
+  "li",
+]);
+
+function layerTypeForElement(element: ElementInfo): LayersPanelNode["type"] {
+  const tagName = element.tagName.toLowerCase();
+  if (DESIGN_TEXT_TAGS.has(tagName)) return "text";
+  if (tagName === "img" || tagName === "picture") return "image";
+  if (tagName === "svg" || tagName === "path") return "shape";
+  if (
+    tagName === "button" ||
+    element.classes?.some((item) => item.includes("card"))
+  ) {
+    return "component";
+  }
+  return "element";
+}
+
+function PatchProofCard({
+  proof,
+  onRollback,
+  onDismiss,
+}: {
+  proof: PatchProofState;
+  onRollback: () => void;
+  onDismiss: () => void;
+}) {
+  const t = useT();
+  const isApplied = proof.status === "applied";
+  const isFailed = proof.status === "failed";
+  const isRolledBack = proof.status === "rolledBack";
+  const canRollback = !!proof.previousContent && !isRolledBack;
+
+  return (
+    <div className="absolute bottom-4 left-4 z-[70] w-[320px] rounded-md border border-border bg-background/95 shadow-xl backdrop-blur">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            className={cn(
+              "flex size-5 shrink-0 items-center justify-center rounded-sm",
+              isFailed
+                ? "bg-destructive/15 text-destructive"
+                : isApplied
+                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+                  : "bg-primary/15 text-primary",
+            )}
+          >
+            {isApplied ? (
+              <IconCheck className="size-3.5" />
+            ) : (
+              <IconCode className="size-3.5" />
+            )}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium text-foreground">
+              {t("designEditor.patchProof.title")}
+            </p>
+            <p className="truncate text-[10px] text-muted-foreground">
+              {t(`designEditor.patchProof.status.${proof.status}`)}
+            </p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-6 shrink-0 cursor-pointer"
+          onClick={onDismiss}
+          aria-label={t("designEditor.close")}
+        >
+          <IconX className="size-3.5" />
+        </Button>
+      </div>
+      <div className="space-y-2 px-3 py-2 text-[11px]">
+        <div className="rounded-sm bg-muted/60 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-muted-foreground">
+          <span className="text-foreground">{proof.property}</span>
+          <span>:</span> <span>{proof.previousValue || "unset"}</span>
+          <span>{" -> "}</span>
+          <span className="text-foreground">{proof.nextValue}</span>
+        </div>
+        <div className="grid grid-cols-[72px_1fr] gap-x-2 gap-y-1 text-muted-foreground">
+          <span>{t("designEditor.patchProof.file")}</span>
+          <span className="truncate text-foreground">{proof.filename}</span>
+          <span>{t("designEditor.patchProof.source")}</span>
+          <span className="truncate text-foreground">
+            {proof.sourceId || proof.selector}
+          </span>
+          <span>{t("designEditor.patchProof.capability")}</span>
+          <span className="truncate text-foreground">
+            {t(`designEditor.capabilities.${proof.capability}`)}
+            {typeof proof.confidence === "number"
+              ? ` · ${Math.round(proof.confidence * 100)}%`
+              : ""}
+          </span>
+        </div>
+        {proof.error ? (
+          <p className="text-[11px] text-destructive">{proof.error}</p>
+        ) : null}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <span className="text-[10px] text-muted-foreground">
+            {isApplied
+              ? t("designEditor.patchProof.verified")
+              : t("designEditor.patchProof.pending")}
+          </span>
+          <div className="flex items-center gap-1">
+            {canRollback ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 cursor-pointer px-2 text-[11px]"
+                onClick={onRollback}
+              >
+                <IconRefresh className="size-3.5" />
+                {t("designEditor.patchProof.rollback")}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="h-7 cursor-pointer px-2 text-[11px]"
+              onClick={onDismiss}
+            >
+              {t("designEditor.patchProof.keep")}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FigmaToolRail({
+  mode,
+  pinMode,
+  drawMode,
+  overviewActive,
+  activeTool,
+  onMove,
+  onFrame,
+  onRect,
+  onText,
+  onPen,
+  onHand,
+  onDraw,
+  onScale,
+  onCommentPin,
+  onOverviewToggle,
+}: {
+  mode: EditorMode;
+  pinMode: boolean;
+  drawMode: boolean;
+  overviewActive: boolean;
+  activeTool: DesignTool;
+  onMove: () => void;
+  onFrame: () => void;
+  onRect: () => void;
+  onText: () => void;
+  onPen: () => void;
+  onHand: () => void;
+  onDraw: () => void;
+  onScale: () => void;
+  onCommentPin: () => void;
+  onOverviewToggle: () => void;
+}) {
+  const t = useT();
+  const tools: Array<{
+    key: string;
+    active: boolean;
+    label: string;
+    icon: ReactNode;
+    onClick: () => void;
+  }> = [
+    {
+      key: "move",
+      active: activeTool === "move" && mode === "edit",
+      label: t("designEditor.tools.move"),
+      icon: <IconPointer className="size-4" />,
+      onClick: onMove,
+    },
+    {
+      key: "frame",
+      active: activeTool === "frame",
+      label: t("designEditor.tools.frame"),
+      icon: <IconLayoutGrid className="size-4" />,
+      onClick: onFrame,
+    },
+    {
+      key: "rect",
+      active: activeTool === "rect",
+      label: t("designEditor.tools.rect"),
+      icon: <IconSquare className="size-4" />,
+      onClick: onRect,
+    },
+    {
+      key: "text",
+      active: activeTool === "text",
+      label: t("designEditor.tools.text"),
+      icon: <IconTypography className="size-4" />,
+      onClick: onText,
+    },
+    {
+      key: "pen",
+      active: activeTool === "pen",
+      label: t("designEditor.tools.pen"),
+      icon: <IconVectorBezier className="size-4" />,
+      onClick: onPen,
+    },
+    {
+      key: "hand",
+      active: activeTool === "hand",
+      label: t("designEditor.tools.hand"),
+      icon: <IconHandStop className="size-4" />,
+      onClick: onHand,
+    },
+    {
+      key: "comment",
+      active: activeTool === "comment" && mode === "comment" && pinMode,
+      label: t("designEditor.pinComment"),
+      icon: <IconMessage className="size-4" />,
+      onClick: onCommentPin,
+    },
+    {
+      key: "draw",
+      active: activeTool === "draw" && drawMode,
+      label: t("designEditor.modes.draw"),
+      icon: <IconBrush className="size-4" />,
+      onClick: onDraw,
+    },
+    {
+      key: "scale",
+      active: activeTool === "scale",
+      label: t("designEditor.tools.scale"),
+      icon: <IconScale className="size-4" />,
+      onClick: onScale,
+    },
+    {
+      key: "overview",
+      active: overviewActive,
+      label: t("designEditor.screenOverview"),
+      icon: <IconLayoutGrid className="size-4" />,
+      onClick: onOverviewToggle,
+    },
+  ];
+
+  return (
+    <div className="absolute left-3 top-3 z-[70] flex flex-col overflow-hidden rounded-md border border-border bg-background/95 p-1 shadow-lg backdrop-blur">
+      {tools.map((tool) => (
+        <Tooltip key={tool.key}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "flex size-8 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground",
+                tool.active && "bg-accent text-foreground",
+              )}
+              onClick={tool.onClick}
+              aria-label={tool.label}
+            >
+              {tool.icon}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">{tool.label}</TooltipContent>
+        </Tooltip>
+      ))}
+    </div>
+  );
 }
 
 function isDesignData(
@@ -305,6 +875,46 @@ function buildAuthoritativeTweakSelections(
   return selections;
 }
 
+function parseDesignDataJson(data?: string | null): Record<string, unknown> {
+  if (!data) return {};
+  try {
+    const parsed = JSON.parse(data);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function getCanvasFrameGeometry(
+  data: Record<string, unknown>,
+): CanvasFrameGeometryById {
+  const frames = data.canvasFrames;
+  if (!frames || typeof frames !== "object" || Array.isArray(frames)) return {};
+  return Object.fromEntries(
+    Object.entries(frames as Record<string, unknown>)
+      .map(([id, value]) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+          return null;
+        }
+        const raw = value as Record<string, unknown>;
+        const frame: CanvasFrameGeometry = {};
+        (["x", "y", "width", "height", "rotation", "z"] as const).forEach(
+          (key) => {
+            if (typeof raw[key] === "number" && Number.isFinite(raw[key])) {
+              frame[key] = raw[key];
+            }
+          },
+        );
+        return [id, frame] as const;
+      })
+      .filter((entry): entry is readonly [string, CanvasFrameGeometry] =>
+        Boolean(entry),
+      ),
+  );
+}
+
 export default function DesignEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
@@ -315,6 +925,7 @@ export default function DesignEditor() {
 
   // Editor state
   const [mode, setMode] = useState<EditorMode>("comment");
+  const [activeTool, setActiveTool] = useState<DesignTool>("comment");
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const [zoom, setZoom] = useState(100);
@@ -328,12 +939,26 @@ export default function DesignEditor() {
   );
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const [tweaksVisible, setTweaksVisible] = useState(false);
+  const [layersSearchQuery, setLayersSearchQuery] = useState("");
+  const [expandedLayerIds, setExpandedLayerIds] = useState<string[]>([]);
+  const [lockedLayerIds, setLockedLayerIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [hiddenLayerIds, setHiddenLayerIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [overviewSelectAllRequest, setOverviewSelectAllRequest] = useState(0);
+  const [hasCanvasClipboard, setHasCanvasClipboard] = useState(false);
+  const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
+  const copiedLayerHtmlRef = useRef<string | null>(null);
+  const copiedStylePropsRef = useRef<Record<string, string> | null>(null);
   // Undo/redo state driven by Y.UndoManager
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const undoManagerRef = useRef<Y.UndoManager | null>(null);
   const persistedSelectionStateRef = useRef<string | null>(null);
   const designSelectionOwnerIdRef = useRef(`${TAB_ID}:${generateTabId()}`);
+  const frameGeometrySaveTimerRef = useRef<number | null>(null);
   const [tweakSaveActive, setTweakSaveActive] = useState(false);
   // Shared visual-editor modes (overlays the iframe). drawMode toggles the
   // pencil overlay, pinMode lets the user drop comment pins. They're
@@ -611,6 +1236,8 @@ export default function DesignEditor() {
   }, [id, hasPendingGeneration, markGenerationStale]);
 
   const updateFileMutation = useActionMutation("update-file");
+  const createFileMutation = useActionMutation("create-file");
+  const deleteFileMutation = useActionMutation("delete-file");
   const updateDesignMutation = useActionMutation("update-design");
   const applyTweaksMutation = useActionMutation("apply-tweaks");
   const createCodingHandoffMutation = useActionMutation(
@@ -618,6 +1245,7 @@ export default function DesignEditor() {
   );
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
+  const [patchProof, setPatchProof] = useState<PatchProofState | null>(null);
   const pendingFileSaveRef = useRef<{ id: string; content: string } | null>(
     null,
   );
@@ -634,13 +1262,38 @@ export default function DesignEditor() {
         pendingFileSaveRef.current = null;
         fileSaveTimerRef.current = null;
         if (!pending) return;
-        updateFileMutation.mutate({
-          id: pending.id,
-          content: pending.content,
-        } as any);
+        updateFileMutation.mutate(
+          {
+            id: pending.id,
+            content: pending.content,
+          } as any,
+          {
+            onSuccess: () => {
+              setPatchProof((prev) =>
+                prev && prev.fileId === pending.id && prev.status === "queued"
+                  ? { ...prev, status: "applied" }
+                  : prev,
+              );
+            },
+            onError: (error) => {
+              setPatchProof((prev) =>
+                prev && prev.fileId === pending.id && prev.status === "queued"
+                  ? {
+                      ...prev,
+                      status: "failed",
+                      error:
+                        error instanceof Error
+                          ? error.message
+                          : t("common.genericError"),
+                    }
+                  : prev,
+              );
+            },
+          },
+        );
       }, 400);
     },
-    [updateFileMutation],
+    [t, updateFileMutation],
   );
 
   useEffect(() => {
@@ -807,6 +1460,43 @@ export default function DesignEditor() {
   }, [id, titleDraft, design?.title, updateDesignMutation, queryClient]);
 
   const files = design?.files ?? [];
+  const designDataJson = useMemo(
+    () => parseDesignDataJson(design?.data),
+    [design?.data],
+  );
+  const canvasFrameGeometryById = useMemo(
+    () => getCanvasFrameGeometry(designDataJson),
+    [designDataJson],
+  );
+  const queueFrameGeometrySave = useCallback(
+    (geometryById: CanvasFrameGeometryById) => {
+      if (!id) return;
+      if (frameGeometrySaveTimerRef.current !== null) {
+        window.clearTimeout(frameGeometrySaveTimerRef.current);
+      }
+      frameGeometrySaveTimerRef.current = window.setTimeout(() => {
+        frameGeometrySaveTimerRef.current = null;
+        const nextData = {
+          ...designDataJson,
+          canvasFrames: geometryById,
+        };
+        updateDesignMutation.mutate(
+          {
+            id,
+            data: JSON.stringify(nextData),
+          } as any,
+          {
+            onError: () => {
+              queryClient.invalidateQueries({
+                queryKey: ["action", "get-design"],
+              });
+            },
+          },
+        );
+      }, 500);
+    },
+    [designDataJson, id, queryClient, updateDesignMutation],
+  );
 
   generationOutputReadyRef.current =
     files.length > 0 ||
@@ -908,6 +1598,14 @@ export default function DesignEditor() {
     return () => clearPendingGeneration(id);
   }, [id]);
 
+  useEffect(() => {
+    return () => {
+      if (frameGeometrySaveTimerRef.current !== null) {
+        window.clearTimeout(frameGeometrySaveTimerRef.current);
+      }
+    };
+  }, []);
+
   // Set active file to first file when data loads
   useEffect(() => {
     if (files.length > 0 && !activeFileId) {
@@ -916,6 +1614,69 @@ export default function DesignEditor() {
   }, [files, activeFileId]);
 
   const activeFile = files.find((f) => f.id === activeFileId) ?? files[0];
+
+  const handleDuplicateScreen = useCallback(
+    (
+      screenId: string,
+      request?: {
+        canvasPosition?: { x: number; y: number };
+      },
+    ) => {
+      if (!id) return;
+      const source = files.find((file) => file.id === screenId);
+      if (!source) return;
+      const filename = nextDuplicatedFilename(files, source.filename);
+
+      createFileMutation.mutate(
+        {
+          designId: id,
+          filename,
+          content: source.content,
+          fileType: normalizedDesignFileType(source.fileType),
+        } as any,
+        {
+          onSuccess: (result: any) => {
+            const nextId = typeof result?.id === "string" ? result.id : null;
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+            if (nextId) {
+              setActiveFileId(nextId);
+              setActiveTool("overview");
+              setViewMode("overview");
+              if (request?.canvasPosition) {
+                queueFrameGeometrySave({
+                  ...canvasFrameGeometryById,
+                  [nextId]: {
+                    ...canvasFrameGeometryById[screenId],
+                    x: request.canvasPosition.x,
+                    y: request.canvasPosition.y,
+                  },
+                });
+              }
+            }
+            toast.success(t("designEditor.toasts.screenDuplicated"));
+          },
+          onError: (error) => {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t("designEditor.toasts.screenDuplicateError"),
+            );
+          },
+        },
+      );
+    },
+    [
+      canvasFrameGeometryById,
+      createFileMutation,
+      files,
+      id,
+      queryClient,
+      queueFrameGeometrySave,
+      t,
+    ],
+  );
 
   // Collaborative editing for the active file
   const { ydoc, awareness, isSynced, activeUsers, agentActive } =
@@ -1324,6 +2085,143 @@ export default function DesignEditor() {
     [activeContent],
   );
 
+  const applyLocalContentUpdate = useCallback(
+    (nextContent: string) => {
+      if (!activeFile) return;
+      setCollabContent(nextContent);
+      lastLocalContentRef.current = nextContent;
+      if (ydoc && isSynced) {
+        const ytext = ydoc.getText("content");
+        if (ytext.toString() !== nextContent) {
+          ydoc.transact(() => {
+            ytext.delete(0, ytext.length);
+            ytext.insert(0, nextContent);
+          }, LOCAL_EDIT_ORIGIN);
+        }
+      }
+      queueFileContentSave(activeFile.id, nextContent);
+    },
+    [activeFile, isSynced, queueFileContentSave, ydoc],
+  );
+
+  const handleMoveTool = useCallback(() => {
+    setActiveTool("move");
+    setViewMode("single");
+    setMode("edit");
+    setDrawMode(false);
+    setPinMode(false);
+    setTweaksVisible(false);
+  }, []);
+
+  const handleFrameTool = useCallback(() => {
+    if (!id) return;
+    setActiveTool("frame");
+    setMode("edit");
+    setDrawMode(false);
+    setPinMode(false);
+    setViewMode("overview");
+
+    const title = `${t("designEditor.tools.frame")} ${files.length + 1}`;
+    createFileMutation.mutate(
+      {
+        designId: id,
+        filename: nextFrameFilename(files),
+        content: createFrameHtml(title),
+        fileType: "html",
+      } as any,
+      {
+        onSuccess: (result: any) => {
+          const nextId = typeof result?.id === "string" ? result.id : null;
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
+          if (nextId) setActiveFileId(nextId);
+        },
+        onError: (error) => {
+          toast.error(
+            error instanceof Error ? error.message : t("common.genericError"),
+          );
+        },
+      },
+    );
+  }, [createFileMutation, files, id, queryClient, t]);
+
+  const handleTextTool = useCallback(() => {
+    if (!activeFile) return;
+    setActiveTool("text");
+    setViewMode("single");
+    setMode("edit");
+    setDrawMode(false);
+    setPinMode(false);
+    setSelectedElement(null);
+    applyLocalContentUpdate(
+      insertTextLayer(activeContent, t("designEditor.tools.text"), {
+        x: 96,
+        y: 96,
+      }),
+    );
+  }, [activeContent, activeFile, applyLocalContentUpdate, t]);
+
+  const handleRectTool = useCallback(() => {
+    if (!activeFile) return;
+    setActiveTool("rect");
+    setViewMode("single");
+    setMode("edit");
+    setDrawMode(false);
+    setPinMode(false);
+    setSelectedElement(null);
+    applyLocalContentUpdate(
+      insertRectLayer(activeContent, {
+        x: 112,
+        y: 112,
+      }),
+    );
+  }, [activeContent, activeFile, applyLocalContentUpdate]);
+
+  const handlePenTool = useCallback(() => {
+    if (!activeFile) return;
+    setActiveTool("pen");
+    setViewMode("single");
+    setMode("edit");
+    setDrawMode(false);
+    setPinMode(false);
+    setSelectedElement(null);
+    applyLocalContentUpdate(
+      insertPenLayer(activeContent, {
+        x: 128,
+        y: 128,
+      }),
+    );
+  }, [activeContent, activeFile, applyLocalContentUpdate]);
+
+  const handleHandTool = useCallback(() => {
+    setActiveTool("hand");
+    setMode("edit");
+    setDrawMode(false);
+    setPinMode(false);
+    setTweaksVisible(false);
+    setViewMode("overview");
+  }, []);
+
+  const handleScaleTool = useCallback(() => {
+    if (!activeFile) return;
+    setActiveTool("scale");
+    setViewMode("single");
+    setMode("edit");
+    setDrawMode(false);
+    setPinMode(false);
+    setTweaksVisible(false);
+  }, [activeFile]);
+
+  const handleDrawTool = useCallback(() => {
+    if (!activeFile || viewMode === "overview") return;
+    setActiveTool("draw");
+    setMode("draw");
+    setSelectedElement(null);
+    setDrawMode(true);
+    setPinMode(false);
+  }, [activeFile, viewMode]);
+
   useEffect(() => {
     if (files.length > 0) resetAgentGenerating();
   }, [files.length, resetAgentGenerating]);
@@ -1447,6 +2345,7 @@ export default function DesignEditor() {
       selectedElement,
       hoveredElement,
       mode,
+      activeTool,
     };
     (window as any).__designSelection = selection;
     const persistedSelection = {
@@ -1456,6 +2355,7 @@ export default function DesignEditor() {
       activeFilename: selection.activeFilename,
       selectedElement: selection.selectedElement,
       mode: selection.mode,
+      activeTool: selection.activeTool,
       ownerId: designSelectionOwnerIdRef.current,
     };
     const persistedKey = JSON.stringify(persistedSelection);
@@ -1475,7 +2375,15 @@ export default function DesignEditor() {
       delete el.dataset.designId;
       delete el.dataset.fileId;
     };
-  }, [id, design, activeFile, selectedElement, hoveredElement, mode]);
+  }, [
+    id,
+    design,
+    activeFile,
+    selectedElement,
+    hoveredElement,
+    mode,
+    activeTool,
+  ]);
 
   const handleElementSelect = useCallback((info: ElementInfo) => {
     setSelectedElement(info);
@@ -1485,24 +2393,79 @@ export default function DesignEditor() {
     setHoveredElement(info);
   }, []);
 
-  const handleStyleChange = useCallback(
-    (property: string, value: string) => {
+  const commitVisualStyles = useCallback(
+    (
+      selector: string,
+      styles: Record<string, string>,
+      options: {
+        runtimeApplied?: boolean;
+        elementInfo?: ElementInfo;
+      } = {},
+    ) => {
       if (!activeFile) return;
-      const selector = selectedElement?.selector ?? "body";
+      const entries = Object.entries(styles).filter(
+        ([, value]) => value !== undefined,
+      );
+      if (entries.length === 0) return;
+      const [firstProperty, firstValue] = entries[0];
+      const capability =
+        selectedElement?.editCapabilities?.find((item) =>
+          item.kind.startsWith("deterministic"),
+        ) ?? selectedElement?.editCapabilities?.[0];
+      const proofId =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      setPatchProof({
+        id: proofId,
+        fileId: activeFile.id,
+        filename: activeFile.filename,
+        selector,
+        sourceId: selectedElement?.sourceId,
+        property:
+          entries.length === 1
+            ? firstProperty
+            : entries.map(([property]) => property).join(", "),
+        previousValue: selectedElement?.computedStyles?.[firstProperty],
+        nextValue:
+          entries.length === 1
+            ? firstValue
+            : entries
+                .map(([property, value]) => `${property}: ${value}`)
+                .join("; "),
+        previousContent: activeContent,
+        capability: capability?.kind ?? "deterministic-style-edit",
+        confidence: capability?.confidence ?? 0.92,
+        status: "runtime",
+        createdAt: Date.now(),
+      });
       const sendStyleChange = (window as any).__designCanvasSendStyle;
-      if (typeof sendStyleChange === "function") {
-        sendStyleChange(selector, property, value);
+      if (!options.runtimeApplied && typeof sendStyleChange === "function") {
+        entries.forEach(([property, value]) => {
+          sendStyleChange(selector, property, value);
+        });
       }
 
-      const nextContent = applyInlineStyleToHtml(
-        activeContent,
-        selector,
-        property,
-        value,
-      );
-      if (!nextContent) return;
+      const nextContent = applyInlineStylesToHtml(activeContent, selector, {
+        ...Object.fromEntries(entries),
+      });
+      if (!nextContent) {
+        setPatchProof((prev) =>
+          prev?.id === proofId
+            ? {
+                ...prev,
+                status: "failed",
+                error: t("designEditor.patchProof.selectorMissing"),
+              }
+            : prev,
+        );
+        return;
+      }
 
       setCollabContent(nextContent);
+      setPatchProof((prev) =>
+        prev?.id === proofId ? { ...prev, status: "queued" } : prev,
+      );
       // Mark as our own write so the get-design reconcile + Yjs observe don't
       // treat the echo as an external edit and fight the live value.
       lastLocalContentRef.current = nextContent;
@@ -1520,12 +2483,17 @@ export default function DesignEditor() {
       }
       queueFileContentSave(activeFile.id, nextContent);
       setSelectedElement((prev) =>
-        prev
-          ? {
-              ...prev,
-              computedStyles: { ...prev.computedStyles, [property]: value },
-            }
-          : prev,
+        options.elementInfo
+          ? options.elementInfo
+          : prev
+            ? {
+                ...prev,
+                computedStyles: {
+                  ...prev.computedStyles,
+                  ...Object.fromEntries(entries),
+                },
+              }
+            : prev,
       );
     },
     [
@@ -1533,10 +2501,201 @@ export default function DesignEditor() {
       activeFile,
       queueFileContentSave,
       selectedElement,
+      t,
       ydoc,
       isSynced,
     ],
   );
+
+  const handleStyleChange = useCallback(
+    (property: string, value: string) => {
+      const selector = selectedElement?.selector ?? "body";
+      commitVisualStyles(selector, { [property]: value });
+    },
+    [commitVisualStyles, selectedElement?.selector],
+  );
+
+  const handleVisualStyleChange = useCallback(
+    (
+      selector: string,
+      styles: Record<string, string>,
+      elementInfo?: ElementInfo,
+    ) => {
+      commitVisualStyles(selector, styles, {
+        runtimeApplied: true,
+        elementInfo,
+      });
+    },
+    [commitVisualStyles],
+  );
+
+  const handleCopySelection = useCallback(async () => {
+    const html = selectedElement?.selector
+      ? getElementOuterHtml(activeContent, selectedElement.selector)
+      : activeContent;
+    if (!html) return;
+    copiedLayerHtmlRef.current = html;
+    setHasCanvasClipboard(true);
+    try {
+      await navigator.clipboard.writeText(html);
+      toast.success(t("designEditor.toasts.copied"));
+    } catch {
+      toast.error(t("designEditor.toasts.clipboardBlocked"));
+    }
+  }, [activeContent, selectedElement, t]);
+
+  const handlePasteSelection = useCallback(
+    (position?: { x: number; y: number }) => {
+      if (!activeFile || !copiedLayerHtmlRef.current) return;
+      const nextContent = cloneHtmlLayerAtPosition(
+        activeContent,
+        copiedLayerHtmlRef.current,
+        position ?? { x: 120, y: 120 },
+      );
+      if (!nextContent) return;
+      applyLocalContentUpdate(nextContent);
+      toast.success(t("designEditor.toasts.pasted"));
+    },
+    [activeContent, activeFile, applyLocalContentUpdate, t],
+  );
+
+  const handleDeleteSelection = useCallback(() => {
+    if (selectedElement?.selector) {
+      const nextContent = removeElementFromHtml(
+        activeContent,
+        selectedElement.selector,
+      );
+      if (!nextContent) return;
+      applyLocalContentUpdate(nextContent);
+      setSelectedElement(null);
+      toast.success(t("designEditor.toasts.deleted"));
+      return;
+    }
+
+    if (!activeFile || files.length <= 1) return;
+    const nextActiveFile = files.find((file) => file.id !== activeFile.id);
+    deleteFileMutation.mutate({ id: activeFile.id } as any, {
+      onSuccess: () => {
+        if (nextActiveFile) setActiveFileId(nextActiveFile.id);
+        queryClient.invalidateQueries({ queryKey: ["action", "get-design"] });
+        toast.success(t("designEditor.toasts.deleted"));
+      },
+      onError: (error) => {
+        toast.error(
+          error instanceof Error ? error.message : t("common.genericError"),
+        );
+      },
+    });
+  }, [
+    activeContent,
+    activeFile,
+    applyLocalContentUpdate,
+    deleteFileMutation,
+    files,
+    queryClient,
+    selectedElement,
+    t,
+  ]);
+
+  const handleCopyProps = useCallback(() => {
+    if (!selectedElement) return;
+    copiedStylePropsRef.current = {
+      color: selectedElement.computedStyles.color,
+      backgroundColor: selectedElement.computedStyles.backgroundColor,
+      borderColor: selectedElement.computedStyles.borderColor,
+      borderStyle: selectedElement.computedStyles.borderStyle,
+      borderWidth: selectedElement.computedStyles.borderWidth,
+      borderRadius: selectedElement.computedStyles.borderRadius,
+      boxShadow: selectedElement.computedStyles.boxShadow,
+      opacity: selectedElement.computedStyles.opacity,
+      fontFamily: selectedElement.computedStyles.fontFamily,
+      fontSize: selectedElement.computedStyles.fontSize,
+      fontWeight: selectedElement.computedStyles.fontWeight,
+      lineHeight: selectedElement.computedStyles.lineHeight,
+      letterSpacing: selectedElement.computedStyles.letterSpacing,
+      textAlign: selectedElement.computedStyles.textAlign,
+    };
+    setHasPropsClipboard(true);
+    toast.success(t("designEditor.toasts.propsCopied"));
+  }, [selectedElement, t]);
+
+  const handlePasteProps = useCallback(() => {
+    if (!selectedElement?.selector || !copiedStylePropsRef.current) return;
+    const styles = Object.fromEntries(
+      Object.entries(copiedStylePropsRef.current).filter(([, value]) =>
+        Boolean(value),
+      ),
+    );
+    commitVisualStyles(selectedElement.selector, styles);
+    toast.success(t("designEditor.toasts.propsPasted"));
+  }, [commitVisualStyles, selectedElement, t]);
+
+  const changeSelectedZIndex = useCallback(
+    (mode: "forward" | "front" | "backward" | "back") => {
+      if (!selectedElement?.selector) return;
+      const current = Number.parseInt(
+        selectedElement.computedStyles.zIndex || "0",
+        10,
+      );
+      const base = Number.isFinite(current) ? current : 0;
+      const next =
+        mode === "front"
+          ? 999
+          : mode === "back"
+            ? 0
+            : mode === "forward"
+              ? base + 1
+              : Math.max(0, base - 1);
+      commitVisualStyles(selectedElement.selector, {
+        position:
+          selectedElement.computedStyles.position === "static"
+            ? "relative"
+            : selectedElement.computedStyles.position || "relative",
+        zIndex: String(next),
+      });
+    },
+    [commitVisualStyles, selectedElement],
+  );
+
+  const handleNudgeSelection = useCallback(
+    (direction: "up" | "right" | "down" | "left", largeStep: boolean) => {
+      if (!selectedElement?.selector) return;
+      const step = largeStep ? 10 : 1;
+      const left = parseFloat(selectedElement.computedStyles.left || "0") || 0;
+      const top = parseFloat(selectedElement.computedStyles.top || "0") || 0;
+      const dx =
+        direction === "left" ? -step : direction === "right" ? step : 0;
+      const dy = direction === "up" ? -step : direction === "down" ? step : 0;
+      commitVisualStyles(selectedElement.selector, {
+        position:
+          selectedElement.computedStyles.position === "static"
+            ? "relative"
+            : selectedElement.computedStyles.position || "relative",
+        left: `${Math.round(left + dx)}px`,
+        top: `${Math.round(top + dy)}px`,
+      });
+    },
+    [commitVisualStyles, selectedElement],
+  );
+
+  const handleRollbackPatch = useCallback(() => {
+    if (!patchProof?.previousContent || !activeFile) return;
+    setCollabContent(patchProof.previousContent);
+    lastLocalContentRef.current = patchProof.previousContent;
+    if (ydoc && isSynced) {
+      const ytext = ydoc.getText("content");
+      if (ytext.toString() !== patchProof.previousContent) {
+        ydoc.transact(() => {
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, patchProof.previousContent ?? "");
+        }, LOCAL_EDIT_ORIGIN);
+      }
+    }
+    queueFileContentSave(activeFile.id, patchProof.previousContent);
+    setPatchProof((prev) =>
+      prev?.id === patchProof.id ? { ...prev, status: "rolledBack" } : prev,
+    );
+  }, [activeFile, isSynced, patchProof, queueFileContentSave, ydoc]);
 
   // Handle undo: pop from UndoManager, then queue SQL persist.
   // The Y.Text observer already calls setCollabContent when the doc changes,
@@ -1564,45 +2723,6 @@ export default function DesignEditor() {
     }
   }, [ydoc, activeFile, queueFileContentSave]);
 
-  // Keyboard shortcuts for undo (Cmd/Ctrl+Z) and redo (Shift+Cmd/Ctrl+Z or Ctrl+Y).
-  // Guards: does not fire when focus is inside an input, textarea, select, or
-  // contentEditable element (title editing, prompt composer, etc.).
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      // Skip if focus is in a text input / editable area in the parent app.
-      const target = e.target as HTMLElement | null;
-      if (target) {
-        const tag = target.tagName.toLowerCase();
-        if (
-          tag === "input" ||
-          tag === "textarea" ||
-          tag === "select" ||
-          target.isContentEditable
-        ) {
-          return;
-        }
-      }
-
-      const isMac = navigator.platform.toLowerCase().startsWith("mac");
-      const modKey = isMac ? e.metaKey : e.ctrlKey;
-
-      const isUndo = modKey && !e.shiftKey && e.key === "z";
-      const isRedo =
-        (modKey && e.shiftKey && e.key === "z") ||
-        (e.ctrlKey && !e.shiftKey && e.key === "y");
-
-      if (isUndo) {
-        e.preventDefault();
-        handleUndo();
-      } else if (isRedo) {
-        e.preventDefault();
-        handleRedo();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleUndo, handleRedo]);
-
   const handleZoomIn = useCallback(() => {
     setZoom((z) => {
       const next = ZOOM_PRESETS.find((p) => p > z);
@@ -1625,12 +2745,15 @@ export default function DesignEditor() {
       setSelectedElement(null);
 
       if (next === "draw") {
+        setActiveTool("draw");
         setDrawMode(true);
         setPinMode(false);
       } else if (next === "comment") {
+        setActiveTool("comment");
         setDrawMode(false);
         setPinMode(Boolean(activeFile && viewMode !== "overview"));
       } else {
+        setActiveTool("move");
         setDrawMode(false);
         if (next === "edit") setPinMode(false);
       }
@@ -1652,6 +2775,7 @@ export default function DesignEditor() {
 
   const handleCommentTabClick = useCallback(() => {
     if (mode !== "comment" || !activeFile || viewMode === "overview") return;
+    setActiveTool("comment");
     setPinMode(true);
     setDrawMode(false);
   }, [activeFile, mode, viewMode]);
@@ -1660,6 +2784,7 @@ export default function DesignEditor() {
     setDrawMode(false);
     setPinMode(false);
     if (viewMode === "single") setMode("comment");
+    setActiveTool(viewMode === "single" ? "overview" : "comment");
     setViewMode((current) => {
       return current === "overview" ? "single" : "overview";
     });
@@ -1671,10 +2796,98 @@ export default function DesignEditor() {
       setPinMode(false);
       return;
     }
+    setActiveTool("comment");
     setMode("comment");
     setPinMode(true);
     setDrawMode(false);
   }, [activeFile, pinMode, viewMode]);
+
+  const handleEscapeHotkey = useCallback(() => {
+    if (selectedElement) {
+      setSelectedElement(null);
+      return;
+    }
+    setDrawMode(false);
+    setPinMode(false);
+    setActiveTool("move");
+    setMode("edit");
+  }, [selectedElement]);
+
+  const handleCycleFile = useCallback(
+    (backwards: boolean) => {
+      if (!files.length || !activeFile) return;
+      const currentIndex = Math.max(
+        0,
+        files.findIndex((file) => file.id === activeFile.id),
+      );
+      const nextIndex =
+        (currentIndex + (backwards ? -1 : 1) + files.length) % files.length;
+      setActiveFileId(files[nextIndex]?.id ?? activeFile.id);
+      setSelectedElement(null);
+    },
+    [activeFile, files],
+  );
+
+  const handleSelectAllFrames = useCallback(() => {
+    if (!files.length) return;
+    setDrawMode(false);
+    setPinMode(false);
+    setMode("edit");
+    setActiveTool("overview");
+    setViewMode("overview");
+    setOverviewSelectAllRequest((request) => request + 1);
+  }, [files.length]);
+
+  useDesignHotkeys({
+    enabled:
+      !embedded &&
+      !pendingVariants &&
+      !(pendingQuestions && pendingQuestions.length > 0),
+    onMoveTool: handleMoveTool,
+    onFrameTool: handleFrameTool,
+    onRectangleTool: handleRectTool,
+    onTextTool: handleTextTool,
+    onPenTool: handlePenTool,
+    onHandTool: handleHandTool,
+    onCommentTool: handlePinToolToggle,
+    onScaleTool: handleScaleTool,
+    onCopy: handleCopySelection,
+    onPaste: () => handlePasteSelection(),
+    onPasteOver: () => handlePasteSelection(),
+    onCopyProps: handleCopyProps,
+    onPasteProps: handlePasteProps,
+    onCopyAsCode: handleCopySelection,
+    onDuplicate: () => {
+      if (activeFile) handleDuplicateScreen(activeFile.id);
+    },
+    onDelete: handleDeleteSelection,
+    onRename: () => {
+      setTitleDraft(design?.title ?? "");
+      setTitleEditing(true);
+    },
+    onSelectAll: handleSelectAllFrames,
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    onBringForward: () => changeSelectedZIndex("forward"),
+    onBringToFront: () => changeSelectedZIndex("front"),
+    onSendBackward: () => changeSelectedZIndex("backward"),
+    onSendToBack: () => changeSelectedZIndex("back"),
+    onEscape: handleEscapeHotkey,
+    onTab: ({ backwards }) => handleCycleFile(backwards),
+    onNudge: ({ direction, largeStep }) =>
+      handleNudgeSelection(direction, largeStep),
+    onZoomIn: handleZoomIn,
+    onZoomOut: handleZoomOut,
+    onZoomReset: () => setZoom(100),
+    onZoomToFit: () => {
+      setViewMode("overview");
+      setActiveTool("overview");
+      setZoom(100);
+    },
+    onZoomToSelection: () => {
+      if (selectedElement || viewMode === "overview") setZoom(150);
+    },
+  });
 
   const startRetryGeneration = useCallback(
     (
@@ -1824,10 +3037,11 @@ export default function DesignEditor() {
   }, []);
 
   const fallbackExportName = useCallback(
-    (extension: string) => {
+    (extension: string, suffix = "") => {
       const safeTitle =
         design?.title?.replace(/[^a-zA-Z0-9_-]/g, "-") || "design";
-      return `${safeTitle}.${extension}`;
+      const safeSuffix = suffix.trim().replace(/[^a-zA-Z0-9@._-]/g, "-");
+      return `${safeTitle}${safeSuffix ? `-${safeSuffix}` : ""}.${extension}`;
     },
     [design?.title],
   );
@@ -1877,166 +3091,367 @@ export default function DesignEditor() {
     });
   }, [exportZipMutation, fallbackExportName, id, t, triggerBlobDownload]);
 
-  const handleDownloadPng = useCallback(async () => {
-    const iframe = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    );
-    const doc = iframe?.contentDocument;
-    if (!doc?.documentElement) {
-      toast.error(t("designEditor.toasts.openScreenPng"));
-      return;
-    }
-    try {
-      const html2canvas = (await import("html2canvas")).default;
-      const width = Math.max(
-        doc.documentElement.scrollWidth,
-        doc.body?.scrollWidth ?? 0,
-        iframe?.clientWidth ?? 0,
+  const handleDownloadPng = useCallback(
+    async (settings?: Partial<ExportSettingsValue>) => {
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
       );
-      const height = Math.max(
-        doc.documentElement.scrollHeight,
-        doc.body?.scrollHeight ?? 0,
-        iframe?.clientHeight ?? 0,
-      );
-      const canvas = await html2canvas(doc.documentElement, {
-        width,
-        height,
-        windowWidth: width,
-        windowHeight: height,
-        scale: Math.min(2, window.devicePixelRatio || 1),
-        useCORS: true,
-        backgroundColor: null,
-      });
-      canvas.toBlob((blob) => {
-        try {
-          if (!blob) {
-            toast.error(t("designEditor.toasts.pngCreateError"));
-            return;
-          }
-          triggerBlobDownload(blob, fallbackExportName("png"));
-          toast.success(t("designEditor.toasts.pngDownloaded"));
-        } catch (callbackError) {
-          // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
-          // either of which can throw inside this async callback — outside
-          // the outer try/catch. Surface the failure instead of silently
-          // dropping it.
-          console.error("PNG export failed during download:", callbackError);
-          toast.error(
-            callbackError instanceof Error
-              ? callbackError.message
-              : t("designEditor.toasts.pngSaveError"),
-          );
-        }
-      }, "image/png");
-    } catch (error) {
-      console.error("PNG export failed:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("designEditor.toasts.pngExportError"),
-      );
-    }
-  }, [fallbackExportName, t, triggerBlobDownload]);
-
-  const handleDownloadSvg = useCallback(async () => {
-    const iframe = document.querySelector<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    );
-    const doc = iframe?.contentDocument;
-    if (!doc?.documentElement) {
-      toast.error(t("designEditor.toasts.openScreenSvg"));
-      return;
-    }
-
-    setSvgExporting(true);
-    try {
-      const width = Math.max(
-        doc.documentElement.scrollWidth,
-        doc.body?.scrollWidth ?? 0,
-        iframe?.clientWidth ?? 0,
-      );
-      const height = Math.max(
-        doc.documentElement.scrollHeight,
-        doc.body?.scrollHeight ?? 0,
-        iframe?.clientHeight ?? 0,
-      );
-      const clone = doc.documentElement.cloneNode(true) as HTMLElement;
-      clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
-      const stylesheetLinks = Array.from(
-        doc.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
-      );
-      const clonedStylesheetLinks = Array.from(
-        clone.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
-      );
-      const stylesheets = Array.from(doc.styleSheets);
-
-      stylesheetLinks.forEach((link, index) => {
-        const sheet = stylesheets.find(
-          (candidate) =>
-            (candidate as StyleSheet & { ownerNode?: Node | null })
-              .ownerNode === link,
-        ) as CSSStyleSheet | undefined;
-        let cssText = "";
-        try {
-          cssText = Array.from(sheet?.cssRules ?? [])
-            .map((rule) => rule.cssText)
-            .join("\n");
-        } catch {
-          // Cross-origin stylesheets cannot be read. Leave the original link in
-          // place instead of failing the whole export.
-          return;
-        }
-        if (!cssText.trim()) return;
-        const style = doc.createElement("style");
-        style.setAttribute(
-          "data-agent-native-inlined-stylesheet",
-          link.getAttribute("href") ?? "",
+      const doc = iframe?.contentDocument;
+      if (!doc?.documentElement) {
+        toast.error(t("designEditor.toasts.openScreenPng"));
+        return;
+      }
+      try {
+        const html2canvas = (await import("html2canvas")).default;
+        const width = Math.max(
+          doc.documentElement.scrollWidth,
+          doc.body?.scrollWidth ?? 0,
+          iframe?.clientWidth ?? 0,
         );
-        style.textContent = cssText;
-        clonedStylesheetLinks[index]?.replaceWith(style);
-      });
-      clone.querySelectorAll("script").forEach((node) => node.remove());
-      clone.style.width = `${width}px`;
-      clone.style.minHeight = `${height}px`;
+        const height = Math.max(
+          doc.documentElement.scrollHeight,
+          doc.body?.scrollHeight ?? 0,
+          iframe?.clientHeight ?? 0,
+        );
+        const canvas = await html2canvas(doc.documentElement, {
+          width,
+          height,
+          windowWidth: width,
+          windowHeight: height,
+          scale: Math.max(
+            0.1,
+            Math.min(
+              4,
+              settings?.scale ?? Math.min(2, window.devicePixelRatio || 1),
+            ),
+          ),
+          useCORS: true,
+          backgroundColor: null,
+        });
+        canvas.toBlob((blob) => {
+          try {
+            if (!blob) {
+              toast.error(t("designEditor.toasts.pngCreateError"));
+              return;
+            }
+            triggerBlobDownload(
+              blob,
+              fallbackExportName("png", settings?.suffix),
+            );
+            toast.success(t("designEditor.toasts.pngDownloaded"));
+          } catch (callbackError) {
+            // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
+            // either of which can throw inside this async callback — outside
+            // the outer try/catch. Surface the failure instead of silently
+            // dropping it.
+            console.error("PNG export failed during download:", callbackError);
+            toast.error(
+              callbackError instanceof Error
+                ? callbackError.message
+                : t("designEditor.toasts.pngSaveError"),
+            );
+          }
+        }, "image/png");
+      } catch (error) {
+        console.error("PNG export failed:", error);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("designEditor.toasts.pngExportError"),
+        );
+      }
+    },
+    [fallbackExportName, t, triggerBlobDownload],
+  );
 
-      const body = clone.querySelector("body") as HTMLElement | null;
-      if (body) {
-        body.style.margin = body.style.margin || "0";
-        body.style.width = `${width}px`;
-        body.style.minHeight = `${height}px`;
+  const handleDownloadSvg = useCallback(
+    async (settings?: Partial<ExportSettingsValue>) => {
+      const iframe = document.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      const doc = iframe?.contentDocument;
+      if (!doc?.documentElement) {
+        toast.error(t("designEditor.toasts.openScreenSvg"));
+        return;
       }
 
-      const serializedHtml = new XMLSerializer().serializeToString(clone);
-      const safeTitle =
-        design?.title
-          ?.replace(/&/g, "&amp;")
-          .replace(/"/g, "&quot;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;") || t("designEditor.designExport");
-      const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${safeTitle}">
+      setSvgExporting(true);
+      try {
+        const width = Math.max(
+          doc.documentElement.scrollWidth,
+          doc.body?.scrollWidth ?? 0,
+          iframe?.clientWidth ?? 0,
+        );
+        const height = Math.max(
+          doc.documentElement.scrollHeight,
+          doc.body?.scrollHeight ?? 0,
+          iframe?.clientHeight ?? 0,
+        );
+        const clone = doc.documentElement.cloneNode(true) as HTMLElement;
+        clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+        const stylesheetLinks = Array.from(
+          doc.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
+        );
+        const clonedStylesheetLinks = Array.from(
+          clone.querySelectorAll<HTMLLinkElement>('link[rel~="stylesheet"]'),
+        );
+        const stylesheets = Array.from(doc.styleSheets);
+
+        stylesheetLinks.forEach((link, index) => {
+          const sheet = stylesheets.find(
+            (candidate) =>
+              (candidate as StyleSheet & { ownerNode?: Node | null })
+                .ownerNode === link,
+          ) as CSSStyleSheet | undefined;
+          let cssText = "";
+          try {
+            cssText = Array.from(sheet?.cssRules ?? [])
+              .map((rule) => rule.cssText)
+              .join("\n");
+          } catch {
+            // Cross-origin stylesheets cannot be read. Leave the original link in
+            // place instead of failing the whole export.
+            return;
+          }
+          if (!cssText.trim()) return;
+          const style = doc.createElement("style");
+          style.setAttribute(
+            "data-agent-native-inlined-stylesheet",
+            link.getAttribute("href") ?? "",
+          );
+          style.textContent = cssText;
+          clonedStylesheetLinks[index]?.replaceWith(style);
+        });
+        clone.querySelectorAll("script").forEach((node) => node.remove());
+        clone.style.width = `${width}px`;
+        clone.style.minHeight = `${height}px`;
+
+        const body = clone.querySelector("body") as HTMLElement | null;
+        if (body) {
+          body.style.margin = body.style.margin || "0";
+          body.style.width = `${width}px`;
+          body.style.minHeight = `${height}px`;
+        }
+
+        const serializedHtml = new XMLSerializer().serializeToString(clone);
+        const safeTitle =
+          design?.title
+            ?.replace(/&/g, "&amp;")
+            .replace(/"/g, "&quot;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;") || t("designEditor.designExport");
+        const exportScale = Math.max(0.1, Math.min(4, settings?.scale ?? 1));
+        const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${width * exportScale}" height="${height * exportScale}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${safeTitle}">
   <title>${safeTitle}</title>
   <foreignObject width="${width}" height="${height}">
 ${serializedHtml}
   </foreignObject>
 </svg>`;
 
-      triggerBlobDownload(
-        new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
-        fallbackExportName("svg"),
-      );
-      toast.success(t("designEditor.toasts.svgDownloaded"));
-    } catch (error) {
-      console.error("SVG export failed:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("designEditor.toasts.svgExportError"),
-      );
-    } finally {
-      setSvgExporting(false);
-    }
-  }, [design?.title, fallbackExportName, t, triggerBlobDownload]);
+        triggerBlobDownload(
+          new Blob([svg], { type: "image/svg+xml;charset=utf-8" }),
+          fallbackExportName("svg", settings?.suffix),
+        );
+        toast.success(t("designEditor.toasts.svgDownloaded"));
+      } catch (error) {
+        console.error("SVG export failed:", error);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("designEditor.toasts.svgExportError"),
+        );
+      } finally {
+        setSvgExporting(false);
+      }
+    },
+    [design?.title, fallbackExportName, t, triggerBlobDownload],
+  );
+
+  const handleInspectorExport = useCallback(
+    (settings: ExportSettingsValue) => {
+      if (settings.format === "svg") {
+        void handleDownloadSvg(settings);
+        return;
+      }
+      void handleDownloadPng(settings);
+    },
+    [handleDownloadPng, handleDownloadSvg],
+  );
+
+  const selectedElementLayerId = elementLayerId(selectedElement);
+  const selectedElementLayer = useMemo<LayersPanelNode | null>(() => {
+    if (!selectedElementLayerId || !selectedElement) return null;
+    const textPreview = selectedElement.textContent
+      ?.replace(/\s+/g, " ")
+      .trim();
+    return {
+      id: selectedElementLayerId,
+      name:
+        textPreview ||
+        selectedElement.sourceId ||
+        selectedElement.id ||
+        `<${selectedElement.tagName}>`,
+      type: layerTypeForElement(selectedElement),
+      detail: selectedElement.selector,
+      badge: selectedElement.confidence
+        ? `${Math.round(selectedElement.confidence * 100)}%`
+        : undefined,
+      locked: lockedLayerIds.has(selectedElementLayerId),
+      hidden: hiddenLayerIds.has(selectedElementLayerId),
+      lockable: true,
+      hideable: true,
+      renamable: false,
+    };
+  }, [hiddenLayerIds, lockedLayerIds, selectedElement, selectedElementLayerId]);
+
+  const layerPanelFiles = useMemo<LayersPanelFile[]>(
+    () =>
+      files.map((file) => ({
+        id: file.id,
+        name: prettyScreenName(file.filename),
+        filename: file.filename,
+        fileType: file.fileType,
+        detail: file.filename,
+        badge: file.id === activeFile?.id ? "active" : undefined,
+        locked: lockedLayerIds.has(file.id),
+        hidden: hiddenLayerIds.has(file.id),
+        lockable: true,
+        hideable: true,
+        renamable: true,
+        layers:
+          file.id === activeFile?.id && selectedElementLayer
+            ? [selectedElementLayer]
+            : [],
+      })),
+    [
+      activeFile?.id,
+      files,
+      hiddenLayerIds,
+      lockedLayerIds,
+      selectedElementLayer,
+    ],
+  );
+
+  const codeLayerNodes = useMemo<LayersPanelNode[]>(
+    () =>
+      activeFile
+        ? [
+            {
+              id: `code:${activeFile.id}`,
+              name: activeFile.filename,
+              type: "code",
+              detail: `${activeFile.fileType} · ${activeContent.length.toLocaleString()} chars`,
+              selectable: true,
+              renamable: false,
+              lockable: false,
+              hideable: false,
+            },
+          ]
+        : [],
+    [activeContent.length, activeFile],
+  );
+
+  const selectedLayerIds = useMemo(
+    () =>
+      [selectedElementLayerId ?? activeFile?.id].filter(Boolean) as string[],
+    [activeFile?.id, selectedElementLayerId],
+  );
+
+  const overviewScreens = useMemo(
+    () =>
+      files.map((file) => ({
+        id: file.id,
+        filename: file.filename,
+        content: file.content,
+      })),
+    [files],
+  );
+
+  const activeLayerId = selectedElementLayerId ?? activeFile?.id ?? "";
+  const activeLayerLocked = Boolean(
+    activeLayerId && lockedLayerIds.has(activeLayerId),
+  );
+  const activeLayerHidden = Boolean(
+    activeLayerId && hiddenLayerIds.has(activeLayerId),
+  );
+
+  const handleLayerSelectionChange = useCallback(
+    (ids: string[]) => {
+      const selectedId = ids[ids.length - 1];
+      if (!selectedId) {
+        setSelectedElement(null);
+        return;
+      }
+      if (selectedId.startsWith("element:")) return;
+      const fileId = selectedId.startsWith("code:")
+        ? selectedId.slice("code:".length)
+        : selectedId;
+      if (files.some((file) => file.id === fileId)) {
+        setActiveFileId(fileId);
+        setSelectedElement(null);
+        setActiveTool("move");
+        setMode("edit");
+        setViewMode("single");
+      }
+    },
+    [files],
+  );
+
+  const handleLayerRename = useCallback(
+    (layerId: string, name: string) => {
+      if (!files.some((file) => file.id === layerId)) return;
+      updateFileMutation.mutate({ id: layerId, filename: name } as any, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-design"],
+          });
+        },
+        onError: (error) => {
+          toast.error(
+            error instanceof Error ? error.message : t("common.genericError"),
+          );
+        },
+      });
+    },
+    [files, queryClient, t, updateFileMutation],
+  );
+
+  const handleToggleLayerLocked = useCallback(
+    (layerId: string, locked: boolean) => {
+      setLockedLayerIds((current) => {
+        const next = new Set(current);
+        if (locked) next.add(layerId);
+        else next.delete(layerId);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const handleToggleLayerHidden = useCallback(
+    (layerId: string, hidden: boolean) => {
+      setHiddenLayerIds((current) => {
+        const next = new Set(current);
+        if (hidden) next.add(layerId);
+        else next.delete(layerId);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const getContextCanvasPoint = useCallback(
+    ({ clientX, clientY }: { clientX: number; clientY: number }) => {
+      const rect = canvasContainerRef.current?.getBoundingClientRect();
+      if (!rect) return { x: 120, y: 120 };
+      return {
+        x: Math.max(0, clientX - rect.left),
+        y: Math.max(0, clientY - rect.top),
+      };
+    },
+    [],
+  );
 
   const zoomLabel = `${Math.round(zoom)}%`;
 
@@ -2357,7 +3772,7 @@ ${serializedHtml}
                       >
                         <IconDotsVertical className="w-3.5 h-3.5" />
                         {pinMode && (
-                          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#609FF8]" />
+                          <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-primary" />
                         )}
                       </Button>
                     </DropdownMenuTrigger>
@@ -2386,14 +3801,14 @@ ${serializedHtml}
                     {t("designEditor.downloadHtml")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={handleDownloadPng}
+                    onClick={() => void handleDownloadPng()}
                     disabled={!activeFile}
                   >
                     <IconPhoto className="mr-2 h-4 w-4" />
                     {t("designEditor.downloadPng")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={handleDownloadSvg}
+                    onClick={() => void handleDownloadSvg()}
                     disabled={!activeFile || svgExporting}
                   >
                     <IconCode className="mr-2 h-4 w-4" />
@@ -2465,6 +3880,24 @@ ${serializedHtml}
 
       {/* Main canvas area */}
       <div className="flex-1 flex overflow-hidden relative">
+        {!embedded && !pendingVariants ? (
+          <div className="hidden w-64 shrink-0 lg:block">
+            <LayersPanel
+              files={layerPanelFiles}
+              codeLayers={codeLayerNodes}
+              selectedIds={selectedLayerIds}
+              expandedIds={expandedLayerIds}
+              searchQuery={layersSearchQuery}
+              onSearchQueryChange={setLayersSearchQuery}
+              onExpandedIdsChange={setExpandedLayerIds}
+              onSelectionChange={handleLayerSelectionChange}
+              onRename={handleLayerRename}
+              onToggleLocked={handleToggleLayerLocked}
+              onToggleHidden={handleToggleLayerHidden}
+            />
+          </div>
+        ) : null}
+
         {/* Question flow overlay — full canvas takeover, blocks editing while
             the user answers. Closes itself on submit/skip.
             Variants take precedence: when both states are set (rare race when
@@ -2536,130 +3969,239 @@ ${serializedHtml}
           />
         )}
 
+        {!embedded &&
+          activeFile &&
+          !pendingVariants &&
+          !(pendingQuestions && pendingQuestions.length > 0) && (
+            <FigmaToolRail
+              mode={mode}
+              pinMode={pinMode}
+              drawMode={drawMode}
+              overviewActive={viewMode === "overview"}
+              activeTool={activeTool}
+              onMove={handleMoveTool}
+              onFrame={handleFrameTool}
+              onRect={handleRectTool}
+              onText={handleTextTool}
+              onPen={handlePenTool}
+              onHand={handleHandTool}
+              onDraw={handleDrawTool}
+              onScale={handleScaleTool}
+              onCommentPin={handlePinToolToggle}
+              onOverviewToggle={handleViewModeToggle}
+            />
+          )}
+
         {/* Canvas */}
-        {!pendingVariants &&
-          (activeFile ? (
-            viewMode === "overview" ? (
-              <MultiScreenCanvas
-                screens={files.map((f) => ({
-                  id: f.id,
-                  filename: f.filename,
-                  content: f.content,
-                }))}
-                zoom={zoom}
-                activeId={activeFileId}
-                onPick={(id) => {
-                  setActiveFileId(id);
-                  setViewMode("single");
-                }}
-              />
-            ) : (
+        {!pendingVariants && (
+          <CanvasContextMenu
+            selectedCount={activeFile ? 1 : 0}
+            hasClipboard={hasCanvasClipboard}
+            hasPropsClipboard={hasPropsClipboard}
+            isLocked={activeLayerLocked}
+            isHidden={activeLayerHidden}
+            canPasteHere={hasCanvasClipboard && Boolean(activeFile)}
+            canSelectAll={files.length > 0}
+            canZoomToFit={Boolean(activeFile)}
+            canZoomToSelection={Boolean(activeFile)}
+            canCopy={Boolean(activeFile)}
+            canPaste={hasCanvasClipboard && Boolean(activeFile)}
+            canPasteOver={hasCanvasClipboard && Boolean(activeFile)}
+            canDuplicate={Boolean(activeFile)}
+            canDelete={Boolean(
+              selectedElement || (activeFile && files.length > 1),
+            )}
+            canReorder={Boolean(selectedElement)}
+            canRename={false}
+            canToggleLocked={Boolean(activeLayerId)}
+            canToggleHidden={Boolean(activeLayerId)}
+            canCopyProps={Boolean(selectedElement)}
+            canPasteProps={hasPropsClipboard && Boolean(selectedElement)}
+            canCopyAsCode={Boolean(activeFile)}
+            hiddenActions={["group", "ungroup", "rename"]}
+            getCanvasPoint={getContextCanvasPoint}
+            onPasteHere={(details) =>
+              handlePasteSelection(
+                details.point?.canvasX !== undefined &&
+                  details.point.canvasY !== undefined
+                  ? { x: details.point.canvasX, y: details.point.canvasY }
+                  : undefined,
+              )
+            }
+            onSelectAll={handleSelectAllFrames}
+            onZoomToFit={() => {
+              setViewMode("overview");
+              setActiveTool("overview");
+              setZoom(100);
+            }}
+            onZoomToSelection={() => setZoom(150)}
+            onCopy={handleCopySelection}
+            onPaste={() => handlePasteSelection()}
+            onPasteOver={() => handlePasteSelection()}
+            onDuplicate={() => {
+              if (activeFile) handleDuplicateScreen(activeFile.id);
+            }}
+            onDelete={handleDeleteSelection}
+            onBringForward={() => changeSelectedZIndex("forward")}
+            onBringToFront={() => changeSelectedZIndex("front")}
+            onSendBackward={() => changeSelectedZIndex("backward")}
+            onSendToBack={() => changeSelectedZIndex("back")}
+            onToggleLocked={() => {
+              if (activeLayerId) {
+                handleToggleLayerLocked(activeLayerId, !activeLayerLocked);
+              }
+            }}
+            onToggleHidden={() => {
+              if (activeLayerId) {
+                handleToggleLayerHidden(activeLayerId, !activeLayerHidden);
+              }
+            }}
+            onCopyProps={handleCopyProps}
+            onPasteProps={handlePasteProps}
+            onCopyAsCode={handleCopySelection}
+          >
+            {activeFile ? (
               <div
                 ref={canvasContainerRef}
-                className="relative flex-1 h-full overflow-hidden"
+                className="relative h-full min-w-0 flex-1 overflow-hidden"
                 onPointerMove={handleCanvasPointerMove}
               >
-                <DesignCanvas
-                  content={activeContent}
-                  zoom={zoom}
-                  onZoomChange={setZoom}
-                  deviceFrame={deviceFrame}
-                  editMode={mode === "edit"}
-                  onElementSelect={handleElementSelect}
-                  onElementHover={handleElementHover}
-                  tweakValues={cssVarValues}
-                  drawMode={drawMode}
-                  onExitDrawMode={() => {
-                    setDrawMode(false);
-                    setMode("comment");
-                  }}
-                  pinMode={pinMode}
-                  onExitPinMode={() => setPinMode(false)}
-                  designId={id}
-                  designTitle={design?.title}
-                  commentContextId={`${id}:${activeFile.id}`}
-                  commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(activeFile.filename)}`}
-                  onPrototypeNavigate={(screen) => {
-                    if (!screen) return;
-                    const norm = (s: string) =>
-                      s
-                        .replace(/^\.?\//, "")
-                        .replace(/\.html?$/i, "")
-                        .toLowerCase();
-                    const target = norm(screen);
-                    if (!target) return;
-                    // Exact (normalized) filename match only — a substring match
-                    // could send "board" to "dashboard.html".
-                    const match = files.find(
-                      (f) => norm(f.filename) === target,
-                    );
-                    if (match) {
+                {viewMode === "overview" ? (
+                  <MultiScreenCanvas
+                    screens={overviewScreens}
+                    zoom={zoom}
+                    onZoomChange={setZoom}
+                    activeId={activeFileId}
+                    selectAllRequest={overviewSelectAllRequest}
+                    geometryById={canvasFrameGeometryById}
+                    onGeometryChange={queueFrameGeometrySave}
+                    onPick={(id) => {
+                      setActiveFileId(id);
+                      setActiveTool("move");
+                      setMode("edit");
                       setViewMode("single");
-                      setActiveFileId(match.id);
-                    }
-                  }}
-                />
-                {/* Presence: live cursor overlay for remote participants */}
-                {others.length > 0 && (
-                  <LiveCursorOverlay
-                    others={others}
-                    containerRef={canvasContainerRef}
+                    }}
+                    onDuplicate={handleDuplicateScreen}
                   />
-                )}
-              </div>
-            )
-          ) : (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center">
-                {generating || pendingGenerationActive ? (
-                  <>
-                    <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
-                    <p className="text-sm text-muted-foreground">
-                      {t("designEditor.generating")}
-                    </p>
-                  </>
                 ) : (
                   <>
-                    <p className="text-sm text-muted-foreground mb-3">
-                      {generationIssue ?? t("designEditor.noFiles")}
-                    </p>
-                    {retryablePrompt ? (
-                      <p className="text-xs text-muted-foreground/70 mb-4 max-w-sm mx-auto italic">
-                        "{retryablePrompt.prompt}"
-                      </p>
-                    ) : null}
-                    <div className="flex items-center justify-center gap-2">
-                      {retryablePrompt ? (
-                        <Button
-                          size="sm"
-                          className="cursor-pointer"
-                          onClick={handleRetryGeneration}
-                        >
-                          <IconRefresh className="w-3.5 h-3.5" />
-                          {t("designEditor.tryAgain")}
-                        </Button>
-                      ) : null}
-                      <Button
-                        ref={generateBtnRef}
-                        variant={retryablePrompt ? "ghost" : "outline"}
-                        size="sm"
-                        className="cursor-pointer"
-                        onClick={() => {
-                          setRetryablePrompt(null);
-                          handlePromptOpenChange(true);
-                        }}
-                      >
-                        <IconPlus className="w-3.5 h-3.5" />
-                        {retryablePrompt
-                          ? t("designEditor.newPrompt")
-                          : t("designEditor.generateDesign")}
-                      </Button>
-                    </div>
+                    <DesignCanvas
+                      content={activeContent}
+                      zoom={zoom}
+                      onZoomChange={setZoom}
+                      deviceFrame={deviceFrame}
+                      editMode={mode === "edit"}
+                      onElementSelect={handleElementSelect}
+                      onElementHover={handleElementHover}
+                      onVisualStyleChange={handleVisualStyleChange}
+                      tweakValues={cssVarValues}
+                      drawMode={drawMode}
+                      onExitDrawMode={() => {
+                        setDrawMode(false);
+                        setMode("comment");
+                      }}
+                      pinMode={pinMode}
+                      onExitPinMode={() => setPinMode(false)}
+                      designId={id}
+                      designTitle={design?.title}
+                      commentContextId={`${id}:${activeFile.id}`}
+                      commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(activeFile.filename)}`}
+                      onPrototypeNavigate={(screen) => {
+                        if (!screen) return;
+                        const norm = (s: string) =>
+                          s
+                            .replace(/^\.?\//, "")
+                            .replace(/\.html?$/i, "")
+                            .toLowerCase();
+                        const target = norm(screen);
+                        if (!target) return;
+                        // Exact (normalized) filename match only — a substring match
+                        // could send "board" to "dashboard.html".
+                        const match = files.find(
+                          (f) => norm(f.filename) === target,
+                        );
+                        if (match) {
+                          setViewMode("single");
+                          setActiveFileId(match.id);
+                        }
+                      }}
+                    />
+                    {/* Presence: live cursor overlay for remote participants */}
+                    {others.length > 0 && (
+                      <LiveCursorOverlay
+                        others={others}
+                        containerRef={canvasContainerRef}
+                      />
+                    )}
                   </>
                 )}
               </div>
-            </div>
-          ))}
+            ) : (
+              <div className="flex flex-1 items-center justify-center">
+                <div className="text-center">
+                  {generating || pendingGenerationActive ? (
+                    <>
+                      <Spinner className="mx-auto mb-3 size-6 text-foreground/30" />
+                      <p className="text-sm text-muted-foreground">
+                        {t("designEditor.generating")}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mb-3 text-sm text-muted-foreground">
+                        {generationIssue ?? t("designEditor.noFiles")}
+                      </p>
+                      {retryablePrompt ? (
+                        <p className="mx-auto mb-4 max-w-sm text-xs italic text-muted-foreground/70">
+                          "{retryablePrompt.prompt}"
+                        </p>
+                      ) : null}
+                      <div className="flex items-center justify-center gap-2">
+                        {retryablePrompt ? (
+                          <Button
+                            size="sm"
+                            className="cursor-pointer"
+                            onClick={handleRetryGeneration}
+                          >
+                            <IconRefresh className="h-3.5 w-3.5" />
+                            {t("designEditor.tryAgain")}
+                          </Button>
+                        ) : null}
+                        <Button
+                          ref={generateBtnRef}
+                          variant={retryablePrompt ? "ghost" : "outline"}
+                          size="sm"
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setRetryablePrompt(null);
+                            handlePromptOpenChange(true);
+                          }}
+                        >
+                          <IconPlus className="h-3.5 w-3.5" />
+                          {retryablePrompt
+                            ? t("designEditor.newPrompt")
+                            : t("designEditor.generateDesign")}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </CanvasContextMenu>
+        )}
+
+        {!pendingVariants && activeFile && viewMode === "single" && (
+          <>
+            {patchProof ? (
+              <PatchProofCard
+                proof={patchProof}
+                onRollback={handleRollbackPatch}
+                onDismiss={() => setPatchProof(null)}
+              />
+            ) : null}
+          </>
+        )}
 
         {!pendingVariants && activeFile && viewMode === "single" && (
           <Tooltip>
@@ -2691,6 +4233,8 @@ ${serializedHtml}
             selectedElement={selectedElement}
             pageStyles={pageStyles}
             onStyleChange={handleStyleChange}
+            onExport={handleInspectorExport}
+            exporting={svgExporting}
           />
         )}
 

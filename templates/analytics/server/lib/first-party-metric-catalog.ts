@@ -166,10 +166,13 @@ const REPLAY_RECORDING_DATE_SQL = "substr(started_at, 1, 10)";
 const REPLAY_TIME_RANGE_FILTER = dashboardTimeRangeFilter(
   REPLAY_RECORDING_DATE_SQL,
 );
-const REPLAY_RECORDING_FILTER = `chunk_count > 0 AND event_count > 0 AND user_id LIKE '%@%' AND ${REPLAY_TIME_RANGE_FILTER} AND ${DASHBOARD_EMAIL_FILTER}`;
+const REPLAY_VISITOR_EMAIL_SQL =
+  "COALESCE(NULLIF(CASE WHEN lower(coalesce(user_id, '')) LIKE '%@%' THEN user_id ELSE '' END, ''), NULLIF(CASE WHEN lower(coalesce(user_key, '')) LIKE '%@%' THEN user_key ELSE '' END, ''))";
+const REPLAY_EMAIL_FILTER = `('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND lower(coalesce(${REPLAY_VISITOR_EMAIL_SQL}, '')) NOT LIKE '%@builder.io') OR ('{{emailFilter}}' = 'only_builder' AND lower(coalesce(${REPLAY_VISITOR_EMAIL_SQL}, '')) LIKE '%@builder.io'))`;
+const REPLAY_RECORDING_FILTER = `chunk_count > 0 AND event_count > 0 AND ${REPLAY_VISITOR_EMAIL_SQL} IS NOT NULL AND ${REPLAY_TIME_RANGE_FILTER} AND ${REPLAY_EMAIL_FILTER}`;
 const REPLAY_SESSIONS_SQL = `SELECT COUNT(*) AS count FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER}`;
 const REPLAY_CHUNKS_OVER_TIME_SQL = `SELECT ${REPLAY_RECORDING_DATE_SQL} AS date, SUM(chunk_count) AS count FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER} GROUP BY ${REPLAY_RECORDING_DATE_SQL} ORDER BY date`;
-const RECENT_REPLAY_SESSIONS_SQL = `SELECT id AS recording_id, session_id, COALESCE(NULLIF(app, ''), NULLIF(template, ''), 'unknown') AS app, COALESCE(NULLIF(user_id, ''), NULLIF(user_key, ''), NULLIF(anonymous_id, ''), 'anonymous') AS visitor, chunk_count AS chunks, event_count AS events, started_at, COALESCE(ended_at, last_ingested_at, started_at) AS last_seen, '/sessions/' || id AS href FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER} ORDER BY last_seen DESC LIMIT 25`;
+const RECENT_REPLAY_SESSIONS_SQL = `SELECT id AS recording_id, session_id, COALESCE(NULLIF(app, ''), NULLIF(template, ''), 'unknown') AS app, ${REPLAY_VISITOR_EMAIL_SQL} AS visitor, chunk_count AS chunks, event_count AS events, started_at, COALESCE(ended_at, last_ingested_at, started_at) AS last_seen, '/sessions/' || id AS href FROM session_recordings WHERE ${REPLAY_RECORDING_FILTER} ORDER BY last_seen DESC LIMIT 25`;
 export const FIRST_PARTY_DASHBOARD_FILTERS: FirstPartyDashboardFilter[] = [
   {
     id: "timeRange",

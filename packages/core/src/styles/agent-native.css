@@ -59,6 +59,8 @@
   --agent-native-card-surface: hsl(var(--card));
   --agent-native-raised-border: hsl(var(--border));
   --agent-native-raised-radius: 8px;
+  --agent-native-raised-outline: inset 0 0 0 1px
+    var(--agent-native-raised-border);
   --agent-native-raised-shadow-left: -1px 0 3px rgb(0 0 0 / 0.018);
   --agent-native-raised-shadow-right: 1px 0 3px rgb(0 0 0 / 0.018);
   background: var(--agent-native-lower-surface);
@@ -109,6 +111,21 @@
 
 .agent-layout-left-drawer {
   background: var(--agent-native-lower-surface) !important;
+}
+
+.agent-layout-left-drawer[data-collapsed] {
+  overflow: clip;
+  width: var(--agent-layout-left-drawer-width, auto);
+  will-change: width;
+  transition: width 260ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.agent-layout-left-drawer[data-collapsed="true"] {
+  width: var(--agent-layout-left-drawer-collapsed-width, 3.5rem);
+}
+
+.agent-layout-left-drawer[data-collapsed="false"] {
+  width: var(--agent-layout-left-drawer-expanded-width, 14rem);
 }
 
 .agent-layout-left-drawer .bg-sidebar {
@@ -196,23 +213,23 @@
   .agent-layout-shell > .agent-sidebar-shell > .agent-sidebar-main-surface {
     border-start-start-radius: var(--agent-native-raised-radius);
     border-end-start-radius: var(--agent-native-raised-radius);
-    border-inline-start: 1px solid var(--agent-native-raised-border);
-    border-inline-end: 1px solid var(--agent-native-raised-border);
-    box-shadow: var(--agent-native-raised-shadow-left);
+    box-shadow:
+      var(--agent-native-raised-outline), var(--agent-native-raised-shadow-left);
   }
 
   .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="right"] {
     border-start-end-radius: var(--agent-native-raised-radius);
     border-end-end-radius: var(--agent-native-raised-radius);
-    border-inline-end: 1px solid var(--agent-native-raised-border);
-    box-shadow: var(--agent-native-raised-shadow-right);
+    box-shadow:
+      var(--agent-native-raised-outline),
+      var(--agent-native-raised-shadow-right);
   }
 
   .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="left"] {
     border-start-start-radius: var(--agent-native-raised-radius);
     border-end-start-radius: var(--agent-native-raised-radius);
-    border-inline-start: 1px solid var(--agent-native-raised-border);
-    box-shadow: var(--agent-native-raised-shadow-left);
+    box-shadow:
+      var(--agent-native-raised-outline), var(--agent-native-raised-shadow-left);
   }
 }
 
@@ -291,6 +308,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .agent-layout-left-drawer[data-collapsed],
   .agent-sidebar-panel[data-agent-sidebar-animation],
   .agent-sidebar-panel[data-agent-sidebar-animation="desktop"]
     > .agent-sidebar-panel-inner,

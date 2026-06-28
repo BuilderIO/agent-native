@@ -86,6 +86,7 @@ Default behavior:
 | `packages/core/src/client/transcription/use-live-transcription.ts`    | Web Speech live-transcription hook for recordings   |
 | `packages/core/src/server/transcribe-voice.ts`                        | Route handler (routes to Builder/Gemini/Groq/Whisper) |
 | `packages/core/src/transcription/builder-transcription.ts`            | Builder proxy transcription client                  |
+| `packages/core/src/voice/`                                            | Shared voice context pack, prompt, and replacement helpers |
 | `packages/core/src/secrets/register-framework-secrets.ts`             | Framework-level provider key registration           |
 
 ## Key resolution (server)
@@ -113,6 +114,15 @@ When a request includes `instructions`, pass them through to the selected LLM
 provider. Gemini uses them in the transcription prompt, Builder receives them
 as transcription/cleanup instructions, and Whisper-compatible providers receive
 them as provider prompt/context.
+
+Requests may also include a multipart `voiceContext` JSON field. Parse it with
+`parseVoiceContextPack()` from `@agent-native/core/voice` and pass the resulting
+context through `buildVoiceGuidanceBlock()`; do not hand-roll separate prompt
+formats. The context pack is for bounded snippets, active references, route/page
+metadata, and preferred vocabulary/replacements only. Browser-native and Google
+realtime final text can POST `{ text, provider, instructions, voiceContext }` to
+`/_agent-native/transcribe-voice` when AI cleanup is enabled; batch audio can
+send the same `voiceContext` field with its audio upload.
 
 Never hardcode a shared key. Never log the value. Never echo it back to the
 client.

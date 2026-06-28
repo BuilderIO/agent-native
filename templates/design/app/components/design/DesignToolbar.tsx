@@ -1,19 +1,18 @@
 import { ShareButton, useT } from "@agent-native/core/client";
 import {
   IconArrowLeft,
-  IconAdjustments,
-  IconMessage,
-  IconPointer,
-  IconPencil,
-  IconPresentation,
+  IconBrush,
   IconDownload,
+  IconLayoutGrid,
+  IconMessage,
   IconMinus,
-  IconPlus,
-  IconPencilPlus,
   IconPin,
-  IconWand,
+  IconPlus,
+  IconPointer,
+  IconPresentation,
+  IconTypography,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -51,6 +50,8 @@ interface DesignToolbarProps {
   tabs?: ViewportTab[];
   activeTabId?: string;
   onTabChange?: (tabId: string) => void;
+  onFrameTool?: () => void;
+  onTextTool?: () => void;
   /** Whether draw-on-canvas mode is active. */
   drawMode?: boolean;
   /** Toggle draw-on-canvas mode. */
@@ -60,20 +61,6 @@ interface DesignToolbarProps {
   /** Toggle comment-pin drop mode. */
   onTogglePinMode?: () => void;
 }
-
-const MODE_ITEMS: {
-  mode: EditorMode;
-  icon: typeof IconMessage;
-  labelKey: string;
-}[] = [
-  {
-    mode: "comment",
-    icon: IconMessage,
-    labelKey: "designEditor.modes.comment",
-  },
-  { mode: "edit", icon: IconPointer, labelKey: "designEditor.modes.edit" },
-  { mode: "draw", icon: IconPencil, labelKey: "designEditor.modes.draw" },
-];
 
 const EXPORT_FORMATS = [
   { value: "zip", labelKey: "designEditor.downloadZip" },
@@ -89,13 +76,51 @@ const PRESENT_MODES = [
   { value: "new-tab", labelKey: "designEditor.presentNewTab" },
 ];
 
+function ToolbarIconButton({
+  label,
+  active,
+  onClick,
+  children,
+  dataToolbarDrawButton,
+  dataToolbarPinButton,
+}: {
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  dataToolbarDrawButton?: boolean;
+  dataToolbarPinButton?: boolean;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={onClick}
+          aria-label={label}
+          aria-pressed={Boolean(active)}
+          data-toolbar-draw-button={dataToolbarDrawButton || undefined}
+          data-toolbar-pin-button={dataToolbarPinButton || undefined}
+          className={cn(
+            "size-8 cursor-pointer rounded-md text-muted-foreground hover:bg-background hover:text-foreground",
+            active && "bg-background text-foreground shadow-sm",
+          )}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function DesignToolbar({
   title,
   onTitleChange,
   mode,
   onModeChange,
-  tweaksVisible,
-  onTweaksToggle,
   zoom,
   onZoomChange,
   onExport,
@@ -105,6 +130,8 @@ export function DesignToolbar({
   tabs,
   activeTabId,
   onTabChange,
+  onFrameTool,
+  onTextTool,
   drawMode,
   onToggleDrawMode,
   pinMode,
@@ -113,6 +140,9 @@ export function DesignToolbar({
   const t = useT();
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(title);
+  const [activeDesignTool, setActiveDesignTool] = useState<
+    "move" | "frame" | "text" | "comment" | "draw"
+  >("move");
   const zoomLabel = `${Math.round(zoom)}%`;
 
   const commitTitle = () => {
@@ -124,216 +154,248 @@ export function DesignToolbar({
     }
   };
 
+  const activateMove = () => {
+    setActiveDesignTool("move");
+    onModeChange("edit");
+  };
+  const activateFrame = () => {
+    setActiveDesignTool("frame");
+    onModeChange("edit");
+    onFrameTool?.();
+  };
+  const activateText = () => {
+    setActiveDesignTool("text");
+    onModeChange("edit");
+    onTextTool?.();
+  };
+  const activateComment = () => {
+    setActiveDesignTool("comment");
+    if (mode === "comment" && onTogglePinMode) {
+      onTogglePinMode();
+      return;
+    }
+    onModeChange("comment");
+  };
+  const activateDraw = () => {
+    setActiveDesignTool("draw");
+    if (mode === "draw" && !drawMode && onToggleDrawMode) {
+      onToggleDrawMode();
+      return;
+    }
+    onModeChange("draw");
+  };
+
   return (
-    <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-border bg-background px-2">
-      {/* Back */}
-      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
-        <IconArrowLeft className="h-4 w-4" />
-      </Button>
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-2">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 cursor-pointer"
+              onClick={onBack}
+              aria-label={t("designEditor.backToDesigns")}
+            >
+              <IconArrowLeft className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("designEditor.backToDesigns")}</TooltipContent>
+        </Tooltip>
 
-      {/* Title */}
-      {editingTitle ? (
-        <Input
-          value={titleDraft}
-          onChange={(e) => setTitleDraft(e.target.value)}
-          onBlur={commitTitle}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commitTitle();
-            if (e.key === "Escape") {
+        {editingTitle ? (
+          <Input
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitTitle();
+              if (e.key === "Escape") {
+                setTitleDraft(title);
+                setEditingTitle(false);
+              }
+            }}
+            className="h-7 w-44 text-sm"
+            autoFocus
+          />
+        ) : (
+          <button
+            onClick={() => {
               setTitleDraft(title);
-              setEditingTitle(false);
-            }
-          }}
-          className="h-7 w-48 text-sm"
-          autoFocus
-        />
-      ) : (
-        <button
-          onClick={() => {
-            setTitleDraft(title);
-            setEditingTitle(true);
-          }}
-          className="cursor-pointer rounded px-2 py-1 text-sm font-medium text-foreground hover:bg-muted"
+              setEditingTitle(true);
+            }}
+            title={t("designEditor.clickToRename")}
+            className="max-w-48 cursor-text truncate rounded px-1.5 py-1 text-left text-sm font-medium text-foreground hover:bg-muted"
+          >
+            {title}
+          </button>
+        )}
+
+        {tabs && tabs.length > 0 ? (
+          <>
+            <Separator orientation="vertical" className="mx-1 h-5" />
+            <div
+              className="flex min-w-0 items-center gap-0.5 overflow-hidden"
+              aria-label={t("designEditor.fileTabs")}
+            >
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  title={tab.filename}
+                  onClick={() => onTabChange?.(tab.id)}
+                  className={cn(
+                    "h-8 max-w-32 cursor-pointer truncate border-b-2 border-transparent px-2 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                    activeTabId === tab.id && "border-primary text-foreground",
+                  )}
+                >
+                  {tab.filename}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </div>
+
+      <div className="flex shrink-0 items-center gap-0.5 rounded-lg border border-border bg-muted/35 p-0.5">
+        <ToolbarIconButton
+          label={t("designEditor.tools.move")}
+          active={mode === "edit" && activeDesignTool === "move"}
+          onClick={activateMove}
         >
-          {title}
-        </button>
-      )}
+          <IconPointer className="size-4" />
+        </ToolbarIconButton>
+        <ToolbarIconButton
+          label={t("designEditor.tools.frame")}
+          active={mode === "edit" && activeDesignTool === "frame"}
+          onClick={activateFrame}
+        >
+          <IconLayoutGrid className="size-4" />
+        </ToolbarIconButton>
+        <ToolbarIconButton
+          label={t("designEditor.tools.text")}
+          active={mode === "edit" && activeDesignTool === "text"}
+          onClick={activateText}
+        >
+          <IconTypography className="size-4" />
+        </ToolbarIconButton>
+        <ToolbarIconButton
+          label={t("designEditor.modes.comment")}
+          active={
+            activeDesignTool === "comment" || mode === "comment" || pinMode
+          }
+          onClick={activateComment}
+          dataToolbarPinButton
+        >
+          {pinMode ? (
+            <IconPin className="size-4" />
+          ) : (
+            <IconMessage className="size-4" />
+          )}
+        </ToolbarIconButton>
+        <ToolbarIconButton
+          label={t("designEditor.modes.draw")}
+          active={activeDesignTool === "draw" || mode === "draw" || drawMode}
+          onClick={activateDraw}
+          dataToolbarDrawButton
+        >
+          <IconBrush className="size-4" />
+        </ToolbarIconButton>
+      </div>
 
-      <Separator orientation="vertical" className="mx-1 h-5" />
-
-      {/* File tabs */}
-      {tabs && tabs.length > 0 && (
-        <>
-          <div className="flex gap-0.5">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => onTabChange?.(tab.id)}
-                className={cn(
-                  "cursor-pointer rounded px-2.5 py-1 text-xs",
-                  activeTabId === tab.id
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                )}
-              >
-                {tab.filename}
-              </button>
-            ))}
-          </div>
-          <Separator orientation="vertical" className="mx-1 h-5" />
-        </>
-      )}
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Tools — Tweaks / Draw / Pin consolidated so the bar isn't a wall of icons.
-          The dot indicator lights up when any of the modes is active. */}
-      {(() => {
-        const anyToolActive = Boolean(tweaksVisible || drawMode || pinMode);
-        return (
-          <DropdownMenu>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "relative h-8 w-8",
-                      anyToolActive && "bg-muted text-foreground",
-                    )}
-                    aria-label={t("designEditor.designTools")}
-                  >
-                    <IconWand className="h-4 w-4" />
-                    {anyToolActive && (
-                      <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-primary" />
-                    )}
-                  </Button>
-                </DropdownMenuTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{t("designEditor.designTools")}</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem
-                onClick={onTweaksToggle}
-                className={cn(tweaksVisible && "bg-accent/50")}
-              >
-                <IconAdjustments className="h-4 w-4 mr-2" />
-                {t("designEditor.tweaks")}
-              </DropdownMenuItem>
-              {onToggleDrawMode && (
-                <DropdownMenuItem
-                  data-toolbar-draw-button
-                  onClick={onToggleDrawMode}
-                  className={cn(drawMode && "bg-accent/50")}
-                >
-                  <IconPencilPlus className="h-4 w-4 mr-2" />
-                  {t("designEditor.drawOnCanvas")}
-                </DropdownMenuItem>
-              )}
-              {onTogglePinMode && (
-                <DropdownMenuItem
-                  data-toolbar-pin-button
-                  onClick={onTogglePinMode}
-                  className={cn(pinMode && "bg-accent/50")}
-                >
-                  <IconPin className="h-4 w-4 mr-2" />
-                  {t("designEditor.dropCommentPin")}
-                </DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        );
-      })()}
-
-      {/* Mode switcher */}
-      <div className="flex overflow-hidden rounded-md border border-border">
-        {MODE_ITEMS.map(({ mode: m, icon: Icon, labelKey }) => (
-          <Tooltip key={m}>
+      <div className="flex min-w-0 flex-1 items-center justify-end gap-1.5">
+        <div className="flex items-center gap-0.5 rounded-md border border-border bg-muted/25 p-0.5">
+          <Tooltip>
             <TooltipTrigger asChild>
-              <button
-                onClick={() => onModeChange(m)}
-                className={cn(
-                  "cursor-pointer px-2 py-1.5",
-                  mode === m
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-                )}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 cursor-pointer"
+                onClick={() => onZoomChange(Math.max(25, zoom - 25))}
+                aria-label={t("designEditor.zoomOut")}
               >
-                <Icon className="h-3.5 w-3.5" />
-              </button>
+                <IconMinus className="size-3" />
+              </Button>
             </TooltipTrigger>
-            <TooltipContent>{t(labelKey)}</TooltipContent>
+            <TooltipContent>{t("designEditor.zoomOut")}</TooltipContent>
           </Tooltip>
-        ))}
+          <span className="min-w-12 px-1 text-center text-xs tabular-nums text-muted-foreground">
+            {zoomLabel}
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7 cursor-pointer"
+                onClick={() => onZoomChange(Math.min(400, zoom + 25))}
+                aria-label={t("designEditor.zoomIn")}
+              >
+                <IconPlus className="size-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("designEditor.zoomIn")}</TooltipContent>
+          </Tooltip>
+        </div>
+
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 cursor-pointer"
+                  aria-label={t("designEditor.presentMode")}
+                >
+                  <IconPresentation className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{t("designEditor.presentMode")}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end">
+            {PRESENT_MODES.map((pm) => (
+              <DropdownMenuItem
+                key={pm.value}
+                onClick={() => onPresent(pm.value)}
+              >
+                {t(pm.labelKey)}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <ShareButton resourceType="design" resourceId={designId} />
+
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-8 cursor-pointer"
+                  aria-label={t("designEditor.export")}
+                >
+                  <IconDownload className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>{t("designEditor.export")}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end">
+            {EXPORT_FORMATS.map((fmt) => (
+              <DropdownMenuItem
+                key={fmt.value}
+                onClick={() => onExport(fmt.value)}
+              >
+                {t(fmt.labelKey)}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-
-      <Separator orientation="vertical" className="mx-1 h-5" />
-
-      {/* Zoom controls */}
-      <div className="flex items-center gap-0.5">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={() => onZoomChange(Math.max(25, zoom - 25))}
-        >
-          <IconMinus className="h-3 w-3" />
-        </Button>
-        <span className="min-w-12 text-center text-xs tabular-nums text-muted-foreground">
-          {zoomLabel}
-        </span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-7 w-7"
-          onClick={() => onZoomChange(Math.min(400, zoom + 25))}
-        >
-          <IconPlus className="h-3 w-3" />
-        </Button>
-      </div>
-
-      {/* Present */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <IconPresentation className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {PRESENT_MODES.map((pm) => (
-            <DropdownMenuItem
-              key={pm.value}
-              onClick={() => onPresent(pm.value)}
-            >
-              {t(pm.labelKey)}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {/* Share */}
-      <ShareButton resourceType="design" resourceId={designId} />
-
-      {/* Export */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <IconDownload className="h-4 w-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {EXPORT_FORMATS.map((fmt) => (
-            <DropdownMenuItem
-              key={fmt.value}
-              onClick={() => onExport(fmt.value)}
-            >
-              {t(fmt.labelKey)}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
   );
 }

@@ -210,12 +210,56 @@ const EDIT_BRIDGE_SCRIPT = `
   function getElementInfo(el) {
     var cs = window.getComputedStyle(el);
     var rect = el.getBoundingClientRect();
-    var parentDisplay = el.parentElement
-      ? window.getComputedStyle(el.parentElement).display
+    var parentStyles = el.parentElement
+      ? window.getComputedStyle(el.parentElement)
+      : null;
+    var parentDisplay = parentStyles ? parentStyles.display : undefined;
+    var sourceId =
+      el.getAttribute('data-agent-native-node-id') ||
+      el.getAttribute('data-builder-id') ||
+      el.getAttribute('data-loc') ||
+      el.id ||
+      getSelector(el);
+    var parentLayout = parentStyles
+      ? {
+          display: parentStyles.display,
+          flexDirection: parentStyles.flexDirection,
+          alignItems: parentStyles.alignItems,
+          justifyContent: parentStyles.justifyContent,
+          gap: parentStyles.gap,
+          gridTemplateColumns: parentStyles.gridTemplateColumns,
+          gridTemplateRows: parentStyles.gridTemplateRows,
+          position: parentStyles.position,
+        }
       : undefined;
+    var capabilities = [
+      {
+        kind: 'deterministic-style-edit',
+        label: 'deterministic-style-edit',
+        confidence: 0.92,
+        reason: 'Inline style can be patched and replayed through HMR/collab.',
+      },
+    ];
+    if (el.classList && el.classList.length > 0) {
+      capabilities.push({
+        kind: 'deterministic-class-edit',
+        label: 'deterministic-class-edit',
+        confidence: 0.78,
+        reason: 'Class tokens are visible on the selected element.',
+      });
+    }
+    if (parentDisplay === 'flex' || parentDisplay === 'inline-flex' || parentDisplay === 'grid' || parentDisplay === 'inline-grid') {
+      capabilities.push({
+        kind: 'agent-structural-edit',
+        label: 'agent-structural-edit',
+        confidence: 0.54,
+        reason: 'Parent layout context decides whether movement means gap, order, alignment, or wrapper structure.',
+      });
+    }
     return {
       tagName: el.tagName.toLowerCase(),
       id: el.id || undefined,
+      sourceId: sourceId,
       selector: getSelector(el),
       classes: Array.from(el.classList),
       computedStyles: {
@@ -231,6 +275,18 @@ const EDIT_BRIDGE_SCRIPT = `
         flexDirection: cs.flexDirection,
         justifyContent: cs.justifyContent,
         alignItems: cs.alignItems,
+        alignSelf: cs.alignSelf,
+        flexGrow: cs.flexGrow,
+        flexShrink: cs.flexShrink,
+        flexBasis: cs.flexBasis,
+        order: cs.order,
+        gridColumn: cs.gridColumn,
+        gridRow: cs.gridRow,
+        position: cs.position,
+        top: cs.top,
+        right: cs.right,
+        bottom: cs.bottom,
+        left: cs.left,
         gap: cs.gap,
         width: cs.width,
         height: cs.height,
@@ -244,26 +300,71 @@ const EDIT_BRIDGE_SCRIPT = `
         marginBottom: cs.marginBottom,
         marginLeft: cs.marginLeft,
         borderWidth: cs.borderWidth,
+        borderStyle: cs.borderStyle,
         borderColor: cs.borderColor,
         borderRadius: cs.borderRadius,
+        boxShadow: cs.boxShadow,
       },
       boundingRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       isFlexContainer: cs.display === 'flex' || cs.display === 'inline-flex',
       isFlexChild: parentDisplay === 'flex' || parentDisplay === 'inline-flex',
       parentDisplay: parentDisplay,
+      parentLayout: parentLayout,
+      editCapabilities: capabilities,
+      confidence: capabilities.reduce(function(best, item) {
+        return Math.max(best, item.confidence || 0);
+      }, 0),
     };
   }
 
   var highlightOverlay = document.createElement('div');
   highlightOverlay.setAttribute('data-agent-native-edit-overlay', 'highlight');
-  highlightOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99999;border:2px solid #609FF8;background:rgba(96,159,248,0.08);display:none;';
+  highlightOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99999;border:2px solid hsl(var(--primary, 211 100% 50%));background:hsl(var(--primary, 211 100% 50%) / 0.08);display:none;';
   document.body.appendChild(highlightOverlay);
 
   var selectionOverlay = document.createElement('div');
   selectionOverlay.setAttribute('data-agent-native-edit-overlay', 'selection');
-  selectionOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99998;border:2px solid #609FF8;background:rgba(96,159,248,0.12);display:none;';
+  selectionOverlay.style.cssText = 'position:fixed;pointer-events:auto;z-index:99998;border:1.5px solid hsl(var(--primary, 211 100% 50%));background:hsl(var(--primary, 211 100% 50%) / 0.08);display:none;box-sizing:border-box;cursor:move;';
+  ['nw','n','ne','e','se','s','sw','w'].forEach(function(pos) {
+    var handle = document.createElement('span');
+    handle.setAttribute('data-agent-native-edit-handle', pos);
+    var cursor = pos === 'n' || pos === 's' ? 'ns-resize' : pos === 'e' || pos === 'w' ? 'ew-resize' : pos === 'nw' || pos === 'se' ? 'nwse-resize' : 'nesw-resize';
+    handle.style.cssText = 'position:absolute;width:7px;height:7px;border:1px solid hsl(var(--primary, 211 100% 50%));background:#fff;box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:' + cursor + ';';
+    if (pos.indexOf('n') !== -1) handle.style.top = '-4px';
+    if (pos.indexOf('s') !== -1) handle.style.bottom = '-4px';
+    if (pos.indexOf('w') !== -1) handle.style.left = '-4px';
+    if (pos.indexOf('e') !== -1) handle.style.right = '-4px';
+    if (pos === 'n' || pos === 's') {
+      handle.style.left = '50%';
+      handle.style.transform = 'translateX(-50%)';
+    }
+    if (pos === 'e' || pos === 'w') {
+      handle.style.top = '50%';
+      handle.style.transform = 'translateY(-50%)';
+    }
+    selectionOverlay.appendChild(handle);
+  });
+  ['nw','ne','se','sw'].forEach(function(pos) {
+    var rotate = document.createElement('span');
+    rotate.setAttribute('data-agent-native-rotate-handle', pos);
+    rotate.style.cssText = 'position:absolute;width:18px;height:18px;border-radius:999px;pointer-events:auto;cursor:grab;';
+    if (pos.indexOf('n') !== -1) rotate.style.top = '-26px';
+    if (pos.indexOf('s') !== -1) rotate.style.bottom = '-26px';
+    if (pos.indexOf('w') !== -1) rotate.style.left = '-26px';
+    if (pos.indexOf('e') !== -1) rotate.style.right = '-26px';
+    selectionOverlay.appendChild(rotate);
+  });
+  var paddingOverlay = document.createElement('div');
+  paddingOverlay.setAttribute('data-agent-native-padding-overlay', '');
+  paddingOverlay.style.cssText = 'position:absolute;inset:8px;border:1px dashed hsl(var(--primary, 211 100% 50%) / 0.75);border-radius:2px;pointer-events:none;';
+  selectionOverlay.appendChild(paddingOverlay);
   document.body.appendChild(selectionOverlay);
+
+  var transformBadge = document.createElement('div');
+  transformBadge.setAttribute('data-agent-native-transform-badge', '');
+  transformBadge.style.cssText = 'position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid hsl(var(--border, 215 18% 23%));border-radius:4px;background:hsl(var(--background, 0 0% 100%) / 0.96);color:hsl(var(--foreground, 222 47% 11%));font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px rgba(0,0,0,0.16);';
+  document.body.appendChild(transformBadge);
 
   var selectedEl = null;
   var hoveredEl = null;
@@ -285,6 +386,206 @@ const EDIT_BRIDGE_SCRIPT = `
     if (hoveredEl) positionOverlay(highlightOverlay, hoveredEl);
     if (selectedEl) positionOverlay(selectionOverlay, selectedEl);
   }
+
+  function readPx(value) {
+    var num = parseFloat(value);
+    return Number.isFinite(num) ? num : 0;
+  }
+
+  function currentRotation(el) {
+    var transform = el.style.transform || window.getComputedStyle(el).transform || '';
+    var match = transform.match(/rotate\\((-?\\d+(?:\\.\\d+)?)deg\\)/);
+    if (match) return parseFloat(match[1]) || 0;
+    if (transform && transform !== 'none' && window.DOMMatrixReadOnly) {
+      try {
+        var matrix = new DOMMatrixReadOnly(transform);
+        return Math.round(Math.atan2(matrix.b, matrix.a) * 180 / Math.PI);
+      } catch (err) {}
+    }
+    return 0;
+  }
+
+  function mergeRotation(el, degrees) {
+    var inline = el.style.transform || '';
+    var next = inline.match(/rotate\\((-?\\d+(?:\\.\\d+)?)deg\\)/)
+      ? inline.replace(/rotate\\((-?\\d+(?:\\.\\d+)?)deg\\)/, 'rotate(' + degrees + 'deg)')
+      : (inline && inline !== 'none' ? inline + ' ' : '') + 'rotate(' + degrees + 'deg)';
+    return next.trim();
+  }
+
+  function ensurePositionable(el) {
+    var cs = window.getComputedStyle(el);
+    if (cs.position === 'static') {
+      el.style.position = 'relative';
+      if (!el.style.left) el.style.left = '0px';
+      if (!el.style.top) el.style.top = '0px';
+    }
+  }
+
+  function postVisualStyleChange(styles) {
+    if (!selectedEl) return;
+    window.parent.postMessage({
+      type: 'visual-style-change',
+      selector: getSelector(selectedEl),
+      styles: styles,
+      payload: getElementInfo(selectedEl),
+    }, '*');
+  }
+
+  function showTransformBadge(text, clientX, clientY) {
+    transformBadge.textContent = text;
+    transformBadge.style.display = 'block';
+    transformBadge.style.left = clientX + 12 + 'px';
+    transformBadge.style.top = clientY + 12 + 'px';
+  }
+
+  function hideTransformBadge() {
+    transformBadge.style.display = 'none';
+  }
+
+  function startMove(e) {
+    if (!selectedEl) return;
+    e.preventDefault();
+    e.stopPropagation();
+    ensurePositionable(selectedEl);
+    var cs = window.getComputedStyle(selectedEl);
+    var originLeft = readPx(selectedEl.style.left || cs.left);
+    var originTop = readPx(selectedEl.style.top || cs.top);
+    var startX = e.clientX;
+    var startY = e.clientY;
+    function onMove(ev) {
+      var nextLeft = originLeft + ev.clientX - startX;
+      var nextTop = originTop + ev.clientY - startY;
+      selectedEl.style.left = Math.round(nextLeft) + 'px';
+      selectedEl.style.top = Math.round(nextTop) + 'px';
+      showTransformBadge('X ' + Math.round(nextLeft) + '  Y ' + Math.round(nextTop), ev.clientX, ev.clientY);
+      refreshOverlays();
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('mouseup', onUp, true);
+      hideTransformBadge();
+      postVisualStyleChange({
+        position: selectedEl.style.position,
+        left: selectedEl.style.left,
+        top: selectedEl.style.top,
+      });
+    }
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('mouseup', onUp, true);
+  }
+
+  function startResize(handle, e) {
+    if (!selectedEl) return;
+    e.preventDefault();
+    e.stopPropagation();
+    ensurePositionable(selectedEl);
+    var cs = window.getComputedStyle(selectedEl);
+    var origin = {
+      left: readPx(selectedEl.style.left || cs.left),
+      top: readPx(selectedEl.style.top || cs.top),
+      width: selectedEl.getBoundingClientRect().width,
+      height: selectedEl.getBoundingClientRect().height,
+      ratio: selectedEl.getBoundingClientRect().width / Math.max(1, selectedEl.getBoundingClientRect().height),
+    };
+    var startX = e.clientX;
+    var startY = e.clientY;
+    function nextRect(ev) {
+      var dx = ev.clientX - startX;
+      var dy = ev.clientY - startY;
+      var left = origin.left;
+      var top = origin.top;
+      var width = origin.width;
+      var height = origin.height;
+      if (handle.indexOf('w') !== -1) {
+        left = origin.left + dx;
+        width = origin.width - dx;
+      }
+      if (handle.indexOf('e') !== -1) width = origin.width + dx;
+      if (handle.indexOf('n') !== -1) {
+        top = origin.top + dy;
+        height = origin.height - dy;
+      }
+      if (handle.indexOf('s') !== -1) height = origin.height + dy;
+      width = Math.max(8, width);
+      height = Math.max(8, height);
+      if (ev.shiftKey && handle.length === 2) {
+        if (Math.abs(dx) > Math.abs(dy)) height = width / origin.ratio;
+        else width = height * origin.ratio;
+      }
+      if (ev.altKey) {
+        if (handle.indexOf('w') !== -1 || handle.indexOf('e') !== -1) left = origin.left - (width - origin.width) / 2;
+        if (handle.indexOf('n') !== -1 || handle.indexOf('s') !== -1) top = origin.top - (height - origin.height) / 2;
+      }
+      return { left: left, top: top, width: width, height: height };
+    }
+    function onMove(ev) {
+      var rect = nextRect(ev);
+      selectedEl.style.left = Math.round(rect.left) + 'px';
+      selectedEl.style.top = Math.round(rect.top) + 'px';
+      selectedEl.style.width = Math.round(rect.width) + 'px';
+      selectedEl.style.height = Math.round(rect.height) + 'px';
+      showTransformBadge(Math.round(rect.width) + ' x ' + Math.round(rect.height), ev.clientX, ev.clientY);
+      refreshOverlays();
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('mouseup', onUp, true);
+      hideTransformBadge();
+      postVisualStyleChange({
+        position: selectedEl.style.position,
+        left: selectedEl.style.left,
+        top: selectedEl.style.top,
+        width: selectedEl.style.width,
+        height: selectedEl.style.height,
+      });
+    }
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('mouseup', onUp, true);
+  }
+
+  function startRotate(e) {
+    if (!selectedEl) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var rect = selectedEl.getBoundingClientRect();
+    var center = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    var originAngle = Math.atan2(e.clientY - center.y, e.clientX - center.x) * 180 / Math.PI;
+    var originRotation = currentRotation(selectedEl);
+    function onMove(ev) {
+      var pointerAngle = Math.atan2(ev.clientY - center.y, ev.clientX - center.x) * 180 / Math.PI;
+      var next = originRotation + pointerAngle - originAngle;
+      if (ev.shiftKey) next = Math.round(next / 15) * 15;
+      next = Math.round(next);
+      selectedEl.style.transform = mergeRotation(selectedEl, next);
+      showTransformBadge(next + 'deg', ev.clientX, ev.clientY);
+      refreshOverlays();
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove, true);
+      document.removeEventListener('mouseup', onUp, true);
+      hideTransformBadge();
+      postVisualStyleChange({
+        transform: selectedEl.style.transform,
+      });
+    }
+    document.addEventListener('mousemove', onMove, true);
+    document.addEventListener('mouseup', onUp, true);
+  }
+
+  selectionOverlay.addEventListener('mousedown', function(e) {
+    var resizeHandle = e.target && e.target.getAttribute && e.target.getAttribute('data-agent-native-edit-handle');
+    if (resizeHandle) {
+      startResize(resizeHandle, e);
+      return;
+    }
+    var rotateHandle = e.target && e.target.getAttribute && e.target.getAttribute('data-agent-native-rotate-handle');
+    if (rotateHandle) {
+      startRotate(e);
+      return;
+    }
+    startMove(e);
+  }, true);
 
   document.addEventListener('click', function(e) {
     if (e.target && e.target.closest('[data-agent-native-edit-overlay]')) return;
@@ -333,6 +634,11 @@ interface DesignCanvasProps {
   editMode: boolean;
   onElementSelect: (info: ElementInfo) => void;
   onElementHover: (info: ElementInfo) => void;
+  onVisualStyleChange?: (
+    selector: string,
+    styles: Record<string, string>,
+    info?: ElementInfo,
+  ) => void;
   tweakValues: Record<string, string>;
   /** Whether draw-to-prompt mode is active (overlays the iframe). */
   drawMode?: boolean;
@@ -367,6 +673,7 @@ export function DesignCanvas({
   editMode,
   onElementSelect,
   onElementHover,
+  onVisualStyleChange,
   tweakValues,
   drawMode,
   onExitDrawMode,
@@ -432,6 +739,17 @@ export function DesignCanvas({
       if (e.data.type === "element-hover") {
         onElementHover(e.data.payload);
       }
+      if (e.data.type === "visual-style-change") {
+        const selector = String(e.data.selector || "");
+        const styles =
+          e.data.styles && typeof e.data.styles === "object"
+            ? (e.data.styles as Record<string, string>)
+            : {};
+        if (selector && Object.keys(styles).length > 0) {
+          onVisualStyleChange?.(selector, styles, e.data.payload);
+        }
+        return;
+      }
       if (e.data.type === "prototype-navigate") {
         // External links are opened inside the iframe (sandbox allow-popups);
         // only internal screen switches reach the parent.
@@ -486,6 +804,7 @@ export function DesignCanvas({
   }, [
     onElementSelect,
     onElementHover,
+    onVisualStyleChange,
     onZoomChange,
     deviceFrame,
     onPrototypeNavigate,

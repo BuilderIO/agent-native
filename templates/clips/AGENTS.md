@@ -25,6 +25,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   download the original from Loom and use "Upload video".
 - Native transcript first. Cleanup and title generation can run in the
   background; do not hide a usable native transcript behind a failed cleanup.
+- Dictation cleanup, Clip title/cleanup, and meeting summaries should pass
+  bounded `voiceContext` to the shared cleanup/transcription path when active
+  app context, learned vocabulary, user notes, or AGENTS.md preferences are
+  available.
 - Cloud transcription is fallback-only for Clips recordings and should use the
   configured Builder/Gemini or Groq paths, not OpenAI.
 - AI setup must be visible and paid-account-backed: lead with Builder.io Connect

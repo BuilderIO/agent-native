@@ -461,6 +461,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/notifications",
   "@agent-native/core/client/progress",
   "@agent-native/core/client/transcription/use-live-transcription",
+  "@agent-native/core/voice",
 ];
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -769,6 +770,7 @@ function getCoreSourceAliases(
       coreSrc,
       "client/transcription/use-live-transcription.ts",
     ),
+    "@agent-native/core/voice": path.join(coreSrc, "voice/index.ts"),
     "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
     "@agent-native/core/db/schema": path.join(coreSrc, "db/schema.ts"),
     "@agent-native/core/shared": path.join(coreSrc, "shared/index.ts"),

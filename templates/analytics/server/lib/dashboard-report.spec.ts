@@ -79,6 +79,7 @@ function createBrowser(options: { waitForFails?: boolean } = {}) {
   const page = {
     setDefaultTimeout: vi.fn(),
     emulateMedia: vi.fn(async () => {}),
+    addInitScript: vi.fn(async () => {}),
     goto: vi.fn(async () => {}),
     locator: vi.fn(() => locator),
     waitForFunction: vi.fn(async () => {}),
@@ -128,9 +129,16 @@ describe("dashboard report email", () => {
       expect.stringContaining("reportPanelLimit=12"),
       expect.any(Object),
     );
+    expect(compact.page.emulateMedia).toHaveBeenCalledWith({
+      media: "screen",
+      colorScheme: "light",
+    });
+    expect(compact.page.addInitScript).toHaveBeenCalledOnce();
     expect(mocks.sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "steve@builder.io",
+        html: expect.not.stringContaining("Daily template dashboard"),
+        text: expect.stringContaining("Edit subscription settings:"),
         attachments: [
           expect.objectContaining({
             content: Buffer.from("png"),
@@ -139,6 +147,10 @@ describe("dashboard report email", () => {
         ],
       }),
     );
+    const emailArgs = mocks.sendEmail.mock.calls[0]?.[0];
+    expect(emailArgs.html).toContain("Edit subscription settings");
+    expect(emailArgs.html).toContain("reportSettings=1");
+    expect(emailArgs.text).toContain("reportSettings=1");
   });
 
   it("still sends the report email without a screenshot when browser capture fails", async () => {

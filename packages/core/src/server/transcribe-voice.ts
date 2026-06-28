@@ -30,6 +30,12 @@ import { createBuilderEngine } from "../agent/engine/builder-engine.js";
 import { appStateGet } from "../application-state/store.js";
 import { getOrgContext } from "../org/context.js";
 import { transcribeWithBuilder } from "../transcription/builder-transcription.js";
+import {
+  applyVoiceContextReplacements,
+  buildVoiceGuidanceBlock,
+  parseVoiceContextPack,
+  type VoiceContextPack,
+} from "../voice/index.js";
 import { getSession } from "./auth.js";
 import {
   resolveHasBuilderPrivateKey,
@@ -146,6 +152,20 @@ export function createTranscribeVoiceHandler() {
           Buffer.from(instructionsPart.data).toString("utf8"),
         )
       : undefined;
+    const voiceContextPart = parts?.find(
+      (p) => p.name === "voiceContext" || p.name === "contextPack",
+    );
+    const voiceContext = voiceContextPart?.data
+      ? parseVoiceContextPack(
+          Buffer.from(voiceContextPart.data).toString("utf8"),
+        )
+      : undefined;
+    const voiceGuidance = buildVoiceGuidanceBlock({
+      instructions,
+      contextPack: voiceContext,
+    });
+    const applyVoiceContext = (value: string) =>
+      applyVoiceContextReplacements(value, voiceContext).trim();
 
     // Resolve provider preference. Per-request "provider" form field takes
     // precedence (the desktop client sends it on every dictation press),
@@ -220,7 +240,7 @@ export function createTranscribeVoiceHandler() {
     // does not want audio uploaded to any external provider. The client
     // shouldn't hit this endpoint when "browser" is selected; this is a
     // defense-in-depth refusal.
-    if (providerPref === "browser") {
+    if (providerPref === "browser" && !transcriptText) {
       setResponseStatus(event, 400);
       return {
         error:
@@ -238,7 +258,8 @@ export function createTranscribeVoiceHandler() {
       return await cleanupTranscriptText({
         event,
         text: transcriptText,
-        instructions,
+        instructions: voiceGuidance,
+        contextPack: voiceContext,
         providerPref,
         hasBuilderPrivateKey,
         withRequestContext,
@@ -282,9 +303,9 @@ export function createTranscribeVoiceHandler() {
           mimeType: mime,
           apiKey: geminiKey,
           language: language || undefined,
-          instructions,
+          instructions: voiceGuidance,
         });
-        const trimmed = text.trim();
+        const trimmed = applyVoiceContext(text);
         if (!trimmed) {
           setResponseStatus(event, 502);
           return { error: "Gemini returned an empty transcript." };
@@ -318,9 +339,9 @@ export function createTranscribeVoiceHandler() {
               ? BUILDER_GEMINI_TRANSCRIPTION_MODEL
               : undefined,
           language: language || undefined,
-          instructions,
+          instructions: voiceGuidance,
         });
-        return { text: (result.text ?? "").trim() };
+        return { text: applyVoiceContext(result.text ?? "") };
       } catch (err) {
         const message = (err as Error)?.message ?? String(err);
         if (message.includes("credits exhausted")) {
@@ -352,7 +373,8 @@ export function createTranscribeVoiceHandler() {
         audioBytes,
         mime,
         language,
-        instructions,
+        instructions: voiceGuidance,
+        contextPack: voiceContext,
       });
     }
 
@@ -368,9 +390,9 @@ export function createTranscribeVoiceHandler() {
           mimeType: mime,
           model: BUILDER_GEMINI_TRANSCRIPTION_MODEL,
           language: language || undefined,
-          instructions,
+          instructions: voiceGuidance,
         });
-        return { text: (result.text ?? "").trim() };
+        return { text: applyVoiceContext(result.text ?? "") };
       } catch (err) {
         const message = (err as Error)?.message ?? String(err);
         // Surface 402 (credits exhausted) as a 402 so the client can show
@@ -395,9 +417,9 @@ export function createTranscribeVoiceHandler() {
             mimeType: mime,
             apiKey: geminiKey,
             language: language || undefined,
-            instructions,
+            instructions: voiceGuidance,
           });
-          const trimmed = text.trim();
+          const trimmed = applyVoiceContext(text);
           if (trimmed) {
             console.log(`[transcribe-voice] Gemini → ${trimmed.length} chars`);
             return { text: trimmed };
@@ -465,7 +487,8 @@ export function createTranscribeVoiceHandler() {
       audioBytes,
       mime,
       language,
-      instructions,
+      instructions: voiceGuidance,
+      contextPack: voiceContext,
     });
   });
 }
@@ -484,6 +507,7 @@ async function callWhisperCompat({
   mime,
   language,
   instructions,
+  contextPack,
 }: {
   event: H3Event;
   provider: {
@@ -496,6 +520,7 @@ async function callWhisperCompat({
   mime: string;
   language?: string;
   instructions?: string;
+  contextPack?: VoiceContextPack;
 }): Promise<{ text: string } | { error: string }> {
   const ext = pickExtension(mime);
   const filename = `composer-voice.${ext}`;
@@ -531,7 +556,12 @@ async function callWhisperCompat({
       };
     }
     const data = (await res.json()) as { text?: string };
-    return { text: (data.text ?? "").trim() };
+    return {
+      text: applyVoiceContextReplacements(
+        (data.text ?? "").trim(),
+        contextPack,
+      ).trim(),
+    };
   } catch (err) {
     setResponseStatus(event, 502);
     return {
@@ -549,6 +579,7 @@ async function cleanupTranscriptText({
   event,
   text,
   instructions,
+  contextPack,
   providerPref,
   hasBuilderPrivateKey,
   withRequestContext,
@@ -557,6 +588,7 @@ async function cleanupTranscriptText({
   event: H3Event;
   text: string;
   instructions?: string;
+  contextPack?: VoiceContextPack;
   providerPref?: string;
   hasBuilderPrivateKey: () => Promise<boolean>;
   withRequestContext: <T>(fn: () => Promise<T>) => Promise<T>;
@@ -564,9 +596,11 @@ async function cleanupTranscriptText({
 }): Promise<{ text: string } | { error: string }> {
   const original = text.trim();
   if (!original) return { text: "" };
+  const finalizeText = (value: string) =>
+    applyVoiceContextReplacements(value || original, contextPack).trim();
 
   if (providerPref === "browser") {
-    return { text: original };
+    return { text: finalizeText(original) };
   }
 
   if (providerPref === "builder" || providerPref === "builder-gemini") {
@@ -581,7 +615,7 @@ async function cleanupTranscriptText({
       const cleaned = await withRequestContext(() =>
         cleanupWithBuilder({ text: original, instructions }),
       );
-      return { text: cleaned || original };
+      return { text: finalizeText(cleaned || original) };
     } catch (err) {
       setResponseStatus(event, 502);
       return {
@@ -605,7 +639,7 @@ async function cleanupTranscriptText({
         apiKey: geminiKey,
         instructions,
       });
-      return { text: cleaned || original };
+      return { text: finalizeText(cleaned || original) };
     } catch (err) {
       setResponseStatus(event, 502);
       return {
@@ -631,7 +665,7 @@ async function cleanupTranscriptText({
         apiKey,
         instructions,
       });
-      return { text: cleaned || original };
+      return { text: finalizeText(cleaned || original) };
     } catch (err) {
       setResponseStatus(event, 502);
       return {
@@ -645,7 +679,7 @@ async function cleanupTranscriptText({
       const cleaned = await withRequestContext(() =>
         cleanupWithBuilder({ text: original, instructions }),
       );
-      if (cleaned) return { text: cleaned };
+      if (cleaned) return { text: finalizeText(cleaned) };
     } catch {
       // Fall through to BYOK providers, then raw text.
     }
@@ -659,7 +693,7 @@ async function cleanupTranscriptText({
         apiKey: geminiKey,
         instructions,
       });
-      if (cleaned) return { text: cleaned };
+      if (cleaned) return { text: finalizeText(cleaned) };
     } catch {
       // Fall through.
     }
@@ -674,7 +708,7 @@ async function cleanupTranscriptText({
         apiKey: groqKey,
         instructions,
       });
-      if (cleaned) return { text: cleaned };
+      if (cleaned) return { text: finalizeText(cleaned) };
     } catch {
       // Fall through.
     }
@@ -689,13 +723,13 @@ async function cleanupTranscriptText({
         apiKey: openaiKey,
         instructions,
       });
-      if (cleaned) return { text: cleaned };
+      if (cleaned) return { text: finalizeText(cleaned) };
     } catch {
       // Fall through.
     }
   }
 
-  return { text: original };
+  return { text: finalizeText(original) };
 }
 
 async function cleanupWithBuilder({

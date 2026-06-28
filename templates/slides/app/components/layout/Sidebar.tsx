@@ -50,7 +50,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
 
   if (collapsed) {
     return (
-      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-e border-border bg-sidebar py-2 text-sidebar-foreground">
+      <aside className="flex h-full w-12 shrink-0 flex-col items-center gap-1 overflow-hidden border-e border-border bg-sidebar py-2 text-sidebar-foreground transition-[width] duration-200 ease-out">
         {onToggleCollapsed && (
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
@@ -97,7 +97,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   }
 
   return (
-    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground">
+    <aside className="flex h-full w-56 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out">
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex items-center gap-2">
           <img
@@ -156,15 +156,15 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
         </nav>
 
         <div className="mt-auto shrink-0">
-          <div className="border-t border-border px-2 py-1">
+          <div className="px-2 py-1">
             <ExtensionsSidebarSection />
           </div>
 
-          <div className="border-t border-border px-3 py-2">
+          <div className="px-3 py-2">
             <OrgSwitcher />
           </div>
 
-          <div className="border-t border-border px-3 py-2">
+          <div className="px-3 py-2">
             <DevDatabaseLink />
             <FeedbackButton />
           </div>

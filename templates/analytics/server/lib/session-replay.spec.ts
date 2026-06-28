@@ -181,7 +181,7 @@ describe("session replay ingest parsing", () => {
     expect(parsed.chunks).toHaveLength(1);
   });
 
-  it("returns metadata-only recordings from direct summary reads", async () => {
+  it("rejects metadata-only recordings from direct summary reads", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -205,16 +205,13 @@ describe("session replay ingest parsing", () => {
         userEmail: "owner@example.com",
         orgId: "org_123",
       }),
-    ).resolves.toMatchObject({
-      id: "sr_empty",
-      userId: "dev@example.com",
-      chunkCount: 0,
-      eventCount: 0,
-      role: "viewer",
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Session recording not found",
     });
   });
 
-  it("returns anonymous recordings from direct summary reads", async () => {
+  it("rejects anonymous recordings from direct summary reads", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -250,29 +247,72 @@ describe("session replay ingest parsing", () => {
         userEmail: "owner@example.com",
         orgId: "org_123",
       }),
+    ).rejects.toMatchObject({
+      statusCode: 404,
+      message: "Session recording not found",
+    });
+  });
+
+  it("returns playable email-keyed recordings from direct summary reads", async () => {
+    resolveAccessMock.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        id: "sr_email_key",
+        clientRecordingId: "recording_1",
+        sessionId: "session_1",
+        userId: "user_123",
+        anonymousId: "anon_1",
+        userKey: "dev@example.com",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        endedAt: "2026-01-01T00:00:04.000Z",
+        durationMs: 4000,
+        chunkCount: 1,
+        eventCount: 2,
+        totalBytes: 128,
+        pageCount: 1,
+        errorCount: 0,
+        rageClickCount: 0,
+        privacyMode: "unknown",
+        metadata: "{}",
+        ownerEmail: "owner@example.com",
+        orgId: "org_123",
+        visibility: "private",
+        status: "completed",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:04.000Z",
+        lastIngestedAt: "2026-01-01T00:00:04.000Z",
+      },
+    });
+
+    await expect(
+      getSessionReplaySummary("sr_email_key", {
+        userEmail: "owner@example.com",
+        orgId: "org_123",
+      }),
     ).resolves.toMatchObject({
-      id: "sr_anonymous",
-      userId: null,
-      anonymousId: "anon_1",
+      id: "sr_email_key",
+      userId: "user_123",
+      userKey: "dev@example.com",
+      eventCount: 2,
       role: "viewer",
     });
   });
 
-  it("includes metadata-only anonymous identities in session recording lists", async () => {
+  it("requires signed-in email identity and replay events in session recording lists", async () => {
     const listDb = createSessionReplayListDbMock([
       {
-        id: "sr_anonymous",
+        id: "sr_email_key",
         clientRecordingId: "recording_1",
         sessionId: "session_1",
-        userId: null,
+        userId: "user_123",
         anonymousId: "anon_1",
-        userKey: "anon_1",
+        userKey: "dev@example.com",
         startedAt: "2026-01-01T00:00:00.000Z",
-        endedAt: null,
-        durationMs: null,
-        chunkCount: 0,
-        eventCount: 0,
-        totalBytes: 0,
+        endedAt: "2026-01-01T00:00:04.000Z",
+        durationMs: 4000,
+        chunkCount: 1,
+        eventCount: 2,
+        totalBytes: 128,
         pageCount: 1,
         errorCount: 0,
         rageClickCount: 0,
@@ -296,15 +336,19 @@ describe("session replay ingest parsing", () => {
 
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      id: "sr_anonymous",
-      userId: null,
-      anonymousId: "anon_1",
-      chunkCount: 0,
-      eventCount: 0,
+      id: "sr_email_key",
+      userId: "user_123",
+      userKey: "dev@example.com",
+      chunkCount: 1,
+      eventCount: 2,
     });
     const listCondition = conditionText(listDb.whereCondition);
     expect(listCondition).toContain("@");
-    expect(listCondition).toContain("anonymous_id");
+    expect(listCondition).toContain("user_id");
+    expect(listCondition).toContain("user_key");
+    expect(listCondition).toContain("chunk_count");
+    expect(listCondition).toContain("event_count");
+    expect(listCondition).not.toContain("nullif(trim(coalesce");
   });
 
   it("derives replay timing from rrweb event timestamps", () => {

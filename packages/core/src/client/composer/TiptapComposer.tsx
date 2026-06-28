@@ -31,8 +31,10 @@ import {
   reasoningEffortLabel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import type { VoiceContextPack } from "../../voice/index.js";
 import {
   AgentComposerReference,
+  formatAgentChatContextItemsForPrompt,
   normalizeAgentComposerReference,
   sendToAgentChat,
   type AgentChatContextItem,
@@ -200,6 +202,13 @@ function metadataString(
 ): string | null {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function trimVoiceContextValue(value: string, maxChars: number): string | null {
+  const trimmed = value.replace(/\0/g, "").trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars).trimEnd()}\n[truncated]`;
 }
 
 function filterMentionItemsForSlots(
@@ -1845,9 +1854,57 @@ export function TiptapComposer({
     [editor],
   );
 
+  const buildVoiceContextPack = useCallback(():
+    | VoiceContextPack
+    | undefined => {
+    const snippets: Array<{ label: string; value: string }> = [];
+
+    const activeContext = trimVoiceContextValue(
+      formatAgentChatContextItemsForPrompt(contextItems),
+      3200,
+    );
+    if (activeContext) {
+      snippets.push({ label: "Active app context", value: activeContext });
+    }
+
+    const selectedReferences = trimVoiceContextValue(
+      slotReferences.map((ref) => slotReferenceTitle(ref)).join(", "),
+      1200,
+    );
+    if (selectedReferences) {
+      snippets.push({
+        label: "Selected references",
+        value: selectedReferences,
+      });
+    }
+
+    const draft = editor
+      ? trimVoiceContextValue(editor.state.doc.textContent, 1200)
+      : null;
+    if (draft) snippets.push({ label: "Current draft", value: draft });
+
+    if (typeof document !== "undefined") {
+      const title = trimVoiceContextValue(document.title, 160);
+      if (title) snippets.push({ label: "Page title", value: title });
+    }
+
+    if (typeof window !== "undefined") {
+      const route = trimVoiceContextValue(window.location.pathname, 240);
+      if (route) snippets.push({ label: "Route", value: route });
+    }
+
+    if (snippets.length === 0) return undefined;
+    return {
+      surface: "agent-composer",
+      mode: "dictation",
+      snippets,
+    };
+  }, [contextItems, editor, slotReferences]);
+
   const voice = useVoiceDictation({
     onTranscript: insertTranscript,
     onLiveUpdate: handleLiveUpdate,
+    contextPack: buildVoiceContextPack,
   });
 
   // Clean up live text if voice session ends without a final transcript (cancel/error)

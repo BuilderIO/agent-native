@@ -1,4 +1,8 @@
 const messages = {
+  sidebar: {
+    collapseSidebar: "サイドバーを折りたたむ",
+    expandSidebar: "サイドバーを展開",
+  },
   mail: {
     appName: "メール",
     pages: {
