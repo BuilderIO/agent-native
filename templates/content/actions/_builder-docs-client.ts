@@ -30,8 +30,13 @@ import {
   type BuilderMdxBundle,
   type BuilderMdxFile,
 } from "../shared/builder-mdx.js";
-import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import type { BuilderCmsReadResult } from "./_builder-cms-read-client.js";
+import {
+  normalizeBuilderCmsApiEntry,
+  type BuilderCmsSourceEntry,
+} from "./_builder-cms-source-adapter.js";
 import { executeBuilderCmsWrite } from "./_builder-cms-write-client.js";
+import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 type FetchLike = typeof fetch;
 
@@ -67,18 +72,6 @@ type BuilderMcpToolResult = {
   content?: BuilderMcpContentPart[];
 };
 
-function builderContentApiHost() {
-  return (
-    process.env.BUILDER_CONTENT_API_HOST ??
-    process.env.BUILDER_CMS_API_HOST ??
-    "https://cdn.builder.io"
-  ).replace(/\/+$/, "");
-}
-
-async function readBuilderPublicKey() {
-  return await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
-}
-
 async function readBuilderPrivateKey() {
   return (
     (await resolveBuilderCredential("BUILDER_PRIVATE_KEY")) ??
@@ -86,18 +79,21 @@ async function readBuilderPrivateKey() {
   );
 }
 
+async function requireBuilderDocsPrivateKey() {
+  const privateKey = await readBuilderPrivateKey();
+  if (!privateKey) {
+    throw new Error(
+      "Builder docs MDX sync requires a Builder private credential scoped to the current user/org.",
+    );
+  }
+  return privateKey;
+}
+
 function builderMcpEndpoint() {
   return (
     process.env.BUILDER_CMS_MCP_ENDPOINT ??
     "https://cdn.builder.io/api/v1/mcp/builder-content"
   ).replace(/\/+$/, "");
-}
-
-function entryArrayFromResponse(value: unknown) {
-  if (Array.isArray(value)) return value;
-  if (!value || typeof value !== "object") return [];
-  const record = value as Record<string, unknown>;
-  return Array.isArray(record.results) ? record.results : [];
 }
 
 function normalizeFullBuilderEntry(
@@ -234,6 +230,60 @@ function fullEntryFromToolResponse(value: unknown, model: string) {
   );
 }
 
+function builderDocsEntriesFromToolResponse(value: unknown, model: string) {
+  if (!value || typeof value !== "object") return [];
+  const record = value as Record<string, unknown>;
+  const entries =
+    (Array.isArray(record.content) && record.content) ||
+    (Array.isArray(record.results) && record.results) ||
+    [];
+  return entries
+    .map((entry) => normalizeBuilderCmsApiEntry(entry, model))
+    .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
+}
+
+async function readBuilderDocsEntriesViaMcp(args: {
+  model: string;
+  limit: number;
+  fetchImpl: FetchLike;
+  privateKey: string;
+}): Promise<BuilderCmsReadResult> {
+  const fetchedAt = new Date().toISOString();
+  const endpoint = builderMcpEndpoint();
+  const sessionId = await initializeBuilderMcp({
+    endpoint,
+    privateKey: args.privateKey,
+    fetchImpl: args.fetchImpl,
+  });
+  const result = await postBuilderMcp({
+    endpoint,
+    privateKey: args.privateKey,
+    fetchImpl: args.fetchImpl,
+    sessionId,
+    payload: {
+      jsonrpc: "2.0",
+      id: `builder-mdx-list-${args.model}`,
+      method: "tools/call",
+      params: {
+        name: "get_builder_content",
+        arguments: {
+          modelName: args.model,
+          limit: args.limit,
+          enrich: true,
+          returnFullContent: false,
+        },
+      },
+    },
+  });
+  const contentJson = parseBuilderMcpToolJson(result.json.result);
+  return {
+    state: "live",
+    entries: builderDocsEntriesFromToolResponse(contentJson, args.model),
+    fetchedAt,
+    message: null,
+  };
+}
+
 async function readFullBuilderDocsEntryViaMcp(args: {
   model: string;
   entryId: string;
@@ -282,12 +332,16 @@ export async function listBuilderDocsEntries(args: {
   limit?: number;
   fetchImpl?: FetchLike;
 }) {
-  const result = await readBuilderCmsContentEntries({
+  const privateKey = await requireBuilderDocsPrivateKey();
+  return await readBuilderDocsEntriesViaMcp({
     model: args.model,
-    limit: args.limit ?? BUILDER_DOCS_LIST_LIMIT,
-    fetchImpl: args.fetchImpl,
+    limit: Math.min(
+      args.limit ?? BUILDER_DOCS_LIST_LIMIT,
+      BUILDER_DOCS_LIST_LIMIT,
+    ),
+    fetchImpl: args.fetchImpl ?? fetch,
+    privateKey,
   });
-  return result;
 }
 
 export async function readFullBuilderDocsEntry(args: {
@@ -295,55 +349,57 @@ export async function readFullBuilderDocsEntry(args: {
   entryId: string;
   fetchImpl?: FetchLike;
 }): Promise<BuilderContentEntry> {
-  const publicKey = await readBuilderPublicKey();
-  const privateKey = await readBuilderPrivateKey();
+  const privateKey = await requireBuilderDocsPrivateKey();
   const fetchImpl = args.fetchImpl ?? fetch;
 
-  if (publicKey) {
-    const url = new URL(
-      `/api/v3/content/${encodeURIComponent(args.model)}`,
-      builderContentApiHost(),
-    );
-    url.searchParams.set("apiKey", publicKey);
-    url.searchParams.set("limit", "1");
-    url.searchParams.set("enrich", "true");
-    url.searchParams.set("includeUnpublished", "true");
-    url.searchParams.set("cachebust", "true");
-    url.searchParams.set("noCache", "true");
-    url.searchParams.set("query.id", JSON.stringify(args.entryId));
-
-    const response = await fetchImpl(url, {
-      headers: { accept: "application/json" },
-    });
-    if (response.ok) {
-      const json = (await response.json()) as unknown;
-      const [entry] = entryArrayFromResponse(json)
-        .map((value) => normalizeFullBuilderEntry(value, args.model))
-        .filter((value): value is BuilderContentEntry => Boolean(value));
-      if (entry) return entry;
-    }
-  }
-
-  if (privateKey) {
-    return await readFullBuilderDocsEntryViaMcp({
-      model: args.model,
-      entryId: args.entryId,
-      fetchImpl,
-      privateKey,
-    });
-  }
-
-  if (!publicKey) {
-    throw new Error("Builder public key or private key is not configured.");
-  }
-
-  throw new Error(`Builder entry ${args.model}/${args.entryId} was not found.`);
+  return await readFullBuilderDocsEntryViaMcp({
+    model: args.model,
+    entryId: args.entryId,
+    fetchImpl,
+    privateKey,
+  });
 }
 
 function canEditRole(role: string | null | undefined) {
   return (
     !!role && ROLE_RANK[role as keyof typeof ROLE_RANK] >= ROLE_RANK.editor
   );
+}
+
+function scopedBuilderDocumentId(args: {
+  ownerEmail: string;
+  orgId: string | null;
+  model: string;
+  entryId: string;
+}) {
+  return `builder_doc_${stableHash(args).slice(0, 24)}`;
+}
+
+function withBuilderDocumentId(
+  bundle: BuilderMdxBundle,
+  documentId: string,
+): BuilderMdxBundle {
+  if (bundle.mdx.documentId === documentId) return bundle;
+  const source = bundle.mdx.source.replace(
+    /^id: .+$/m,
+    `id: ${JSON.stringify(documentId)}`,
+  );
+  return {
+    ...bundle,
+    mdx: {
+      ...bundle.mdx,
+      documentId,
+      frontmatter: {
+        ...bundle.mdx.frontmatter,
+        id: documentId,
+      },
+      source,
+    },
+    files: {
+      ...bundle.files,
+      [bundle.mdx.path]: source,
+    },
+  };
 }
 
 async function findBuilderDocumentBySource(args: {
@@ -395,7 +451,7 @@ export async function pullBuilderDocIntoContent(args: {
     entryId: args.entryId,
     fetchImpl: args.fetchImpl,
   });
-  const bundle = await builderEntryToMdxBundle(entry);
+  const pulledBundle = await builderEntryToMdxBundle(entry);
   const now = new Date().toISOString();
   const existingBySource = await findBuilderDocumentBySource({
     ownerEmail,
@@ -403,7 +459,15 @@ export async function pullBuilderDocIntoContent(args: {
     model: args.model,
     entryId: args.entryId,
   });
-  const documentId = existingBySource?.id ?? bundle.mdx.documentId;
+  const documentId =
+    existingBySource?.id ??
+    scopedBuilderDocumentId({
+      ownerEmail,
+      orgId,
+      model: args.model,
+      entryId: args.entryId,
+    });
+  const bundle = withBuilderDocumentId(pulledBundle, documentId);
   const access = await resolveAccess("document", documentId);
   const existing = access?.resource ?? existingBySource;
   const existingRole = access?.role ?? (existingBySource ? "owner" : null);
@@ -571,7 +635,15 @@ async function getDocumentMdxSource(
   if (!access || !canEditRole(access.role)) {
     throw new Error(`Requires editor access to document "${documentId}".`);
   }
-  const document = access.resource as {
+  await flushOpenDocumentEditorToSql({
+    documentId,
+    ownerEmail: (access.resource.ownerEmail as string | undefined) || null,
+  });
+  const freshAccess = await resolveAccess("document", documentId);
+  if (!freshAccess || !canEditRole(freshAccess.role)) {
+    throw new Error(`Requires editor access to document "${documentId}".`);
+  }
+  const document = freshAccess.resource as {
     id: string;
     title: string;
     content: string;

@@ -73,6 +73,7 @@ export interface BuilderBlocksFromMdxResult {
 
 type MdxNode = {
   type: string;
+  name?: string;
   value?: string;
   children?: MdxNode[];
   position?: {
@@ -895,6 +896,14 @@ async function builderBodyToBlocks(
         blocks.push(block);
         continue;
       }
+      throw new Error(
+        `Unsupported Builder MDX component: <${child.name || "unknown"}>.`,
+      );
+    }
+    if (child.type === "mdxjsEsm") {
+      throw new Error(
+        "Unsupported Builder MDX syntax: import/export statements cannot be pushed to Builder.",
+      );
     }
     blocks.push(freshTextBlock(raw));
   }

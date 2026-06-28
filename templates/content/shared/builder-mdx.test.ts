@@ -218,6 +218,26 @@ describe("Builder MDX conversion", () => {
     ).rejects.toThrow("Missing Builder raw sidecar");
   });
 
+  it("rejects unsupported MDX instead of pushing it as Builder text", async () => {
+    const bundle = await builderEntryToMdxBundle(entry);
+
+    await expect(
+      builderMdxToBuilderBlocks({
+        path: bundle.mdx.path,
+        source: `${bundle.mdx.source}\n\nexport const meta = {}\n`,
+        sidecars: bundle.files,
+      }),
+    ).rejects.toThrow("Unsupported Builder MDX syntax");
+
+    await expect(
+      builderMdxToBuilderBlocks({
+        path: bundle.mdx.path,
+        source: `${bundle.mdx.source}\n\n<CustomDocsWidget />\n`,
+        sidecars: bundle.files,
+      }),
+    ).rejects.toThrow("Unsupported Builder MDX component");
+  });
+
   it("rejects Symbol entry retargeting", async () => {
     const bundle = await builderEntryToMdxBundle(entry);
     const retargetedSource = bundle.mdx.source.replace(

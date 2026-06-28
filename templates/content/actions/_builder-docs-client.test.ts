@@ -1,3 +1,4 @@
+import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -11,6 +12,26 @@ import {
   stableHash,
   type BuilderContentEntry,
 } from "../shared/builder-mdx.js";
+
+const requestContextMock = vi.hoisted(() => ({
+  orgId: null as string | null,
+  userEmail: "owner@example.com",
+}));
+
+const resolveBuilderCredentialMock = vi.hoisted(() =>
+  vi.fn(async (_key: string) => null as string | null),
+);
+
+const collabStateMock = vi.hoisted(() => ({
+  hasCollabState: vi.fn(async () => false),
+}));
+
+const appStateMock = vi.hoisted(() => ({
+  appStateDelete: vi.fn(async () => {}),
+  appStateGet: vi.fn(async () => null as unknown),
+  appStatePut: vi.fn(async () => {}),
+  writeAppState: vi.fn(async () => {}),
+}));
 
 let documentResource: Record<string, unknown> | null = null;
 let sidecarRows: Array<{
@@ -50,19 +71,28 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  resolveBuilderCredential: vi.fn(async () => null),
+  resolveBuilderCredential: resolveBuilderCredentialMock,
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestOrgId: vi.fn(() => null),
-  getRequestUserEmail: vi.fn(() => "owner@example.com"),
+  getRequestOrgId: vi.fn(() => requestContextMock.orgId),
+  getRequestUserEmail: vi.fn(() => requestContextMock.userEmail),
+}));
+
+vi.mock("@agent-native/core/collab", () => ({
+  hasCollabState: collabStateMock.hasCollabState,
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
-  writeAppState: vi.fn(),
+  appStateDelete: appStateMock.appStateDelete,
+  appStateGet: appStateMock.appStateGet,
+  appStatePut: appStateMock.appStatePut,
+  writeAppState: appStateMock.writeAppState,
 }));
 
 let resolveBuilderDocsSource: typeof import("./_builder-docs-client.js").resolveBuilderDocsSource;
+let pullBuilderDocIntoContent: typeof import("./_builder-docs-client.js").pullBuilderDocIntoContent;
+let readFullBuilderDocsEntry: typeof import("./_builder-docs-client.js").readFullBuilderDocsEntry;
 
 const entry: BuilderContentEntry = {
   id: "builder-entry-db",
@@ -93,15 +123,59 @@ const entry: BuilderContentEntry = {
 };
 
 beforeAll(async () => {
-  resolveBuilderDocsSource = (await import("./_builder-docs-client.js"))
-    .resolveBuilderDocsSource;
+  const client = await import("./_builder-docs-client.js");
+  resolveBuilderDocsSource = client.resolveBuilderDocsSource;
+  pullBuilderDocIntoContent = client.pullBuilderDocIntoContent;
+  readFullBuilderDocsEntry = client.readFullBuilderDocsEntry;
 });
 
 beforeEach(() => {
   documentResource = null;
   sidecarRows = [];
+  requestContextMock.orgId = null;
+  requestContextMock.userEmail = "owner@example.com";
   vi.clearAllMocks();
+  resolveBuilderCredentialMock.mockResolvedValue(null);
+  collabStateMock.hasCollabState.mockResolvedValue(false);
+  appStateMock.appStateGet.mockResolvedValue(null);
 });
+
+function mcpResponse(
+  body: Record<string, unknown>,
+  sessionId?: string,
+): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: sessionId ? { "mcp-session-id": sessionId } : undefined,
+  });
+}
+
+function mcpFetchForEntry(entry: BuilderContentEntry) {
+  return vi.fn(async (_input: URL | RequestInfo, init?: RequestInit) => {
+    const body =
+      typeof init?.body === "string"
+        ? (JSON.parse(init.body) as Record<string, unknown>)
+        : {};
+    if (body.method === "initialize") {
+      return mcpResponse({ jsonrpc: "2.0", id: body.id, result: {} }, "s-1");
+    }
+    if (body.method === "notifications/initialized") {
+      return mcpResponse({ jsonrpc: "2.0", result: {} });
+    }
+    return mcpResponse({
+      jsonrpc: "2.0",
+      id: body.id,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ content: [entry] }),
+          },
+        ],
+      },
+    });
+  });
+}
 
 describe("Builder docs DB-backed source", () => {
   it("reconstructs MDX metadata and raw sidecars from a pulled document", async () => {
@@ -150,6 +224,35 @@ describe("Builder docs DB-backed source", () => {
     expect(local.blocks).toEqual(entry.data?.blocks);
   });
 
+  it("flushes a live editor before reconstructing DB-backed MDX", async () => {
+    const bundle = await builderEntryToMdxBundle(entry);
+    documentResource = {
+      id: bundle.mdx.documentId,
+      ownerEmail: "owner@example.com",
+      title: bundle.mdx.title,
+      content: bundle.mdx.body,
+      sourceMode: BUILDER_DOCS_MDX_SOURCE_MODE,
+      sourceKind: builderSourceKindForModel(entry.model),
+      sourcePath: bundle.mdx.path,
+      sourceRootPath: builderSourceRootPath({
+        entryId: entry.id,
+        sourceHash: bundle.mdx.metadata.sourceHash,
+        blocksHash: bundle.mdx.metadata.blocksHash,
+      }),
+      sourceUpdatedAt: bundle.mdx.metadata.lastUpdated,
+    };
+    collabStateMock.hasCollabState.mockResolvedValue(true);
+
+    await resolveBuilderDocsSource({ documentId: bundle.mdx.documentId });
+
+    expect(appStateMock.appStatePut).toHaveBeenCalledWith(
+      "owner@example.com",
+      `flush-request-${bundle.mdx.documentId}`,
+      expect.objectContaining({ id: bundle.mdx.documentId }),
+      { requestSource: "agent" },
+    );
+  });
+
   it("fails legacy DB documents that have no durable blocksHash", async () => {
     const bundle = await builderEntryToMdxBundle(entry);
     documentResource = {
@@ -166,5 +269,42 @@ describe("Builder docs DB-backed source", () => {
     await expect(
       resolveBuilderDocsSource({ documentId: bundle.mdx.documentId }),
     ).rejects.toThrow("missing Builder blocksHash metadata");
+  });
+
+  it("requires a private Builder credential for full docs reads", async () => {
+    await expect(
+      readFullBuilderDocsEntry({
+        model: "docs-content",
+        entryId: "builder-entry-db",
+      }),
+    ).rejects.toThrow("requires a Builder private credential");
+    expect(resolveBuilderCredential).toHaveBeenCalledWith(
+      "BUILDER_PRIVATE_KEY",
+    );
+  });
+
+  it("scopes pulled document ids to the caller owner and org", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key: string) =>
+      key === "BUILDER_PRIVATE_KEY" ? "private-key" : null,
+    );
+    const first = await pullBuilderDocIntoContent({
+      model: "docs-content",
+      entryId: "builder-entry-db",
+      dryRun: true,
+      fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+    });
+
+    requestContextMock.userEmail = "other@example.com";
+    requestContextMock.orgId = "org-2";
+    const second = await pullBuilderDocIntoContent({
+      model: "docs-content",
+      entryId: "builder-entry-db",
+      dryRun: true,
+      fetchImpl: mcpFetchForEntry(entry) as typeof fetch,
+    });
+
+    expect(first.documentId).not.toBe(second.documentId);
+    expect(first.bundle.mdx.documentId).toBe(first.documentId);
+    expect(second.bundle.mdx.documentId).toBe(second.documentId);
   });
 });
