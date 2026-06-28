@@ -1129,6 +1129,8 @@ const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
 const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "tauri://localhost",
+  "http://tauri.localhost",
+  "https://tauri.localhost",
   "http://localhost:1420",
 ]);
 
