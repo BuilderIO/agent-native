@@ -22,6 +22,18 @@ export type VoiceShortcutPreference =
 export type VoiceMode = "push-to-talk" | "toggle";
 
 /**
+ * Where a completed dictation lands. Chosen in Settings → Dictation → Text
+ * delivery and forwarded to the `complete_voice_dictation` Tauri command:
+ *
+ *   - "paste-and-copy": copy to the clipboard AND paste into the focused
+ *     field (default).
+ *   - "copy-only": only copy to the clipboard; no keystroke is synthesized.
+ *   - "type-only": only type into the focused field; the clipboard is left
+ *     untouched.
+ */
+export type VoiceTextDelivery = "paste-and-copy" | "copy-only" | "type-only";
+
+/**
  * Which transcription backend to use. The desktop app surfaces this in
  * Settings → Voice transcription as three modes: native on-device,
  * Builder.io cleanup, or bring-your-own-key cleanup. Legacy "auto" still
@@ -68,6 +80,7 @@ interface DesktopVoiceDictationOptions {
   shortcut: VoiceShortcutPreference;
   mode: VoiceMode;
   provider: VoiceProvider;
+  textDelivery?: VoiceTextDelivery;
   micDeviceId?: string | null;
   micDeviceLabel?: string | null;
   instructions?: string;
@@ -417,6 +430,7 @@ export function installDesktopVoiceDictation(
   let shortcut = options.shortcut;
   let mode = options.mode;
   let provider = options.provider;
+  let textDelivery: VoiceTextDelivery = options.textDelivery ?? "paste-and-copy";
   let micDeviceId = concreteMediaDeviceId(options.micDeviceId);
   let micDeviceLabel = options.micDeviceLabel ?? "";
   let instructions = options.instructions ?? "";
@@ -670,7 +684,7 @@ export function installDesktopVoiceDictation(
     } catch (err) {
       console.warn("[voice-dictation] backtrack failed, pasting raw:", err);
     }
-    await invoke("complete_voice_dictation", { text });
+    await invoke("complete_voice_dictation", { text, delivery: textDelivery });
     // Wispr-style auto-learn: snapshot the field for ~10s post-paste; any
     // single-word user edit becomes a persisted vocabulary entry.
     try {
@@ -807,7 +821,10 @@ export function installDesktopVoiceDictation(
               `[voice-dictation] transcribed (${text.length} chars):`,
               text.slice(0, 120),
             );
-            await invoke("complete_voice_dictation", { text });
+            await invoke("complete_voice_dictation", {
+              text,
+              delivery: textDelivery,
+            });
           } else {
             console.warn(
               "[voice-dictation] transcribe returned empty text — nothing to paste",

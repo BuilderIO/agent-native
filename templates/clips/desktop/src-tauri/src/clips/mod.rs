@@ -76,6 +76,29 @@ enum TextInsertionStrategy {
     UnicodeType,
 }
 
+/// How a completed dictation is delivered to the user, chosen in
+/// Settings → Dictation → Text delivery. Mirrors the `VoiceTextDelivery`
+/// union in `voice-dictation.ts`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TextDeliveryMode {
+    /// Copy to the clipboard AND paste into the focused field (default).
+    PasteAndCopy,
+    /// Only copy to the clipboard; never synthesize a keystroke.
+    CopyOnly,
+    /// Only type into the focused field via synthetic Unicode key events;
+    /// never touch the clipboard.
+    TypeOnly,
+}
+
+fn parse_text_delivery_mode(value: &str) -> TextDeliveryMode {
+    match value {
+        "copy-only" => TextDeliveryMode::CopyOnly,
+        "type-only" => TextDeliveryMode::TypeOnly,
+        // Includes "paste-and-copy" and any unknown/legacy value.
+        _ => TextDeliveryMode::PasteAndCopy,
+    }
+}
+
 /// Extra vertical real-estate reserved beneath the circular bubble for the
 /// hover-controls pill (small-dot + medium-dot). The Tauri window is
 /// `transparent: true`, so the budget paints through as empty space until the
@@ -1296,12 +1319,27 @@ pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<(), String> {
+pub async fn complete_voice_dictation(
+    app: AppHandle,
+    text: String,
+    // Optional so older frontends (and the default) keep the paste-and-copy
+    // behavior. Parsed leniently — any unknown value falls back to default.
+    delivery: Option<String>,
+) -> Result<(), String> {
     let trimmed = text.trim().to_string();
     if trimmed.is_empty() {
         eprintln!("[clips-tray] complete_voice_dictation: empty text — nothing to paste");
         return Ok(());
     }
+    let mode = delivery
+        .as_deref()
+        .map(parse_text_delivery_mode)
+        .unwrap_or(TextDeliveryMode::PasteAndCopy);
+    // Whether to put the transcript on the clipboard, and whether to insert
+    // it into the focused field, depend on the chosen delivery mode.
+    let write_to_clipboard = mode != TextDeliveryMode::TypeOnly;
+    let insert_into_field = mode != TextDeliveryMode::CopyOnly;
+
     #[cfg(target_os = "macos")]
     let frontmost_bundle_id = frontmost_bundle_identifier();
     #[cfg(target_os = "macos")]
@@ -1310,15 +1348,17 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
     let strategy = text_insertion_strategy(frontmost_bundle_id.as_deref());
     #[cfg(target_os = "macos")]
     eprintln!(
-        "[clips-tray] complete_voice_dictation: inserting {} chars via {:?} (frontmost={})",
+        "[clips-tray] complete_voice_dictation: {} chars, delivery={:?}, strategy={:?} (frontmost={})",
         trimmed.chars().count(),
+        mode,
         strategy,
         frontmost_bundle_id.as_deref().unwrap_or("unknown"),
     );
     #[cfg(not(target_os = "macos"))]
     eprintln!(
-        "[clips-tray] complete_voice_dictation: inserting {} chars",
+        "[clips-tray] complete_voice_dictation: {} chars, delivery={:?}",
         trimmed.chars().count(),
+        mode,
     );
     if let Some(last) = app.try_state::<LastTranscript>() {
         if let Ok(mut g) = last.0.lock() {
@@ -1331,14 +1371,32 @@ pub async fn complete_voice_dictation(app: AppHandle, text: String) -> Result<()
     // stream of synthetic Unicode key events through AppKit text input.
     // Known terminal apps still use direct Unicode typing because custom
     // terminal paste bindings can intercept Cmd+V or bypass paste handling.
-    write_clipboard(&trimmed)?;
-    #[cfg(target_os = "macos")]
-    match strategy {
-        TextInsertionStrategy::ClipboardPaste => paste_clipboard(voice_target_bundle_id),
-        TextInsertionStrategy::UnicodeType => type_text_unicode(&trimmed, voice_target_bundle_id),
+    if write_to_clipboard {
+        write_clipboard(&trimmed)?;
     }
-    #[cfg(not(target_os = "macos"))]
-    type_text_unicode(&trimmed);
+
+    #[cfg(target_os = "macos")]
+    if insert_into_field {
+        match (mode, strategy) {
+            // Type-only never uses the clipboard, so always synthesize the
+            // text directly regardless of the per-app paste strategy.
+            (TextDeliveryMode::TypeOnly, _) => type_text_unicode(&trimmed, voice_target_bundle_id),
+            (_, TextInsertionStrategy::ClipboardPaste) => paste_clipboard(voice_target_bundle_id),
+            (_, TextInsertionStrategy::UnicodeType) => {
+                type_text_unicode(&trimmed, voice_target_bundle_id)
+            }
+        }
+    }
+
+    // Windows: paste from the clipboard (Ctrl+V) for paste-and-copy, or type
+    // the text directly with synthetic Unicode key events for type-only.
+    #[cfg(target_os = "windows")]
+    if insert_into_field {
+        match mode {
+            TextDeliveryMode::TypeOnly => type_text_unicode_windows(&trimmed),
+            _ => paste_clipboard_windows(),
+        }
+    }
     Ok(())
 }
 
@@ -1437,12 +1495,122 @@ fn write_clipboard(text: &str) -> Result<(), String> {
     }
 }
 
-// Voice-dictation paste relies on macOS-specific `pbcopy` + CGEvent paste; the
-// non-mac path is an explicit error so the JS layer can surface a clear
-// message rather than the user seeing a silent failure.
-#[cfg(not(target_os = "macos"))]
+// Windows: write the transcript to the system clipboard via arboard. The
+// owned clipboard memory persists after the call returns (clipboard-win
+// backend), so a subsequent Ctrl+V — or a manual paste by the user — picks
+// it up.
+#[cfg(target_os = "windows")]
+fn write_clipboard(text: &str) -> Result<(), String> {
+    use arboard::Clipboard;
+    let mut clipboard = Clipboard::new().map_err(|e| format!("clipboard open: {e}"))?;
+    clipboard
+        .set_text(text.to_string())
+        .map_err(|e| format!("clipboard set: {e}"))?;
+    Ok(())
+}
+
+// Other platforms (Linux): voice-dictation text delivery isn't implemented
+// yet, so surface a clear error rather than a silent failure.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn write_clipboard(_text: &str) -> Result<(), String> {
-    Err("voice dictation is currently macOS-only".to_string())
+    Err("voice dictation is not yet supported on this OS".to_string())
+}
+
+// Windows equivalent of macOS's CGEvent Cmd+V: synthesize a Ctrl+V keystroke
+// with SendInput so the just-copied transcript pastes into the focused field.
+// Runs on a short-lived thread with a small delay so focus has settled back
+// on the target window after the non-activating flow bar updated.
+#[cfg(target_os = "windows")]
+fn paste_clipboard_windows() {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+        VIRTUAL_KEY, VK_CONTROL,
+    };
+
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(90));
+        // Virtual-key code for "V" is 0x56. We send a real VK (not a Unicode
+        // char event) so the OS interprets Ctrl+V as the paste shortcut.
+        const VK_V: VIRTUAL_KEY = VIRTUAL_KEY(0x56);
+        let key = |vk: VIRTUAL_KEY, up: bool| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: vk,
+                    wScan: 0,
+                    dwFlags: if up {
+                        KEYEVENTF_KEYUP
+                    } else {
+                        KEYBD_EVENT_FLAGS(0)
+                    },
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        let inputs = [
+            key(VK_CONTROL, false),
+            key(VK_V, false),
+            key(VK_V, true),
+            key(VK_CONTROL, true),
+        ];
+        let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+        if sent as usize != inputs.len() {
+            eprintln!(
+                "[clips-tray] paste failed: SendInput sent {sent}/{} events",
+                inputs.len()
+            );
+        }
+    });
+}
+
+// Windows type-only delivery: synthesize the transcript directly into the
+// focused field as Unicode key events (KEYEVENTF_UNICODE), never touching the
+// clipboard. Each UTF-16 code unit becomes a key down+up pair, which lets the
+// OS deliver characters (including surrogate pairs / emoji) regardless of the
+// active keyboard layout — the Win32 analog of macOS's CGEvent Unicode typing.
+#[cfg(target_os = "windows")]
+fn type_text_unicode_windows(text: &str) {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, KEYEVENTF_UNICODE,
+        VIRTUAL_KEY,
+    };
+
+    let units: Vec<u16> = text.encode_utf16().collect();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(90));
+        let mut inputs: Vec<INPUT> = Vec::with_capacity(units.len() * 2);
+        for unit in units {
+            let make = |up: bool| INPUT {
+                r#type: INPUT_KEYBOARD,
+                Anonymous: INPUT_0 {
+                    ki: KEYBDINPUT {
+                        wVk: VIRTUAL_KEY(0),
+                        wScan: unit,
+                        dwFlags: if up {
+                            KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
+                        } else {
+                            KEYEVENTF_UNICODE
+                        },
+                        time: 0,
+                        dwExtraInfo: 0,
+                    },
+                },
+            };
+            inputs.push(make(false));
+            inputs.push(make(true));
+        }
+        if inputs.is_empty() {
+            return;
+        }
+        let sent = unsafe { SendInput(&inputs, std::mem::size_of::<INPUT>() as i32) };
+        if sent as usize != inputs.len() {
+            eprintln!(
+                "[clips-tray] type failed: SendInput sent {sent}/{} events",
+                inputs.len()
+            );
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -1580,8 +1748,6 @@ fn type_text_unicode(text: &str, target_bundle_id: Option<String>) {
     });
 }
 
-#[cfg(not(target_os = "macos"))]
-fn type_text_unicode(_text: &str) {}
 
 /// Record the popover's current recording state. When active, clicking the
 /// tray icon emits a stop event instead of toggling the popover — so the
