@@ -1,4 +1,5 @@
 import {
+  AgentToggleButton,
   appPath,
   getBrowserTabId,
   getEmbedAuthToken,
@@ -18,6 +19,10 @@ import {
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
 } from "@agent-native/core/embedding";
+import {
+  EMBED_MODE_QUERY_PARAM,
+  EMBED_TOKEN_QUERY_PARAM,
+} from "@agent-native/core/shared";
 import {
   IconArrowUpRight,
   IconCheck,
@@ -114,6 +119,7 @@ const ASPECT_RATIOS = ["16:9", "1:1", "9:16", "4:3", "3:4", "21:9"] as const;
 const GENERATION_COUNTS = [1, 2, 3, 4, 6] as const;
 const STARTER_PRESET = DEFAULT_LIBRARY_PRESETS[0];
 const STARTER_LIBRARY_ID = `starter:${STARTER_PRESET.id}`;
+const MCP_APP_CHAT_BRIDGE_QUERY_PARAM = "__an_mcp_chat_bridge";
 const PICKER_INLINE_SELECT_CLASS =
   "h-7 w-auto min-w-0 max-w-full rounded-md border-0 bg-transparent px-1.5 py-1 text-xs font-medium text-muted-foreground shadow-none ring-offset-transparent transition hover:bg-accent/50 hover:text-foreground focus:ring-0 focus:ring-offset-0 sm:px-2 [&>svg]:ms-1 [&>svg]:size-3.5 [&>svg]:opacity-60";
 type PickerMediaType = "image" | "video";
@@ -264,6 +270,24 @@ function normalizeCandidateRunIds(value: unknown): string[] | undefined {
     .map((item) => (typeof item === "string" ? item.trim() : ""))
     .filter(Boolean);
   return ids;
+}
+
+function searchParamsEnableEmbeddedLibrary(params: URLSearchParams): boolean {
+  const embedMode = params.get(EMBED_MODE_QUERY_PARAM);
+  return (
+    params.has(EMBED_TOKEN_QUERY_PARAM) ||
+    embedMode === "1" ||
+    embedMode === "true"
+  );
+}
+
+function searchParamsRequestPicker(params: URLSearchParams): boolean {
+  const mcpChatBridge = params.get(MCP_APP_CHAT_BRIDGE_QUERY_PARAM);
+  return (
+    params.get("__an_picker") === "1" ||
+    mcpChatBridge === "1" ||
+    mcpChatBridge === "true"
+  );
 }
 
 function normalizeHostConfig(value: unknown): HostConfig {
@@ -870,6 +894,7 @@ function LibraryShellHeader({
               aria-label={t("library.kitActions")}
             />
           ) : null}
+          <AgentToggleButton />
         </div>
       </div>
     </header>
@@ -1277,7 +1302,7 @@ function AllAssetsBrowser() {
                   <button
                     type="button"
                     onClick={() => navigate(`/library/${asset.libraryId}`)}
-                    className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/90 px-2.5 py-1 text-[11px] font-medium shadow-sm backdrop-blur transition hover:bg-background"
+                    className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
                   >
                     {(asset as any).libraryTitle}
                   </button>
@@ -1292,7 +1317,7 @@ function AllAssetsBrowser() {
                           event.stopPropagation();
                           chooseAsset(asset);
                         }}
-                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
                       >
                         <IconClipboard className="h-4 w-4" />
                       </button>
@@ -1892,32 +1917,34 @@ export function LibraryWorkspace({
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <section className="min-h-0 min-w-0 flex-1 overflow-hidden">
-        {routeSelectedLibraryId || hasLibraries ? (
-          <div className="h-full min-h-0 min-w-0 overflow-y-auto">
-            <LibraryShellHeader
-              selectedLibraryId={routeSelectedLibraryId}
-              libraries={libraries}
-              isLoading={isLoading}
-              onCreateKit={() => setCreateOpen(true)}
-            />
-            <LibraryCandidateStage
-              activeLibraryId={routeSelectedLibraryId}
-              foldersByLibraryId={foldersByLibraryId}
-            />
-            <div className="min-w-0">
-              {routeSelectedLibraryId ? (
-                <BrandKitDetailRoute
-                  libraryId={routeSelectedLibraryId}
-                  headerMode="actions"
-                />
-              ) : (
-                <AllAssetsBrowser />
-              )}
-            </div>
-          </div>
-        ) : (
-          <EmptyLibraryStarter onCreateBlank={() => setCreateOpen(true)} />
-        )}
+        <div className="h-full min-h-0 min-w-0 overflow-y-auto">
+          <LibraryShellHeader
+            selectedLibraryId={routeSelectedLibraryId}
+            libraries={libraries}
+            isLoading={isLoading}
+            onCreateKit={() => setCreateOpen(true)}
+          />
+          {routeSelectedLibraryId || hasLibraries ? (
+            <>
+              <LibraryCandidateStage
+                activeLibraryId={routeSelectedLibraryId}
+                foldersByLibraryId={foldersByLibraryId}
+              />
+              <div className="min-w-0">
+                {routeSelectedLibraryId ? (
+                  <BrandKitDetailRoute
+                    libraryId={routeSelectedLibraryId}
+                    headerMode="actions"
+                  />
+                ) : (
+                  <AllAssetsBrowser />
+                )}
+              </div>
+            </>
+          ) : (
+            <EmptyLibraryStarter onCreateBlank={() => setCreateOpen(true)} />
+          )}
+        </div>
       </section>
       <CreateLibraryDialog
         open={createOpen}
@@ -1933,8 +1960,7 @@ export function AssetPickerSurface() {
   const [searchParams] = useSearchParams();
   const searchParamsKey = searchParams.toString();
   const mcpChatBridgeActive =
-    searchParams.get("__an_mcp_chat_bridge") === "1" ||
-    isEmbedMcpChatBridgeActive();
+    searchParamsRequestPicker(searchParams) || isEmbedMcpChatBridgeActive();
   const urlHostConfig = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
     return {
@@ -1959,7 +1985,13 @@ export function AssetPickerSurface() {
     } satisfies HostConfig;
   }, [searchParamsKey]);
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
-  const embedded = useMemo(() => isEmbeddedWindow() || isEmbedAuthActive(), []);
+  const embedded = useMemo(
+    () =>
+      searchParamsEnableEmbeddedLibrary(searchParams) ||
+      isEmbeddedWindow() ||
+      isEmbedAuthActive(),
+    [searchParams],
+  );
   const pickerVariantScopeId = useMemo(
     () =>
       typeof window === "undefined" ? null : `picker:${getBrowserTabId()}`,
@@ -2862,14 +2894,17 @@ export function AssetPickerSurface() {
           </div>
         )}
 
-        {mediaType === "image" && selectedLibraryId && pickerVariantScopeId && (
-          <LibraryCandidateStage
-            activeLibraryId={selectedLibraryId}
-            variantScopeId={pickerVariantScopeId}
-            onUseAsset={chooseAsset}
-            inline
-          />
-        )}
+        {mediaType === "image" &&
+          selectedLibraryId &&
+          !usingStarterLibrary &&
+          pickerVariantScopeId && (
+            <LibraryCandidateStage
+              activeLibraryId={selectedLibraryId}
+              variantScopeId={pickerVariantScopeId}
+              onUseAsset={chooseAsset}
+              inline
+            />
+          )}
 
         {!selectedLibraryId && (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -3070,8 +3105,8 @@ export default function LibraryRoute() {
   const { pickerRequested, queryLibraryId } = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
     const requested =
-      params.get("__an_picker") === "1" ||
-      params.get("__an_mcp_chat_bridge") === "1";
+      searchParamsRequestPicker(params) ||
+      searchParamsEnableEmbeddedLibrary(params);
     return {
       pickerRequested: requested,
       queryLibraryId: requested ? null : params.get("libraryId"),
