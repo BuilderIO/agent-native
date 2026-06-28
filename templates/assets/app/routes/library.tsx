@@ -1302,7 +1302,7 @@ function AllAssetsBrowser() {
                   <button
                     type="button"
                     onClick={() => navigate(`/library/${asset.libraryId}`)}
-                    className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/90 px-2.5 py-1 text-[11px] font-medium shadow-sm backdrop-blur transition hover:bg-background"
+                    className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
                   >
                     {(asset as any).libraryTitle}
                   </button>
@@ -1317,7 +1317,7 @@ function AllAssetsBrowser() {
                           event.stopPropagation();
                           chooseAsset(asset);
                         }}
-                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-foreground opacity-0 shadow-sm backdrop-blur transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
                       >
                         <IconClipboard className="h-4 w-4" />
                       </button>
