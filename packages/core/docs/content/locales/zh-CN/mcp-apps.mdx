@@ -30,13 +30,69 @@ MCP 应用程序是官方的 `io.modelcontextprotocol/ui` 扩展，可让兼容�
 
 请勿为产品 UI 手写一次性普通 HTML MCP 应用程序；如果操作需要自定义界面，请首先添加或重用真实的应用程序路由/组件并嵌入该路由。
 
-```an-diagram title="MCP 应用程序嵌入往返" summary="该操作的链接目标也是嵌入目标。有能力的主机内联加载相同的签名应用程序路由；其他人都回到深层链接。"
-{
-  "html": "<div class=\"diagram-embed\"><div class=\"diagram-card\" data-rough><strong>Action</strong><small class=\"diagram-muted\">`link` target = MCP App embed target</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>embedApp()</strong><span class=\"diagram-pill accent\">create_embed_session</span><small class=\"diagram-muted\">mints short-lived embed session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>/_agent-native/embed/start</strong><small class=\"diagram-muted\">交换一次性 SQL ticket</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>Signed app route</strong><span class=\"diagram-pill ok\">真实 React 路由</span><small class=\"diagram-muted\">short-lived browser session</small></div><div class=\"diagram-fallback\"><span class=\"diagram-pill warn\">不支持 MCP Apps</span><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>&quot;Open in … &rarr;&quot; deep link</div></div></div>",
-"css": ".diagram-embed{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-embed .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:140px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .diagram-fallback{display:flex;flex-direction:column;align-items:center;gap:6px;margin-inline-start:8px}"
-}
+<Diagram id="doc-block-8klu9n" title={"MCP 应用程序嵌入往返"} summary={"该操作的链接目标也是嵌入目标。有能力的主机内联加载相同的签名应用程序路由；其他人都回到深层链接。"}>
 
+```html
+<div class="diagram-embed">
+  <div class="diagram-card" data-rough>
+    <strong>Action</strong
+    ><small class="diagram-muted">`link` target = MCP App embed target</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>embedApp()</strong
+    ><span class="diagram-pill accent">create_embed_session</span
+    ><small class="diagram-muted">mints short-lived embed session</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>/_agent-native/embed/start</strong
+    ><small class="diagram-muted">交换一次性 SQL ticket</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>Signed app route</strong
+    ><span class="diagram-pill ok">真实 React 路由</span
+    ><small class="diagram-muted">short-lived browser session</small>
+  </div>
+  <div class="diagram-fallback">
+    <span class="diagram-pill warn">不支持 MCP Apps</span>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>
+      &quot;Open in … &rarr;&quot; deep link
+    </div>
+  </div>
+</div>
 ```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 140px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .diagram-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: 8px;
+}
+```
+
+</Diagram>
 
 ```ts
 import { embedApp } from "@agent-native/core";
@@ -93,13 +149,67 @@ MCP 服务器通告扩展 `io.modelcontextprotocol/ui`，将 `_meta.ui.resourceU
 
 MCP 应用嵌入是路线嵌入，而不是单独的迷你产品。 `embedApp()` 从操作的 `link` 目标开始，创建一个短暂的嵌入会话，并启动该签名的应用程序路由。当主机可以直接水合路线时，标准 MCP 应用程序主机可以自行导航 MCP 应用程序框架。
 
-```an-diagram title="两条主桥路径，一条签名路由" summary="克劳德移植了水合路线，使用直接ui/_bridge； ChatGPT 通过 window.openai 获取受控 iframe，并通过 postMessage 中继主机操作。两者都指向同一个签名的应用程序路由。"
-{
-  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><strong>Claude web</strong><span class=\"diagram-pill accent\">single-frame transplant</span><small class=\"diagram-muted\">在 Claude iframe 中激活已签名的应用 HTML，然后使用直接 `ui/_` 主机桥</small></div><div class=\"diagram-card\" data-rough><strong>ChatGPT web</strong><span class=\"diagram-pill accent\">controlled route iframe</span><small class=\"diagram-muted\">`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Same signed app route<br><small class=\"diagram-muted\">普通路由 + React 组件</small></div></div>",
-"css": ".diagram-bridge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-bridge .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-bridge .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;max-width:300px}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}.diagram-bridge .diagram-box{padding:16px 18px;text-align:center}"
-}
+<Diagram id="doc-block-1unh51g" title={"两条主桥路径，一条签名路由"} summary={"克劳德移植了水合路线，使用直接ui/_bridge； ChatGPT 通过 window.openai 获取受控 iframe，并通过 postMessage 中继主机操作。两者都指向同一个签名的应用程序路由。"}>
 
+```html
+<div class="diagram-bridge">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <strong>Claude web</strong
+      ><span class="diagram-pill accent">single-frame transplant</span
+      ><small class="diagram-muted"
+        >在 Claude iframe 中激活已签名的应用 HTML，然后使用直接 `ui/_`
+        主机桥</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <strong>ChatGPT web</strong
+      ><span class="diagram-pill accent">controlled route iframe</span
+      ><small class="diagram-muted"
+        >`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage
+        relay</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Same signed app route<br /><small class="diagram-muted"
+      >普通路由 + React 组件</small
+    >
+  </div>
+</div>
 ```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-bridge .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  max-width: 300px;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-bridge .diagram-box {
+  padding: 16px 18px;
+  text-align: center;
+}
+```
+
+</Diagram>
 
 Claude Web 使用单框架移植路径：资源文档获取已签名的应用程序 HTML 并将其水合到 Claude 的 MCP 应用程序 iframe 中，因为 Claude 无法可靠地允许应用程序拥有的子 iframe 或外部框架导航。 ChatGPT Web 获得受控路由 iframe，因为它的 Apps 桥为我们提供了稳定的 `window.openai` 主机 API 和有界高度控制。所有路径都指向相同的签名应用程序路由并渲染正常路由和 React 组件。设计嵌入式路由，以便使用相同签名的 URL 重新加载可以重建相同的视图。
 

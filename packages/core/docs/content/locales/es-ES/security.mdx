@@ -9,12 +9,44 @@ Las aplicaciones nativas del agente están diseñadas para ser seguras de forma 
 
 ## Lo que obtienes gratis y lo que posees {#what-you-own}
 
-```an-diagram title="Defensa en capas" summary="El marco posee la mayor parte de la superficie de amenazas; usted posee dos cosas: etiquetar tablas para determinar el alcance y validar entradas externas."
-{
-  "html": "<div class=\"sec-layers\"><div class=\"diagram-card free\"><span class=\"diagram-pill ok\">Lo controla el framework</span><small class=\"diagram-muted\">SQL isolation &middot; parameterized queries &middot; XSS escaping &middot; auth guard &middot; CSRF cookies &middot; secret encryption</small></div><div class=\"diagram-card you\"><span class=\"diagram-pill warn\">Tú lo controlas</span><small class=\"diagram-muted\">A. tag tables with ownableColumns() &amp; route through access guards<br>B. give every action a Zod schema &amp; send user URLs through the SSRF guard</small></div></div>",
-  "css": ".sec-layers{display:flex;flex-direction:column;gap:12px}.sec-layers .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+<Diagram id="doc-block-1w0b1oh" title="Defensa en capas" summary={"El marco posee la mayor parte de la superficie de amenazas; usted posee dos cosas: etiquetar tablas para determinar el alcance y validar entradas externas."}>
+
+```html
+<div class="sec-layers">
+  <div class="diagram-card free">
+    <span class="diagram-pill ok">Lo controla el framework</span
+    ><small class="diagram-muted"
+      >SQL isolation &middot; parameterized queries &middot; XSS escaping
+      &middot; auth guard &middot; CSRF cookies &middot; secret
+      encryption</small
+    >
+  </div>
+  <div class="diagram-card you">
+    <span class="diagram-pill warn">Tú lo controlas</span
+    ><small class="diagram-muted"
+      >A. tag tables with ownableColumns() &amp; route through access guards<br />B.
+      give every action a Zod schema &amp; send user URLs through the SSRF
+      guard</small
+    >
+  </div>
+</div>
+```
+
+```css
+.sec-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sec-layers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 Cuando se basa en los patrones estándar, el marco ya maneja la mayor parte de la superficie de amenazas por usted:
 
@@ -122,12 +154,54 @@ El alcance fluye desde la sesión autenticada hasta el SQL que ejecuta el agente
 session.orgId → AGENT_ORG_ID → SQL row scoping
 ```
 
-```an-diagram title="El canal de alcance" summary="El agente SQL nunca toca las tablas base directamente: lee una vista temporal cuyo ámbito es la identidad actual, por lo que un nombre de tabla simple solo puede devolver filas propias."
-{
-  "html": "<div class=\"scope-pipe\"><div class=\"diagram-node\">Sesión iniciada<br><small class=\"diagram-muted\">email &middot; orgId</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Request context<br><small class=\"diagram-muted\">AGENT_ORG_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Temporary VIEW<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">SQL del agente<br><small class=\"diagram-muted\">bare table names only</small></div></div>",
-  "css": ".scope-pipe{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.scope-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.scope-pipe .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1qtj4kn" title="El canal de alcance" summary={"El agente SQL nunca toca las tablas base directamente: lee una vista temporal cuyo ámbito es la identidad actual, por lo que un nombre de tabla simple solo puede devolver filas propias."}>
+
+```html
+<div class="scope-pipe">
+  <div class="diagram-node">
+    Sesión iniciada<br /><small class="diagram-muted"
+      >email &middot; orgId</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Request context<br /><small class="diagram-muted">AGENT_ORG_ID</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Temporary VIEW<br /><small class="diagram-muted"
+      >WHERE owner_email = ? AND org_id = ?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    SQL del agente<br /><small class="diagram-muted"
+      >bare table names only</small
+    >
+  </div>
+</div>
+```
+
+```css
+.scope-pipe {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.scope-pipe .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.scope-pipe .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 La sesión iniciada transporta `email` y (cuando una organización está activa) `orgId`. El marco establece el contexto de la solicitud de esa sesión, expone la organización activa al agente SQL como `AGENT_ORG_ID` y reescribe cada consulta para que solo pueda ver las filas que posee la identidad actual. Se aplica la misma ruta ya sea que la consulta provenga de UI, una acción o el agente: el agente no puede leer datos de una organización de la que el usuario no es miembro.
 

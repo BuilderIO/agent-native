@@ -632,6 +632,62 @@ export function sanitizeStoredPlanHtml(value: string): string {
     .replace(/\bdata\s*:\s*text\/html/gi, "");
 }
 
+const TAILWIND_THEME_COLORS =
+  /^(?:bg|text|border|ring|outline|divide|placeholder|from|via|to|accent|caret|decoration|fill|stroke)-(?:inherit|current|transparent|black|white|slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)(?:-\d{2,3})?(?:\/[\d.]+)?$/;
+const TAILWIND_ARBITRARY_THEME_COLOR =
+  /^(?:bg|text|border|ring|outline|divide|placeholder|from|via|to|accent|caret|decoration|fill|stroke)-\[/;
+const TAILWIND_SHADOW = /^shadow(?:$|-)/;
+
+function baseClassName(className: string): string {
+  let bracketDepth = 0;
+  let lastVariantSeparator = -1;
+  for (let index = 0; index < className.length; index += 1) {
+    const char = className[index];
+    if (char === "[") bracketDepth += 1;
+    if (char === "]") bracketDepth = Math.max(0, bracketDepth - 1);
+    if (char === ":" && bracketDepth === 0) lastVariantSeparator = index;
+  }
+  return className.slice(lastVariantSeparator + 1);
+}
+
+function isWireframeThemeClass(className: string): boolean {
+  const base = baseClassName(className);
+  return (
+    TAILWIND_THEME_COLORS.test(base) ||
+    TAILWIND_ARBITRARY_THEME_COLOR.test(base) ||
+    TAILWIND_SHADOW.test(base)
+  );
+}
+
+function stripWireframeThemeClasses(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((className) => !isWireframeThemeClass(className))
+    .join(" ");
+}
+
+function sanitizeWireframeHtmlClasses(value: string): string {
+  return value.replace(
+    /\sclass\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+    (_match, doubleQuoted, singleQuoted, bare) => {
+      const next = stripWireframeThemeClasses(
+        doubleQuoted ?? singleQuoted ?? bare ?? "",
+      );
+      return next ? ` class="${next}"` : "";
+    },
+  );
+}
+
+function sanitizeStoredWireframeHtml(
+  value: string,
+  renderMode?: PlanWireframeBlock["data"]["renderMode"],
+): string {
+  const sanitized = sanitizeCustomHtml(value);
+  if (renderMode === "design") return sanitized;
+  return sanitizeWireframeHtmlClasses(sanitized);
+}
+
 function sanitizeBlock(block: PlanBlock): PlanBlock {
   if (block.type === "wireframe") {
     return {
@@ -641,7 +697,10 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
         html:
           block.data.html === undefined
             ? undefined
-            : sanitizeCustomHtml(block.data.html),
+            : sanitizeStoredWireframeHtml(
+                block.data.html,
+                block.data.renderMode,
+              ),
         css:
           block.data.css === undefined
             ? undefined
@@ -717,7 +776,7 @@ function sanitizePrototype(prototype: PlanPrototype | undefined) {
     ...prototype,
     screens: prototype.screens.map((screen) => ({
       ...screen,
-      html: sanitizeCustomHtml(screen.html),
+      html: sanitizeStoredWireframeHtml(screen.html, screen.renderMode),
       css:
         screen.css === undefined ? undefined : sanitizeCustomHtml(screen.css),
     })),
@@ -733,7 +792,7 @@ function sanitizeWireframeData(
     html:
       wireframe.html === undefined
         ? undefined
-        : sanitizeCustomHtml(wireframe.html),
+        : sanitizeStoredWireframeHtml(wireframe.html, wireframe.renderMode),
     css:
       wireframe.css === undefined
         ? undefined

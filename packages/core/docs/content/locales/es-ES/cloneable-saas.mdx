@@ -51,12 +51,53 @@ Esta no es una afirmación teórica. El autor del marco ejecuta su bandeja de en
 
 El camino desde "Quiero mi propio SaaS" hasta "Tengo mi propio SaaS" es corto:
 
-```an-diagram title="Bifurca y personaliza" summary="Elija un producto terminado, póngale una marca, evolucione en un lenguaje sencillo y envíelo a su propio dominio."
-{
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-card\"><span class=\"diagram-pill\">1</span><strong>Pick</strong><small class=\"diagram-muted\">a complete template</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2</span><strong>Brand</strong><small class=\"diagram-muted\">nombre, colores, logotipo, copy</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">3</span><strong>Customize</strong><small class=\"diagram-muted\">ask the agent &#8635;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">4</span><strong>Ship</strong><small class=\"diagram-muted\">your own domain</small></div></div>",
-  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px}.diagram-fork .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-mroml5" title="Bifurca y personaliza" summary={"Elija un producto terminado, póngale una marca, evolucione en un lenguaje sencillo y envíelo a su propio dominio."}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-card">
+    <span class="diagram-pill">1</span><strong>Pick</strong
+    ><small class="diagram-muted">a complete template</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2</span><strong>Brand</strong
+    ><small class="diagram-muted">nombre, colores, logotipo, copy</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">3</span><strong>Customize</strong
+    ><small class="diagram-muted">ask the agent &#8635;</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">4</span><strong>Ship</strong
+    ><small class="diagram-muted">your own domain</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 130px;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 1. **Elija una plantilla.** Utilice el selector CLI o explore los documentos y elija una para comenzar.
 2. **Marca.** Cambia el nombre, los colores, el logotipo y el texto. La mayoría de las plantillas exponen esto en un único archivo de configuración.
@@ -74,12 +115,48 @@ Un modelo tradicional de bifurcación del código base se desmorona a escala: ca
 
 El resultado: Claude: flexibilidad a nivel de código para cada usuario, con una economía de implementación normal de SaaS.
 
-```an-diagram title="Por qué escalan las bifurcaciones por usuario" summary="Dos ideas mantienen práctico el modelo de bifurcación y personalización: el agente realiza el mantenimiento y la personalización por usuario reside en SQL, no en el código por usuario."
-{
-  "html": "<div class=\"diagram-why\"><div class=\"diagram-panel\" data-rough><strong>Compartird codebase</strong><small class=\"diagram-muted\">una app, desplegada una vez</small><div class=\"diagram-pill accent\">agent does the maintenance</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>Capa por usuario en SQL</strong><small class=\"diagram-muted\">skills · memoria · instrucciones · MCP · subagentes</small><div class=\"diagram-pill ok\">no per-user code</div></div></div>",
-  "css": ".diagram-why{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-why .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 18px;min-width:240px;flex:1}.diagram-why .diagram-arrow{font-size:24px;line-height:1}"
+<Diagram id="doc-block-18s9hur" title={"Por qué escalan las bifurcaciones por usuario"} summary={"Dos ideas mantienen práctico el modelo de bifurcación y personalización: el agente realiza el mantenimiento y la personalización por usuario reside en SQL, no en el código por usuario."}>
+
+```html
+<div class="diagram-why">
+  <div class="diagram-panel" data-rough>
+    <strong>Compartird codebase</strong
+    ><small class="diagram-muted">una app, desplegada una vez</small>
+    <div class="diagram-pill accent">agent does the maintenance</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Capa por usuario en SQL</strong
+    ><small class="diagram-muted"
+      >skills · memoria · instrucciones · MCP · subagentes</small
+    >
+    <div class="diagram-pill ok">no per-user code</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-why {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-why .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  min-width: 240px;
+  flex: 1;
+}
+.diagram-why .diagram-arrow {
+  font-size: 24px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## ¿No quieres bifurcar? {#hosted}
 

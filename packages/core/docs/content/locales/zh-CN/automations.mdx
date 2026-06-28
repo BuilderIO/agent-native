@@ -9,12 +9,51 @@ description: "具有自然语言条件的事件触发和计划自动化"
 
 自动化通过 `web-request` 工具使用**事件触发器**、**自然语言条件**和**出站 HTTP** 扩展 [recurring jobs](/docs/recurring-jobs)。它们使用与重复作业相同的 `jobs/<name>.md` 文件格式、存储和“创建三种方式”工作流程 - 请参阅 [Recurring Jobs](/docs/recurring-jobs#job-file) 了解共享格式。本页面仅涵盖事件驱动自动化的新增内容。
 
-```an-diagram title="当X发生时，做Y" summary="总线上触发事件，可选的自然语言条件对其进行门控，代理运行具有完整工具访问权限的自动化主体。"
-{
-  "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">Event</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">Condition</span><small class=\"diagram-muted\">Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">代理运行 body</span><small class=\"diagram-muted\">actions &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
-  "css": ".auto-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.auto-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.auto-flow .diagram-arrow{font-size:22px}"
+<Diagram id="doc-block-15xrd2h" title={"当X发生时，做Y"} summary={"总线上触发事件，可选的自然语言条件对其进行门控，代理运行具有完整工具访问权限的自动化主体。"}>
+
+```html
+<div class="auto-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Event</span
+    ><small class="diagram-muted"><code>calendar.booking.created</code></small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">Condition</span
+    ><small class="diagram-muted"
+      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">代理运行 body</span
+    ><small class="diagram-muted"
+      >actions &middot; web-request &middot; MCP &middot; sub-agents</small
+    >
+  </div>
+</div>
+```
+
+```css
+.auto-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.auto-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.auto-flow .diagram-arrow {
+  font-size: 22px;
 }
 ```
+
+</Diagram>
 
 ## 两种触发器类型 {#trigger-types}
 
@@ -225,12 +264,75 @@ Confirm an automation's wiring and condition without waiting for a real provider
 
 ## 调度如何运作 {#dispatch}
 
-```an-diagram title="调度路径" summary="从触发事件到完成代理运行，由所有权范围和自然语言条件控制。"
-{
-  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">event fired on the bus</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">match</span><small class=\"diagram-muted\">load enabled automations subscribed to this event name</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">scope</span><small class=\"diagram-muted\">keep only those owned by the event's owner (or shared)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">condition</span><small class=\"diagram-muted\">Haiku yes/no on the payload &mdash; false &rarr; <code>skipped</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">run</span><small class=\"diagram-muted\"><code>runAgentLoop</code> body 作为提示、payload 作为上下文，5 分钟超时</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
-  "css": ".disp{display:flex;flex-direction:column;gap:6px;max-width:540px}.disp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.disp .diagram-box{align-self:flex-start}.disp .diagram-arrow{font-size:18px;align-self:center}"
+<Diagram id="doc-block-1o1fch2" title={"调度路径"} summary={"从触发事件到完成代理运行，由所有权范围和自然语言条件控制。"}>
+
+```html
+<div class="disp">
+  <div class="diagram-box accent">event fired on the bus</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">match</span
+    ><small class="diagram-muted"
+      >load enabled automations subscribed to this event name</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">scope</span
+    ><small class="diagram-muted"
+      >keep only those owned by the event's owner (or shared)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">condition</span
+    ><small class="diagram-muted"
+      >Haiku yes/no on the payload &mdash; false &rarr;
+      <code>skipped</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">run</span
+    ><small class="diagram-muted"
+      ><code>runAgentLoop</code> body 作为提示、payload 作为上下文，5
+      分钟超时</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">record</span
+    ><small class="diagram-muted"
+      >write <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.disp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 540px;
+}
+.disp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.disp .diagram-box {
+  align-self: flex-start;
+}
+.disp .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
 }
 ```
+
+</Diagram>
 
 ## 示例 {#example}
 

@@ -21,13 +21,52 @@ Les applications natives d'agent utilisent le **routeur React v8** avec un routa
 
 Préfixez un segment avec `$` pour un paramètre dynamique. Préfixez `_` pour en faire un itinéraire de tracé sans chemin (pas de segment URL). Les modèles utilisent `flatRoutes()` — le fichier de notation par points ci-dessus est principal ; le formulaire de dossier imbriqué `inbox/route.tsx` fonctionne également.
 
-```an-diagram title="La mise en page sans chemin enveloppe les pages" summary="Une disposition _app.tsx (pas de segment URL) restitue le shell partagé une fois ; les pages correspondantes s'affichent dans son <Outlet/>, de sorte que la barre latérale de l'agent ne remonte jamais lors de la navigation."
-{
-"html": "<div class=\"diagram-layout\" data-rough><div class=\"diagram-shell\"><span class=\"diagram-pill accent\">_app.tsx</span><small class=\"diagram-muted\">layout sans chemin · shell persistant + barre agent</small><div class=\"diagram-outlet\" data-rough><small class=\"diagram-muted\">&lt;Outlet/&gt; — the matched page</small><div class=\"diagram-row\"><span class=\"diagram-pill\">_index.tsx &rarr; /</span><span class=\"diagram-pill\">settings.tsx &rarr; /settings</span><span class=\"diagram-pill\">inbox.$threadId.tsx &rarr; /inbox/:threadId</span></div></div></div></div>",
-"css": ".diagram-layout .diagram-shell{display:flex;flex-direction:column;gap:8px;padding:16px}.diagram-layout .diagram-outlet{display:flex;flex-direction:column;gap:8px;padding:14px;margin-top:6px}.diagram-layout .diagram-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}"
-}
+<Diagram id="doc-block-chuvll" title="La mise en page sans chemin enveloppe les pages" summary={"Une disposition _app.tsx (pas de segment URL) restitue le shell partagé une fois ; les pages correspondantes s'affichent dans son <Outlet/>, de sorte que la barre latérale de l'agent ne remonte jamais lors de la navigation."}>
 
+```html
+<div class="diagram-layout" data-rough>
+  <div class="diagram-shell">
+    <span class="diagram-pill accent">_app.tsx</span
+    ><small class="diagram-muted"
+      >layout sans chemin · shell persistant + barre agent</small
+    >
+    <div class="diagram-outlet" data-rough>
+      <small class="diagram-muted">&lt;Outlet/&gt; — the matched page</small>
+      <div class="diagram-row">
+        <span class="diagram-pill">_index.tsx &rarr; /</span
+        ><span class="diagram-pill">settings.tsx &rarr; /settings</span
+        ><span class="diagram-pill"
+          >inbox.$threadId.tsx &rarr; /inbox/:threadId</span
+        >
+      </div>
+    </div>
+  </div>
+</div>
 ```
+
+```css
+.diagram-layout .diagram-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+.diagram-layout .diagram-outlet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  margin-top: 6px;
+}
+.diagram-layout .diagram-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+```
+
+</Diagram>
 
 ## Ajout d'une nouvelle page {#adding-a-page}
 

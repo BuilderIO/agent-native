@@ -18,12 +18,68 @@ description: "Google Calendar 동기화 및 Calendly 스타일 예약 링크가 
 
 앱을 열면 활성 캘린더 보기가 기본 화면입니다. 상담원은 귀하가 보고 있는 요일, 주 또는 이벤트를 여전히 알고 있으므로 모든 내용을 철자하지 않고도 "오늘 Alex와 30분 통화 예약"이라고 말할 수 있습니다.
 
-```an-diagram title="예약 요청 흐름 방식" summary="달력을 클릭하거나 상담원에게 문의하면 동일한 작업이 Google Calendar에서 실시간으로 읽혀지고 동일한 보기에 다시 작성됩니다."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">클릭합니다<br><small class=\"diagram-muted\">드래그, 툴바, 단축키</small></div><div class=\"diagram-node\">에이전트에게 요청<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">실시간, 다중 계정</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">예약 · 가능 시간</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">캘린더 보기가 실시간으로 업데이트됩니다</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-upe470" title={"예약 요청 흐름 방식"} summary={"달력을 클릭하거나 상담원에게 문의하면 동일한 작업이 Google Calendar에서 실시간으로 읽혀지고 동일한 보기에 다시 작성됩니다."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      클릭합니다<br /><small class="diagram-muted">드래그, 툴바, 단축키</small>
+    </div>
+    <div class="diagram-node">
+      에이전트에게 요청<br /><small class="diagram-muted"
+        >"find a 1-hour slot next week"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · check-availability · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >실시간, 다중 계정</small
+      >
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">예약 · 가능 시간</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">캘린더 보기가 실시간으로 업데이트됩니다</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 그것으로 무엇을 할 수 있나요
 

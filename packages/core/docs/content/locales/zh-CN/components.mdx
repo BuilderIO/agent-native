@@ -25,12 +25,65 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` 或聚焦的 `@agent-native/core/client/*` 子路径
 因此捆绑商选择浏览器安全的条目。
 
-```an-diagram title="下拉一层，不脱离框架" summary="每个层都保持相同的运行时 - 操作、线程状态和 SQL-backed 同步 - 同时让您更好地控制镶边。"
-{
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">围绕应用的完整侧边栏。80% 的常见场景。</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">你自己布局中的面板或聊天页。</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">撰写r and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>同一 runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
-  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-1tquzyh" title={"下拉一层，不脱离框架"} summary={"每个层都保持相同的运行时 - 操作、线程状态和 SQL-backed 同步 - 同时让您更好地控制镶边。"}>
+
+```html
+<div class="diagram-layers">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">&lt;AgentSidebar&gt;</span
+    ><small class="diagram-muted">围绕应用的完整侧边栏。80% 的常见场景。</small>
+  </div>
+  <div class="diagram-card layer l2">
+    <span class="diagram-pill"
+      >&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span
+    ><small class="diagram-muted">你自己布局中的面板或聊天页。</small>
+  </div>
+  <div class="diagram-card layer l3">
+    <span class="diagram-pill">&lt;AssistantChat&gt; + runtime</span
+    ><small class="diagram-muted"
+      >Own the chrome; optionally pass a BYO AgentChatRuntime.</small
+    >
+  </div>
+  <div class="diagram-card layer l4">
+    <span class="diagram-pill"
+      >&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span
+    ><small class="diagram-muted">撰写r and transcript primitives only.</small>
+  </div>
+  <div class="diagram-rail" data-rough>
+    同一 runtime: actions &middot; thread state &middot; SQL-backed sync
+  </div>
+</div>
+```
+
+```css
+.diagram-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-layers .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-layers .l2 {
+  margin-inline-start: 24px;
+}
+.diagram-layers .l3 {
+  margin-inline-start: 48px;
+}
+.diagram-layers .l4 {
+  margin-inline-start: 72px;
+}
+.diagram-layers .diagram-rail {
+  margin-top: 6px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## 代理并聊天UI {#agent-chat-ui}
 
@@ -178,12 +231,63 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 | `useCollaborativeMap()` / `useCollaborativeArray()` | 当富文本正文协作不合适时，使用结构化 Y.Map/Y.Array 状态进行实验。 |
 | `dedupeCollabUsersByEmail()`                        | 为同一用户构建一个没有重复选项卡的自定义头像堆栈。                |
 
-```an-diagram title="存在：人类和智能体共享一个意识层" summary="useCollaborativeDoc 拥有感知实例；客户端挂钩发布光标和选择；服务器助手让代理操作显示为实时参与者。"
-{
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent 操作<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">渲染所有人，包括代理</small></div></div>",
-  "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1ls1fjd" title={"存在：人类和智能体共享一个意识层"} summary={"useCollaborativeDoc 拥有感知实例；客户端挂钩发布光标和选择；服务器助手让代理操作显示为实时参与者。"}>
+
+```html
+<div class="diagram-presence">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Humans<br /><small class="diagram-muted"
+        >usePresence &middot; cursors, selection</small
+      >
+    </div>
+    <div class="diagram-node diagram-accent">
+      Agent 操作<br /><small class="diagram-muted"
+        >agentUpdateSelection()</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">useCollaborativeDoc</span
+    ><small class="diagram-muted">awareness layer</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    &lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br /><small
+      class="diagram-muted"
+      >渲染所有人，包括代理</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-presence {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-presence .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-presence .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-presence .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 想要作为现场参与者出现的服务器端代理 actions 使用
 较低级别的 `@agent-native/core/collab` 代理存在助手：

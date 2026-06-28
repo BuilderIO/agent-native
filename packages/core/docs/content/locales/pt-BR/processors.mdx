@@ -7,12 +7,49 @@ description: "Ganchos de observador/guardrail internos em loop que observam a sa
 
 Um `Processor` é um **observador/guardrail** interno de loop para a execução do agente. Ele observa a saída transmitida do modelo e a ferramenta chama as solicitações _conforme a execução avança_, mantém seu próprio estado inicial e pode **abortar** a execução antes que um "pronto" seja reivindicado. Este é o pré-requisito estrutural para proteções em tempo real (bloquear a saída não permitida no meio do fluxo) e uma porta de prova/cobertura (inspecionar o que o modelo está prestes a fazer e interrompê-lo).
 
-```an-diagram title="Onde os três ganchos disparam na corrida" summary="processOutputStream observa cada pedaço, processOutputStep bloqueia chamadas de ferramenta por resposta, processOutputResult registra um veredicto no final. Qualquer gancho pode abortar com um TripWire."
-{
-  "html": "<div class=\"diagram-proc\"><div class=\"diagram-node\" data-rough>stream chunks<br><small class=\"diagram-muted\">processOutputStream</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>per model response<br><small class=\"diagram-muted\">processOutputStep — controla chamadas de ferramentas</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>run end<br><small class=\"diagram-muted\">processOutputResult — veredito</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-pill warn\">abort() &rarr; TripWire &rarr; tripwire event</div></div>",
-  "css": ".diagram-proc{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-proc .diagram-arrow{font-size:22px;line-height:1}.diagram-proc .diagram-pill{flex-basis:100%}"
+<Diagram id="doc-block-1t6qi1z" title={"Onde os três ganchos disparam na corrida"} summary={"processOutputStream observa cada pedaço, processOutputStep bloqueia chamadas de ferramenta por resposta, processOutputResult registra um veredicto no final. Qualquer gancho pode abortar com um TripWire."}>
+
+```html
+<div class="diagram-proc">
+  <div class="diagram-node" data-rough>
+    stream chunks<br /><small class="diagram-muted">processOutputStream</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    per model response<br /><small class="diagram-muted"
+      >processOutputStep — controla chamadas de ferramentas</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    run end<br /><small class="diagram-muted"
+      >processOutputResult — veredito</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-pill warn">
+    abort() &rarr; TripWire &rarr; tripwire event
+  </div>
+</div>
+```
+
+```css
+.diagram-proc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-proc .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-proc .diagram-pill {
+  flex-basis: 100%;
 }
 ```
+
+</Diagram>
 
 > [!WARNING]
 > Um processador é **configuração**, não é uma ferramenta, não é uma ação e não é um DSL de autoria. Os processadores apenas observam, alteram seu próprio estado com escopo de fluxo e `abort()`. Eles nunca definem o comportamento do aplicativo, substituem actions ou aparecem para o modelo. As operações do aplicativo pertencem a [actions](/docs/actions).

@@ -18,12 +18,72 @@ Assets es un espacio de trabajo nativo del agente para crear y gestionar medios 
 
 Cuando abre la aplicación, la biblioteca seleccionada, el mensaje, las referencias y los candidatos generados permanecen en un solo espacio de trabajo. El agente puede explorar, buscar, generar, refinar y exportar cada activo a través del mismo actions que utiliza el UI.
 
-```an-diagram title="Generar, revisar, reutilizar" summary="Las referencias y las indicaciones alimentan una sesión de generar y elegir; Los activos elegidos aterrizan en una biblioteca y fluyen hacia otras aplicaciones a través del selector o A2A."
-{
-  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">logos, imágenes de producto, estilo</small></div><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">chat o controles Generate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Sesión de generación</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">assets elegidos y coherentes con la marca</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / aplicación MCP</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">Presentaciones · Diseño · Contenido</small></div></div></div>",
-  "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-1s9p1n2" title="Generar, revisar, reutilizar" summary={"Las referencias y las indicaciones alimentan una sesión de generar y elegir; Los activos elegidos aterrizan en una biblioteca y fluyen hacia otras aplicaciones a través del selector o A2A."}>
+
+```html
+<div class="diagram-assets">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      References<br /><small class="diagram-muted"
+        >logos, imágenes de producto, estilo</small
+      >
+    </div>
+    <div class="diagram-node">
+      Prompt<br /><small class="diagram-muted">chat o controles Generate</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Sesión de generación</span
+    ><small class="diagram-muted"
+      >image &amp; video candidates · audit log</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Library</span
+    ><small class="diagram-muted"
+      >assets elegidos y coherentes con la marca</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Picker<br /><small class="diagram-muted">iframe / aplicación MCP</small>
+    </div>
+    <div class="diagram-node">
+      A2A<br /><small class="diagram-muted"
+        >Presentaciones · Diseño · Contenido</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-assets {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-assets .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-assets .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-assets .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Cuándo elegirlo
 

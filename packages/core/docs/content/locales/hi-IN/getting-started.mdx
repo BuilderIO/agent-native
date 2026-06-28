@@ -152,12 +152,42 @@ pnpm dev
 वह एक क्रिया अब चैट UI, CLI, HTTP, MCP, A2A, से उपलब्ध है
 अनुसूचित नौकरियां, और webhooks। एक बार परिभाषित करें, कहीं से भी कॉल करें।
 
-```an-diagram title="एक क्रिया, हर सतह" summary="एक defineAction फ़ाइल प्रत्येक उपभोक्ता को बिना किसी अतिरिक्त वायरिंग के प्रदान करती है।"
-{
-  "html": "<div class=\"diagram-fan\"><div class=\"diagram-box\" data-rough>defineAction</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-surfaces\"><span class=\"diagram-pill\">चैट UI</span><span class=\"diagram-pill\">CLI</span><span class=\"diagram-pill\">HTTP</span><span class=\"diagram-pill\">MCP</span><span class=\"diagram-pill\">A2A</span><span class=\"diagram-pill\">शेड्यूल किए गए जॉब</span><span class=\"diagram-pill\">Webhooks</span></div></div>",
-  "css": ".diagram-fan{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fan .diagram-surfaces{display:flex;flex-wrap:wrap;gap:8px;max-width:420px}.diagram-fan .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1odbgvm" title={"एक क्रिया, हर सतह"} summary={"एक defineAction फ़ाइल प्रत्येक उपभोक्ता को बिना किसी अतिरिक्त वायरिंग के प्रदान करती है।"}>
+
+```html
+<div class="diagram-fan">
+  <div class="diagram-box" data-rough>defineAction</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-surfaces">
+    <span class="diagram-pill">चैट UI</span><span class="diagram-pill">CLI</span
+    ><span class="diagram-pill">HTTP</span><span class="diagram-pill">MCP</span
+    ><span class="diagram-pill">A2A</span
+    ><span class="diagram-pill">शेड्यूल किए गए जॉब</span
+    ><span class="diagram-pill">Webhooks</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-fan {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-fan .diagram-surfaces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 420px;
+}
+.diagram-fan .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## राज्य का निर्माण हुआ है
 

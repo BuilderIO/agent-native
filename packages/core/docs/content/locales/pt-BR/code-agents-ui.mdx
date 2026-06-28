@@ -25,12 +25,72 @@ Existem três camadas:
 - **Desktop**: a guia Código da barra lateral esquerda adiciona inicialização de terminal nativo, visualizações de aplicativos na Web e links diretos para desktop ao usar o mesmo modelo de execução.
 - **UI compartilhado**: `@agent-native/code-agents-ui` renderiza a superfície React reutilizável.
 
-```an-diagram title="Três camadas em uma loja de execução" summary="CLI, Desktop e a UI compartilhada são superfícies diferentes no mesmo armazenamento e executor de execução apoiado por arquivo; hosts o adaptam por meio do contrato CodeAgentsHost."
-{
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-row\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">CLI</span><small class=\"diagram-muted\">iniciar · retomar · status · parar</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Desktop</span><small class=\"diagram-muted\">terminal nativo · webviews · deep links</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Compartilhard UI</span><small class=\"diagram-muted\">@agent-native/code-agents-ui</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill\">CodeAgentsHost</span><small class=\"diagram-muted\">host contract</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Run store em arquivos + executor<br><small class=\"diagram-muted\">@agent-native/core/code-agents</small></div></div>",
-  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px;align-items:center}.diagram-layers .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-layers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-layers .diagram-arrow{font-size:22px;line-height:1}.diagram-layers .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1rst7t9" title={"Três camadas em uma loja de execução"} summary={"CLI, Desktop e a UI compartilhada são superfícies diferentes no mesmo armazenamento e executor de execução apoiado por arquivo; hosts o adaptam por meio do contrato CodeAgentsHost."}>
+
+```html
+<div class="diagram-layers">
+  <div class="diagram-row">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill">CLI</span
+      ><small class="diagram-muted">iniciar · retomar · status · parar</small>
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill">Desktop</span
+      ><small class="diagram-muted"
+        >terminal nativo · webviews · deep links</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">Compartilhard UI</span
+      ><small class="diagram-muted">@agent-native/code-agents-ui</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill">CodeAgentsHost</span
+    ><small class="diagram-muted">host contract</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    Run store em arquivos + executor<br /><small class="diagram-muted"
+      >@agent-native/core/code-agents</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.diagram-layers .diagram-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.diagram-layers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-layers .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-layers .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 A divisão atual está convergindo intencionalmente: a barra lateral padrão do agente e as equipes de agentes são executadas no ciclo de vida principal do `run-manager`, enquanto o código Agent-Native usa sessões locais de longa execução apoiadas pelo armazenamento de execução de código baseado em arquivo e pelo vocabulário compartilhado do controlador de execução em segundo plano.
 
@@ -373,12 +433,42 @@ A conexão é somente de saída do Desktop:
 5. O celular lê `hosts`, `runs` e `transcript` do Dispatch; nunca fala
    diretamente para a área de trabalho.
 
-```an-diagram title="Dispatch remoto é somente de saída" summary="O celular nunca se comunica diretamente com o desktop. Desktop faz pesquisas longas em Dispatch, reivindica comandos, direciona o armazenamento de execução local e espelha os resultados de volta."
-{
-  "html": "<div class=\"diagram-remote\"><div class=\"diagram-node\" data-rough>Celular / Telegram<br><small class=\"diagram-muted\">/code · sessões</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Relay do Dispatch<br><small class=\"diagram-muted\">hosts · execuções · transcrição</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-node\" data-rough>Desktop<br><small class=\"diagram-muted\">long-polls · assume · controla run store</small></div></div>",
-  "css": ".diagram-remote{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-remote .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-i6i62m" title={"Dispatch remoto é somente de saída"} summary={"O celular nunca se comunica diretamente com o desktop. Desktop faz pesquisas longas em Dispatch, reivindica comandos, direciona o armazenamento de execução local e espelha os resultados de volta."}>
+
+```html
+<div class="diagram-remote">
+  <div class="diagram-node" data-rough>
+    Celular / Telegram<br /><small class="diagram-muted">/code · sessões</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Relay do Dispatch<br /><small class="diagram-muted"
+      >hosts · execuções · transcrição</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-node" data-rough>
+    Desktop<br /><small class="diagram-muted"
+      >long-polls · assume · controla run store</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-remote {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-remote .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Os pontos finais de retransmissão remota canônica são:
 

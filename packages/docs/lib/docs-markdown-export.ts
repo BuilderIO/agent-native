@@ -324,6 +324,22 @@ function formatWireframe(data: Record<string, unknown>): string {
   return fenced("json", JSON.stringify(data, null, 2));
 }
 
+function formatDiagram(data: Record<string, unknown>): string {
+  if (asString(data.caption) || asString(data.html) || asString(data.css)) {
+    return [
+      asString(data.caption)
+        ? `#### ${protectInlineJsx(asString(data.caption)!)}`
+        : undefined,
+      asString(data.html) ? fenced("html", data.html) : undefined,
+      asString(data.css) ? fenced("css", data.css) : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+  }
+  return fenced("json", JSON.stringify(data, null, 2));
+}
+
 function formatBlockData(
   type: string,
   data: Record<string, unknown>,
@@ -361,7 +377,9 @@ function formatBlockData(
                             ? formatColumns(data)
                             : type === "wireframe"
                               ? formatWireframe(data)
-                              : fenced("json", JSON.stringify(data, null, 2));
+                              : type === "diagram"
+                                ? formatDiagram(data)
+                                : fenced("json", JSON.stringify(data, null, 2));
 
   return [...prefix, body].filter(Boolean).join("\n\n");
 }
@@ -373,7 +391,7 @@ function fenceSegmentToMarkdown(
   if (type === "mermaid") {
     return fenced("mermaid", segment.body);
   }
-  if (type === "diagram" || !type) {
+  if (!type) {
     const attrs = Object.entries(segment.attrs)
       .map(([key, value]) => `${key}="${value.replace(/"/g, '\\"')}"`)
       .join(" ");
@@ -395,6 +413,7 @@ export function docsBodyToMarkdownMirror(body: string): string {
     splitDocSegments(body)
       .map((segment) => {
         if (segment.kind === "markdown") return segment.text.trim();
+        if (segment.kind === "invalid-block") return segment.body.trim();
         if (segment.source === "fence") return fenceSegmentToMarkdown(segment);
         return formatBlockData(segment.type, asRecord(segment.data), segment);
       })

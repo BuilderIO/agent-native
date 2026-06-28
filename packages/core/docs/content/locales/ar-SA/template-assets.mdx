@@ -18,12 +18,70 @@ description: "مدير أصول رقمية أصلي للوكيل وخدمة إن
 
 عند فتح التطبيق، تظل المكتبة المحددة والموجه والمراجع والمرشحون الذين تم إنشاؤهم في مساحة عمل واحدة. يمكن للوكيل تصفح كل الأصول والبحث فيها وإنشاءها وتحسينها وتصديرها من خلال نفس actions الذي يستخدمه UI.
 
-```an-diagram title="إنشاء ومراجعة وإعادة الاستخدام" summary="المراجع والمطالبات تغذي جلسة إنشاء واختيار؛ تصل الأصول المختارة إلى مكتبة وتتدفق إلى تطبيقات أخرى عبر المنتقي أو A2A."
-{
-  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">الشعارات، صور المنتج، الأسلوب</small></div><div class=\"diagram-node\">اِسْتَدْعَى<br><small class=\"diagram-muted\">الدردشة أو عناصر تحكم Generate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">جلسة إنشاء</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">مكتبة</span><small class=\"diagram-muted\">assets مختارة ومتسقة مع العلامة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / تطبيق MCP</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">شرائح · تصميم · محتوى</small></div></div></div>",
-  "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-1dgpq40" title={"إنشاء ومراجعة وإعادة الاستخدام"} summary={"المراجع والمطالبات تغذي جلسة إنشاء واختيار؛ تصل الأصول المختارة إلى مكتبة وتتدفق إلى تطبيقات أخرى عبر المنتقي أو A2A."}>
+
+```html
+<div class="diagram-assets">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      References<br /><small class="diagram-muted"
+        >الشعارات، صور المنتج، الأسلوب</small
+      >
+    </div>
+    <div class="diagram-node">
+      اِسْتَدْعَى<br /><small class="diagram-muted"
+        >الدردشة أو عناصر تحكم Generate</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">جلسة إنشاء</span
+    ><small class="diagram-muted"
+      >image &amp; video candidates · audit log</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">مكتبة</span
+    ><small class="diagram-muted">assets مختارة ومتسقة مع العلامة</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Picker<br /><small class="diagram-muted">iframe / تطبيق MCP</small>
+    </div>
+    <div class="diagram-node">
+      A2A<br /><small class="diagram-muted">شرائح · تصميم · محتوى</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-assets {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-assets .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-assets .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-assets .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## متى يتم اختياره
 

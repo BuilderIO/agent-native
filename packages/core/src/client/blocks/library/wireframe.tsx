@@ -335,13 +335,19 @@ function HtmlArtboard({
   compact?: boolean;
 }) {
   const renderMode = data.renderMode ?? "wireframe";
+  const designMode = renderMode === "design";
   // Sanitize author HTML/CSS at the render point (defense-in-depth against stored
   // XSS). Self-contained in core via the shared block sanitizer (DOM-based in the
   // browser, regex fallback on the server) so the HTML mockup path renders in any
   // app without the host wiring a sanitizer hook.
   const safeHtml = useMemo(
-    () => renderWireframeIconHtml(sanitizeWireframeHtml(data.html)),
-    [data.html],
+    () =>
+      renderWireframeIconHtml(
+        sanitizeWireframeHtml(data.html, {
+          preserveThemeClasses: designMode,
+        }),
+      ),
+    [data.html, designMode],
   );
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const scopedCss = useMemo(() => {

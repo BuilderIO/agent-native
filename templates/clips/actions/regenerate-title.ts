@@ -18,8 +18,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
+import { clearBuilderCreditsExhausted } from "./lib/builder-credits-state.js";
 import {
   cleanGeneratedTitle,
   fallbackTitleFromTranscript,
@@ -152,6 +154,7 @@ export default defineAction({
       ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
       purpose: "title",
     });
+    let builderCreditsPaused = false;
 
     try {
       const result = await cleanupTranscript.run({
@@ -189,6 +192,9 @@ export default defineAction({
             })
             .where(eq(schema.recordings.id, args.recordingId));
           await writeAppState("refresh-signal", { ts: Date.now() });
+          if (result.provider === "builder") {
+            await clearBuilderCreditsExhausted();
+          }
 
           console.log(
             `Regenerated title for ${args.recordingId} via ${result.provider}: ${generatedTitle}`,
@@ -209,6 +215,9 @@ export default defineAction({
         };
       }
     } catch (err) {
+      builderCreditsPaused = isBuilderCreditsExhaustedMessage(
+        (err as Error)?.message ?? String(err),
+      );
       console.warn(
         `[clips] AI title generation failed for ${args.recordingId}; falling back to local title:`,
         (err as Error).message,
@@ -252,6 +261,15 @@ export default defineAction({
           provider: "local",
         };
       }
+    }
+
+    if (builderCreditsPaused) {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "builder_credits_paused",
+        recordingId: args.recordingId,
+      };
     }
 
     await queueTitleRegenerationRequest({

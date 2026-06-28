@@ -17,12 +17,69 @@ Die Reihenfolge der Anbieterauflösung lautet:
 2. **Builder.io-Anbieter** – integriert, wird automatisch aktiviert, wenn Builder.io verbunden ist
 3. **SQL Fallback** – speichert Dateien als Base64 in der Datenbank (gut für Entwickler, nicht für Produktion)
 
-```an-diagram title="Anordnung zur Lösung des Anbieters" summary="uploadFile() wählt den ersten konfigurierten Anbieter der Reihe nach aus. Der SQL-Fallback ist immer vorhanden, sodass Uploads ohne Setup funktionieren."
-{
-  "html": "<div class=\"diagram-upload\"><div class=\"diagram-box\" data-rough>uploadFile()<br><small class=\"diagram-muted\">POST /_agent-native/file-upload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-step\"><span class=\"diagram-pill accent\">1</span><div class=\"diagram-node\">Vom Benutzer registriert<br><small class=\"diagram-muted\">registerFileUploadProvider() — S3, R2, GCS…</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><div class=\"diagram-node\">Builder.io<br><small class=\"diagram-muted\">automatisch nach Verbindung — per CDN bereitgestellt</small></div></div><div class=\"diagram-step\"><span class=\"diagram-pill warn\">3</span><div class=\"diagram-node\">SQL-Fallback<br><small class=\"diagram-muted\">base64 in DB — nur Entwicklung</small></div></div></div></div>",
-  "css": ".diagram-upload{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-upload .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-upload .diagram-step{display:flex;align-items:center;gap:8px}.diagram-upload .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1f4e9e3" title={"Anordnung zur Lösung des Anbieters"} summary={"uploadFile() wählt den ersten konfigurierten Anbieter der Reihe nach aus. Der SQL-Fallback ist immer vorhanden, sodass Uploads ohne Setup funktionieren."}>
+
+```html
+<div class="diagram-upload">
+  <div class="diagram-box" data-rough>
+    uploadFile()<br /><small class="diagram-muted"
+      >POST /_agent-native/file-upload</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-step">
+      <span class="diagram-pill accent">1</span>
+      <div class="diagram-node">
+        Vom Benutzer registriert<br /><small class="diagram-muted"
+          >registerFileUploadProvider() — S3, R2, GCS…</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">2</span>
+      <div class="diagram-node">
+        Builder.io<br /><small class="diagram-muted"
+          >automatisch nach Verbindung — per CDN bereitgestellt</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill warn">3</span>
+      <div class="diagram-node">
+        SQL-Fallback<br /><small class="diagram-muted"
+          >base64 in DB — nur Entwicklung</small
+        >
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-upload .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-upload .diagram-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-upload .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 <Endpoint id="doc-block-1xajgtg" title="Der Upload-Endpunkt" method="POST" path="/_agent-native/file-upload" summary={"Laden Sie eine Datei über den aktiven Anbieter hoch und erhalten Sie eine öffentliche URL zurück."} request={{
   "contentType": "multipart/form-data"

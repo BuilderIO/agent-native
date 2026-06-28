@@ -225,6 +225,10 @@
   border-radius: var(--wf-radius);
   padding: 12px;
 }
+.plan-html-frame[data-style="sketchy"]:not([data-render-mode="design"])
+  :is(.wf-card, .wf-box) {
+  border-color: color-mix(in srgb, var(--wf-line) 72%, transparent);
+}
 .plan-html-frame:not([data-render-mode="design"]) .wf-pill,
 .plan-html-frame:not([data-render-mode="design"]) .wf-chip {
   display: inline-flex;
@@ -241,10 +245,18 @@
   background: var(--wf-accent-soft);
 }
 
-/* Once rough has drawn, hide the crisp borders so there's no doubling. Pills
-   keep their rounded crisp border (the rough overlay rounds them too). */
+/* Once rough has drawn, hide crisp borders only on elements rough.js actually
+   redraws. Broad helper containers keep theme-safe filled backgrounds and soft
+   borders so nested cards do not become a pile of overlapping sketch strokes. */
 .plan-html-frame[data-rough-ready]
-  :is(button, input, textarea, select, .wf-card, .wf-box, hr, [data-rough]) {
+  :is(
+    button,
+    input,
+    textarea,
+    select,
+    hr,
+    [data-rough]:not([data-rough="none"])
+  ) {
   border-color: transparent !important;
 }
 

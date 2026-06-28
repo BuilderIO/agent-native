@@ -30,12 +30,60 @@ Conceptos clave:
 - **MCP remoto estándar OAuth**: descubrimiento de OAuth 2.1, registro dinámico de cliente, código de autorización + PKCE, rotación de token de actualización
 - **Reserva de autenticación de portador**: utiliza `ACCESS_TOKEN`, `ACCESS_TOKENS` o JWT conectados para clientes que no pueden ejecutar OAuth
 
-```an-diagram title="Tu aplicación como servidor MCP" summary="Los hosts externos se conectan a través de Streamable HTTP. Cada acción es una herramienta; Ask-Agent delega al ciclo completo del agente."
-{
-  "html": "<div class=\"diagram-mcp\"><div class=\"diagram-col\"><div class=\"diagram-node\">Claude</div><div class=\"diagram-node\">ChatGPT</div><div class=\"diagram-node\">Cursor · Codex</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill accent\">POST /_agent-native/mcp</span><small class=\"diagram-muted\">Streamable HTTP</small><small class=\"diagram-muted\">initialize &rarr; tools/list &rarr; tools/call</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\" data-rough>each action<br><small class=\"diagram-muted\">= one tool</small></div><div class=\"diagram-box\" data-rough>ask-agent<br><small class=\"diagram-muted\">&rarr; full agent loop</small></div></div></div>",
-  "css": ".diagram-mcp{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-mcp .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-mcp .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-mcp .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-1t2sjhd" title={"Tu aplicación como servidor MCP"} summary={"Los hosts externos se conectan a través de Streamable HTTP. Cada acción es una herramienta; Ask-Agent delega al ciclo completo del agente."}>
+
+```html
+<div class="diagram-mcp">
+  <div class="diagram-col">
+    <div class="diagram-node">Claude</div>
+    <div class="diagram-node">ChatGPT</div>
+    <div class="diagram-node">Cursor · Codex</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    ><small class="diagram-muted">Streamable HTTP</small
+    ><small class="diagram-muted"
+      >initialize &rarr; tools/list &rarr; tools/call</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box" data-rough>
+      each action<br /><small class="diagram-muted">= one tool</small>
+    </div>
+    <div class="diagram-box" data-rough>
+      ask-agent<br /><small class="diagram-muted">&rarr; full agent loop</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mcp {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-mcp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-mcp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-mcp .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## MCP frente a A2A {#mcp-vs-a2a}
 
@@ -205,12 +253,61 @@ Puntos finales de descubrimiento:
 | `/_agent-native/mcp/oauth/authorize`      | Autorización del navegador + consentimiento                      |
 | `/_agent-native/mcp/oauth/token`          | Concesiones de códigos de autorización y tokens de actualización |
 
-```an-diagram title="OAuth flujo de descubrimiento" summary="Un 401 inicia el descubrimiento, el registro y una autorización PKCE → intercambio de tokens. El token de portador está limitado a la audiencia y tiene un alcance."
-{
-  "html": "<div class=\"diagram-oauth\"><div class=\"diagram-box\" data-rough>first request<br><small class=\"diagram-muted\">no token</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill warn\">401 · WWW-Authenticate</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">/.well-known/oauth-protected-resource</span><span class=\"diagram-pill\">/.well-known/oauth-authorization-server</span><small class=\"diagram-muted\">discover</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">register</div><div class=\"diagram-pill\">authorize (PKCE)</div><div class=\"diagram-pill\">token</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Bearer access token<br><small class=\"diagram-muted\">vinculado a audiencia · mcp:read / write / apps</small></div></div>",
-  "css": ".diagram-oauth{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-oauth .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-oauth .diagram-col{display:flex;flex-direction:column;gap:6px}.diagram-oauth .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-1infile" title="OAuth flujo de descubrimiento" summary={"Un 401 inicia el descubrimiento, el registro y una autorización PKCE → intercambio de tokens. El token de portador está limitado a la audiencia y tiene un alcance."}>
+
+```html
+<div class="diagram-oauth">
+  <div class="diagram-box" data-rough>
+    first request<br /><small class="diagram-muted">no token</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill warn">401 · WWW-Authenticate</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill">/.well-known/oauth-protected-resource</span
+    ><span class="diagram-pill">/.well-known/oauth-authorization-server</span
+    ><small class="diagram-muted">discover</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">register</div>
+    <div class="diagram-pill">authorize (PKCE)</div>
+    <div class="diagram-pill">token</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Bearer access token<br /><small class="diagram-muted"
+      >vinculado a audiencia · mcp:read / write / apps</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-oauth {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-oauth .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-oauth .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-oauth .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Los tokens de acceso son JWT firmados cuya audiencia es exactamente el recurso MCP URL. El servidor acepta solo tokens emitidos por sí mismo y aplica alcances antes de enumerar/llamar herramientas:
 

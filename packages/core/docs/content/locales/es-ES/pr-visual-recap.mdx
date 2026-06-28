@@ -24,12 +24,71 @@ En cada impulso de relaciones públicas, el flujo de trabajo:
 7. Inserta un único comentario adhesivo de relaciones públicas que incorpora las capturas de pantalla **en línea** con un elemento `<picture>` (publicado a través del proxy de imagen de camuflaje de GitHub) junto al enlace al resumen interactivo.
 8. Completa la comprobación `Visual Recap` con éxito, omitida o neutral.
 
-```an-diagram title="¿Qué sucede en cada impulso de relaciones públicas?" summary="Una diferencia limitada alimenta a un agente de codificación real, que elabora un resumen; el flujo de trabajo toma una captura de pantalla y agrega un comentario adhesivo."
-{
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">Push del PR<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Agente de código<br><small class=\"diagram-muted\">Claude Code / Codex lee el diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Chrome sin interfaz<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Un comentario fijo de PR<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
-  "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
+<Diagram id="doc-block-1k6ixbj" title={"¿Qué sucede en cada impulso de relaciones públicas?"} summary={"Una diferencia limitada alimenta a un agente de codificación real, que elabora un resumen; el flujo de trabajo toma una captura de pantalla y agrega un comentario adhesivo."}>
+
+```html
+<div class="diagram-recap">
+  <div class="diagram-node">
+    Push del PR<br /><small class="diagram-muted"
+      >bounded base&hellip;head diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Agente de código<br /><small class="diagram-muted"
+      >Claude Code / Codex lee el diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-visual-recap</span
+    ><small class="diagram-muted">publishes recap plan</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Chrome sin interfaz<br /><small class="diagram-muted"
+      >light + dark screenshots</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Un comentario fijo de PR<br /><small class="diagram-muted"
+      >inline screenshot + plan link</small
+    >
+  </div>
+</div>
+<div class="diagram-foot diagram-muted">
+  Plus an informational <span class="diagram-pill">Visual Recap</span> check
+  &mdash; non-blocking, never required.
+</div>
+```
+
+```css
+.diagram-recap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-recap .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-recap .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-recap .diagram-foot {
+  flex-basis: 100%;
+  margin-top: 10px;
+  font-size: 13px;
 }
 ```
+
+</Diagram>
 
 Una nueva publicación actualiza el mismo plan y el mismo comentario fijo: no hay planes huérfanos ni comentarios spam.
 
@@ -157,12 +216,70 @@ Si desea generar resúmenes de relaciones públicas de bifurcación, hay disponi
 
 Para instalarlo, copie el archivo de [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) en el directorio `.github/workflows/` de su repositorio junto con el `pr-visual-recap.yml` existente. Se aplican los mismos secretos (`PLAN_RECAP_TOKEN`, `ANTHROPIC_API_KEY`).
 
-```an-diagram title="Puerta de consentimiento de relaciones públicas de bifurcación" summary="Los PR de bifurcación no obtienen secretos de forma predeterminada; Los autores confiables se ejecutan automáticamente y los contribuyentes externos requieren una nueva etiqueta de resumen del mantenedor."
-{
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">PR de fork abierto<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">Autor de confianza</span><small class=\"diagram-muted\">OWNER, MEMBER o COLLABORATOR se ejecuta automáticamente</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">Colaborador externo</span><small class=\"diagram-muted\">el mantenedor revisa el diff y luego lo aplica <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">Comprobaciones de puerta<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">Ejecuciones de recapitulación<br><small class=\"diagram-muted\">solo código del repo base · el diff del fork es entrada de texto</small></div></div>",
-  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
+<Diagram id="doc-block-1wba1la" title={"Puerta de consentimiento de relaciones públicas de bifurcación"} summary={"Los PR de bifurcación no obtienen secretos de forma predeterminada; Los autores confiables se ejecutan automáticamente y los contribuyentes externos requieren una nueva etiqueta de resumen del mantenedor."}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-node">
+    PR de fork abierto<br /><small class="diagram-muted"
+      >main workflow has no secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">Autor de confianza</span
+    ><small class="diagram-muted"
+      >OWNER, MEMBER o COLLABORATOR se ejecuta automáticamente</small
+    >
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Colaborador externo</span
+    ><small class="diagram-muted"
+      >el mantenedor revisa el diff y luego lo aplica <code>recap</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    Comprobaciones de puerta<br /><small class="diagram-muted"
+      >fork PR? &amp; trusted or fresh label?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">
+    Ejecuciones de recapitulación<br /><small class="diagram-muted"
+      >solo código del repo base · el diff del fork es entrada de texto</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-fork .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### Cómo funciona la puerta de etiquetas
 

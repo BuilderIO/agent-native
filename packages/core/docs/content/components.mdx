@@ -25,12 +25,71 @@ Avoid importing UI components from the bare `@agent-native/core` package. Use
 `@agent-native/core/client` or a focused `@agent-native/core/client/*` subpath
 so bundlers choose the browser-safe entry.
 
-```an-diagram title="Drop down a layer, not out of the framework" summary="Each layer keeps the same runtime — actions, thread state, and SQL-backed sync — while giving you more control over the chrome."
-{
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">Whole sidebar around your app. The 80% case.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">The panel or a chat page in your own layout.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + runtime</span><small class=\"diagram-muted\">Own the chrome; optionally pass a BYO AgentChatRuntime.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span><small class=\"diagram-muted\">Composer and transcript primitives only.</small></div><div class=\"diagram-rail\" data-rough>Same runtime: actions &middot; thread state &middot; SQL-backed sync</div></div>",
-  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-u3yfqy" title="Drop down a layer, not out of the framework" summary={"Each layer keeps the same runtime — actions, thread state, and SQL-backed sync — while giving you more control over the chrome."}>
+
+```html
+<div class="diagram-layers">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">&lt;AgentSidebar&gt;</span
+    ><small class="diagram-muted"
+      >Whole sidebar around your app. The 80% case.</small
+    >
+  </div>
+  <div class="diagram-card layer l2">
+    <span class="diagram-pill"
+      >&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span
+    ><small class="diagram-muted"
+      >The panel or a chat page in your own layout.</small
+    >
+  </div>
+  <div class="diagram-card layer l3">
+    <span class="diagram-pill">&lt;AssistantChat&gt; + runtime</span
+    ><small class="diagram-muted"
+      >Own the chrome; optionally pass a BYO AgentChatRuntime.</small
+    >
+  </div>
+  <div class="diagram-card layer l4">
+    <span class="diagram-pill"
+      >&lt;PromptComposer&gt; &middot; &lt;AgentConversation&gt;</span
+    ><small class="diagram-muted"
+      >Composer and transcript primitives only.</small
+    >
+  </div>
+  <div class="diagram-rail" data-rough>
+    Same runtime: actions &middot; thread state &middot; SQL-backed sync
+  </div>
+</div>
+```
+
+```css
+.diagram-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-layers .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-layers .l2 {
+  margin-inline-start: 24px;
+}
+.diagram-layers .l3 {
+  margin-inline-start: 48px;
+}
+.diagram-layers .l4 {
+  margin-inline-start: 72px;
+}
+.diagram-layers .diagram-rail {
+  margin-top: 6px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## Agent And Chat UI {#agent-chat-ui}
 
@@ -178,12 +237,63 @@ collaborative document hooks.
 | `useCollaborativeMap()` / `useCollaborativeArray()` | Experiment with structured Y.Map/Y.Array state when rich-text body collab is the wrong fit. |
 | `dedupeCollabUsersByEmail()`                        | Build a custom avatar stack without duplicate tabs for the same user.                       |
 
-```an-diagram title="Presence: humans and the agent share one awareness layer" summary="useCollaborativeDoc owns the awareness instance; client hooks publish cursors and selections; server helpers let an agent action appear as a live participant."
-{
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">Humans<br><small class=\"diagram-muted\">usePresence &middot; cursors, selection</small></div><div class=\"diagram-node diagram-accent\">Agent action<br><small class=\"diagram-muted\">agentUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">awareness layer</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">render everyone, agent included</small></div></div>",
-  "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-8mu09e" title="Presence: humans and the agent share one awareness layer" summary={"useCollaborativeDoc owns the awareness instance; client hooks publish cursors and selections; server helpers let an agent action appear as a live participant."}>
+
+```html
+<div class="diagram-presence">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Humans<br /><small class="diagram-muted"
+        >usePresence &middot; cursors, selection</small
+      >
+    </div>
+    <div class="diagram-node diagram-accent">
+      Agent action<br /><small class="diagram-muted"
+        >agentUpdateSelection()</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">useCollaborativeDoc</span
+    ><small class="diagram-muted">awareness layer</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    &lt;PresenceBar&gt; &middot; &lt;LiveCursorOverlay&gt;<br /><small
+      class="diagram-muted"
+      >render everyone, agent included</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-presence {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-presence .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-presence .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-presence .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Server-side agent actions that want to appear as a live participant use the
 lower-level `@agent-native/core/collab` agent presence helpers:

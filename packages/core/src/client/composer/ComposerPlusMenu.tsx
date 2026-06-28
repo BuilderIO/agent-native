@@ -9,7 +9,6 @@ import {
   IconPlugConnected,
   IconPhotoPlus,
   IconLoader2,
-  IconCheck,
   IconArrowLeft,
   IconX,
 } from "@tabler/icons-react";
@@ -28,12 +27,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
+import { isMcpIntegrationCatalogAvailable } from "../resources/mcp-integration-catalog.js";
+import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import {
-  formatMcpServerError,
-  getMcpUrlValidationError,
   useCreateMcpServer,
-  testMcpServerUrl,
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
 import { cn } from "../utils.js";
@@ -52,7 +51,7 @@ interface ComposerPlusMenuProps {
   mode?: "full" | "upload-only";
 }
 
-type View = "menu" | "mcp-server" | "skill-upload";
+type View = "menu" | "skill-upload";
 
 const DEFAULT_ASSETS_PICKER_URL = "https://assets.agent-native.com/picker";
 const EMBED_PROTOCOL = "agent-native.embed";
@@ -254,32 +253,25 @@ function ComposerPlusMenuFull({
   onSelectMode,
   onAttachmentError,
 }: Pick<ComposerPlusMenuProps, "onSelectMode" | "onAttachmentError">) {
+  const t = useT();
   const composerRuntime = useComposerRuntime();
   const [open, setOpen] = useState(false);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
+  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [view, setView] = useState<View>("menu");
+  const showMcpIntegrations = useMemo(
+    () => isMcpIntegrationCatalogAvailable(),
+    [],
+  );
 
-  // MCP state
   const { data: org } = useOrg();
   const canCreateOrgMcp =
     !org?.orgId || org.role === "owner" || org.role === "admin";
   const hasOrg = !!org?.orgId;
   const defaultMcpScope: McpServerScope =
     hasOrg && canCreateOrgMcp ? "org" : "user";
-  const [mcpScope, setMcpScope] = useState<McpServerScope>(defaultMcpScope);
-  const [mcpName, setMcpName] = useState("");
-  const [mcpUrl, setMcpUrl] = useState("");
-  const [mcpDescription, setMcpDescription] = useState("");
-  const [mcpHeadersText, setMcpHeadersText] = useState("");
-  const [mcpBusy, setMcpBusy] = useState(false);
-  const [mcpError, setMcpError] = useState<string | null>(null);
-  const [mcpTestResult, setMcpTestResult] = useState<{
-    ok: boolean;
-    message: string;
-  } | null>(null);
   const createMcp = useCreateMcpServer();
 
-  const inputRef = useRef<HTMLInputElement>(null);
   const fileUploadRef = useRef<HTMLInputElement>(null);
   const skillFileInputRef = useRef<HTMLInputElement>(null);
   const skillHoverTimerRef = useRef<number | null>(null);
@@ -321,14 +313,6 @@ function ComposerPlusMenuFull({
   useEffect(() => {
     if (open) {
       setView("menu");
-      setMcpScope(defaultMcpScope);
-      setMcpName("");
-      setMcpUrl("");
-      setMcpDescription("");
-      setMcpHeadersText("");
-      setMcpError(null);
-      setMcpTestResult(null);
-      setMcpBusy(false);
       setSkillUploadSlug("");
       setSkillUploadContent("");
       setSkillUploadFileName("");
@@ -336,95 +320,7 @@ function ComposerPlusMenuFull({
       setSkillUploadBusy(false);
       setSkillFlyoutOpen(false);
     }
-  }, [open, defaultMcpScope]);
-
-  useEffect(() => {
-    if (view === "mcp-server") {
-      setMcpError(null);
-      setMcpTestResult(null);
-      const t = setTimeout(() => inputRef.current?.focus(), 50);
-      return () => clearTimeout(t);
-    }
-  }, [view]);
-
-  const clearMcpFeedback = () => {
-    setMcpError(null);
-    setMcpTestResult(null);
-  };
-
-  const parseHeaderLines = (
-    text: string,
-  ): Record<string, string> | undefined => {
-    const out: Record<string, string> = {};
-    for (const line of text.split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      const idx = trimmed.indexOf(":");
-      if (idx <= 0) continue;
-      const key = trimmed.slice(0, idx).trim();
-      const val = trimmed.slice(idx + 1).trim();
-      if (!key || !val) continue;
-      out[key] = val;
-    }
-    return Object.keys(out).length > 0 ? out : undefined;
-  };
-
-  const submitMcpServer = async () => {
-    const name = mcpName.trim();
-    const url = mcpUrl.trim();
-    if (!name || !url || mcpBusy) return;
-    const validationError = getMcpUrlValidationError(url);
-    if (validationError) {
-      setMcpError(validationError);
-      setMcpTestResult(null);
-      return;
-    }
-    setMcpError(null);
-    setMcpBusy(true);
-    try {
-      await createMcp.mutateAsync({
-        scope: mcpScope,
-        name,
-        url,
-        headers: parseHeaderLines(mcpHeadersText),
-        description: mcpDescription.trim() || undefined,
-      });
-      setOpen(false);
-    } catch (err: any) {
-      setMcpError(formatMcpServerError(err));
-    } finally {
-      setMcpBusy(false);
-    }
-  };
-
-  const runMcpTest = async () => {
-    const url = mcpUrl.trim();
-    if (!url || mcpBusy) return;
-    const validationError = getMcpUrlValidationError(url);
-    if (validationError) {
-      setMcpTestResult({ ok: false, message: validationError });
-      setMcpError(null);
-      return;
-    }
-    setMcpTestResult(null);
-    setMcpError(null);
-    setMcpBusy(true);
-    try {
-      const res = await testMcpServerUrl(url, parseHeaderLines(mcpHeadersText));
-      if (res.ok) {
-        setMcpTestResult({
-          ok: true,
-          message: `${res.toolCount ?? 0} tool${res.toolCount === 1 ? "" : "s"} available`,
-        });
-      } else {
-        setMcpTestResult({ ok: false, message: res.error ?? "Failed" });
-      }
-    } catch (err: any) {
-      setMcpTestResult({ ok: false, message: formatMcpServerError(err) });
-    } finally {
-      setMcpBusy(false);
-    }
-  };
+  }, [open]);
 
   const handleSkillFileSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -542,12 +438,19 @@ function ComposerPlusMenuFull({
         setOpen(false);
       },
     },
-    {
-      icon: <IconPlugConnected className="h-3.5 w-3.5" />,
-      label: "Connect MCP Server",
-      desc: "Expose external tools to the agent",
-      action: () => setView("mcp-server"),
-    },
+    ...(showMcpIntegrations
+      ? [
+          {
+            icon: <IconPlugConnected className="h-3.5 w-3.5" />,
+            label: t("mcpIntegrations.menuLabel"),
+            desc: t("mcpIntegrations.menuDescription"),
+            action: () => {
+              setOpen(false);
+              setMcpDialogOpen(true);
+            },
+          },
+        ]
+      : []),
     {
       icon: <IconBulb className="h-3.5 w-3.5" />,
       label: "Create Skill",
@@ -556,20 +459,6 @@ function ComposerPlusMenuFull({
       hoverAction: openSkillFlyout,
     },
   ];
-
-  const backButton = (
-    <button
-      type="button"
-      onClick={() => {
-        clearMcpFeedback();
-        setView("menu");
-      }}
-      className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground mb-1.5"
-    >
-      <IconArrowLeft className="h-3 w-3 rtl:-scale-x-100" />
-      Back
-    </button>
-  );
 
   return (
     <>
@@ -615,7 +504,7 @@ function ComposerPlusMenuFull({
           sideOffset={8}
           className={cn(
             "p-0 rounded-lg",
-            view === "skill-upload" || view === "mcp-server"
+            view === "skill-upload"
               ? "max-h-[70vh] w-[calc(100vw-24px)] max-w-[380px] overflow-y-auto"
               : "w-[260px]",
           )}
@@ -821,162 +710,16 @@ function ComposerPlusMenuFull({
               </div>
             </div>
           )}
-
-          {view === "mcp-server" && (
-            <div className="p-3">
-              {backButton}
-              <label className="mb-1 block text-[11px] font-semibold text-foreground">
-                Connect MCP Server
-              </label>
-              <p className="mb-2 text-[10px] text-muted-foreground/60 leading-relaxed">
-                Point at any Streamable HTTP MCP server. Its tools become
-                available to the agent. Use Personal for private or staging
-                servers; use Organization only for vetted servers the whole org
-                should share.
-              </p>
-              <div className="space-y-2">
-                <div className="flex gap-1 rounded-md border border-border p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setMcpScope("user")}
-                    className={cn(
-                      "flex-1 rounded px-2 py-1 text-[11px] font-medium",
-                      mcpScope === "user"
-                        ? "bg-accent text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    Personal
-                  </button>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          hasOrg && canCreateOrgMcp && setMcpScope("org")
-                        }
-                        disabled={!hasOrg || !canCreateOrgMcp}
-                        className={cn(
-                          "flex-1 rounded px-2 py-1 text-[11px] font-medium",
-                          mcpScope === "org"
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:text-foreground",
-                          (!hasOrg || !canCreateOrgMcp) &&
-                            "cursor-not-allowed opacity-50 hover:text-muted-foreground",
-                        )}
-                      >
-                        Organization
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {!hasOrg
-                        ? "Join an organization to share MCP servers"
-                        : !canCreateOrgMcp
-                          ? "Only owners and admins can add org-scope servers"
-                          : undefined}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <input
-                  ref={inputRef}
-                  value={mcpName}
-                  onChange={(e) => {
-                    setMcpName(e.target.value);
-                    clearMcpFeedback();
-                  }}
-                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="Server name (e.g. zapier-staging)"
-                />
-                <input
-                  value={mcpUrl}
-                  onChange={(e) => {
-                    setMcpUrl(e.target.value);
-                    clearMcpFeedback();
-                  }}
-                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="https://mcp.example.com/"
-                />
-                <input
-                  value={mcpDescription}
-                  onChange={(e) => {
-                    setMcpDescription(e.target.value);
-                    clearMcpFeedback();
-                  }}
-                  className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  placeholder="Description (optional)"
-                />
-                <div>
-                  <label className="block text-[10px] font-medium text-foreground">
-                    Headers
-                  </label>
-                  <p className="mt-0.5 text-[10px] leading-snug text-muted-foreground/70">
-                    Optional. One per line, for example Authorization: Bearer
-                    sk-...
-                  </p>
-                </div>
-                <textarea
-                  value={mcpHeadersText}
-                  onChange={(e) => {
-                    setMcpHeadersText(e.target.value);
-                    clearMcpFeedback();
-                  }}
-                  rows={2}
-                  className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                  style={{
-                    fontFamily:
-                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-                  }}
-                  placeholder="Authorization: Bearer sk-..."
-                />
-                {mcpTestResult && (
-                  <div
-                    className={cn(
-                      "flex items-start gap-1 text-[11px] leading-snug",
-                      mcpTestResult.ok
-                        ? "text-green-600 dark:text-green-400"
-                        : "text-red-600 dark:text-red-400",
-                    )}
-                  >
-                    {mcpTestResult.ok && (
-                      <IconCheck className="mt-0.5 h-3 w-3 shrink-0" />
-                    )}
-                    <span className="min-w-0 break-words">
-                      {mcpTestResult.message}
-                    </span>
-                  </div>
-                )}
-                {mcpError && (
-                  <div className="break-words text-[11px] leading-snug text-red-600 dark:text-red-400">
-                    {mcpError}
-                  </div>
-                )}
-              </div>
-              <div className="mt-2.5 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={runMcpTest}
-                  disabled={!mcpUrl.trim() || mcpBusy}
-                  className="rounded-md border border-border bg-background px-2.5 py-1.5 text-[11px] font-medium text-foreground hover:bg-accent disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  Test
-                </button>
-                <button
-                  type="button"
-                  onClick={submitMcpServer}
-                  disabled={!mcpName.trim() || !mcpUrl.trim() || mcpBusy}
-                  className="rounded-md bg-accent px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent/80 disabled:opacity-40 disabled:pointer-events-none"
-                >
-                  {mcpBusy ? (
-                    <IconLoader2 className="h-3 w-3 animate-spin" />
-                  ) : (
-                    "Connect"
-                  )}
-                </button>
-              </div>
-            </div>
-          )}
         </PopoverContent>
       </Popover>
+      <McpIntegrationDialog
+        open={mcpDialogOpen}
+        onOpenChange={setMcpDialogOpen}
+        defaultScope={defaultMcpScope}
+        canCreateOrgMcp={canCreateOrgMcp}
+        hasOrg={hasOrg}
+        onCreateMcpServer={(args) => createMcp.mutateAsync(args)}
+      />
       <AssetsPickerModal
         open={assetsPickerOpen}
         onOpenChange={setAssetsPickerOpen}

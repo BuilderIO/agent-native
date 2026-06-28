@@ -101,6 +101,54 @@ describe("splitDocSegments", () => {
     });
   });
 
+  it("parses Diagram MDX child code fences through the block registry", () => {
+    const md = [
+      '<Diagram id="diagram" title="Flow" caption="Caption">',
+      "",
+      "```html",
+      '<div class="flow">Flow</div>',
+      "```",
+      "",
+      "```css",
+      ".flow { display: grid; }",
+      "```",
+      "",
+      "</Diagram>",
+    ].join("\n");
+
+    const segments = splitDocSegments(md);
+    expect(segments).toHaveLength(1);
+    const block = segments[0];
+    if (block.kind !== "block" || block.source !== "mdx") {
+      throw new Error("expected MDX block");
+    }
+    expect(block.type).toBe("diagram");
+    expect(block.title).toBe("Flow");
+    expect(block.data).toEqual({
+      html: '<div class="flow">Flow</div>',
+      css: ".flow { display: grid; }",
+      caption: "Caption",
+    });
+  });
+
+  it("keeps legacy Diagram data attributes parseable", () => {
+    const md =
+      '<Diagram id="diagram" data={{ html: "<div />", css: ".x {}", caption: "Legacy" }} />';
+
+    const segments = splitDocSegments(md);
+    expect(segments).toHaveLength(1);
+    const block = segments[0];
+    if (block.kind !== "block" || block.source !== "mdx") {
+      throw new Error("expected MDX block");
+    }
+    expect(block.type).toBe("diagram");
+    expect(block.data).toEqual({
+      html: "<div />",
+      css: ".x {}",
+      caption: "Legacy",
+    });
+  });
+
   it("parses MDX blocks in docs that use explicit markdown heading ids", () => {
     const md = [
       "## What and why {#what-why}",

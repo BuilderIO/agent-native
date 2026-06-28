@@ -30,13 +30,69 @@ MCP 앱 확장을 지원하는 호스트의 경우 작업은 `mcpApp`를 사용�
 
 제품 UI에 대한 일회성 일반 HTML MCP 앱을 직접 작성하지 마세요. 작업에 맞춤 표면이 필요한 경우 먼저 실제 앱 경로/구성요소를 추가하거나 재사용하고 해당 경로를 삽입하세요.
 
-```an-diagram title="MCP 앱 삽입 왕복" summary="작업의 링크 대상도 포함 대상입니다. 가능한 호스트는 동일한 서명된 앱 경로를 인라인으로 로드합니다. 다른 모든 사람들은 딥 링크로 돌아갑니다."
-{
-  "html": "<div class=\"diagram-embed\"><div class=\"diagram-card\" data-rough><strong>Action</strong><small class=\"diagram-muted\">`link` target = MCP App embed target</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>embedApp()</strong><span class=\"diagram-pill accent\">create_embed_session</span><small class=\"diagram-muted\">mints short-lived embed session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>/_agent-native/embed/start</strong><small class=\"diagram-muted\">일회용 SQL ticket 교환</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>Signed app route</strong><span class=\"diagram-pill ok\">실제 React 라우트</span><small class=\"diagram-muted\">short-lived browser session</small></div><div class=\"diagram-fallback\"><span class=\"diagram-pill warn\">MCP Apps 미지원</span><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>&quot;Open in … &rarr;&quot; deep link</div></div></div>",
-"css": ".diagram-embed{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-embed .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:140px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .diagram-fallback{display:flex;flex-direction:column;align-items:center;gap:6px;margin-inline-start:8px}"
-}
+<Diagram id="doc-block-9m5f26" title={"MCP 앱 삽입 왕복"} summary={"작업의 링크 대상도 포함 대상입니다. 가능한 호스트는 동일한 서명된 앱 경로를 인라인으로 로드합니다. 다른 모든 사람들은 딥 링크로 돌아갑니다."}>
 
+```html
+<div class="diagram-embed">
+  <div class="diagram-card" data-rough>
+    <strong>Action</strong
+    ><small class="diagram-muted">`link` target = MCP App embed target</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>embedApp()</strong
+    ><span class="diagram-pill accent">create_embed_session</span
+    ><small class="diagram-muted">mints short-lived embed session</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>/_agent-native/embed/start</strong
+    ><small class="diagram-muted">일회용 SQL ticket 교환</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>Signed app route</strong
+    ><span class="diagram-pill ok">실제 React 라우트</span
+    ><small class="diagram-muted">short-lived browser session</small>
+  </div>
+  <div class="diagram-fallback">
+    <span class="diagram-pill warn">MCP Apps 미지원</span>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>
+      &quot;Open in … &rarr;&quot; deep link
+    </div>
+  </div>
+</div>
 ```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 140px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .diagram-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: 8px;
+}
+```
+
+</Diagram>
 
 ```ts
 import { embedApp } from "@agent-native/core";
@@ -93,13 +149,67 @@ MCP 서버는 확장 `io.modelcontextprotocol/ui`를 광고하고, `_meta.ui.res
 
 MCP 앱 임베드는 별도의 미니 제품이 아닌 경로 임베드입니다. `embedApp()`는 작업의 `link` 대상에서 시작하여 단기 포함 세션을 생성하고 서명된 앱 경로를 시작합니다. 표준 MCP 앱 호스트는 호스트가 경로를 직접 수화할 수 있는 경우 MCP 앱 프레임 자체를 탐색할 수 있습니다.
 
-```an-diagram title="호스트 브리지 경로 2개, 서명된 경로 1개" summary="Claude는 수화된 경로를 이식하고 직접 ui/_bridge을 사용합니다. ChatGPT은 window.openai를 통해 제어된 iframe을 가져오고 postMessage를 통해 호스트 작업을 중계합니다. 둘 다 동일한 서명된 앱 경로를 가리킵니다."
-{
-  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><strong>Claude web</strong><span class=\"diagram-pill accent\">single-frame transplant</span><small class=\"diagram-muted\">Claude iframe에서 서명된 앱 HTML을 hydrate한 뒤 직접 `ui/_` 호스트 브리지</small></div><div class=\"diagram-card\" data-rough><strong>ChatGPT web</strong><span class=\"diagram-pill accent\">controlled route iframe</span><small class=\"diagram-muted\">`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage relay</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Same signed app route<br><small class=\"diagram-muted\">일반 라우트 + React 컴포넌트</small></div></div>",
-"css": ".diagram-bridge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-bridge .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-bridge .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;max-width:300px}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}.diagram-bridge .diagram-box{padding:16px 18px;text-align:center}"
-}
+<Diagram id="doc-block-1fvbryv" title={"호스트 브리지 경로 2개, 서명된 경로 1개"} summary={"Claude는 수화된 경로를 이식하고 직접 ui/_bridge을 사용합니다. ChatGPT은 window.openai를 통해 제어된 iframe을 가져오고 postMessage를 통해 호스트 작업을 중계합니다. 둘 다 동일한 서명된 앱 경로를 가리킵니다."}>
 
+```html
+<div class="diagram-bridge">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <strong>Claude web</strong
+      ><span class="diagram-pill accent">single-frame transplant</span
+      ><small class="diagram-muted"
+        >Claude iframe에서 서명된 앱 HTML을 hydrate한 뒤 직접 `ui/_` 호스트
+        브리지</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <strong>ChatGPT web</strong
+      ><span class="diagram-pill accent">controlled route iframe</span
+      ><small class="diagram-muted"
+        >`window.openai`host APIs ·`agentNative.mcpHost.*` postMessage
+        relay</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Same signed app route<br /><small class="diagram-muted"
+      >일반 라우트 + React 컴포넌트</small
+    >
+  </div>
+</div>
 ```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-bridge .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  max-width: 300px;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-bridge .diagram-box {
+  padding: 16px 18px;
+  text-align: center;
+}
+```
+
+</Diagram>
 
 Claude 웹은 단일 프레임 이식 경로를 사용합니다. 리소스 문서는 서명된 앱 HTML를 가져와 Claude의 MCP 앱 iframe 내에서 이를 수화합니다. 왜냐하면 Claude는 ​​앱 소유 하위 iframe 또는 외부 프레임 탐색을 안정적으로 허용하지 않기 때문입니다. ChatGPT 웹은 Apps 브리지가 안정적인 `window.openai` 호스트 API 및 제한된 높이 제어를 제공하기 때문에 제어된 경로 iframe을 얻습니다. 모든 경로는 동일한 서명된 앱 경로를 가리키며 일반 경로와 React 구성 요소를 렌더링합니다. 동일한 서명된 URL를 사용하여 다시 로드하면 동일한 뷰가 재구성되도록 포함된 경로를 설계합니다.
 

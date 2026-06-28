@@ -17,12 +17,66 @@ Chaque application native pour agent est composée de trois éléments qui fonc
 >
 > **Ordinateur** — Base de données, navigateur, exécution de code. Les agents travaillent directement avec SQL et les outils intégrés ; Les serveurs MCP sont des modules complémentaires facultatifs, et non la base.
 
-```an-diagram title="Agent, application et ordinateur" summary="Trois couches travaillant ensemble sur un magasin SQL partagé. L'agent et l'application lisent et écrivent les mêmes données."
-{
-  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">lit et écrit des données, exécute des actions, modifie le code</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full UI React</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">base de données SQL · browser · code execution</small></div></div>",
-  "css": ".diagram-arch{display:flex;flex-direction:column;align-items:center;gap:10px}.diagram-arch .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-arch .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:220px}.diagram-arch .diagram-arrow{font-size:20px;line-height:1}.diagram-arch .diagram-box{text-align:center;padding:12px 18px}"
+<Diagram id="doc-block-1w2cmz8" title="Agent, application et ordinateur" summary={"Trois couches travaillant ensemble sur un magasin SQL partagé. L'agent et l'application lisent et écrivent les mêmes données."}>
+
+```html
+<div class="diagram-arch">
+  <div class="diagram-row">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Agent</span
+      ><small class="diagram-muted"
+        >lit et écrit des données, exécute des actions, modifie le code</small
+      >
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Application</span
+      ><small class="diagram-muted"
+        >action-only, chat, control plane, or full UI React</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">
+    &darr;&nbsp;&uarr;
+  </div>
+  <div class="diagram-box" data-rough>
+    Computer<br /><small class="diagram-muted"
+      >base de données SQL · browser · code execution</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-arch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.diagram-arch .diagram-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.diagram-arch .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 220px;
+}
+.diagram-arch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-arch .diagram-box {
+  text-align: center;
+  padding: 12px 18px;
 }
 ```
+
+</Diagram>
 
 Les applications Headless peuvent exécuter la même boucle application-agent de production à partir du dossier avec `pnpm agent`, tandis que les applications UI montent le panneau d'agent intégré et s'exécutent localement avec `pnpm dev`. Dans le cloud, Builder.io fournit un cadre géré (l'environnement qui héberge l'agent à côté de votre application) avec collaboration, édition visuelle et infrastructure gérée pour les équipes.
 
@@ -273,12 +327,56 @@ Le flux est :
 4. Récupération des hooks `useActionQuery` et des hooks `useQuery` avec version source
 5. Les composants affichent les nouvelles données sans rechargement de page
 
-```an-diagram title="Flux de synchronisation en direct" summary="Une écriture d'agent devient un rendu d'interface utilisateur sans actualisation manuelle - SSE d'abord, interrogeant comme solution de secours universelle."
-{
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Action d’agent<br><small class=\"diagram-muted\">écrit en base de données</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Événement de changement<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Relance de requête<br><small class=\"diagram-muted\">rendu, sans rechargement</small></div></div>",
-  "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"
+<Diagram id="doc-block-1ifv0vu" title="Flux de synchronisation en direct" summary={"Une écriture d'agent devient un rendu d'interface utilisateur sans actualisation manuelle - SSE d'abord, interrogeant comme solution de secours universelle."}>
+
+```html
+<div class="diagram-sync">
+  <div class="diagram-node">
+    Action d’agent<br /><small class="diagram-muted"
+      >écrit en base de données</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Événement de changement<br /><small class="diagram-muted"
+      >source: action / settings</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">useDbSync</span
+    ><small class="diagram-muted">SSE &middot; poll fallback</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Relance de requête<br /><small class="diagram-muted"
+      >rendu, sans rechargement</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-sync {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-sync .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
 }
 ```
+
+</Diagram>
 
 Cela fonctionne dans tous les environnements de déploiement, y compris sans serveur et en périphérie, car il utilise la base de données, et non les observateurs d'état en mémoire ou du système de fichiers.
 

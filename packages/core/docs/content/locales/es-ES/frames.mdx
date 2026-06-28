@@ -20,12 +20,54 @@ chatear, ejecutar y (en desarrollo) editar código. Hay tres fotogramas que comp
 El código de tu aplicación es idéntico independientemente del marco que lo aloje. El agente habla
 a su aplicación a través del mismo actions y estado de la aplicación en todos los casos.
 
-```an-diagram title="Tres fotogramas, un tiempo de ejecución" summary="Su aplicación y el panel de agentes son los mismos en todos los cuadros; sólo cambia la envoltura que los rodea."
-{
-  "html": "<div class=\"diagram-frames\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Panel incrustado</span><small class=\"diagram-muted\">incluido en cada app · dev + prod</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Marco de desarrollo local</span><small class=\"diagram-muted\">app en iframe + panel + terminal CLI</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Marco cloud de Builder.io</span><small class=\"diagram-muted\">alojado: colaboración · edición visual · ejecuciones paralelas</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>Mismo runtime<br><small class=\"diagram-muted\">tu app · acciones · estado de aplicación</small></div></div>",
-  "css": ".diagram-frames{display:flex;flex-direction:column;gap:10px;align-items:stretch}.diagram-frames .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-frames .diagram-arrow{font-size:22px;line-height:1;align-self:center}"
+<Diagram id="doc-block-kwsu7t" title={"Tres fotogramas, un tiempo de ejecución"} summary={"Su aplicación y el panel de agentes son los mismos en todos los cuadros; sólo cambia la envoltura que los rodea."}>
+
+```html
+<div class="diagram-frames">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill accent">Panel incrustado</span
+    ><small class="diagram-muted">incluido en cada app · dev + prod</small>
+  </div>
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill">Marco de desarrollo local</span
+    ><small class="diagram-muted">app en iframe + panel + terminal CLI</small>
+  </div>
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill">Marco cloud de Builder.io</span
+    ><small class="diagram-muted"
+      >alojado: colaboración · edición visual · ejecuciones paralelas</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    Mismo runtime<br /><small class="diagram-muted"
+      >tu app · acciones · estado de aplicación</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-frames {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+.diagram-frames .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-frames .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+  align-self: center;
 }
 ```
+
+</Diagram>
 
 ## Panel de agente integrado {#embedded-agent}
 
@@ -57,12 +99,50 @@ El panel se ejecuta en uno de dos modos de herramienta:
   lista de herramientas de codificación y contratos UI compartidos, consulte
   [Agent-Native Code UI](/docs/code-agents-ui).
 
-```an-diagram title="Puerta de solicitud de código" summary="Un mensaje escrito con código necesita un marco con capacidad para codificar. Con uno conectado, la solicitud se dirige allí; sin uno, el panel explica que los cambios de código necesitan Desktop o Builder."
-{
-  "html": "<div class=\"diagram-gate\"><div class=\"diagram-node\" data-rough>message<br><small class=\"diagram-muted\">type: \\\"code\\\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>code-capable frame connected?</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">yes &rarr; route to frame, show code-agent indicator</div><div class=\"diagram-pill warn\">no &rarr; dialog: needs Desktop or Builder</div></div></div>",
-  "css": ".diagram-gate{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-gate .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-gate .diagram-arrow{font-size:22px;line-height:1}.diagram-gate .center{text-align:center}"
+<Diagram id="doc-block-14b7eu4" title={"Puerta de solicitud de código"} summary={"Un mensaje escrito con código necesita un marco con capacidad para codificar. Con uno conectado, la solicitud se dirige allí; sin uno, el panel explica que los cambios de código necesitan Desktop o Builder."}>
+
+```html
+<div class="diagram-gate">
+  <div class="diagram-node" data-rough>
+    message<br /><small class="diagram-muted">type: \"code\"</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    code-capable frame connected?
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill ok">
+      yes &rarr; route to frame, show code-agent indicator
+    </div>
+    <div class="diagram-pill warn">
+      no &rarr; dialog: needs Desktop or Builder
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-gate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-gate .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-gate .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-gate .center {
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 El "modo de código" es el conmutador de capacidad del agente, distinto del modo de desarrollo del entorno
 (`NODE_ENV` / Vite). El enlace del cliente es `useCodeMode()`. (Ver

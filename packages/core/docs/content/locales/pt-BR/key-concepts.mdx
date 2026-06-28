@@ -17,12 +17,66 @@ Cada aplicativo nativo do agente consiste em três coisas trabalhando juntas:
 >
 > **Computador** — Banco de dados, navegador, execução de código. Os agentes trabalham diretamente com SQL e ferramentas integradas; Os servidores MCP são complementos opcionais, não a base.
 
-```an-diagram title="Agente, aplicativo e computador" summary="Três camadas trabalhando juntas em um armazenamento SQL compartilhado. O agente e o aplicativo leem e gravam os mesmos dados."
-{
-  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">lê e grava dados, executa ações, modifica código</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full UI React</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">banco de dados SQL · browser · code execution</small></div></div>",
-  "css": ".diagram-arch{display:flex;flex-direction:column;align-items:center;gap:10px}.diagram-arch .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-arch .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:220px}.diagram-arch .diagram-arrow{font-size:20px;line-height:1}.diagram-arch .diagram-box{text-align:center;padding:12px 18px}"
+<Diagram id="doc-block-12lr99b" title="Agente, aplicativo e computador" summary={"Três camadas trabalhando juntas em um armazenamento SQL compartilhado. O agente e o aplicativo leem e gravam os mesmos dados."}>
+
+```html
+<div class="diagram-arch">
+  <div class="diagram-row">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Agent</span
+      ><small class="diagram-muted"
+        >lê e grava dados, executa ações, modifica código</small
+      >
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Application</span
+      ><small class="diagram-muted"
+        >action-only, chat, control plane, or full UI React</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">
+    &darr;&nbsp;&uarr;
+  </div>
+  <div class="diagram-box" data-rough>
+    Computer<br /><small class="diagram-muted"
+      >banco de dados SQL · browser · code execution</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-arch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.diagram-arch .diagram-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.diagram-arch .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 220px;
+}
+.diagram-arch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-arch .diagram-box {
+  text-align: center;
+  padding: 12px 18px;
 }
 ```
+
+</Diagram>
 
 Aplicativos headless podem executar o mesmo loop de agente de aplicativo de produção a partir da pasta com `pnpm agent`, enquanto aplicativos UI montam o painel do agente integrado e são executados localmente com `pnpm dev`. Na nuvem, o Builder.io fornece um quadro gerenciado — o ambiente que hospeda o agente próximo ao seu aplicativo — com colaboração, edição visual e infraestrutura gerenciada para equipes.
 
@@ -273,12 +327,54 @@ O fluxo é:
 4. Rebusca de ganchos `useActionQuery` e ganchos `useQuery` com versão de origem
 5. Os componentes renderizam os novos dados sem recarregar a página
 
-```an-diagram title="Fluxo de sincronização ao vivo" summary="Uma gravação de agente se torna uma renderização de UI sem atualização manual - SSE primeiro, pesquisando como substituto universal."
-{
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Ação do agente<br><small class=\"diagram-muted\">grava no DB</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Evento de alteração<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Refetch da consulta<br><small class=\"diagram-muted\">renderiza, sem recarregar</small></div></div>",
-  "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"
+<Diagram id="doc-block-pegu88" title={"Fluxo de sincronização ao vivo"} summary={"Uma gravação de agente se torna uma renderização de UI sem atualização manual - SSE primeiro, pesquisando como substituto universal."}>
+
+```html
+<div class="diagram-sync">
+  <div class="diagram-node">
+    Ação do agente<br /><small class="diagram-muted">grava no DB</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Evento de alteração<br /><small class="diagram-muted"
+      >source: action / settings</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">useDbSync</span
+    ><small class="diagram-muted">SSE &middot; poll fallback</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Refetch da consulta<br /><small class="diagram-muted"
+      >renderiza, sem recarregar</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-sync {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-sync .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
 }
 ```
+
+</Diagram>
 
 Isso funciona em todos os ambientes de implantação, inclusive sem servidor e de borda, porque usa o banco de dados, e não o estado da memória ou os observadores do sistema de arquivos.
 

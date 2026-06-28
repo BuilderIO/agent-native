@@ -12,12 +12,52 @@ description: "Give the agent structured access to any CLI tool (gh, ffmpeg, stri
 
 A CLI adapter wraps a single command-line tool (`gh`, `ffmpeg`, `stripe`, `aws`) so the agent can discover it, check whether it's installed, and run it with a consistent stdout/stderr/exit-code result. Without this seam, every script reinvents how to invoke a CLI and parse its output.
 
-```an-diagram title="CLI adapter → registry → action surface" summary="ShellCliAdapter wraps a binary; CliRegistry collects adapters for discovery; defineAction exposes one call on the agent + UI action surface."
-{
-  "html": "<div class=\"diagram-cli\"><div class=\"diagram-node\" data-rough>gh · ffmpeg · stripe<br><small class=\"diagram-muted\">command-line tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>ShellCliAdapter<br><small class=\"diagram-muted\">isAvailable · execute</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>CliRegistry<br><small class=\"diagram-muted\">describe() for discovery</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">defineAction</div></div>",
-  "css": ".diagram-cli{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-cli .diagram-arrow{font-size:22px;line-height:1}.diagram-cli .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-pj17pq" title={"CLI adapter → registry → action surface"} summary={"ShellCliAdapter wraps a binary; CliRegistry collects adapters for discovery; defineAction exposes one call on the agent + UI action surface."}>
+
+```html
+<div class="diagram-cli">
+  <div class="diagram-node" data-rough>
+    gh · ffmpeg · stripe<br /><small class="diagram-muted"
+      >command-line tools</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    ShellCliAdapter<br /><small class="diagram-muted"
+      >isAvailable · execute</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    CliRegistry<br /><small class="diagram-muted"
+      >describe() for discovery</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill accent">defineAction</div>
+</div>
+```
+
+```css
+.diagram-cli {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-cli .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-cli .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## The interface {#the-interface}
 

@@ -40,12 +40,49 @@ Agent-Native 有两个适配器接缝，可消除狭窄后面的问题，
 
 保持契约范围窄意味着远程适配器继承相同的安全状态。父进程保留所有秘密的所有权：它构建沙箱模块，运行本地主机桥（它保存请求上下文并应用主机允许列表+ SSRF 防护），清理环境并格式化输出。适配器仅接收已准备好的、**非秘密**模块源加上资源限制 - 它仅负责*运行*它并捕获 stdout/stderr/exit 状态。
 
-```an-diagram title="父母保守秘密；适配器仅运行代码" summary="run-code 构建模块并运行环回桥；适配器接收非秘密模块+限制并返回stdout/stderr/exit。"
-{
-  "html": "<div class=\"diagram-sandbox\"><div class=\"diagram-box\" data-rough><strong>父进程</strong><small class=\"diagram-muted\">构建模块 · loopback 桥 · 环境清理 · 输出格式</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">non-secret module + limits &rarr;</div><div class=\"diagram-pill ok\">&larr; stdout / stderr / exitCode</div><div class=\"diagram-pill\">&harr; bridge calls (127.0.0.1)</div></div><div class=\"diagram-panel center\" data-rough><strong>SandboxAdapter.run</strong><small class=\"diagram-muted\">本地子进程 · Docker · 远程 · 持久</small></div></div>",
-  "css": ".diagram-sandbox{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sandbox .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-sandbox .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-oct5kl" title={"父母保守秘密；适配器仅运行代码"} summary={"run-code 构建模块并运行环回桥；适配器接收非秘密模块+限制并返回stdout/stderr/exit。"}>
+
+```html
+<div class="diagram-sandbox">
+  <div class="diagram-box" data-rough>
+    <strong>父进程</strong
+    ><small class="diagram-muted"
+      >构建模块 · loopback 桥 · 环境清理 · 输出格式</small
+    >
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill accent">non-secret module + limits &rarr;</div>
+    <div class="diagram-pill ok">&larr; stdout / stderr / exitCode</div>
+    <div class="diagram-pill">&harr; bridge calls (127.0.0.1)</div>
+  </div>
+  <div class="diagram-panel center" data-rough>
+    <strong>SandboxAdapter.run</strong
+    ><small class="diagram-muted">本地子进程 · Docker · 远程 · 持久</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-sandbox {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-sandbox .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-sandbox .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 界面 {#interface}
 

@@ -18,12 +18,54 @@ description: "用簡單的英語提出分析問題，取得圖表和儀表板。
 
 它是 Amplitude、Mixpanel 和 Looker 的開放原始碼替代品——適合想要擁有程式碼、查詢和資料的團隊。
 
-```an-diagram title="問題到圖表" summary="代理查閱資料字典，寫入 SQL，根據倉庫對其進行驗證，然後渲染圖表或儲存面板。"
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">簡明語言<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>寫入 SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run 校驗</div><small class=\"diagram-muted\">BigQuery / 來源</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">圖表、表格或<br>saved panel</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-lt7t4q" title={"問題到圖表"} summary={"代理查閱資料字典，寫入 SQL，根據倉庫對其進行驗證，然後渲染圖表或儲存面板。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">簡明語言<br />question</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">reads data dictionary</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>寫入 SQL</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill ok">Dry-run 校驗</div>
+    <small class="diagram-muted">BigQuery / 來源</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">圖表、表格或<br />saved panel</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 你可以用它做什麼
 

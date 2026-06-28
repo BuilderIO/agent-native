@@ -27,12 +27,53 @@ description: "Google Docs 風格的共用，內建於框架中。每個使用者
 
 `public` 是一個故意安靜的層級：可以透過直接連結存取公開資源，但它**不會**顯示在其他使用者的側邊欄、清單或搜尋中。這使得“共用 URL 的公開”與“跨使用者發現的公開”分開。真正想要跨使用者發現的畫廊和範本目錄明確選取加入。
 
-```an-diagram title="視野，向外擴大" summary="資源的粗略可見性奠定了基礎；伴隨表中的顯式共用授予會在頂部新增指定人員。"
-{
-  "html": "<div class=\"share-tiers\"><div class=\"diagram-card\"><span class=\"diagram-pill\">private</span><small class=\"diagram-muted\">owner + explicit grants only &middot; <strong>default</strong></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">org</span><small class=\"diagram-muted\">+ anyone in the same org (read-only)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">public</span><small class=\"diagram-muted\">+ anyone with the link (read-only) &middot; hidden from others' lists/search</small></div></div>",
-  "css": ".share-tiers{display:flex;flex-direction:column;align-items:stretch;gap:8px}.share-tiers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.share-tiers .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
+<Diagram id="doc-block-1v05man" title={"視野，向外擴大"} summary={"資源的粗略可見性奠定了基礎；伴隨表中的顯式共用授予會在頂部新增指定人員。"}>
+
+```html
+<div class="share-tiers">
+  <div class="diagram-card">
+    <span class="diagram-pill">private</span
+    ><small class="diagram-muted"
+      >owner + explicit grants only &middot; <strong>default</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">org</span
+    ><small class="diagram-muted">+ anyone in the same org (read-only)</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">public</span
+    ><small class="diagram-muted"
+      >+ anyone with the link (read-only) &middot; hidden from others'
+      lists/search</small
+    >
+  </div>
+</div>
+```
+
+```css
+.share-tiers {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.share-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.share-tiers .diagram-arrow {
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 股份授予中的角色 {#roles}
 

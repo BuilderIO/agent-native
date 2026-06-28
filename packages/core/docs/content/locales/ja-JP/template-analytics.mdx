@@ -18,12 +18,54 @@ description: "わかりやすい英語で分析に関する質問をし、グラ
 
 これは、コード、クエリ、データを所有したいチーム向けの、Amplitude、Mixpanel、Looker に代わるオープンソースです。
 
-```an-diagram title="チャートへの質問" summary="エージェントはデータ ディクショナリを参照し、SQL を書き込み、それをウェアハウスに対して検証してから、グラフをレンダリングするかパネルを保存します。"
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">平易な言葉<br>question</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">reads data dictionary</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL に書き込み</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">Dry-run検証</div><small class=\"diagram-muted\">BigQuery / ソース</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">チャート、テーブル、または<br>saved panel</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-x265my" title={"チャートへの質問"} summary={"エージェントはデータ ディクショナリを参照し、SQL を書き込み、それをウェアハウスに対して検証してから、グラフをレンダリングするかパネルを保存します。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">平易な言葉<br />question</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">reads data dictionary</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>SQL に書き込み</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill ok">Dry-run検証</div>
+    <small class="diagram-muted">BigQuery / ソース</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">チャート、テーブル、または<br />saved panel</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## それを使って何ができるか
 

@@ -11,12 +11,55 @@ Agent-Native को मौजूदा उत्पाद में एम्ब
 एम्बेडेड साइडकार, या एक पूर्ण ऐप, से प्रारंभ करें
 [Agent Surfaces](/docs/agent-surfaces).
 
-```an-diagram title="एम्बेडिंग झिल्ली" summary="होस्ट ऐप सर्वर-साइड ऑथ और लाइव पेज संदर्भ प्रदान करता है; Agent-Native टिकाऊ साइडकार चलाता है और क्लाइंट क्रियाओं और होस्ट कमांड के माध्यम से खुले टैब तक पहुंचता है।"
-{
-  "html": "<div class=\"diagram-embed\"><div class=\"diagram-box\" data-rough><strong>होस्ट SaaS ऐप</strong><small class=\"diagram-muted\">आपका UI, आपका auth</small></div><div class=\"diagram-col\"><div class=\"diagram-pill accent\">getContext &rarr;</div><div class=\"diagram-pill\">&larr; क्लाइंट actions</div><div class=\"diagram-pill\">&larr; होस्ट commands</div></div><div class=\"diagram-panel center\" data-rough><strong>Agent-Native sidecar</strong><small class=\"diagram-muted\">टिकाऊ चैट · ऐप स्थिति · एक्सटेंशन</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL<br><small class=\"diagram-muted\">framework तालिकाएँ</small></div></div>",
-  "css": ".diagram-embed{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-embed .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-embed .diagram-arrow{font-size:22px;line-height:1}.diagram-embed .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-dp2jx4" title={"एम्बेडिंग झिल्ली"} summary={"होस्ट ऐप सर्वर-साइड ऑथ और लाइव पेज संदर्भ प्रदान करता है; Agent-Native टिकाऊ साइडकार चलाता है और क्लाइंट क्रियाओं और होस्ट कमांड के माध्यम से खुले टैब तक पहुंचता है।"}>
+
+```html
+<div class="diagram-embed">
+  <div class="diagram-box" data-rough>
+    <strong>होस्ट SaaS ऐप</strong
+    ><small class="diagram-muted">आपका UI, आपका auth</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill accent">getContext &rarr;</div>
+    <div class="diagram-pill">&larr; क्लाइंट actions</div>
+    <div class="diagram-pill">&larr; होस्ट commands</div>
+  </div>
+  <div class="diagram-panel center" data-rough>
+    <strong>Agent-Native sidecar</strong
+    ><small class="diagram-muted">टिकाऊ चैट · ऐप स्थिति · एक्सटेंशन</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL<br /><small class="diagram-muted">framework तालिकाएँ</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-embed {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-embed .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-embed .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-embed .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## यहां प्रारंभ करें: बैटरी-शामिल प्लगइन {#batteries-included}
 
@@ -373,12 +416,44 @@ const hostTools = createAgentNativeHostTools({
 
 CLAW-शैली के सहकर्मी के लिए, iframe अपने लाइव ब्राउज़र टैब को साइडकार बैकएंड के साथ भी पंजीकृत कर सकता है। फिर एजेंट को सामान्य बैकएंड टूल मिलते हैं जो एक अनुरोध को सूचीबद्ध करते हैं, आईफ्रेम उस पर दावा करता है, होस्ट पेज उसे निष्पादित करता है, और बैकएंड एजेंट को परिणाम लौटाता है।
 
-```an-diagram title="सर्वर-मध्यस्थ ब्राउज़र-सत्र ब्रिज" summary="एक बैकएंड टूल काम को कतारबद्ध करता है; पंजीकृत टैब इसका दावा करता है, इसे लाइव पेज पर चलाता है, और परिणाम एजेंट को लौटाता है - इसलिए backend/Slack/A2A एजेंट अभी भी खुले टैब को छू सकता है।"
-{
-  "html": "<div class=\"diagram-bridge\"><div class=\"diagram-node\" data-rough>बैकएंड एजेंट<br><small class=\"diagram-muted\">चैट · Slack · A2A</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>enqueue request<br><small class=\"diagram-muted\">/_agent-native/browser-sessions</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\" data-rough>लाइव टैब इसे claim करता है<br><small class=\"diagram-muted\">registered bridge</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">result &rarr; agent</div></div>",
-  "css": ".diagram-bridge{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-bridge .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-qxjcvj" title={"सर्वर-मध्यस्थ ब्राउज़र-सत्र ब्रिज"} summary={"एक बैकएंड टूल काम को कतारबद्ध करता है; पंजीकृत टैब इसका दावा करता है, इसे लाइव पेज पर चलाता है, और परिणाम एजेंट को लौटाता है - इसलिए backend/Slack/A2A एजेंट अभी भी खुले टैब को छू सकता है।"}>
+
+```html
+<div class="diagram-bridge">
+  <div class="diagram-node" data-rough>
+    बैकएंड एजेंट<br /><small class="diagram-muted">चैट · Slack · A2A</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    enqueue request<br /><small class="diagram-muted"
+      >/_agent-native/browser-sessions</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    लाइव टैब इसे claim करता है<br /><small class="diagram-muted"
+      >registered bridge</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill ok">result &rarr; agent</div>
+</div>
+```
+
+```css
+.diagram-bridge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-bridge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 साइडकार ऐप में, आईफ्रेम माउंट होने पर एक बार ब्राउज़र-सत्र ब्रिज शुरू करें:
 

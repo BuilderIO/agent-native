@@ -19,12 +19,60 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
 
 Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images — no raw video needed. Frame-viewing works in any image-capable agent (ChatGPT, Claude Code, Cursor, Codex); text-only web chats still get the full transcript and can take a frame you upload.
 
-```an-diagram title="Capture, transcribe, reuse" summary="Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."
-{
-  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Screen recording</div><div class=\"diagram-node\">Calendar meeting</div><div class=\"diagram-node\">Fn-hold dictation</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>One library<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">title · summary · chapters</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Search</div><div class=\"diagram-pill\">Share</div><div class=\"diagram-pill\">Agent-readable links</div></div></div>",
-  "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-pqnd4p" title="Capture, transcribe, reuse" summary={"Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."}>
+
+```html
+<div class="diagram-clips">
+  <div class="diagram-col">
+    <div class="diagram-node">Screen recording</div>
+    <div class="diagram-node">Calendar meeting</div>
+    <div class="diagram-node">Fn-hold dictation</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    One library<br /><small class="diagram-muted"
+      >recordings + transcripts (SQL)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">title · summary · chapters</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">Search</div>
+    <div class="diagram-pill">Share</div>
+    <div class="diagram-pill">Agent-readable links</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-clips {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-clips .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-clips .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-clips .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## What you can do with it
 

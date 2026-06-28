@@ -18,12 +18,57 @@ Gere apresentações completas a partir de um prompt, edite slides visualmente e
 
 Quando você abre uma apresentação, a tela do slide, o esboço, as notas e a tira de filme permanecem em uma superfície do editor enquanto o agente ainda pode criar, revisar e navegar pelos slides por meio do actions.
 
-```an-diagram title="Solicitar a apresentação" summary="Peça uma apresentação e o agente transmitirá os slides, um de cada vez, por meio das mesmas ações que você poderia chamar do CLI."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">\"10-slide pitch deck\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">escolhe layouts</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">create-deck</div><div class=\"diagram-pill\">add-slide &#215; n</div><small class=\"diagram-muted\">paralelo, em streaming</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>decks (SQL)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">O editor renderiza ao vivo</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:6px;align-items:center}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-ibzjph" title={"Solicitar a apresentação"} summary={"Peça uma apresentação e o agente transmitirá os slides, um de cada vez, por meio das mesmas ações que você poderia chamar do CLI."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">
+    Prompt<br /><small class="diagram-muted">"10-slide pitch deck"</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">escolhe layouts</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">create-deck</div>
+    <div class="diagram-pill">add-slide &#215; n</div>
+    <small class="diagram-muted">paralelo, em streaming</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>decks (SQL)</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">O editor renderiza ao vivo</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## O que você pode fazer com isso
 

@@ -18,12 +18,68 @@ description: "代理驅動的電子郵件用戶端。連線您的 Gmail，代理
 
 當您開啟應用程式時，鍵盤優先的收件箱和對話串檢視將重點關注郵件本身。代理始終知道您處於哪個檢視以及您開啟了哪個對話串，因此您可以說“存檔此”或“起草友好拒絕”，而無需解釋“此”是什麼。
 
-```an-diagram title="郵件請求如何流動" summary="鍵盤快速鍵和代理提示執行相同的操作。電子郵件位於 Gmail； SQL 和 application_state 中的草稿、自動化和即時跟蹤。"
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">由你驅動<br><small class=\"diagram-muted\">J/K/E/R 快速鍵</small></div><div class=\"diagram-node\">你向代理請求<br><small class=\"diagram-muted\">“起草一封友好的拒絕”</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-emails · get-thread · manage-draft · send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Gmail<br><small class=\"diagram-muted\">多帳戶，透過 OAuth</small></div><div class=\"diagram-box\">SQL + application_state<br><small class=\"diagram-muted\">草稿 · 自動化 · 跟蹤</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">收件箱即時重新整理</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1izuwgk" title={"郵件請求如何流動"} summary={"鍵盤快速鍵和代理提示執行相同的操作。電子郵件位於 Gmail； SQL 和 application_state 中的草稿、自動化和即時跟蹤。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      由你驅動<br /><small class="diagram-muted">J/K/E/R 快速鍵</small>
+    </div>
+    <div class="diagram-node">
+      你向代理請求<br /><small class="diagram-muted"
+        >“起草一封友好的拒絕”</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-emails · get-thread · manage-draft · send</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Gmail<br /><small class="diagram-muted">多帳戶，透過 OAuth</small>
+    </div>
+    <div class="diagram-box">
+      SQL + application_state<br /><small class="diagram-muted"
+        >草稿 · 自動化 · 跟蹤</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">收件箱即時重新整理</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 你可以用它做什麼
 

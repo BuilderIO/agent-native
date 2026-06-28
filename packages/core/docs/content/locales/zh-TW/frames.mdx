@@ -20,12 +20,52 @@ description: "本機開發框架、嵌入式代理面板和雲端框架 - AI 代
 無論託管哪個框架，您的應用程式碼都是相同的。代理說話
 在每種情況下都透過相同的 actions 和應用程式狀態連線到您的應用程式。
 
-```an-diagram title="三幀，一個執行時間" summary="您的應用程式和代理面板在每一幀中都是相同的；只有它們週圍的包裝發生變化。"
-{
-  "html": "<div class=\"diagram-frames\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">嵌入面板</span><small class=\"diagram-muted\">隨每個應用提供 · 開發 + 正式環境</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">本機開發框架</span><small class=\"diagram-muted\">iframe 中的應用 + 面板 + CLI 終端</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill\">Builder.io 雲端框架</span><small class=\"diagram-muted\">託管：協作 · 可視編輯 · 並行執行</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>同一 runtime<br><small class=\"diagram-muted\">你的應用 · 操作 · 應用狀態</small></div></div>",
-  "css": ".diagram-frames{display:flex;flex-direction:column;gap:10px;align-items:stretch}.diagram-frames .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.diagram-frames .diagram-arrow{font-size:22px;line-height:1;align-self:center}"
+<Diagram id="doc-block-luiz3l" title={"三幀，一個執行時間"} summary={"您的應用程式和代理面板在每一幀中都是相同的；只有它們週圍的包裝發生變化。"}>
+
+```html
+<div class="diagram-frames">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill accent">嵌入面板</span
+    ><small class="diagram-muted">隨每個應用提供 · 開發 + 正式環境</small>
+  </div>
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill">本機開發框架</span
+    ><small class="diagram-muted">iframe 中的應用 + 面板 + CLI 終端</small>
+  </div>
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill">Builder.io 雲端框架</span
+    ><small class="diagram-muted">託管：協作 · 可視編輯 · 並行執行</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    同一 runtime<br /><small class="diagram-muted"
+      >你的應用 · 操作 · 應用狀態</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-frames {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+.diagram-frames .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-frames .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+  align-self: center;
 }
 ```
+
+</Diagram>
 
 ## 嵌入式代理面板 {#embedded-agent}
 
@@ -57,12 +97,50 @@ description: "本機開發框架、嵌入式代理面板和雲端框架 - AI 代
   編碼工具清單和共用 UI 合約，參見
   [Agent-Native Code UI](/docs/code-agents-ui).
 
-```an-diagram title="程式碼請求門控" summary="程式碼型別訊息需要支援程式碼的幀。一旦連線，請求就會路由到那裡；如果沒有，面板會解釋程式碼更改需要 Desktop 或 Builder。"
-{
-  "html": "<div class=\"diagram-gate\"><div class=\"diagram-node\" data-rough>message<br><small class=\"diagram-muted\">type: \\\"code\\\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>code-capable frame connected?</div><div class=\"diagram-col\"><div class=\"diagram-pill ok\">yes &rarr; route to frame, show code-agent indicator</div><div class=\"diagram-pill warn\">no &rarr; dialog: needs Desktop or Builder</div></div></div>",
-  "css": ".diagram-gate{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-gate .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-gate .diagram-arrow{font-size:22px;line-height:1}.diagram-gate .center{text-align:center}"
+<Diagram id="doc-block-1bhsych" title={"程式碼請求門控"} summary={"程式碼型別訊息需要支援程式碼的幀。一旦連線，請求就會路由到那裡；如果沒有，面板會解釋程式碼更改需要 Desktop 或 Builder。"}>
+
+```html
+<div class="diagram-gate">
+  <div class="diagram-node" data-rough>
+    message<br /><small class="diagram-muted">type: \"code\"</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    code-capable frame connected?
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill ok">
+      yes &rarr; route to frame, show code-agent indicator
+    </div>
+    <div class="diagram-pill warn">
+      no &rarr; dialog: needs Desktop or Builder
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-gate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-gate .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-gate .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-gate .center {
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 “程式碼模式”是代理功能切換 - 與環境開發模式不同
 （`NODE_ENV` / Vite）。用戶端鉤子是`useCodeMode()`。 （參見

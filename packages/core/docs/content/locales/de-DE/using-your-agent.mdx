@@ -9,12 +9,59 @@ Die entscheidende Idee hinter agent-native ist, dass der Agent und der UI **glei
 
 Es gibt eine einfache Durchgangslinie. Der Agent **sieht**, was Sie gerade sehen, Sie **lenken** es auf das, was Sie möchten, Sie können es überall **einbetten**, Sie können vollständig **UI-arm** verwenden, wenn das besser passt, und Sie können dieselben Dokumente gleichzeitig **mitbearbeiten**. Jede davon ist eine Seite in diesem Abschnitt.
 
-```an-diagram title="Die alltägliche Schleife" summary="Fünf Möglichkeiten, mit einem angedockten Agenten zu arbeiten – jede davon ist eine Seite in diesem Abschnitt."
-{
-  "html": "<div class=\"diagram-loop\"><div class=\"diagram-card\"><strong>Sees</strong><small class=\"diagram-muted\">your view &amp; selection</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Direct</strong><small class=\"diagram-muted\">@-mentions &amp; voice</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Embed</strong><small class=\"diagram-muted\">drop into any app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>UI-arm</strong><small class=\"diagram-muted\">chat is the product</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">Gemeinsam bearbeiten</span><small class=\"diagram-muted\">live, nebeneinander</small></div></div>",
-  "css": ".diagram-loop{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-loop .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:130px;flex:1}.diagram-loop .diagram-arrow{align-self:center;font-size:22px;line-height:1}"
+<Diagram id="doc-block-1iso8n0" title={"Die alltägliche Schleife"} summary={"Fünf Möglichkeiten, mit einem angedockten Agenten zu arbeiten – jede davon ist eine Seite in diesem Abschnitt."}>
+
+```html
+<div class="diagram-loop">
+  <div class="diagram-card">
+    <strong>Sees</strong
+    ><small class="diagram-muted">your view &amp; selection</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Direct</strong
+    ><small class="diagram-muted">@-mentions &amp; voice</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Embed</strong><small class="diagram-muted">drop into any app</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>UI-arm</strong
+    ><small class="diagram-muted">chat is the product</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">Gemeinsam bearbeiten</span
+    ><small class="diagram-muted">live, nebeneinander</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-loop {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-loop .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 130px;
+  flex: 1;
+}
+.diagram-loop .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Es sieht, was Sie sehen {#it-sees}
 

@@ -18,12 +18,72 @@ Forms est un générateur de formulaires natif pour les agents. Décrivez le for
 
 Lorsque vous ouvrez l'application, vous voyez vos formulaires, l'éditeur actuel et un aperçu en direct. L'agent peut créer un formulaire à partir d'une invite, mettre à jour les étiquettes et les options des champs, modifier la validation et connecter les destinations de soumission en utilisant le même actions que le UI.
 
-```an-diagram title="Construire, publier, collecter" summary="L'agent et l'éditeur visuel modifient une définition de formulaire SQL-backed. La page de remplissage publique n'est pas authentifiée et les soumissions sont acheminées côté serveur vers vos destinations."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Prompt agent<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">Éditeur visuel<br><small class=\"diagram-muted\">libellés, validation, ordre</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">JSON de champs, JSON de paramètres</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL avec Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Page publique de remplissage<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / feuilles</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-18s8emi" title="Construire, publier, collecter" summary={"L'agent et l'éditeur visuel modifient une définition de formulaire SQL-backed. La page de remplissage publique n'est pas authentifiée et les soumissions sont acheminées côté serveur vers vos destinations."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Prompt agent<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      Éditeur visuel<br /><small class="diagram-muted"
+        >libellés, validation, ordre</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · update-form</span
+    ><small class="diagram-muted">JSON de champs, JSON de paramètres</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">SQL avec Drizzle</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Page publique de remplissage<br /><small class="diagram-muted"
+        >unauthenticated</small
+      >
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / feuilles</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Ce que vous pouvez en faire
 

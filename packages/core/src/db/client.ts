@@ -474,11 +474,6 @@ export function sqliteToPostgresParams(sql: string): string {
 
     if (mode === "single") {
       out += ch;
-      if (ch === "\\" && next) {
-        out += next;
-        i += 2;
-        continue;
-      }
       if (ch === "'" && next === "'") {
         out += next;
         i += 2;

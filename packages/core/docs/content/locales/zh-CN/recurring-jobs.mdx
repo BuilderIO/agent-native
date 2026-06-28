@@ -113,12 +113,67 @@ Summarize overnight emails.`,
 
 调度程序是一个在进程中运行的框架插件（内部 `processRecurringJobs()` 例程）：无论服务器在何处运行，代理聊天插件内的 `setInterval` 每 60 秒触发一次（有 10 秒的启动延迟）。
 
-```an-diagram title="一个调度程序勾选" summary="每 60 秒，调度程序就会找到到期的作业，将每个作业作为新的代理线程运行，并将结果写回作业文件。"
-{
-  "html": "<div class=\"sched\"><div class=\"diagram-box accent\"><code>setInterval</code> &bull; 60s &#8635;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">1 &middot; scan</span><small class=\"diagram-muted\">list every enabled <code>jobs/*.md</code> across all owners</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">2 &middot; due?</span><small class=\"diagram-muted\">compare <code>nextRun</code> to now</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">3 &middot; run</span><small class=\"diagram-muted\">fresh agent thread, job body as the user message &mdash; actions, SQL, A2A, email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">4 &middot; record</span><small class=\"diagram-muted\">write <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code>, recompute <code>nextRun</code></small></div></div>",
-  "css": ".sched{display:flex;flex-direction:column;gap:6px;max-width:520px}.sched .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.sched .diagram-box{align-self:flex-start}.sched .diagram-arrow{font-size:18px;align-self:center}"
+<Diagram id="doc-block-1u2v87h" title={"一个调度程序勾选"} summary={"每 60 秒，调度程序就会找到到期的作业，将每个作业作为新的代理线程运行，并将结果写回作业文件。"}>
+
+```html
+<div class="sched">
+  <div class="diagram-box accent">
+    <code>setInterval</code> &bull; 60s &#8635;
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">1 &middot; scan</span
+    ><small class="diagram-muted"
+      >list every enabled <code>jobs/*.md</code> across all owners</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2 &middot; due?</span
+    ><small class="diagram-muted">compare <code>nextRun</code> to now</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">3 &middot; run</span
+    ><small class="diagram-muted"
+      >fresh agent thread, job body as the user message &mdash; actions, SQL,
+      A2A, email</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">4 &middot; record</span
+    ><small class="diagram-muted"
+      >write <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code>, recompute <code>nextRun</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.sched {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 520px;
+}
+.sched .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.sched .diagram-box {
+  align-self: flex-start;
+}
+.sched .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
 }
 ```
+
+</Diagram>
 
 <Callout id="doc-block-j6yn07" tone="risk">
 

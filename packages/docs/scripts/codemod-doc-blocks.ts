@@ -19,6 +19,7 @@ const DEFAULT_GLOB_LABEL = "packages/core/docs/content/**/*.{md,mdx}";
 const FENCE_RE = /^(`{3,})([^\n]*)$/;
 
 const BLOCK_TYPE_ALIASES: Record<string, string> = {
+  "an-diagram": "diagram",
   "an-wireframe": "wireframe",
   "an-api": "api-endpoint",
   "an-api-endpoint": "api-endpoint",
@@ -44,11 +45,7 @@ const BLOCK_TYPE_ALIASES: Record<string, string> = {
   "an-json-explorer": "json-explorer",
 };
 
-export type DocsBlockCodemodAction =
-  | "convert"
-  | "keep-diagram"
-  | "convert-mermaid"
-  | "ignore";
+export type DocsBlockCodemodAction = "convert" | "convert-mermaid" | "ignore";
 
 export interface FenceAttrs {
   id?: string;
@@ -200,17 +197,6 @@ export function convertDocsBlockFence(
   fence: DocsBlockFence,
   registry: BlockRegistry = defaultRegistry,
 ): ConvertedDocsBlock {
-  if (fence.alias === "an-diagram") {
-    return {
-      action: "keep-diagram",
-      alias: fence.alias,
-      startLine: fence.startLine,
-      endLine: fence.endLine,
-      output: fence.raw,
-      blockType: "diagram",
-    };
-  }
-
   if (fence.alias === "an-mermaid") {
     return {
       action: "convert-mermaid",

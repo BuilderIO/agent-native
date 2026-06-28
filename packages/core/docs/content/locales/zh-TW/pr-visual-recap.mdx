@@ -24,12 +24,71 @@ PR Visual Recap 是一個 GitHub 操作，它將每個 pull request 轉變為**�
 7. 在互動式回顧的連結旁邊插入一條置頂 PR 評論，將螢幕截圖**行內**嵌入到 `<picture>` 元素（透過 GitHub 的camo 圖片代理提供）。
 8. 以成功、跳過或中立的方式完成 `Visual Recap` 檢查。
 
-```an-diagram title="每次 PR 推送都會發生什麼" summary="有界差異為真正的編碼代理提供資訊，該代理編寫了回顧；工作流程會對其進行螢幕截圖並插入一條置頂評論。"
-{
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">PR 推送<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">編碼 Agent<br><small class=\"diagram-muted\">Claude Code / Codex 讀取 diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">無頭 Chrome<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">一條置頂 PR 評論<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
-  "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
+<Diagram id="doc-block-141novq" title={"每次 PR 推送都會發生什麼"} summary={"有界差異為真正的編碼代理提供資訊，該代理編寫了回顧；工作流程會對其進行螢幕截圖並插入一條置頂評論。"}>
+
+```html
+<div class="diagram-recap">
+  <div class="diagram-node">
+    PR 推送<br /><small class="diagram-muted"
+      >bounded base&hellip;head diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    編碼 Agent<br /><small class="diagram-muted"
+      >Claude Code / Codex 讀取 diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-visual-recap</span
+    ><small class="diagram-muted">publishes recap plan</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    無頭 Chrome<br /><small class="diagram-muted"
+      >light + dark screenshots</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    一條置頂 PR 評論<br /><small class="diagram-muted"
+      >inline screenshot + plan link</small
+    >
+  </div>
+</div>
+<div class="diagram-foot diagram-muted">
+  Plus an informational <span class="diagram-pill">Visual Recap</span> check
+  &mdash; non-blocking, never required.
+</div>
+```
+
+```css
+.diagram-recap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-recap .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-recap .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-recap .diagram-foot {
+  flex-basis: 100%;
+  margin-top: 10px;
+  font-size: 13px;
 }
 ```
+
+</Diagram>
 
 重新推送會更新相同的計畫和相同的置頂評論 - 沒有孤立的計畫，沒有垃圾評論。
 
@@ -157,12 +216,68 @@ npx @agent-native/core@latest recap setup
 
 要安裝它，請將檔案從 [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) 與現有的 `pr-visual-recap.yml` 一起複製到儲存庫的 `.github/workflows/` 目錄中。相同的秘密（`PLAN_RECAP_TOKEN`、`ANTHROPIC_API_KEY`）適用。
 
-```an-diagram title="分叉 PR 同意門" summary="預設情況下，分叉 PR 沒有任何秘密；受信任的作者自動執行，外部貢獻者需要新的維護者回顧標籤。"
-{
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">Fork PR 已開啟<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">可信作者</span><small class=\"diagram-muted\">OWNER、MEMBER 或 COLLABORATOR 自動執行</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">外部貢獻者</span><small class=\"diagram-muted\">維護者審核 diff 後再應用 <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">門禁檢查<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">回顧執行<br><small class=\"diagram-muted\">僅基礎 repo 程式碼 · fork diff 作為文字輸入</small></div></div>",
-  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
+<Diagram id="doc-block-175407u" title={"分叉 PR 同意門"} summary={"預設情況下，分叉 PR 沒有任何秘密；受信任的作者自動執行，外部貢獻者需要新的維護者回顧標籤。"}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-node">
+    Fork PR 已開啟<br /><small class="diagram-muted"
+      >main workflow has no secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">可信作者</span
+    ><small class="diagram-muted">OWNER、MEMBER 或 COLLABORATOR 自動執行</small>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">外部貢獻者</span
+    ><small class="diagram-muted"
+      >維護者審核 diff 後再應用 <code>recap</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    門禁檢查<br /><small class="diagram-muted"
+      >fork PR? &amp; trusted or fresh label?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">
+    回顧執行<br /><small class="diagram-muted"
+      >僅基礎 repo 程式碼 · fork diff 作為文字輸入</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-fork .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### 標籤門如何工作
 

@@ -27,12 +27,53 @@ La visibilidad aproximada vive del recurso mismo; Las subvenciones detalladas se
 
 `public` es un nivel deliberadamente silencioso: se puede acceder a un recurso público mediante un enlace directo, pero **no** aparece en las barras laterales, listas o búsquedas de otros usuarios. Eso mantiene el "público para compartir el URL" separado del "público para el descubrimiento entre usuarios". Las galerías y catálogos de plantillas que realmente desean el descubrimiento entre usuarios optan por participar explícitamente.
 
-```an-diagram title="Visibilidad, ampliándose hacia afuera" summary="La mala visibilidad del recurso sienta las bases; Las concesiones de acciones explícitas en la tabla complementaria agregan personas nombradas en la parte superior."
-{
-  "html": "<div class=\"share-tiers\"><div class=\"diagram-card\"><span class=\"diagram-pill\">private</span><small class=\"diagram-muted\">owner + explicit grants only &middot; <strong>default</strong></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">org</span><small class=\"diagram-muted\">+ anyone in the same org (read-only)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">public</span><small class=\"diagram-muted\">+ anyone with the link (read-only) &middot; hidden from others' lists/search</small></div></div>",
-  "css": ".share-tiers{display:flex;flex-direction:column;align-items:stretch;gap:8px}.share-tiers .diagram-card{display:flex;flex-direction:column;gap:4px;padding:12px 16px}.share-tiers .diagram-arrow{text-align:center;font-size:20px;line-height:1}"
+<Diagram id="doc-block-52cqmh" title={"Visibilidad, ampliándose hacia afuera"} summary={"La mala visibilidad del recurso sienta las bases; Las concesiones de acciones explícitas en la tabla complementaria agregan personas nombradas en la parte superior."}>
+
+```html
+<div class="share-tiers">
+  <div class="diagram-card">
+    <span class="diagram-pill">private</span
+    ><small class="diagram-muted"
+      >owner + explicit grants only &middot; <strong>default</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">org</span
+    ><small class="diagram-muted">+ anyone in the same org (read-only)</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">public</span
+    ><small class="diagram-muted"
+      >+ anyone with the link (read-only) &middot; hidden from others'
+      lists/search</small
+    >
+  </div>
+</div>
+```
+
+```css
+.share-tiers {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.share-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.share-tiers .diagram-arrow {
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Funciones en una concesión de acciones {#roles}
 

@@ -18,12 +18,70 @@ Eine von einem Agenten betriebene Kalender-App. Schließen Sie Ihr Google Calend
 
 Wenn Sie die App öffnen, ist die aktive Kalenderansicht die primäre Oberfläche. Der Agent weiß immer noch, um welchen Tag, welche Woche oder welches Ereignis es sich handelt, sodass Sie sagen können: „Vereinbaren Sie an diesem Tag ein 30-minütiges Gespräch mit Alex“, ohne alles zu buchstabieren.
 
-```an-diagram title="Wie eine Planungsanfrage abläuft" summary="Unabhängig davon, ob Sie in den Kalender klicken oder den Agenten fragen, werden dieselben Aktionen live aus Google Calendar gelesen und in dieselbe Ansicht zurückgeschrieben."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Du klickst<br><small class=\"diagram-muted\">Ziehen, Toolbar, Kurzbefehle</small></div><div class=\"diagram-node\">Sie fragen den Agenten<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">live, mehrere Konten</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">Buchungen · Verfügbarkeit</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Kalenderansicht aktualisiert live</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-12pr3gz" title={"Wie eine Planungsanfrage abläuft"} summary={"Unabhängig davon, ob Sie in den Kalender klicken oder den Agenten fragen, werden dieselben Aktionen live aus Google Calendar gelesen und in dieselbe Ansicht zurückgeschrieben."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Du klickst<br /><small class="diagram-muted"
+        >Ziehen, Toolbar, Kurzbefehle</small
+      >
+    </div>
+    <div class="diagram-node">
+      Sie fragen den Agenten<br /><small class="diagram-muted"
+        >"find a 1-hour slot next week"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · check-availability · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >live, mehrere Konten</small
+      >
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">Buchungen · Verfügbarkeit</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">Kalenderansicht aktualisiert live</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Was Sie damit machen können
 

@@ -13,7 +13,12 @@ import {
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
+  BUILDER_CREDITS_UPGRADE_URL,
+  type BuilderCreditsStatus,
+} from "@shared/builder-credits";
+import {
   IconBrain,
+  IconBolt,
   IconBrandSlack,
   IconCheck,
   IconChevronDown,
@@ -72,6 +77,13 @@ export function meta() {
 }
 
 const SPEEDS = ["1", "1.2", "1.5", "1.75", "2"];
+
+const BUILDER_CREDITS_FEATURE_LABELS = [
+  "builderCredits.featureBackupTranscription",
+  "builderCredits.featureCleanup",
+  "builderCredits.featureSummaries",
+  "builderCredits.featureTitles",
+] as const;
 
 const S3_STORAGE_FIELDS = [
   {
@@ -369,6 +381,11 @@ export default function SettingsIndexRoute() {
     undefined,
     { retry: false },
   );
+  const builderCreditStatus = useActionQuery<BuilderCreditsStatus>(
+    "get-builder-credit-status",
+    undefined,
+    { retry: false },
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingStorage, setSavingStorage] = useState(false);
@@ -588,6 +605,9 @@ export default function SettingsIndexRoute() {
   const slackSigningConfigured = slackStatus.data?.signingConfigured ?? false;
   const slackConnected = slackInstallations.length > 0;
   const localizedChangelog = t("settings.changelogMarkdown");
+  const builderCreditsPaused = builderCreditStatus.data?.exhausted === true;
+  const builderCreditsUpgradeUrl =
+    builderCreditStatus.data?.upgradeUrl ?? BUILDER_CREDITS_UPGRADE_URL;
 
   return (
     <>
@@ -986,6 +1006,55 @@ export default function SettingsIndexRoute() {
                       </Button>
                     )}
                   </div>
+
+                  {builderCreditsPaused ? (
+                    <div className="rounded-md border border-amber-300/70 bg-amber-50/80 p-3 text-amber-950 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-100">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 text-sm font-semibold">
+                            <span className="rounded-md bg-amber-100 p-1 dark:bg-amber-400/15">
+                              <IconBolt className="h-4 w-4 text-amber-700 dark:text-amber-200" />
+                            </span>
+                            {t("builderCredits.pausedTitle")}
+                          </div>
+                          <p className="mt-1.5 text-xs leading-relaxed text-amber-900/80 dark:text-amber-100/80">
+                            {t("builderCredits.settingsDescription")}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {BUILDER_CREDITS_FEATURE_LABELS.map((key) => (
+                              <span
+                                key={key}
+                                className="rounded-full border border-amber-300/70 bg-white/70 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-100"
+                              >
+                                {t(key)}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          <Button asChild size="sm" className="h-8">
+                            <a
+                              href={builderCreditsUpgradeUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <IconExternalLink className="h-4 w-4" />
+                              {t("builderCredits.upgrade")}
+                            </a>
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-8 border-amber-300/80 bg-white/70 text-amber-950 hover:bg-amber-100 dark:border-amber-400/40 dark:bg-amber-950/30 dark:text-amber-100 dark:hover:bg-amber-900/40"
+                            onClick={() => setApiKeysExpanded(true)}
+                          >
+                            {t("builderCredits.openAiSetup")}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
 
                   <Collapsible
                     open={apiKeysExpanded}

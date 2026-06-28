@@ -255,9 +255,8 @@
   touch-action: none;
 }
 
-/* Infinite low-contrast grid. The live grid is rendered inside the transformed
- * canvas world so Chrome can composite grid + artboards together while panning. */
 .plan-canvas-viewport {
+  background-color: var(--plan-canvas);
   isolation: isolate;
 }
 
@@ -266,7 +265,11 @@
   background-image:
     linear-gradient(var(--plan-grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--plan-grid-line) 1px, transparent 1px);
-  backface-visibility: hidden;
+}
+
+.plan-canvas-world {
+  isolation: isolate;
+  transform-style: flat;
 }
 
 /* Fixed-size static artboard frame. No border / shadow / box around the

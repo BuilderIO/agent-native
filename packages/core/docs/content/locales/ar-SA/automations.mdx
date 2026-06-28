@@ -9,12 +9,51 @@ description: "عمليات التشغيل التلقائي المجدولة وا
 
 توسّع عمليات التشغيل الآلي [recurring jobs](/docs/recurring-jobs) من خلال **مشغلات الأحداث** و**شروط اللغة الطبيعية** و**HTTP** الصادرة عبر أداة `web-request`. إنهم يستخدمون نفس تنسيق الملف `jobs/<name>.md` والتخزين وسير العمل "إنشاء ثلاث طرق" كمهام متكررة - راجع [Recurring Jobs](/docs/recurring-jobs#job-file) للتعرف على التنسيق المشترك. تغطي هذه الصفحة فقط ما هو جديد في عمليات التشغيل الآلي المستندة إلى الأحداث.
 
-```an-diagram title="عندما يحدث X، افعل Y" summary="يتم إطلاق حدث على الحافلة، ويفتحها شرط اختياري للغة الطبيعية، ويقوم الوكيل بتشغيل جسم التشغيل الآلي مع إمكانية الوصول الكامل للأداة."
-{
-  "html": "<div class=\"auto-flow\"><div class=\"diagram-card\"><span class=\"diagram-pill\">حدث</span><small class=\"diagram-muted\"><code>calendar.booking.created</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">حالة</span><small class=\"diagram-muted\">يتحقق هايكو: &ldquo;ينتهي البريد الإلكتروني بـ @builder.io&rdquo;</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">وكيل يدير الجسم</span><small class=\"diagram-muted\">الإجراءات &middot; web-request &middot; MCP &middot; sub-agents</small></div></div>",
-  "css": ".auto-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.auto-flow .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;min-width:180px}.auto-flow .diagram-arrow{font-size:22px}"
+<Diagram id="doc-block-abgxj6" title={"عندما يحدث X، افعل Y"} summary={"يتم إطلاق حدث على الحافلة، ويفتحها شرط اختياري للغة الطبيعية، ويقوم الوكيل بتشغيل جسم التشغيل الآلي مع إمكانية الوصول الكامل للأداة."}>
+
+```html
+<div class="auto-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">حدث</span
+    ><small class="diagram-muted"><code>calendar.booking.created</code></small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">حالة</span
+    ><small class="diagram-muted"
+      >يتحقق هايكو: &ldquo;ينتهي البريد الإلكتروني بـ @builder.io&rdquo;</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">وكيل يدير الجسم</span
+    ><small class="diagram-muted"
+      >الإجراءات &middot; web-request &middot; MCP &middot; sub-agents</small
+    >
+  </div>
+</div>
+```
+
+```css
+.auto-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.auto-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.auto-flow .diagram-arrow {
+  font-size: 22px;
 }
 ```
+
+</Diagram>
 
 ## نوعان من المشغلات {#trigger-types}
 
@@ -225,12 +264,75 @@ Confirm an automation's wiring and condition without waiting for a real provider
 
 ## كيف يعمل الإرسال {#dispatch}
 
-```an-diagram title="مسار الإرسال" summary="من حدث مطرود إلى تشغيل وكيل مكتمل، مقيد بنطاق الملكية وحالة اللغة الطبيعية."
-{
-  "html": "<div class=\"disp\"><div class=\"diagram-box accent\">حدث إطلاق النار على الحافلة</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">مباراة</span><small class=\"diagram-muted\">تحميل الأتمتة التي تم تمكينها والمشتركة في اسم الحدث هذا</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill\">نِطَاق</span><small class=\"diagram-muted\">الاحتفاظ فقط بالأشياء المملوكة لمالك الحدث (أو المشتركة)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">حالة</span><small class=\"diagram-muted\">Haiku yes/no على الحمولة &mdash; خطأ شنيع &rarr; <code>تم تخطيه</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card accent\"><span class=\"diagram-pill accent\">يجري</span><small class=\"diagram-muted\"><code>runAgentLoop</code> مع النص كموجه، والحمولة كسياق، ومهلة مدتها 5 دقائق</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-card ok\"><span class=\"diagram-pill ok\">سِجِلّ</span><small class=\"diagram-muted\">يكتب <code>lastRun</code> / <code>lastStatus</code> / <code>lastError</code></small></div></div>",
-  "css": ".disp{display:flex;flex-direction:column;gap:6px;max-width:540px}.disp .diagram-card{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.disp .diagram-box{align-self:flex-start}.disp .diagram-arrow{font-size:18px;align-self:center}"
+<Diagram id="doc-block-znsz65" title={"مسار الإرسال"} summary={"من حدث مطرود إلى تشغيل وكيل مكتمل، مقيد بنطاق الملكية وحالة اللغة الطبيعية."}>
+
+```html
+<div class="disp">
+  <div class="diagram-box accent">حدث إطلاق النار على الحافلة</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">مباراة</span
+    ><small class="diagram-muted"
+      >تحميل الأتمتة التي تم تمكينها والمشتركة في اسم الحدث هذا</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">نِطَاق</span
+    ><small class="diagram-muted"
+      >الاحتفاظ فقط بالأشياء المملوكة لمالك الحدث (أو المشتركة)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">حالة</span
+    ><small class="diagram-muted"
+      >Haiku yes/no على الحمولة &mdash; خطأ شنيع &rarr;
+      <code>تم تخطيه</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">يجري</span
+    ><small class="diagram-muted"
+      ><code>runAgentLoop</code> مع النص كموجه، والحمولة كسياق، ومهلة مدتها 5
+      دقائق</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">سِجِلّ</span
+    ><small class="diagram-muted"
+      >يكتب <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.disp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 540px;
+}
+.disp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.disp .diagram-box {
+  align-self: flex-start;
+}
+.disp .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
 }
 ```
+
+</Diagram>
 
 ## مثال {#example}
 

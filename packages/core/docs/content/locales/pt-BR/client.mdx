@@ -15,12 +15,52 @@ Para roteamento baseado em arquivo — adição de páginas, parâmetros dinâmi
 
 A principal maneira de ler e gravar dados de aplicativos no navegador é por meio de ganchos de ação. Nunca escreva manualmente chamadas `fetch` para rotas `/_agent-native/*`; em vez disso, use os auxiliares nomeados (consulte [Actions](/docs/actions)).
 
-```an-diagram title="O loop de dados do navegador" summary="Ganchos leem e escrevem por meio de ações; useDbSync observa o banco de dados para que as gravações do agente e em segundo plano busquem novamente os mesmos caches automaticamente."
-{
-  "html": "<div class=\"diagram-client\"><div class=\"diagram-col\"><div class=\"diagram-node\">useActionQuery<br><small class=\"diagram-muted\">cached read</small></div><div class=\"diagram-node\">useActionMutation<br><small class=\"diagram-muted\">write + invalidate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-box\" data-rough>Actions<br><small class=\"diagram-muted\">/_agent-native/actions/*</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>banco de dados SQL</strong></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">useDbSync &rarr; refetch on change</div></div>",
-  "css": ".diagram-client{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-client .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-client .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1ojowdw" title="O loop de dados do navegador" summary={"Ganchos leem e escrevem por meio de ações; useDbSync observa o banco de dados para que as gravações do agente e em segundo plano busquem novamente os mesmos caches automaticamente."}>
+
+```html
+<div class="diagram-client">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useActionQuery<br /><small class="diagram-muted">cached read</small>
+    </div>
+    <div class="diagram-node">
+      useActionMutation<br /><small class="diagram-muted"
+        >write + invalidate</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    Actions<br /><small class="diagram-muted">/_agent-native/actions/*</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>banco de dados SQL</strong>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">useDbSync &rarr; refetch on change</div>
+</div>
+```
+
+```css
+.diagram-client {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-client .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-client .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ```tsx
 import {
@@ -376,12 +416,45 @@ function DashboardView({ id }) {
 - **Mutações iniciadas por UI:** Quando você executa uma ação do UI usando `useActionMutation`, a mutação dispara imediatamente um evento local com `source: "action"` em caso de sucesso. Isso aciona uma **nova busca instantânea e otimista** de todas as chaves de consulta dependendo da ação, evitando atraso visual.
 - **Mutações em segundo plano ou de agente:** Quando o agente de IA, um webhook ou um trabalhador em segundo plano altera dados, a atualização é transmitida para o cliente. O `useDbSync` do cliente captura isso instantaneamente por meio de SSE (eventos enviados pelo servidor) ou recorre ao **tique de pesquisa de 2 segundos**. A versão da chave de consulta então falha, acionando uma nova busca em segundo plano.
 
-```an-diagram title="Dois caminhos para uma nova busca" summary="Uma mutação local invalida instantaneamente seus próprios caches; uma gravação remota chega a esta guia por meio de SSE ou o tick de votação como substituto."
-{
-  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">Esta aba</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">Agente · webhook · outra aba</span><strong>Escrita remota</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
-  "css": ".diagram-latency .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-latency .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px}"
+<Diagram id="doc-block-7z6lct" title="Dois caminhos para uma nova busca" summary={"Uma mutação local invalida instantaneamente seus próprios caches; uma gravação remota chega a esta guia por meio de SSE ou o tick de votação como substituto."}>
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">Esta aba</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >fires source: "action" on success &rarr; instant local refetch</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">Agente · webhook · outra aba</span
+      ><strong>Escrita remota</strong
+      ><small class="diagram-muted"
+        >SSE push, or the ~2s polling tick as fallback &rarr; version bumps
+        &rarr; background refetch</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 ## cn(...entradas) {#cn}
 

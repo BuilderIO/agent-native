@@ -22,12 +22,68 @@ description: "MDX용 오픈 소스 Obsidian: 로컬 Markdown/MDX 파일을 편�
 
 앱을 열면 편집기 옆에 페이지 트리가 표시됩니다. 상담원은 항상 귀하가 보고 있는 페이지와 귀하가 선택한 텍스트를 알고 있으므로 문서 편집 내용이 현재 페이지에 그대로 유지될 수 있습니다.
 
-```an-diagram title="하나의 문서, 많은 편집자" summary="귀하와 에이전트는 모두 동일한 Yjs 파이프라인을 통해 작성합니다. SQL은 표준 저장소입니다. 로컬 파일과 Notion은 선택적 동기화 표면입니다."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">입력합니다<br><small class=\"diagram-muted\">slash 메뉴, 툴바</small></div><div class=\"diagram-node\">에이전트 편집<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">실시간, 충돌 없는 병합</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">정식 SQL 저장소</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">로컬 .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion 페이지<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1liwdej" title={"하나의 문서, 많은 편집자"} summary={"귀하와 에이전트는 모두 동일한 Yjs 파이프라인을 통해 작성합니다. SQL은 표준 저장소입니다. 로컬 파일과 Notion은 선택적 동기화 표면입니다."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      입력합니다<br /><small class="diagram-muted">slash 메뉴, 툴바</small>
+    </div>
+    <div class="diagram-node">
+      에이전트 편집<br /><small class="diagram-muted"
+        >edit-document find/replace</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Yjs CRDT</span
+    ><small class="diagram-muted">실시간, 충돌 없는 병합</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    documents (markdown)<br /><small class="diagram-muted"
+      >정식 SQL 저장소</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      로컬 .md / .mdx<br /><small class="diagram-muted">/local-files</small>
+    </div>
+    <div class="diagram-box">
+      Notion 페이지<br /><small class="diagram-muted">pull · push</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 그것으로 무엇을 할 수 있나요
 

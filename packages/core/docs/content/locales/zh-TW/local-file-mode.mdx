@@ -46,12 +46,64 @@ UI 和代理 actions 在兩種模式下都應保持相同的形狀。內容
 編輯器仍然編輯檔案；區別在於這些檔案是否解析
 到 SQL 行或本機檔案。
 
-```an-diagram title="相同的行為，兩個事實來源" summary="UI 和代理在兩種模式下呼叫相同的操作。操作層決定每個呼叫是否解析為 SQL 行或儲存庫檔案。"
-{
-  "html": "<div class=\"diagram-mode\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">內容 UI</div><div class=\"diagram-node\">代理 + actions<br><small class=\"diagram-muted\">list/get/update-document</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-row resolve\"><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill accent\">資料庫模式</span><small class=\"diagram-muted\">SQL rows via Drizzle</small><small class=\"diagram-muted\">託管 · 分享 · 評論 · 歷史</small></div><div class=\"diagram-panel\" data-rough><span class=\"diagram-pill ok\">Local File Mode</span><small class=\"diagram-muted\">repo files via agent-native.json</small><small class=\"diagram-muted\">Git 評審 · 編碼代理編輯</small></div></div></div>",
-  "css": ".diagram-mode{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-mode .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-mode .diagram-arrow{font-size:22px;line-height:1}.diagram-mode .resolve{display:flex;gap:12px;flex-wrap:wrap}.diagram-mode .diagram-panel{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+<Diagram id="doc-block-k2vgl3" title={"相同的行為，兩個事實來源"} summary={"UI 和代理在兩種模式下呼叫相同的操作。操作層決定每個呼叫是否解析為 SQL 行或儲存庫檔案。"}>
+
+```html
+<div class="diagram-mode">
+  <div class="diagram-col entry">
+    <div class="diagram-node">內容 UI</div>
+    <div class="diagram-node">
+      代理 + actions<br /><small class="diagram-muted"
+        >list/get/update-document</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-row resolve">
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">資料庫模式</span
+      ><small class="diagram-muted">SQL rows via Drizzle</small
+      ><small class="diagram-muted">託管 · 分享 · 評論 · 歷史</small>
+    </div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill ok">Local File Mode</span
+      ><small class="diagram-muted">repo files via agent-native.json</small
+      ><small class="diagram-muted">Git 評審 · 編碼代理編輯</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mode {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-mode .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-mode .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-mode .resolve {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-mode .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ## 範例儲存庫
 

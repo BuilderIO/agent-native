@@ -12,12 +12,52 @@ description: "Donnez à l'agent un accès structuré à n'importe quel outil CLI
 
 Un adaptateur CLI encapsule un seul outil de ligne de commande (`gh`, `ffmpeg`, `stripe`, `aws`) afin que l'agent puisse le découvrir, vérifier s'il est installé et l'exécuter avec un résultat stdout/stderr/exit-code cohérent. Sans cette couture, chaque script réinvente la façon d'invoquer un CLI et d'analyser sa sortie.
 
-```an-diagram title="Adaptateur CLI → registre → surface d'action" summary="ShellCliAdapter encapsule un binaire ; CliRegistry collecte les adaptateurs pour la découverte ; defineAction expose un appel sur la surface d'action agent + interface utilisateur."
-{
-  "html": "<div class=\"diagram-cli\"><div class=\"diagram-node\" data-rough>gh · ffmpeg · stripe<br><small class=\"diagram-muted\">command-line tools</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>ShellCliAdapter<br><small class=\"diagram-muted\">isAvailable · execute</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>CliRegistry<br><small class=\"diagram-muted\">describe() for discovery</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">defineAction</div></div>",
-  "css": ".diagram-cli{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-cli .diagram-arrow{font-size:22px;line-height:1}.diagram-cli .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1slqvuv" title={"Adaptateur CLI → registre → surface d'action"} summary={"ShellCliAdapter encapsule un binaire ; CliRegistry collecte les adaptateurs pour la découverte ; defineAction expose un appel sur la surface d'action agent + interface utilisateur."}>
+
+```html
+<div class="diagram-cli">
+  <div class="diagram-node" data-rough>
+    gh · ffmpeg · stripe<br /><small class="diagram-muted"
+      >command-line tools</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    ShellCliAdapter<br /><small class="diagram-muted"
+      >isAvailable · execute</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    CliRegistry<br /><small class="diagram-muted"
+      >describe() for discovery</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill accent">defineAction</div>
+</div>
+```
+
+```css
+.diagram-cli {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-cli .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-cli .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## L'interface {#the-interface}
 

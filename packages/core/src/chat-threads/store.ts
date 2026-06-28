@@ -571,7 +571,7 @@ export async function listThreads(
 }
 
 function escapeLike(s: string): string {
-  return s.replace(/([\\%_])/g, "\\$1");
+  return s.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
 export async function searchThreads(
@@ -589,7 +589,7 @@ export async function searchThreads(
   const filters: string[] = [
     `owner_email = ?`,
     `message_count > 0`,
-    `(title LIKE ? ESCAPE '\\' OR preview LIKE ? ESCAPE '\\' OR thread_data LIKE ? ESCAPE '\\')`,
+    `(title LIKE ? ESCAPE '!' OR preview LIKE ? ESCAPE '!' OR thread_data LIKE ? ESCAPE '!')`,
   ];
   const args: (string | number)[] = [ownerEmail, pattern, pattern, pattern];
   if (options.scope) {

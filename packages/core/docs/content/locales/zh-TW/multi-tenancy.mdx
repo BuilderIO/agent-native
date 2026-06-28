@@ -19,12 +19,48 @@ description: "每個 Agent-Native 應用程式都是開箱即用的多租戶 - �
 
 如果您正在評估 CRM、專案跟蹤器、支援收件箱或任何團隊工具的原生代理，那麼多租戶基礎已經存在。所有第一方範本都是多租戶的 - 請參閱 [Cloneable SaaS templates](/docs/cloneable-saas) 取得清單。
 
-```an-diagram title="組織成員資格和隔離" summary="使用者以 owner/admin/member 身分加入組織。每個可擁有的行都帶有擁有它的租戶的 org_id ，並且沒有行跨越邊界泄漏。"
-{
-  "html": "<div class=\"mt-grid\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">組織 A</span><small class=\"diagram-muted\">members: alice (owner), bob (member)</small><div class=\"diagram-box\">rows where org_id = A</div></div><div class=\"diagram-card\"><span class=\"diagram-pill accent\">組織 B</span><small class=\"diagram-muted\">members: carol (owner)</small><div class=\"diagram-box\">rows where org_id = B</div></div></div><div class=\"mt-wall\" aria-hidden=\"true\"><span class=\"diagram-pill warn\">no cross-org reads</span></div>",
-  "css": ".mt-grid{display:flex;gap:16px;flex-wrap:wrap}.mt-grid .diagram-card{display:flex;flex-direction:column;gap:8px;padding:14px 16px;flex:1;min-width:200px}.mt-wall{display:flex;justify-content:center;margin-top:12px}"
+<Diagram id="doc-block-1yxf5fa" title={"組織成員資格和隔離"} summary={"使用者以 owner/admin/member 身分加入組織。每個可擁有的行都帶有擁有它的租戶的 org_id ，並且沒有行跨越邊界泄漏。"}>
+
+```html
+<div class="mt-grid">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">組織 A</span
+    ><small class="diagram-muted">members: alice (owner), bob (member)</small>
+    <div class="diagram-box">rows where org_id = A</div>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">組織 B</span
+    ><small class="diagram-muted">members: carol (owner)</small>
+    <div class="diagram-box">rows where org_id = B</div>
+  </div>
+</div>
+<div class="mt-wall" aria-hidden="true">
+  <span class="diagram-pill warn">no cross-org reads</span>
+</div>
+```
+
+```css
+.mt-grid {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.mt-grid .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  flex: 1;
+  min-width: 200px;
+}
+.mt-wall {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
 }
 ```
+
+</Diagram>
 
 ## 組織切換者 UI {#org-switcher}
 
@@ -36,12 +72,48 @@ description: "每個 Agent-Native 應用程式都是開箱即用的多租戶 - �
 
 租戶資料由 `org_id` 列（由 `ownableColumns()` 新增）隔離，框架自動將每個查詢範圍限定為活動組織：`session.orgId → AGENT_ORG_ID → SQL`。當使用者切換組織時，UI、actions 和代理都只能看到該組織的資料 - 代理無法存取使用者不是其成員的組織的資料。
 
-```an-diagram title="從工作階段到作用域 SQL" summary="工作階段中的活動組織變為 AGENT_ORG_ID，框架將其折疊到每個查詢的 WHERE 子句中。"
-{
-  "html": "<div class=\"mt-pipe\"><div class=\"diagram-node\">session.orgId<br><small class=\"diagram-muted\">active org on session</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">AGENT_ORG_ID<br><small class=\"diagram-muted\">request context</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">SQL row scoping<br><small class=\"diagram-muted\">WHERE owner_email = ? AND org_id = ?</small></div></div>",
-  "css": ".mt-pipe{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mt-pipe .diagram-node{display:flex;flex-direction:column;gap:2px;padding:10px 14px}.mt-pipe .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-5vpbtk" title={"從工作階段到作用域 SQL"} summary={"工作階段中的活動組織變為 AGENT_ORG_ID，框架將其折疊到每個查詢的 WHERE 子句中。"}>
+
+```html
+<div class="mt-pipe">
+  <div class="diagram-node">
+    session.orgId<br /><small class="diagram-muted"
+      >active org on session</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    AGENT_ORG_ID<br /><small class="diagram-muted">request context</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    SQL row scoping<br /><small class="diagram-muted"
+      >WHERE owner_email = ? AND org_id = ?</small
+    >
+  </div>
+</div>
+```
+
+```css
+.mt-pipe {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mt-pipe .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.mt-pipe .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 這與用於每使用者範圍的管道相同。對於 SQL 層級的機制、`ownableColumns()` 合約和 `accessFilter` / `resolveAccess` / `assertAccess` 防護，請參閱 [Security → Data Scoping](/docs/security#data-scoping) — 範圍界定管道的單一事實來源。
 

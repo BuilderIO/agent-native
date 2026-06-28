@@ -22,12 +22,68 @@ Ergebnis, egal ob Sie es selbst machen oder fragen.
 
 Wenn Sie die App öffnen, sehen Sie neben dem Editor einen Seitenbaum. Der Agent weiß immer, welche Seite Sie gerade anzeigen und welchen Text Sie ausgewählt haben, sodass Dokumentänderungen auf der aktuellen Seite verankert bleiben können.
 
-```an-diagram title="Ein Dokument, viele Redakteure" summary="Sie und der Agent schreiben beide über dieselbe Yjs-Pipeline. SQL ist der kanonische Speicher; Lokale Dateien und Notion sind optionale Synchronisierungsoberflächen."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">Du tippst<br><small class=\"diagram-muted\">Slash-Menü, Toolbar</small></div><div class=\"diagram-node\">Agenten-Bearbeitungen<br><small class=\"diagram-muted\">edit-document find/replace</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Yjs CRDT</span><small class=\"diagram-muted\">live, konfliktfreie Zusammenführung</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">documents (markdown)<br><small class=\"diagram-muted\">kanonischer SQL-Speicher</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Lokale .md / .mdx<br><small class=\"diagram-muted\">/local-files</small></div><div class=\"diagram-box\">Notion-Seiten<br><small class=\"diagram-muted\">pull · push</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1naojwp" title="Ein Dokument, viele Redakteure" summary={"Sie und der Agent schreiben beide über dieselbe Yjs-Pipeline. SQL ist der kanonische Speicher; Lokale Dateien und Notion sind optionale Synchronisierungsoberflächen."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Du tippst<br /><small class="diagram-muted">Slash-Menü, Toolbar</small>
+    </div>
+    <div class="diagram-node">
+      Agenten-Bearbeitungen<br /><small class="diagram-muted"
+        >edit-document find/replace</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Yjs CRDT</span
+    ><small class="diagram-muted">live, konfliktfreie Zusammenführung</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    documents (markdown)<br /><small class="diagram-muted"
+      >kanonischer SQL-Speicher</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Lokale .md / .mdx<br /><small class="diagram-muted">/local-files</small>
+    </div>
+    <div class="diagram-box">
+      Notion-Seiten<br /><small class="diagram-muted">pull · push</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Was Sie damit machen können
 

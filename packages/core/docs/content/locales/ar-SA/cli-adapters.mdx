@@ -12,12 +12,48 @@ description: "امنح الوكيل وصولاً منظمًا إلى أي أدا
 
 يحتوي محول CLI على أداة سطر أوامر واحدة (`gh`، `ffmpeg`، `stripe`، `aws`) حتى يتمكن الوكيل من اكتشافها والتحقق من تثبيتها وتشغيلها باستخدام نتيجة كود stdout/stderr/exit متسقة. بدون هذا التماس، يعيد كل نص برمجي اختراع كيفية استدعاء CLI وتحليل مخرجاته.
 
-```an-diagram title="CLI محول → التسجيل → سطح العمل" summary="ShellCliAdapter يلتف ثنائي؛ يقوم CliRegistry بجمع المحولات لاكتشافها؛ يكشف defineAction عن مكالمة واحدة على سطح عمل الوكيل + واجهة المستخدم."
-{
-  "html": "<div class=\"diagram-cli\"><div class=\"diagram-node\" data-rough>gh · ffmpeg · الشريط<br><small class=\"diagram-muted\">أدوات سطر الأوامر</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>ShellCliAdapter<br><small class=\"diagram-muted\">متاح · تنفيذ</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough>كليريجستري<br><small class=\"diagram-muted\">وصف () للاكتشاف</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">defineAction</div></div>",
-  "css": ".diagram-cli{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-cli .diagram-arrow{font-size:22px;line-height:1}.diagram-cli .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1tpkll1" title={"CLI محول → التسجيل → سطح العمل"} summary={"ShellCliAdapter يلتف ثنائي؛ يقوم CliRegistry بجمع المحولات لاكتشافها؛ يكشف defineAction عن مكالمة واحدة على سطح عمل الوكيل + واجهة المستخدم."}>
+
+```html
+<div class="diagram-cli">
+  <div class="diagram-node" data-rough>
+    gh · ffmpeg · الشريط<br /><small class="diagram-muted"
+      >أدوات سطر الأوامر</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    ShellCliAdapter<br /><small class="diagram-muted">متاح · تنفيذ</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    كليريجستري<br /><small class="diagram-muted">وصف () للاكتشاف</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill accent">defineAction</div>
+</div>
+```
+
+```css
+.diagram-cli {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-cli .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-cli .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## الواجهة {#the-interface}
 

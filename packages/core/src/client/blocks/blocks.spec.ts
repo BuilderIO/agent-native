@@ -11,6 +11,8 @@ import {
   createAttrReader,
   parseSpecBlock,
   attributeValue,
+  childCodeFenceFields,
+  serializeChildCodeFenceFields,
   type MdxAttrNode,
   type MdxJsxNode,
 } from "./mdx.js";
@@ -175,6 +177,46 @@ describe("registry MDX round-trip", () => {
     );
     expect(parsed?.type).toBe("callout");
     expect(parsed?.data).toEqual({ tone: "risk", body: "Be **careful**." });
+  });
+
+  it("maps named child code fences into data fields", () => {
+    expect(
+      childCodeFenceFields<{ html?: string; css?: string }>(
+        [
+          { type: "code", lang: "html", value: "<div>Hi</div>" },
+          { type: "code", lang: "css live", value: ".x { color: red; }" },
+          { type: "code", lang: "json", value: "{}" },
+        ],
+        { html: "html", css: "css" },
+      ),
+    ).toEqual({
+      html: "<div>Hi</div>",
+      css: ".x { color: red; }",
+    });
+  });
+
+  it("serializes named data fields as child code fences", () => {
+    expect(
+      serializeChildCodeFenceFields(
+        {
+          html: "<div>`tick`</div>",
+          css: ".x { color: red; }",
+        },
+        { html: "html", css: "css" },
+      ),
+    ).toBe(
+      [
+        "",
+        "```html",
+        "<div>`tick`</div>",
+        "```",
+        "",
+        "```css",
+        ".x { color: red; }",
+        "```",
+        "",
+      ].join("\n"),
+    );
   });
 
   // Build an `mdxJsxAttributeValueExpression` whose `data.estree` mirrors the

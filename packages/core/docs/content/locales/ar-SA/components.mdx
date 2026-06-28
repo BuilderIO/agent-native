@@ -25,12 +25,69 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` أو مسار فرعي `@agent-native/core/client/*` مركّز
 لذلك يختار القائمون على التجميع الإدخال الآمن للمتصفح.
 
-```an-diagram title="المنسدلة طبقة، وليس خارج الإطار" summary="تحتفظ كل طبقة بنفس وقت التشغيل — الإجراءات، وحالة مؤشر الترابط، ومزامنة SQL-backed — بينما تمنحك مزيدًا من التحكم في Chrome."
-{
-  "html": "<div class=\"diagram-layers\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">&lt;AgentSidebar&gt;</span><small class=\"diagram-muted\">الشريط الجانبي بأكمله حول تطبيقك. حالة 80%.</small></div><div class=\"diagram-card layer l2\"><span class=\"diagram-pill\">&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span><small class=\"diagram-muted\">اللوحة أو صفحة الدردشة في التخطيط الخاص بك.</small></div><div class=\"diagram-card layer l3\"><span class=\"diagram-pill\">&lt;AssistantChat&gt; + وقت التشغيل</span><small class=\"diagram-muted\">امتلك الكروم؛ قم بتمرير BYO AgentChatRuntime بشكل اختياري.</small></div><div class=\"diagram-card layer l4\"><span class=\"diagram-pill\">&lt;PromptComposer&gt; &middot; &lt;محادثة الوكيل&gt;</span><small class=\"diagram-muted\">الملحن والنسخة الأولية فقط.</small></div><div class=\"diagram-rail\" data-rough>نفس وقت التشغيل: الإجراءات &middot; حالة الخيط &middot; BYO-backed مزامنة</div></div>",
-  "css": ".diagram-layers{display:flex;flex-direction:column;gap:10px}.diagram-layers .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}.diagram-layers .l2{margin-inline-start:24px}.diagram-layers .l3{margin-inline-start:48px}.diagram-layers .l4{margin-inline-start:72px}.diagram-layers .diagram-rail{margin-top:6px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-1vw6fvr" title={"المنسدلة طبقة، وليس خارج الإطار"} summary={"تحتفظ كل طبقة بنفس وقت التشغيل — الإجراءات، وحالة مؤشر الترابط، ومزامنة SQL-backed — بينما تمنحك مزيدًا من التحكم في Chrome."}>
+
+```html
+<div class="diagram-layers">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">&lt;AgentSidebar&gt;</span
+    ><small class="diagram-muted"
+      >الشريط الجانبي بأكمله حول تطبيقك. حالة 80%.</small
+    >
+  </div>
+  <div class="diagram-card layer l2">
+    <span class="diagram-pill"
+      >&lt;AgentPanel&gt; &middot; &lt;AgentChatSurface&gt;</span
+    ><small class="diagram-muted"
+      >اللوحة أو صفحة الدردشة في التخطيط الخاص بك.</small
+    >
+  </div>
+  <div class="diagram-card layer l3">
+    <span class="diagram-pill">&lt;AssistantChat&gt; + وقت التشغيل</span
+    ><small class="diagram-muted"
+      >امتلك الكروم؛ قم بتمرير BYO AgentChatRuntime بشكل اختياري.</small
+    >
+  </div>
+  <div class="diagram-card layer l4">
+    <span class="diagram-pill"
+      >&lt;PromptComposer&gt; &middot; &lt;محادثة الوكيل&gt;</span
+    ><small class="diagram-muted">الملحن والنسخة الأولية فقط.</small>
+  </div>
+  <div class="diagram-rail" data-rough>
+    نفس وقت التشغيل: الإجراءات &middot; حالة الخيط &middot; BYO-backed مزامنة
+  </div>
+</div>
+```
+
+```css
+.diagram-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-layers .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-layers .l2 {
+  margin-inline-start: 24px;
+}
+.diagram-layers .l3 {
+  margin-inline-start: 48px;
+}
+.diagram-layers .l4 {
+  margin-inline-start: 72px;
+}
+.diagram-layers .diagram-rail {
+  margin-top: 6px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## الوكيل والدردشة UI {#agent-chat-ui}
 
@@ -178,12 +235,61 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 | `useCollaborativeMap()` / `useCollaborativeArray()` | جرّب حالة Y.Map/Y.Array المنظمة عندما يكون تعاون نص النص المنسق غير مناسب. |
 | `dedupeCollabUsersByEmail()`                        | إنشاء مجموعة صور رمزية مخصصة بدون علامات تبويب مكررة لنفس المستخدم.        |
 
-```an-diagram title="الحضور: يتشارك البشر والوكيل في طبقة وعي واحدة" summary="useCollaborativeDoc يمتلك مثيل الوعي؛ تقوم خطافات العميل بنشر المؤشرات والتحديدات؛ يسمح مساعدو الخادم بإجراء الوكيل بالظهور كمشارك مباشر."
-{
-  "html": "<div class=\"diagram-presence\"><div class=\"diagram-col\"><div class=\"diagram-node\">البشر<br><small class=\"diagram-muted\">usePresence &middot; المؤشرات، الاختيار</small></div><div class=\"diagram-node diagram-accent\">عمل الوكيل<br><small class=\"diagram-muted\">وكيلUpdateSelection()</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">useCollaborativeDoc</span><small class=\"diagram-muted\">طبقة الوعي</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">&lt;شريط الوجود&gt; &middot; &lt;LiveCursorOverlay&gt;<br><small class=\"diagram-muted\">تقديم الجميع، بما في ذلك الوكيل</small></div></div>",
-  "css": ".diagram-presence{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-presence .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-presence .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-presence .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-dhg14q" title={"الحضور: يتشارك البشر والوكيل في طبقة وعي واحدة"} summary={"useCollaborativeDoc يمتلك مثيل الوعي؛ تقوم خطافات العميل بنشر المؤشرات والتحديدات؛ يسمح مساعدو الخادم بإجراء الوكيل بالظهور كمشارك مباشر."}>
+
+```html
+<div class="diagram-presence">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      البشر<br /><small class="diagram-muted"
+        >usePresence &middot; المؤشرات، الاختيار</small
+      >
+    </div>
+    <div class="diagram-node diagram-accent">
+      عمل الوكيل<br /><small class="diagram-muted">وكيلUpdateSelection()</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">useCollaborativeDoc</span
+    ><small class="diagram-muted">طبقة الوعي</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    &lt;شريط الوجود&gt; &middot; &lt;LiveCursorOverlay&gt;<br /><small
+      class="diagram-muted"
+      >تقديم الجميع، بما في ذلك الوكيل</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-presence {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-presence .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-presence .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-presence .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 يستخدم الوكيل من جانب الخادم actions الذي يريد الظهور كمشارك مباشر
 مساعدو حضور الوكيل `@agent-native/core/collab` ذو المستوى الأدنى:

@@ -173,6 +173,10 @@ must read in dark mode without a plan-specific patch.
 
 **Before handoff, open the plan and check it.** Fix overlap, excessive
 whitespace, clipped fragments, misleading inactive controls, poor contrast, and
-unreadable diagrams before asking for approval.
+unreadable diagrams before asking for approval. Check the top canvas in the
+current Plan theme, especially dark mode: white mockup panels, low-contrast
+muted text, or invisible controls are defects. If a frame only works in one
+theme, rewrite the HTML with `--wf-*` tokens and semantic helper classes before
+surfacing the plan.
 
 <!-- SHARED-CORE:document-quality END -->

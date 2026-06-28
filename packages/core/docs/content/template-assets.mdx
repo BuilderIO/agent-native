@@ -18,12 +18,68 @@ Assets is an agent-native workspace for creating and managing brand-consistent m
 
 When you open the app, the selected library, prompt, references, and generated candidates stay in one workspace. The agent can browse, search, generate, refine, and export every asset through the same actions the UI uses.
 
-```an-diagram title="Generate, review, reuse" summary="References and prompts feed a generate-and-choose session; chosen assets land in a library and flow out to other apps via the picker or A2A."
-{
-  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">logos, product shots, style</small></div><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">chat or Generate controls</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Generation session</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">chosen, brand-consistent assets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / MCP App</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">Slides · Design · Content</small></div></div></div>",
-  "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-5egxh6" title="Generate, review, reuse" summary={"References and prompts feed a generate-and-choose session; chosen assets land in a library and flow out to other apps via the picker or A2A."}>
+
+```html
+<div class="diagram-assets">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      References<br /><small class="diagram-muted"
+        >logos, product shots, style</small
+      >
+    </div>
+    <div class="diagram-node">
+      Prompt<br /><small class="diagram-muted">chat or Generate controls</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Generation session</span
+    ><small class="diagram-muted"
+      >image &amp; video candidates · audit log</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Library</span
+    ><small class="diagram-muted">chosen, brand-consistent assets</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Picker<br /><small class="diagram-muted">iframe / MCP App</small>
+    </div>
+    <div class="diagram-node">
+      A2A<br /><small class="diagram-muted">Slides · Design · Content</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-assets {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-assets .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-assets .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-assets .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## When to pick it
 

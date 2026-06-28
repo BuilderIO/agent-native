@@ -101,8 +101,12 @@ function normalizeSource(source: unknown): TranscriptSource {
   return source === "system" ? "system" : "mic";
 }
 
-function locale(): string {
+function browserLocale(): string {
   return navigator.language || "en-US";
+}
+
+export function recordingTranscriptionLanguage(): string | null {
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,14 +123,14 @@ export async function restartTranscriptionEngine(
   if (engine === "whisper") {
     await invoke("audio_transcription_start", {
       meetingId: null,
-      locale: locale(),
+      locale: recordingTranscriptionLanguage(),
       micDeviceId: mic?.deviceId || null,
       micDeviceLabel: mic?.label || null,
       captureSystem,
     });
   } else {
     await invoke("native_speech_start", {
-      locale: locale(),
+      locale: browserLocale(),
       micDeviceId: mic?.deviceId || null,
       micDeviceLabel: mic?.label || null,
     });

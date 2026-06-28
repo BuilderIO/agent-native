@@ -60,6 +60,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   tell the user that clearly and point them to Builder.io credits/upgrade or a
   Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do
   not transcribe Clips recordings.
+- Use `get-builder-credit-status` when the user asks whether Builder.io credit
+  limits are pausing backup transcription, transcript cleanup, summaries, or AI
+  title generation. Treat an exhausted status as an FYI/upgrade path, not an app
+  error.
 - Slack unfurls use `/api/slack/unfurl` for `link_shared` events and only
   return playable `chat.unfurl` video blocks for ready public clips with no
   password, no expiry hit, and no archive/trash marker. Private, org-only,

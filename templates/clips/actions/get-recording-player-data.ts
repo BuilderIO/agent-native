@@ -29,6 +29,10 @@ import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
 import { parseSpaceIds } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
+  CLIPS_BUILDER_CREDITS_STATE_KEY,
+  normalizeBuilderCreditsStatus,
+} from "../shared/builder-credits.js";
+import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
@@ -106,13 +110,23 @@ export default defineAction({
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
       .limit(1);
-    const cleanupStateRaw = await readAppState(
-      `transcript-cleanup-${args.recordingId}`,
-    ).catch(() => null);
+    const canEditRecording =
+      access.role === "owner" ||
+      access.role === "admin" ||
+      access.role === "editor";
+    const [cleanupStateRaw, builderCreditsRaw] = await Promise.all([
+      readAppState(`transcript-cleanup-${args.recordingId}`).catch(() => null),
+      canEditRecording
+        ? readAppState(CLIPS_BUILDER_CREDITS_STATE_KEY).catch(() => null)
+        : Promise.resolve(null),
+    ]);
     const cleanupState =
       cleanupStateRaw && typeof cleanupStateRaw === "object"
         ? (cleanupStateRaw as Record<string, unknown>)
         : null;
+    const builderCredits = canEditRecording
+      ? normalizeBuilderCreditsStatus(builderCreditsRaw)
+      : null;
 
     const comments = await db
       .select()
@@ -296,6 +310,7 @@ export default defineAction({
               : null,
           }
         : null,
+      builderCredits,
       comments: comments.map((c) => ({
         id: c.id,
         recordingId: c.recordingId,

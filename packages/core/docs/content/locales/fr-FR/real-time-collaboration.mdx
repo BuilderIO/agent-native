@@ -36,12 +36,57 @@ Ceci s'appuie sur trois technologies éprouvées : **Yjs** (CRDT pour une fusio
 
 Le système de collaboration comporte cinq couches imbriquées.
 
-```an-diagram title="Cinq couches imbriquées" summary="Du CRDT en mémoire au transport qui transporte les mises à jour entre les pairs, chaque couche a une tâche."
-{
-  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; fusion sans conflit, sans coordinateur</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; Contenu canonique SQL</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; réconciliation contrôlée par updatedAt</span><small class=\"diagram-muted\">les modifications de l’agent se propagent via le bump SQL</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; Élection du client leader</span><small class=\"diagram-muted\">un seul onglet applique l’instantané</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; chemin rapide SSE + polling</span><small class=\"diagram-muted\">~quelques dizaines de ms, retombe sur un polling de 2 s partout</small></div></div>",
-  "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+<Diagram id="doc-block-a2h5v7" title={"Cinq couches imbriquées"} summary={"Du CRDT en mémoire au transport qui transporte les mises à jour entre les pairs, chaque couche a une tâche."}>
+
+```html
+<div class="diagram-stack">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">1 &middot; Yjs Y.Doc</span
+    ><small class="diagram-muted"
+      >CRDT &mdash; fusion sans conflit, sans coordinateur</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">2 &middot; Contenu canonique SQL</span
+    ><small class="diagram-muted"
+      >_collab_docs &mdash; durable source of truth, versioned</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill"
+      >3 &middot; réconciliation contrôlée par updatedAt</span
+    ><small class="diagram-muted"
+      >les modifications de l’agent se propagent via le bump SQL</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">4 &middot; Élection du client leader</span
+    ><small class="diagram-muted">un seul onglet applique l’instantané</small>
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill ok">5 &middot; chemin rapide SSE + polling</span
+    ><small class="diagram-muted"
+      >~quelques dizaines de ms, retombe sur un polling de 2 s partout</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-stack .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### 1. Yjs Y.Doc (couche CRDT)
 
@@ -100,12 +145,66 @@ cycle.
 
 Les erreurs réseau utilisent un intervalle exponentiel avec gigue, plafonné à environ 15 s.
 
-```an-diagram title="Deux chemins d'édition, un de fusion" summary="Les frappes humaines circulent Y.Doc → serveur → SSE. Les modifications de l'agent passent par SQL : l'action est déplacée vers updateAt, le client principal se réconcilie, puis la modification entre à nouveau dans Yjs."
-{
-  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">Modification humaine</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce ~80 ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">Modification agent</span><div class=\"diagram-node\">L’action écrit SQL<br><small class=\"diagram-muted\">met à jour updatedAt</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>Client principal<br><small class=\"diagram-muted\">setContent dans Y.Doc</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
-  "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1k569ij" title={"Deux chemins d'édition, un de fusion"} summary={"Les frappes humaines circulent Y.Doc → serveur → SSE. Les modifications de l'agent passent par SQL : l'action est déplacée vers updateAt, le client principal se réconcilie, puis la modification entre à nouveau dans Yjs."}>
+
+```html
+<div class="diagram-collab">
+  <div class="lane">
+    <span class="diagram-pill">Modification humaine</span>
+    <div class="diagram-node">
+      Y.Doc update<br /><small class="diagram-muted">debounce ~80 ms</small>
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      POST /update<br /><small class="diagram-muted">apply + persist</small>
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      SSE push<br /><small class="diagram-muted">to all peers</small>
+    </div>
+  </div>
+  <div class="lane">
+    <span class="diagram-pill warn">Modification agent</span>
+    <div class="diagram-node">
+      L’action écrit SQL<br /><small class="diagram-muted"
+        >met à jour updatedAt</small
+      >
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      Client principal<br /><small class="diagram-muted"
+        >setContent dans Y.Doc</small
+      >
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      POST /update<br /><small class="diagram-muted"
+        >re-enters Yjs &middot; SSE push</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-collab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-collab .lane {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-collab .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Démarrage rapide {#quickstart}
 

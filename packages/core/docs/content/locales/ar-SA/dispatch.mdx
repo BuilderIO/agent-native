@@ -11,12 +11,65 @@ Dispatch هو التطبيق المركزي الذي يقع أمام كل تطب
 
 بدون Dispatch، سينتهي الأمر بكل تطبيق في مساحة عمل متعددة التطبيقات بإعادة تنفيذ نفس السباكة: روبوت Slack الخاص به، ومتجره السري الخاص، والوظائف المجدولة الخاصة به، ونسخته الخاصة من تعليمات مساحة العمل. يؤدي تدوير مفتاح API واحد إلى عشر عمليات إعادة توزيع. إضافة سياسة جديدة تتحول إلى عشرة نسخ ولصق. تعمل Dispatch على تجميع كل ذلك في تطبيق واحد حتى يواصل الآخرون التركيز على نطاقهم.
 
-```an-diagram title="Dispatch كمستوى التحكم في مساحة العمل" summary="يوجد صندوق بريد واحد، وقبو واحد، وبوابة MCP واحدة، وموارد مشتركة أمام تطبيقات النطاق، والتي يصل إليها Dispatch كأقران A2A."
-{
-  "html": "<div class=\"dsp-hub\"><div class=\"diagram-node\">Users &amp; external agents<br><small class=\"diagram-muted\">Slack · البريد · Telegram · WhatsApp · MCP</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-panel dsp-control\" data-rough><span class=\"diagram-pill accent\">Dispatch &mdash; control plane</span><div class=\"dsp-caps\"><span class=\"diagram-pill\">صندوق وارد مركزي</span><span class=\"diagram-pill\">خزنة الأسرار</span><span class=\"diagram-pill\">تفويض بين التطبيقات</span><span class=\"diagram-pill\">MCP gateway</span><span class=\"diagram-pill\">موارد مساحة العمل</span></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"dsp-peers\"><div class=\"diagram-box\" data-rough>Mail</div><div class=\"diagram-box\" data-rough>Calendar</div><div class=\"diagram-box\" data-rough>Analytics</div></div><small class=\"diagram-muted\">domain apps &mdash; A2A peers</small></div>",
-  "css": ".dsp-hub{display:flex;flex-direction:column;align-items:center;gap:10px}.dsp-hub .dsp-control{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}.dsp-hub .dsp-caps{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}.dsp-hub .dsp-peers{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}"
+<Diagram id="doc-block-17t74c2" title={"Dispatch كمستوى التحكم في مساحة العمل"} summary={"يوجد صندوق بريد واحد، وقبو واحد، وبوابة MCP واحدة، وموارد مشتركة أمام تطبيقات النطاق، والتي يصل إليها Dispatch كأقران A2A."}>
+
+```html
+<div class="dsp-hub">
+  <div class="diagram-node">
+    Users &amp; external agents<br /><small class="diagram-muted"
+      >Slack · البريد · Telegram · WhatsApp · MCP</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel dsp-control" data-rough>
+    <span class="diagram-pill accent">Dispatch &mdash; control plane</span>
+    <div class="dsp-caps">
+      <span class="diagram-pill">صندوق وارد مركزي</span
+      ><span class="diagram-pill">خزنة الأسرار</span
+      ><span class="diagram-pill">تفويض بين التطبيقات</span
+      ><span class="diagram-pill">MCP gateway</span
+      ><span class="diagram-pill">موارد مساحة العمل</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="dsp-peers">
+    <div class="diagram-box" data-rough>Mail</div>
+    <div class="diagram-box" data-rough>Calendar</div>
+    <div class="diagram-box" data-rough>Analytics</div>
+  </div>
+  <small class="diagram-muted">domain apps &mdash; A2A peers</small>
+</div>
+```
+
+```css
+.dsp-hub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.dsp-hub .dsp-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.dsp-hub .dsp-caps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.dsp-hub .dsp-peers {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
 }
 ```
+
+</Diagram>
 
 ## عندما تريد الإرسال {#when}
 
@@ -108,12 +161,85 @@ The single MCP connector URL external agents add (e.g. `https://dispatch.agent-n
 4. **تم نشر الرد في سلسلة المحادثات.** يقوم وكيل التحليلات بإرجاع نتيجة. يقوم Dispatch بتنسيقه ونشره مرة أخرى في نفس سلسلة Slack التي كتبها المستخدم، باستخدام الهوية المرتبطة إذا كانت هناك واحدة (بحيث يتصرف الوكيل وفقًا لأذونات الطالب، وليس أذونات مالك مساحة العمل).
 5. **الاسترداد في حالة وفاة أي شيء.** إذا تعطل المعالج في منتصف الرحلة - انتهاء مهلة A2A، أو خطأ في عامل المصب، أو تجميد الوظيفة - فإن مهمة إعادة المحاولة تمسح المهام العالقة كل 60 ثانية وتعيد تشغيل المعالج. ما يصل إلى ثلاث محاولات قبل أن يتم وضع علامة `failed` على المهمة.
 
-```an-diagram title="رسالة Slack عبر Dispatch" summary="يتم إدراج Slack في SQL، ويستنزفه تنفيذ جديد، ويقوم وكيل Dispatch بتفويض عمل المجال عبر A2A، ويعود الرد مرة أخرى إلى سلسلة المحادثات الأصلية. تعمل عملية إعادة المحاولة لمدة 60 ثانية على استعادة أي شيء يموت في منتصف الرحلة."
-{
-  "html": "<div class=\"dsp-flow\"><div class=\"dsp-row\"><div class=\"diagram-node\">رسالة Slack مباشرة<br><small class=\"diagram-muted\">\"summarize last week's signups\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><strong>/slack/webhook</strong><br><small class=\"diagram-muted\">تحقق + INSERT لمهمة معلقة</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">200</div></div><div class=\"dsp-row\"><div class=\"diagram-box\" data-rough><strong>fresh processor</strong><br><small class=\"diagram-muted\">استلام المهمة · بدء حلقة الوكيل</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">وكيل Dispatch يقرر</span><small class=\"diagram-muted\">analytics intent &rarr; call-agent</small></div></div><div class=\"dsp-row\"><div class=\"diagram-box\" data-rough>تطبيق التحليلات<br><small class=\"diagram-muted\">نظير A2A · ينفذ عمل SQL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill ok\">reply posted in thread</div></div><div class=\"diagram-panel dsp-retry\" data-rough><span class=\"diagram-pill warn\">recovery</span> <span class=\"diagram-muted\">if the processor crashes &mdash; A2A timeout, downstream error, freeze &mdash; the 60s retry job re-fires it (&le;3 attempts) so the Slack reply still arrives</span> <span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</span></div></div>",
-  "css": ".dsp-flow{display:flex;flex-direction:column;gap:12px}.dsp-flow .dsp-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.dsp-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}.dsp-flow .dsp-retry{display:flex;align-items:center;gap:8px;flex-wrap:wrap}"
+<Diagram id="doc-block-13jtbce" title={"رسالة Slack عبر Dispatch"} summary={"يتم إدراج Slack في SQL، ويستنزفه تنفيذ جديد، ويقوم وكيل Dispatch بتفويض عمل المجال عبر A2A، ويعود الرد مرة أخرى إلى سلسلة المحادثات الأصلية. تعمل عملية إعادة المحاولة لمدة 60 ثانية على استعادة أي شيء يموت في منتصف الرحلة."}>
+
+```html
+<div class="dsp-flow">
+  <div class="dsp-row">
+    <div class="diagram-node">
+      رسالة Slack مباشرة<br /><small class="diagram-muted"
+        >"summarize last week's signups"</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>
+      <strong>/slack/webhook</strong><br /><small class="diagram-muted"
+        >تحقق + INSERT لمهمة معلقة</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">200</div>
+  </div>
+  <div class="dsp-row">
+    <div class="diagram-box" data-rough>
+      <strong>fresh processor</strong><br /><small class="diagram-muted"
+        >استلام المهمة · بدء حلقة الوكيل</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-panel center" data-rough>
+      <span class="diagram-pill accent">وكيل Dispatch يقرر</span
+      ><small class="diagram-muted">analytics intent &rarr; call-agent</small>
+    </div>
+  </div>
+  <div class="dsp-row">
+    <div class="diagram-box" data-rough>
+      تطبيق التحليلات<br /><small class="diagram-muted"
+        >نظير A2A · ينفذ عمل SQL</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">reply posted in thread</div>
+  </div>
+  <div class="diagram-panel dsp-retry" data-rough>
+    <span class="diagram-pill warn">recovery</span>
+    <span class="diagram-muted"
+      >if the processor crashes &mdash; A2A timeout, downstream error, freeze
+      &mdash; the 60s retry job re-fires it (&le;3 attempts) so the Slack reply
+      still arrives</span
+    >
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</span>
+  </div>
+</div>
+```
+
+```css
+.dsp-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dsp-flow .dsp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.dsp-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.dsp-flow .dsp-retry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 ```
+
+</Diagram>
 
 ينطبق نفس التدفق على البريد الإلكتروني، وTelegram، وWhatsApp - يتغير المحول فقط.
 

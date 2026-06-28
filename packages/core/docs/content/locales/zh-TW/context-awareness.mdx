@@ -24,12 +24,65 @@ description: "代理如何知道使用者正在檢視的內容：導覽狀態、
 5. **提示切換** -- 當點選應成為代理輪次時，UI 控制項呼叫 `sendToAgentChat()`
 6. **`navigate`**——來自代理的一次性指令，告訴 UI 去哪裡
 
-```an-diagram title="代理如何看到您所看到的內容" summary="UI 編寫輕量級狀態鍵；螢幕將它們轉化為真實的紀錄；代理可以編寫導覽返回來行動 UI。"
-{
-  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI 寫入</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">檢視、開啟的 ID</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">行、塊、形狀</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">代理執行<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">代理行動 UI</small></div></div>",
-  "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1mnb4kl" title={"代理如何看到您所看到的內容"} summary={"UI 編寫輕量級狀態鍵；螢幕將它們轉化為真實的紀錄；代理可以編寫導覽返回來行動 UI。"}>
+
+```html
+<div class="diagram-ctx">
+  <div class="diagram-card col">
+    <span class="diagram-pill">UI 寫入</span>
+    <div class="diagram-node">
+      navigation<br /><small class="diagram-muted">檢視、開啟的 ID</small>
+    </div>
+    <div class="diagram-node">
+      __url__<br /><small class="diagram-muted">shareable filters</small>
+    </div>
+    <div class="diagram-node">
+      selection<br /><small class="diagram-muted">行、塊、形狀</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">view-screen</span
+    ><small class="diagram-muted">reads state &middot; fetches records</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    代理執行<br /><small class="diagram-muted">on the real object</small>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box diagram-accent">
+    navigate<br /><small class="diagram-muted">代理行動 UI</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-ctx {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-ctx .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.diagram-ctx .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-ctx .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 脈絡層 {#context-layers}
 
@@ -382,9 +435,44 @@ useDbSync({
 - 處理同步事件時，UI 會過濾掉與其自己的 `ignoreSource` 值匹配的事件 - 因此它不會重新取得剛剛寫入的資料
 - 來自代理、其他分頁和 actions 的事件仍然正常進行
 
-```an-diagram title="來源標記可阻止自重取抖動" summary="分頁會忽略標有其自己的 TAB_ID 的同步事件，但仍會對代理和其他分頁寫入做出反應。"
-{
-  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">此標籤頁面寫入<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>伺服器儲存來源<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">無需重新拉取，無閃爍</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">介面即時更新</small></div></div>",
-  "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-fgi5wt" title={"來源標記可阻止自重取抖動"} summary={"分頁會忽略標有其自己的 TAB_ID 的同步事件，但仍會對代理和其他分頁寫入做出反應。"}>
+
+```html
+<div class="diagram-jitter">
+  <div class="diagram-node">
+    此標籤頁面寫入<br /><small class="diagram-muted"
+      >X-Request-Source: TAB_ID</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>伺服器儲存來源<br />on the event</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card col">
+    <div class="diagram-pill warn">source == TAB_ID &rarr; ignored</div>
+    <small class="diagram-muted">無需重新拉取，無閃爍</small>
+    <div class="diagram-pill ok">agent / other tab &rarr; applied</div>
+    <small class="diagram-muted">介面即時更新</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-jitter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jitter .col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-jitter .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>

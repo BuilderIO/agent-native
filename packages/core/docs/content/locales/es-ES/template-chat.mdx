@@ -37,12 +37,69 @@ Si desea el tiempo de ejecución más pequeño de solo acciones sin navegador UI
 
 Ese es el punto. Chat es un shell predeterminado ligero y útil para su propio agente, no un producto de dominio que pretende ser genérico.
 
-```an-diagram title="Qué se incluye en el shell de Chat" summary="Una superficie de chat delgada sobre el tiempo de ejecución estándar del marco (acciones, subprocesos duraderos, sincronización en vivo y autenticación) con espacio para agregar su propia interfaz de usuario."
-{
-  "html": "<div class=\"diagram-chat\"><div class=\"diagram-col left\"><div class=\"diagram-node\">Lista de hilos<br><small class=\"diagram-muted\">crear · reabrir · fijar · archivar</small></div><div class=\"diagram-node\">Chat de página completa<br><small class=\"diagram-muted\">superficie de chat del framework en /</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">hello.ts · view-screen · navigate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col right\"><div class=\"diagram-box\">Tablas SQL centrales<br><small class=\"diagram-muted\">threads · application_state · settings · sessions · runs</small></div><div class=\"diagram-pill ok\">Sincronización en vivo &#8635;</div><div class=\"diagram-box\">Better Auth<br><small class=\"diagram-muted\">login · organizaciones · sesiones</small></div></div></div>",
-  "css": ".diagram-chat{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-chat .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-chat .diagram-arrow{font-size:22px;line-height:1}.diagram-chat .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-17p7woh" title={"Qué se incluye en el shell de Chat"} summary={"Una superficie de chat delgada sobre el tiempo de ejecución estándar del marco (acciones, subprocesos duraderos, sincronización en vivo y autenticación) con espacio para agregar su propia interfaz de usuario."}>
+
+```html
+<div class="diagram-chat">
+  <div class="diagram-col left">
+    <div class="diagram-node">
+      Lista de hilos<br /><small class="diagram-muted"
+        >crear · reabrir · fijar · archivar</small
+      >
+    </div>
+    <div class="diagram-node">
+      Chat de página completa<br /><small class="diagram-muted"
+        >superficie de chat del framework en /</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted">hello.ts · view-screen · navigate</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col right">
+    <div class="diagram-box">
+      Tablas SQL centrales<br /><small class="diagram-muted"
+        >threads · application_state · settings · sessions · runs</small
+      >
+    </div>
+    <div class="diagram-pill ok">Sincronización en vivo &#8635;</div>
+    <div class="diagram-box">
+      Better Auth<br /><small class="diagram-muted"
+        >login · organizaciones · sesiones</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-chat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-chat .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-chat .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-chat .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Cuándo elegirlo {#when-to-pick}
 

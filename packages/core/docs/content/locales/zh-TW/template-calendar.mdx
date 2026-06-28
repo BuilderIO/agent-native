@@ -18,12 +18,66 @@ description: "由代理支援的行事曆，具有 Google Calendar 同步和 Cal
 
 當您開啟應用程式時，活動行事曆檢視是主表面。代理仍然知道您正在檢視哪一天、哪一週或哪一天的活動，因此您可以說“安排在這一天與 Alex 進行 30 分鐘的通話”，而無需說明所有內容。
 
-```an-diagram title="調度請求如何流動" summary="無論您點選行事曆還是詢問代理，相同的操作都會從 Google Calendar 即時讀取並寫回同一檢視。"
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">你點選<br><small class=\"diagram-muted\">拖放、工具列、快速鍵</small></div><div class=\"diagram-node\">你向代理請求<br><small class=\"diagram-muted\">\"find a 1-hour slot next week\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-events · check-availability · create-event</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Google Calendar<br><small class=\"diagram-muted\">即時、多帳戶</small></div><div class=\"diagram-box\">SQL<br><small class=\"diagram-muted\">預約 · 可用時間</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">行事曆檢視即時更新</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1qbldig" title={"調度請求如何流動"} summary={"無論您點選行事曆還是詢問代理，相同的操作都會從 Google Calendar 即時讀取並寫回同一檢視。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      你點選<br /><small class="diagram-muted">拖放、工具列、快速鍵</small>
+    </div>
+    <div class="diagram-node">
+      你向代理請求<br /><small class="diagram-muted"
+        >"find a 1-hour slot next week"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · check-availability · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted">即時、多帳戶</small>
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">預約 · 可用時間</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">行事曆檢視即時更新</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 你可以用它做什麼
 

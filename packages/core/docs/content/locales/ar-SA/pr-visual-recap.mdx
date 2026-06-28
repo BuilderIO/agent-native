@@ -24,12 +24,71 @@ PR Visual Recap هو إجراء GitHub يحول كل طلب سحب إلى **مر
 7. يرفع تعليق علاقات عامة ثابتًا واحدًا يتضمن لقطات الشاشة **مضمنة** مع عنصر `<picture>` (يتم تقديمه من خلال وكيل صورة التمويه الخاص بـ GitHub) بجوار رابط الملخص التفاعلي.
 8. يكمل فحص `Visual Recap` بنجاح، أو تم تخطيه، أو محايد.
 
-```an-diagram title="ماذا يحدث في كل دفعة للعلاقات العامة" summary="يغذي الفرق المحدود وكيل ترميز حقيقي، والذي يقوم بتأليف ملخص؛ يقوم سير العمل بالتقاط لقطات شاشة له وإدراج تعليق واحد ثابت."
-{
-  "html": "<div class=\"diagram-recap\"><div class=\"diagram-node\">دفع PR<br><small class=\"diagram-muted\">bounded base&hellip;head diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">وكيل البرمجة<br><small class=\"diagram-muted\">Claude Code / Codex يقرأ diff</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-visual-recap</span><small class=\"diagram-muted\">publishes recap plan</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">Chrome بلا واجهة<br><small class=\"diagram-muted\">light + dark screenshots</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">تعليق PR ثابت واحد<br><small class=\"diagram-muted\">inline screenshot + plan link</small></div></div><div class=\"diagram-foot diagram-muted\">Plus an informational <span class=\"diagram-pill\">Visual Recap</span> check &mdash; non-blocking, never required.</div>",
-  "css": ".diagram-recap{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-recap .diagram-arrow{font-size:20px;line-height:1}.diagram-recap .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-recap .diagram-foot{flex-basis:100%;margin-top:10px;font-size:13px}"
+<Diagram id="doc-block-1cylk7g" title={"ماذا يحدث في كل دفعة للعلاقات العامة"} summary={"يغذي الفرق المحدود وكيل ترميز حقيقي، والذي يقوم بتأليف ملخص؛ يقوم سير العمل بالتقاط لقطات شاشة له وإدراج تعليق واحد ثابت."}>
+
+```html
+<div class="diagram-recap">
+  <div class="diagram-node">
+    دفع PR<br /><small class="diagram-muted"
+      >bounded base&hellip;head diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    وكيل البرمجة<br /><small class="diagram-muted"
+      >Claude Code / Codex يقرأ diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-visual-recap</span
+    ><small class="diagram-muted">publishes recap plan</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Chrome بلا واجهة<br /><small class="diagram-muted"
+      >light + dark screenshots</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    تعليق PR ثابت واحد<br /><small class="diagram-muted"
+      >inline screenshot + plan link</small
+    >
+  </div>
+</div>
+<div class="diagram-foot diagram-muted">
+  Plus an informational <span class="diagram-pill">Visual Recap</span> check
+  &mdash; non-blocking, never required.
+</div>
+```
+
+```css
+.diagram-recap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-recap .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-recap .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-recap .diagram-foot {
+  flex-basis: 100%;
+  margin-top: 10px;
+  font-size: 13px;
 }
 ```
+
+</Diagram>
 
 تعمل إعادة الدفع على تحديث نفس الخطة ونفس التعليق الثابت الموجود - لا توجد خطط معزولة، ولا توجد تعليقات غير مرغوب فيها.
 
@@ -157,12 +216,70 @@ npx @agent-native/core@latest recap setup
 
 لتثبيته، انسخ الملف من [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) إلى دليل `.github/workflows/` الخاص بالمستودع الخاص بك إلى جانب `pr-visual-recap.yml` الموجود. تنطبق نفس الأسرار (`PLAN_RECAP_TOKEN`، `ANTHROPIC_API_KEY`).
 
-```an-diagram title="بوابة موافقة Fork PR" summary="لا يحصل ممثلو العلاقات العامة في Fork على أي أسرار بشكل افتراضي؛ يعمل المؤلفون الموثوق بهم تلقائيًا، ويتطلب المساهمون الخارجيون ملصقًا جديدًا لملخص المشرف."
-{
-  "html": "<div class=\"diagram-fork\"><div class=\"diagram-node\">تم فتح PR من fork<br><small class=\"diagram-muted\">main workflow has no secrets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><span class=\"diagram-pill ok\">مؤلف موثوق</span><small class=\"diagram-muted\">OWNER أو MEMBER أو COLLABORATOR يعمل تلقائيًا</small></div><div class=\"diagram-card\"><span class=\"diagram-pill warn\">مساهم خارجي</span><small class=\"diagram-muted\">يراجع المشرف diff ثم يطبقه <code>recap</code></small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\">فحوصات البوابة<br><small class=\"diagram-muted\">fork PR? &amp; trusted or fresh label?</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box ok\">تشغيلات الملخص<br><small class=\"diagram-muted\">كود base-repo فقط · diff من fork هو إدخال نصي</small></div></div>",
-  "css": ".diagram-fork{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-fork .diagram-arrow{font-size:20px;line-height:1}.diagram-fork .center{display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.diagram-fork .diagram-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px}"
+<Diagram id="doc-block-1ez4ofk" title={"بوابة موافقة Fork PR"} summary={"لا يحصل ممثلو العلاقات العامة في Fork على أي أسرار بشكل افتراضي؛ يعمل المؤلفون الموثوق بهم تلقائيًا، ويتطلب المساهمون الخارجيون ملصقًا جديدًا لملخص المشرف."}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-node">
+    تم فتح PR من fork<br /><small class="diagram-muted"
+      >main workflow has no secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">مؤلف موثوق</span
+    ><small class="diagram-muted"
+      >OWNER أو MEMBER أو COLLABORATOR يعمل تلقائيًا</small
+    >
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">مساهم خارجي</span
+    ><small class="diagram-muted"
+      >يراجع المشرف diff ثم يطبقه <code>recap</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    فحوصات البوابة<br /><small class="diagram-muted"
+      >fork PR? &amp; trusted or fresh label?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">
+    تشغيلات الملخص<br /><small class="diagram-muted"
+      >كود base-repo فقط · diff من fork هو إدخال نصي</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-fork .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### كيفية عمل بوابة التصنيف
 

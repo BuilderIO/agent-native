@@ -50,12 +50,58 @@ Tres cosas cambian cuando llegas al peldaño 3:
 
 Ese es el peldaño 3. Es agente nativo.
 
-```an-diagram title="El principio de la escalera" summary="La mayoría de los equipos se detienen en el peldaño 1 o 2. El agente nativo es el peldaño 3: una aplicación real y un agente real en una superficie de acción compartida."
-{
-  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">Peldaño 3 · agent-native</span><strong>Agente + UI como socios iguales</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">Peldaño 2</span><strong>Un chat con herramientas</strong><small class=\"diagram-muted\">El agente puede actuar, pero sigue siendo solo una ventana de chat. Sin paneles, listas ni atajos.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">Peldaño 1</span><strong>Una sola llamada LLM</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
-  "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
+<Diagram id="doc-block-1qj0agk" title="El principio de la escalera" summary={"La mayoría de los equipos se detienen en el peldaño 1 o 2. El agente nativo es el peldaño 3: una aplicación real y un agente real en una superficie de acción compartida."}>
+
+```html
+<div class="diagram-ladder">
+  <div class="diagram-card rung rung-3">
+    <span class="diagram-pill accent">Peldaño 3 · agent-native</span
+    ><strong>Agente + UI como socios iguales</strong
+    ><small class="diagram-muted"
+      >One action surface. Every agent tool is also a button; every button runs
+      the same logic the agent uses.</small
+    >
+  </div>
+  <div class="diagram-card rung rung-2">
+    <span class="diagram-pill">Peldaño 2</span
+    ><strong>Un chat con herramientas</strong
+    ><small class="diagram-muted"
+      >El agente puede actuar, pero sigue siendo solo una ventana de chat. Sin
+      paneles, listas ni atajos.</small
+    >
+  </div>
+  <div class="diagram-card rung rung-1">
+    <span class="diagram-pill warn">Peldaño 1</span
+    ><strong>Una sola llamada LLM</strong
+    ><small class="diagram-muted"
+      >Prompt in, string out. Impressive in a demo; breaks the moment reality
+      gets messy.</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-ladder .rung {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+}
+.diagram-ladder .rung-2 {
+  margin-inline-end: 48px;
+}
+.diagram-ladder .rung-1 {
+  margin-inline-end: 96px;
 }
 ```
+
+</Diagram>
 
 Consulta [Key Concepts — Protocols](/docs/key-concepts#protocols) para ver cómo todo esto depende de la misma definición de acción.
 
@@ -89,12 +135,57 @@ Este es el principio definitorio.
 >
 > **Del agente** — lenguaje natural, otros agentes vía A2A, Slack, Telegram. El agente escribe en la base de datos; el UI se actualiza automáticamente.
 
-```an-diagram title="Un sistema, dos maneras de entrar" summary="El agente y la interfaz de usuario escriben en las mismas acciones y en la misma base de datos. Todo lo que uno hace, el otro lo ve."
-{
-  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">clics, formularios, atajos</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">lenguaje natural · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">base de datos SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">La UI se actualiza en vivo</div></div>",
-  "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1wecaga" title="Un sistema, dos maneras de entrar" summary="El agente y la interfaz de usuario escriben en las mismas acciones y en la misma base de datos. Todo lo que uno hace, el otro lo ve.">
+
+```html
+<div class="diagram-parity">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Human<br /><small class="diagram-muted">clics, formularios, atajos</small>
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted"
+        >lenguaje natural · A2A · Slack</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted">defined once</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">base de datos SQL</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">La UI se actualiza en vivo</div>
+</div>
+```
+
+```css
+.diagram-parity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-parity .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-parity .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-parity .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 Cuando el agente crea un borrador de correo electrónico, aparece en UI. Cuando hace clic en "Enviar", el agente sabe que fue enviado. No existe un "mundo de agentes" y un "mundo UI" separados: es un solo sistema. Consulte [Key Concepts](/docs/key-concepts) para conocer la arquitectura que hace que esto funcione.
 

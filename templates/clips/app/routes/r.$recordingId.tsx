@@ -10,6 +10,10 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  BUILDER_CREDITS_UPGRADE_URL,
+  type BuilderCreditsStatus,
+} from "@shared/builder-credits";
+import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "@shared/loom";
@@ -24,6 +28,7 @@ import {
   IconClipboardCopy,
   IconFileText,
   IconSparkles,
+  IconExternalLink,
   IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
@@ -271,8 +276,19 @@ export default function RecordingPage() {
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
   const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
+  const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const builderCredits =
+    (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
+  const titleGenerationPaused = Boolean(
+    canEdit &&
+    builderCredits?.exhausted === true &&
+    recording &&
+    isDefaultTitle(recording.title),
+  );
   const showTitleSkeleton = recording
-    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
+    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus, {
+        titleGenerationPaused,
+      })
     : false;
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
@@ -302,7 +318,6 @@ export default function RecordingPage() {
       ? generatedWorkflowQ.data
       : null;
 
-  const canEdit = role === "owner" || role === "admin" || role === "editor";
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
@@ -408,6 +423,10 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.updated) {
         toast.success(t("recordingPage.titleUpdated"));
+      } else if (result?.reason === "builder_credits_paused") {
+        toast.message(t("builderCredits.pausedTitle"), {
+          description: t("builderCredits.titleDescription"),
+        });
       } else if (result?.skipped) {
         toast.message(t("recordingPage.transcriptNotReady"), {
           description: t("recordingPage.tryAfterTranscription"),
@@ -882,6 +901,9 @@ export default function RecordingPage() {
                 <> · {capitalize(recording.visibility)}</>
               ) : null}
             </p>
+            {titleGenerationPaused ? (
+              <BuilderCreditsTitleNotice className="mt-2" />
+            ) : null}
           </div>
 
           {canUseNativeEditor ? (
@@ -1328,7 +1350,9 @@ function sanitizeFilename(name: string): string {
 function shouldShowGeneratedTitleSkeleton(
   recording: { title: string | null | undefined; createdAt?: string | null },
   transcriptStatus?: string,
+  options: { titleGenerationPaused?: boolean } = {},
 ): boolean {
+  if (options.titleGenerationPaused) return false;
   if (!isDefaultTitle(recording.title)) return false;
   if (transcriptStatus === "failed") return false;
 
@@ -1342,4 +1366,30 @@ function shouldShowGeneratedTitleSkeleton(
   }
 
   return true;
+}
+
+function BuilderCreditsTitleNotice({ className }: { className?: string }) {
+  const t = useT();
+  return (
+    <div
+      className={cn(
+        "inline-flex max-w-full items-center gap-2 rounded-md border border-amber-300/70 bg-amber-50/80 px-2 py-1 text-[11px] leading-4 text-amber-950 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-100",
+        className,
+      )}
+    >
+      <IconSparkles className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-200" />
+      <span className="min-w-0 truncate">
+        {t("builderCredits.titleDescription")}
+      </span>
+      <a
+        href={BUILDER_CREDITS_UPGRADE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex shrink-0 items-center gap-1 font-medium underline-offset-2 hover:underline"
+      >
+        {t("builderCredits.upgrade")}
+        <IconExternalLink className="h-3 w-3" />
+      </a>
+    </div>
+  );
 }

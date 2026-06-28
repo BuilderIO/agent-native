@@ -19,6 +19,23 @@ const messages = {
     extensionSignedInDescription: "再次打开 Clips 扩展即可开始录制。",
     gotIt: "知道了",
   },
+  builderCredits: {
+    pausedTitle: "Builder.io 额度已暂停",
+    transcriptionDescription:
+      "升级 Builder.io 即可恢复备份转录。现有的原生转录仍会显示。",
+    cleanupDescription:
+      "升级 Builder.io 即可恢复转录清理、摘要和 AI 标题。原生转录已保留。",
+    settingsDescription:
+      "升级 Builder.io 即可恢复备份转录、转录清理、摘要和 AI 标题。现有的原生转录仍会显示。",
+    titleDescription: "AI 标题生成已暂停。你的转录仍可使用。",
+    upgrade: "升级 Builder.io",
+    retryAfterUpgrade: "升级后重试",
+    openAiSetup: "AI 设置",
+    featureBackupTranscription: "备份转录",
+    featureCleanup: "转录清理",
+    featureSummaries: "摘要",
+    featureTitles: "AI 标题",
+  },
   recorder: {
     cameraBlurTitle: "虚化背景",
     cameraBlurDescription: "让你保持清晰，同时虚化身后的内容",
@@ -318,6 +335,12 @@ const messages = {
       "我们在这段录音中没有听到任何讲话。如果这是故意的，那么一切都准备好了。如果没有，请检查您的麦克风和语音权限，然后重试转录。",
     retry: "重试",
     transcriptUnavailable: "成绩单不可用：{{reason}}",
+    transcriptUnavailableTitle: "转录不可用",
+    providerNeedsAttention: "提供商需要处理",
+    providerNeedsAttentionDescription:
+      "当前提供商已暂停此请求。切换到 Builder.io 或更新密钥，然后重试。",
+    enableTranscriptionTitle: "启用转录",
+    enableTranscriptionDescription: "为此 Clip 启用字幕、转录搜索和摘要。",
     searchPlaceholder: "搜索成绩单",
     copyTranscript: "复制成绩单",
     downloadSrt: "下载.srt",

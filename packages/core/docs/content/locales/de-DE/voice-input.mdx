@@ -19,12 +19,53 @@ Die Sprachtaste des Komponisten zeichnet Audio im Browser auf und wählt dann ei
 
 Die Anbieterauswahl wird im Anwendungsstatus unter `voice-transcription-prefs` gespeichert, sodass der Benutzer `"auto"` (Standard – wählt den besten verfügbaren Anbieter), `"builder-gemini"`, `"builder"`, `"gemini"`, `"groq"`, `"openai"` oder `"browser"` in den Seitenleisteneinstellungen erzwingen kann.
 
-```an-diagram title="Fallback für Sprachtranskriptionsanbieter" summary="Der Verfassenr zeichnet Audio auf, durchläuft dann die Serveranbieter der Reihe nach und wechselt nur dann zum Web Speech API des Browsers, wenn kein Serveranbieter verfügbar ist."
-{
-  "html": "<div class=\"diagram-voice\"><div class=\"diagram-node\">Mikrofontaste<br><small class=\"diagram-muted\">zeichnet webm/opus auf</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill accent\">1 &middot; Builder Gemini</div><small class=\"diagram-muted\">Standard, wenn Builder verbunden ist</small><div class=\"diagram-pill\">2 &middot; BYOK cloud</div><small class=\"diagram-muted\">Gemini &middot; Groq &middot; OpenAI Whisper</small></div><div class=\"diagram-arrow diagram-warn\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box diagram-warn\" data-rough>3 &middot; Browser Web Speech<br><small class=\"diagram-muted\">fallback on 400 &middot; streams live</small></div></div>",
-  "css": ".diagram-voice{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-voice .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-voice .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1uja1uu" title={"Fallback für Sprachtranskriptionsanbieter"} summary={"Der Verfassenr zeichnet Audio auf, durchläuft dann die Serveranbieter der Reihe nach und wechselt nur dann zum Web Speech API des Browsers, wenn kein Serveranbieter verfügbar ist."}>
+
+```html
+<div class="diagram-voice">
+  <div class="diagram-node">
+    Mikrofontaste<br /><small class="diagram-muted"
+      >zeichnet webm/opus auf</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card col">
+    <div class="diagram-pill accent">1 &middot; Builder Gemini</div>
+    <small class="diagram-muted">Standard, wenn Builder verbunden ist</small>
+    <div class="diagram-pill">2 &middot; BYOK cloud</div>
+    <small class="diagram-muted"
+      >Gemini &middot; Groq &middot; OpenAI Whisper</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-warn" aria-hidden="true">&darr;</div>
+  <div class="diagram-box diagram-warn" data-rough>
+    3 &middot; Browser Web Speech<br /><small class="diagram-muted"
+      >fallback on 400 &middot; streams live</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-voice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-voice .col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-voice .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Die Route ist **nur Same-Origin** – Site-übergreifende POSTs werden abgelehnt, sodass ein Angreifer keine Transkriptions-Credits von einer externen Seite brennen kann.
 

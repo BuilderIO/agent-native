@@ -19,12 +19,60 @@ search: "سجلات متصفح Clips، سجلات المطورين، سجلات 
 
 فكر على غرار Loom + Granola + Wispr Flow المدمجة في تطبيق واحد - ولكن الوكيل هو محرر من الدرجة الأولى عبر كل سطح، والتسجيلات والاجتماعات والإملاءات ملكك، وليس بائع SaaS. تجعل Clips أيضًا التسجيلات المشتركة قابلة للقراءة من قبل الوكيل: قم بلصق رابط مشاركة Clips عادي في الوكيل ويمكنه "سماع" النص كنص و"رؤية" إطارات الشاشة ذات الطوابع الزمنية كصور - لا حاجة إلى فيديو أولي. تعمل ميزة عرض الإطار في أي وكيل قادر على التقاط الصور (ChatGPT، Claude Code، Cursor، Codex)؛ لا تزال محادثات الويب النصية فقط تحصل على النص الكامل ويمكن أن تأخذ إطارًا تقوم بتحميله.
 
-```an-diagram title="التقاط ونسخ وإعادة الاستخدام" summary="توجد ثلاثة أنواع من الالتقاط في مكتبة واحدة؛ يقوم الوكيل بنسخ النص، والعناوين، والتلخيص، ثم يصبح كل نص قابلاً للبحث والمشاركة."
-{
-  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">تسجيل الشاشة</div><div class=\"diagram-node\">اجتماع التقويم</div><div class=\"diagram-node\">Fn مع الاستمرار في الإملاء</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>مكتبة واحدة<br><small class=\"diagram-muted\">التسجيلات + النصوص (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">العنوان · الملخص · الفصول</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">يبحث</div><div class=\"diagram-pill\">يشارك</div><div class=\"diagram-pill\">روابط قابلة للقراءة من قبل الوكيل</div></div></div>",
-  "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1nucsqp" title={"التقاط ونسخ وإعادة الاستخدام"} summary={"توجد ثلاثة أنواع من الالتقاط في مكتبة واحدة؛ يقوم الوكيل بنسخ النص، والعناوين، والتلخيص، ثم يصبح كل نص قابلاً للبحث والمشاركة."}>
+
+```html
+<div class="diagram-clips">
+  <div class="diagram-col">
+    <div class="diagram-node">تسجيل الشاشة</div>
+    <div class="diagram-node">اجتماع التقويم</div>
+    <div class="diagram-node">Fn مع الاستمرار في الإملاء</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    مكتبة واحدة<br /><small class="diagram-muted"
+      >التسجيلات + النصوص (SQL)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">العنوان · الملخص · الفصول</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">يبحث</div>
+    <div class="diagram-pill">يشارك</div>
+    <div class="diagram-pill">روابط قابلة للقراءة من قبل الوكيل</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-clips {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-clips .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-clips .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-clips .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## ما يمكنك فعله به
 

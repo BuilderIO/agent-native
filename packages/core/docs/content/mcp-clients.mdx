@@ -20,12 +20,81 @@ You can also [connect remote (HTTP) MCP servers at runtime](#remote-via-ui) — 
 
 Every source resolves into one runtime **MCP manager**, and every tool it learns lands in the agent's tool registry under a collision-proof `mcp__<server-id>__<tool>` prefix — searchable by intent through `tool-search`.
 
-```an-diagram title="Client direction: many sources, one tool registry" summary="Config files, env, and runtime UI all merge into the MCP manager; its tools appear prefixed and tool-searchable alongside your app's actions. This is the mirror of the server direction."
-{
-  "html": "<div class=\"mcp-merge\"><div class=\"diagram-col sources\"><div class=\"diagram-box\" data-rough>Workspace <code>mcp.config.json</code><br><small class=\"diagram-muted\">shared across apps</small></div><div class=\"diagram-box\" data-rough>App-root <code>mcp.config.json</code><br><small class=\"diagram-muted\">per-app override</small></div><div class=\"diagram-box\" data-rough><code>MCP_SERVERS</code> env<br><small class=\"diagram-muted\">CI / production</small></div><div class=\"diagram-box\" data-rough>Remote via settings UI<br><small class=\"diagram-muted\">personal &amp; org scope</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">MCP manager</span><small class=\"diagram-muted\">merge &middot; hot-reload</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col out\"><div class=\"diagram-node\">Agent tool registry<br><small class=\"diagram-muted\"><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small></div><div class=\"diagram-node\"><code>tool-search</code><br><small class=\"diagram-muted\">discover by intent</small></div></div></div>",
-  "css": ".mcp-merge{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-merge .diagram-col{display:flex;flex-direction:column;gap:8px}.mcp-merge .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-merge .diagram-arrow{font-size:22px;line-height:1}.mcp-merge code{font-size:.85em}"
+<Diagram id="doc-block-985gtd" title="Client direction: many sources, one tool registry" summary={"Config files, env, and runtime UI all merge into the MCP manager; its tools appear prefixed and tool-searchable alongside your app's actions. This is the mirror of the server direction."}>
+
+```html
+<div class="mcp-merge">
+  <div class="diagram-col sources">
+    <div class="diagram-box" data-rough>
+      Workspace <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >shared across apps</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      App-root <code>mcp.config.json</code><br /><small class="diagram-muted"
+        >per-app override</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      <code>MCP_SERVERS</code> env<br /><small class="diagram-muted"
+        >CI / production</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      Remote via settings UI<br /><small class="diagram-muted"
+        >personal &amp; org scope</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">MCP manager</span
+    ><small class="diagram-muted">merge &middot; hot-reload</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col out">
+    <div class="diagram-node">
+      Agent tool registry<br /><small class="diagram-muted"
+        ><code>mcp__&lt;server-id&gt;__&lt;tool&gt;</code></small
+      >
+    </div>
+    <div class="diagram-node">
+      <code>tool-search</code><br /><small class="diagram-muted"
+        >discover by intent</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.mcp-merge {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-merge .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mcp-merge .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-merge .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-merge code {
+  font-size: 0.85em;
 }
 ```
+
+</Diagram>
 
 > The opposite direction — making _your_ app an MCP server that other hosts consume — lives in [MCP Protocol](/docs/mcp-protocol) and [External Agents](/docs/external-agents).
 
@@ -176,6 +245,34 @@ This means users who've installed the claude-in-chrome extension get browser con
 
 MCP (Model Context Protocol) servers give your agent new abilities — like connecting to Zapier, Cloudflare, Composio, or your company's internal tools. Once connected, the agent can use those tools just like its built-in ones.
 
+The chat composer `+` menu and Workspace create menu include an integration
+catalog with a few remote MCP presets plus custom server setup. Product owners
+can hide that surface or restrict the bundled presets from the Vite config:
+
+```ts
+import { agentNative } from "@agent-native/core/vite";
+
+export default {
+  plugins: [
+    agentNative({
+      // Hide the entire MCP integrations entry.
+      mcpIntegrations: false,
+
+      // Or keep custom MCP setup but hide all bundled presets.
+      // mcpIntegrations: { defaults: false },
+
+      // Or allow/block individual preset ids:
+      // mcpIntegrations: { defaults: { include: ["context7", "sentry"] } },
+      // mcpIntegrations: { defaults: { exclude: ["stripe", "notion"] } },
+      // mcpIntegrations: { defaults: { include: ["context7"] }, custom: false },
+    }),
+  ],
+};
+```
+
+Preset ids are `context7`, `sentry`, `notion`, `semgrep`, `linear`,
+`supabase`, `neon`, and `stripe`.
+
 ### How to connect a remote MCP server
 
 1. **Server name** — a short label for your own reference (e.g. "zapier", "slack-tools").
@@ -216,12 +313,68 @@ If your workspace runs multiple agent-native apps (e.g. dispatch + mail + clips)
 
 Dispatch is the conventional hub — it already coordinates across apps.
 
-```an-diagram title="Hub model: one app serves org-scope MCP servers" summary="Dispatch holds the org-scope MCP servers; consumer apps pull and merge them as mcp__hub_<orgId>_<name>__*. Only org-scope rows are shared — personal credentials stay put."
-{
-  "html": "<div class=\"mcp-hub\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">Dispatch hub</span><small class=\"diagram-muted\">org-scope MCP servers</small><small class=\"diagram-muted\"><code>GET /mcp/hub/servers</code></small></div><div class=\"diagram-col arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div></div><div class=\"diagram-col consumers\"><div class=\"diagram-box\" data-rough>Mail<br><small class=\"diagram-muted\"><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small></div><div class=\"diagram-box\" data-rough>Clips<br><small class=\"diagram-muted\">pull + merge each ~60s</small></div></div></div><p class=\"diagram-muted note\">Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope) servers are never re-exposed.</p>",
-  "css": ".mcp-hub{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.mcp-hub .center{display:flex;flex-direction:column;align-items:center;gap:4px}.mcp-hub .diagram-col{display:flex;flex-direction:column;gap:10px}.mcp-hub .arrows .diagram-arrow{font-size:22px;line-height:1}.mcp-hub .note{margin:8px 0 0;font-size:.85em}.mcp-hub code{font-size:.85em}"
+<Diagram id="doc-block-1dnioze" title="Hub model: one app serves org-scope MCP servers" summary={"Dispatch holds the org-scope MCP servers; consumer apps pull and merge them as mcp__hub_<orgId>_<name>__*. Only org-scope rows are shared — personal credentials stay put."}>
+
+```html
+<div class="mcp-hub">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">Dispatch hub</span
+    ><small class="diagram-muted">org-scope MCP servers</small
+    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+  </div>
+  <div class="diagram-col arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  </div>
+  <div class="diagram-col consumers">
+    <div class="diagram-box" data-rough>
+      Mail<br /><small class="diagram-muted"
+        ><code>mcp__hub_&lt;orgId&gt;_&lt;name&gt;__*</code></small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      Clips<br /><small class="diagram-muted">pull + merge each ~60s</small>
+    </div>
+  </div>
+</div>
+<p class="diagram-muted note">
+  Bearer-gated by <code>AGENT_NATIVE_MCP_HUB_TOKEN</code>. Personal (user-scope)
+  servers are never re-exposed.
+</p>
+```
+
+```css
+.mcp-hub {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mcp-hub .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.mcp-hub .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-hub .arrows .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.mcp-hub .note {
+  margin: 8px 0 0;
+  font-size: 0.85em;
+}
+.mcp-hub code {
+  font-size: 0.85em;
 }
 ```
+
+</Diagram>
 
 For new workspace setups, prefer **Dispatch workspace MCP resources** when you
 want the same All-app vs selected-app grant model used by workspace skills,

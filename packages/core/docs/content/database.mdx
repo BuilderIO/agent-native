@@ -7,12 +7,64 @@ description: "Connect a portable SQL database to your agent-native app and write
 
 Agent-native apps use [Drizzle ORM](https://orm.drizzle.team) and support portable SQL backends. For anything beyond local development, connect a persistent SQL database — Postgres, libSQL/Turso, or another Drizzle-compatible backend — by setting `DATABASE_URL`. When that variable is unset, the app falls back to a zero-config local SQLite file so you can start developing immediately. For local development that should behave like Postgres without running a separate database server, opt into PGlite with `DATABASE_URL=pglite:./data/pglite`.
 
-```an-diagram title="One schema, many backends" summary="App code uses the framework's dialect-agnostic helpers. The dialect is auto-detected from DATABASE_URL at runtime; unset means a local SQLite file."
-{
-  "html": "<div class=\"diagram-db\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">@agent-native/core/db/schema</span><small class=\"diagram-muted\">table · text · integer · real · now</small><small class=\"diagram-muted\">+ Drizzle query DSL</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>DATABASE_URL<br><small class=\"diagram-muted\">dialect auto-detected</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Postgres<br><small class=\"diagram-muted\">Neon · Supabase</small></span><span class=\"diagram-pill\">libSQL / Turso</span><span class=\"diagram-pill\">Cloudflare D1</span><span class=\"diagram-pill warn\">SQLite file<br><small class=\"diagram-muted\">unset = local dev only</small></span><span class=\"diagram-pill warn\">PGlite<br><small class=\"diagram-muted\">local Postgres opt-in</small></span></div></div>",
-  "css": ".diagram-db{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-db .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-db .diagram-arrow{font-size:22px;line-height:1}.diagram-db .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
+<Diagram id="doc-block-vykcz4" title="One schema, many backends" summary={"App code uses the framework's dialect-agnostic helpers. The dialect is auto-detected from DATABASE_URL at runtime; unset means a local SQLite file."}>
+
+```html
+<div class="diagram-db">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">@agent-native/core/db/schema</span
+    ><small class="diagram-muted">table · text · integer · real · now</small
+    ><small class="diagram-muted">+ Drizzle query DSL</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    DATABASE_URL<br /><small class="diagram-muted">dialect auto-detected</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <span class="diagram-pill"
+      >Postgres<br /><small class="diagram-muted">Neon · Supabase</small></span
+    ><span class="diagram-pill">libSQL / Turso</span
+    ><span class="diagram-pill">Cloudflare D1</span
+    ><span class="diagram-pill warn"
+      >SQLite file<br /><small class="diagram-muted"
+        >unset = local dev only</small
+      ></span
+    ><span class="diagram-pill warn"
+      >PGlite<br /><small class="diagram-muted"
+        >local Postgres opt-in</small
+      ></span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-db {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-db .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-db .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-db .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 ```
+
+</Diagram>
 
 ## Local default: SQLite file {#default-sqlite}
 

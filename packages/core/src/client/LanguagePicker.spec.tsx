@@ -72,6 +72,33 @@ describe("LanguagePicker", () => {
     expect(document.body.textContent).toContain("العربية (ar-SA)");
   });
 
+  it("keeps the locale options in product order", async () => {
+    await renderPicker();
+
+    await click(document.querySelector("[data-language-picker-trigger]")!);
+
+    const optionLabels = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).map((button) => button.textContent?.trim());
+
+    expect(optionLabels).toEqual([
+      "System",
+      "English (en-US)",
+      "Español (es-ES)",
+      "Français (fr-FR)",
+      "Deutsch (de-DE)",
+      "Português (Brasil) (pt-BR)",
+      "简体中文 (zh-CN)",
+      "繁體中文 (zh-TW)",
+      "日本語 (ja-JP)",
+      "한국어 (ko-KR)",
+      "हिन्दी (hi-IN)",
+      "العربية (ar-SA)",
+    ]);
+  });
+
   it("updates the shared locale preference from a popover row", async () => {
     await renderPicker();
 

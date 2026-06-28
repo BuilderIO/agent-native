@@ -18,12 +18,66 @@ Design은 에이전트 기반 HTML 프로토타이핑 스튜디오입니다. 에
 
 앱을 열면 생성된 프로토타입이 작업 공간의 중심에 있으며 미리 보기 모드, 프롬프트 개정 및 내보내기 제어 기능이 가까이에 있습니다. 에이전트가 생성하는 모든 것은 실제 HTML이며 정제하거나 내보내거나 전달할 수 있습니다.
 
-```an-diagram title="하나의 아티팩트, 번역 없음" summary="에이전트는 독립형 Alpine/Tailwind HTML을 생성합니다. iframe, 편집 가능한 소스 및 모든 내보내기는 모두 동일한 파일을 읽습니다. 연결된 디자인 시스템은 각 패스에 토큰을 공급합니다."
-{
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">프롬프트<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">디자인 시스템</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">에이전트 생성</span><small class=\"diagram-muted\">독립형 HTML / JSX 파일</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">노브 조정 · Cmd+I로 다듬기</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · 핸드오프</small></div></div>",
-  "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-f6rg8p" title={"하나의 아티팩트, 번역 없음"} summary={"에이전트는 독립형 Alpine/Tailwind HTML을 생성합니다. iframe, 편집 가능한 소스 및 모든 내보내기는 모두 동일한 파일을 읽습니다. 연결된 디자인 시스템은 각 패스에 토큰을 공급합니다."}>
+
+```html
+<div class="diagram-design">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      프롬프트<br /><small class="diagram-muted">describe screen / page</small>
+    </div>
+    <div class="diagram-pill">디자인 시스템</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">에이전트 생성</span
+    ><small class="diagram-muted">독립형 HTML / JSX 파일</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    iframe preview<br /><small class="diagram-muted"
+      >노브 조정 · Cmd+I로 다듬기</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Export</span
+    ><small class="diagram-muted">HTML · ZIP · PDF · 핸드오프</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-design {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-design .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-design .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-design .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-design .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 선택 시기
 

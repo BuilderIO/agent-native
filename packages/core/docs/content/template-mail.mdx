@@ -18,12 +18,68 @@ An agent-powered email client. Connect your Gmail account and the agent can read
 
 When you open the app, the keyboard-first inbox and thread view stay focused on the mail itself. The agent always knows which view you're in and which thread you have open, so you can say "archive this" or "draft a friendly decline" without explaining what "this" is.
 
-```an-diagram title="How a mail request flows" summary="Keyboard shortcuts and agent prompts run the same actions. Email lives in Gmail; drafts, automations, and tracking live in SQL and application_state."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">You drive<br><small class=\"diagram-muted\">J/K/E/R shortcuts</small></div><div class=\"diagram-node\">You ask the agent<br><small class=\"diagram-muted\">\"draft a friendly decline\"</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">list-emails · get-thread · manage-draft · send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">Gmail<br><small class=\"diagram-muted\">multi-account, via OAuth</small></div><div class=\"diagram-box\">SQL + application_state<br><small class=\"diagram-muted\">drafts · automations · tracking</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">Inbox refreshes live</div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-jc9hab" title="How a mail request flows" summary={"Keyboard shortcuts and agent prompts run the same actions. Email lives in Gmail; drafts, automations, and tracking live in SQL and application_state."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      You drive<br /><small class="diagram-muted">J/K/E/R shortcuts</small>
+    </div>
+    <div class="diagram-node">
+      You ask the agent<br /><small class="diagram-muted"
+        >"draft a friendly decline"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-emails · get-thread · manage-draft · send</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Gmail<br /><small class="diagram-muted">multi-account, via OAuth</small>
+    </div>
+    <div class="diagram-box">
+      SQL + application_state<br /><small class="diagram-muted"
+        >drafts · automations · tracking</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">Inbox refreshes live</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## What you can do with it
 

@@ -25,12 +25,66 @@ Those are stages, not separate products. A workflow can start as a headless
 agent with one action, appear in chat as a table or chart, and later become a
 full screen in an app without changing the operation the agent calls.
 
-```an-diagram title="표면 스펙트럼" summary="하나의 작업 표면, 4개의 제품 모양 - 각각 아래의 작업을 변경하지 않고 UI를 추가합니다."
-{
-  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, 작업, 스크립트, 다른 에이전트</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>리치 채팅</strong><small class=\"diagram-muted\">작성기, 기록, 도구 카드</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>임베디드 sidecar</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">대부분의 UI</span><strong>전체 애플리케이션</strong><small class=\"diagram-muted\">지속 화면, 데이터, 협업</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">같은 actions · 같은 SQL · 같은 에이전트 루프</span></div>",
-  "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-1rmwapd" title={"표면 스펙트럼"} summary={"하나의 작업 표면, 4개의 제품 모양 - 각각 아래의 작업을 변경하지 않고 UI를 추가합니다."}>
+
+```html
+<div class="diagram-spectrum">
+  <div class="diagram-card">
+    <strong>Headless</strong
+    ><small class="diagram-muted">actions, 작업, 스크립트, 다른 에이전트</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>리치 채팅</strong
+    ><small class="diagram-muted">작성기, 기록, 도구 카드</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>임베디드 sidecar</strong
+    ><small class="diagram-muted">agent beside an existing app</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">대부분의 UI</span
+    ><strong>전체 애플리케이션</strong
+    ><small class="diagram-muted">지속 화면, 데이터, 협업</small>
+  </div>
+</div>
+<div class="diagram-base" data-rough>
+  <span class="diagram-muted"
+    >같은 actions · 같은 SQL · 같은 에이전트 루프</span
+  >
+</div>
+```
+
+```css
+.diagram-spectrum {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-spectrum .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+  flex: 1;
+}
+.diagram-spectrum .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-base {
+  margin-top: 12px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## 헤드리스 에이전트 {#headless}
 
@@ -347,12 +401,63 @@ export function AppShell({ children }) {
 }
 ```
 
-```an-diagram title="사이드카가 호스트 앱에 연결되는 방법" summary="플러그인은 Agent-Native 경로를 서버 측에 마운트합니다. React 사이드카는 페이지 컨텍스트 입력 및 호스트 명령 출력을 스트리밍합니다."
-{
-  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>호스트 앱</strong><small class=\"diagram-muted\">기존 SaaS</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">라우트 · 선택</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">호스트 명령</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>Agent-Native 라우트<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
-  "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1wr0qhh" title={"사이드카가 호스트 앱에 연결되는 방법"} summary={"플러그인은 Agent-Native 경로를 서버 측에 마운트합니다. React 사이드카는 페이지 컨텍스트 입력 및 호스트 명령 출력을 스트리밍합니다."}>
+
+```html
+<div class="diagram-sidecar">
+  <div class="diagram-panel">
+    <strong>호스트 앱</strong><small class="diagram-muted">기존 SaaS</small>
+    <div class="diagram-node">
+      getContext()<br /><small class="diagram-muted">라우트 · 선택</small>
+    </div>
+    <div class="diagram-node">
+      onNavigate / onRefresh<br /><small class="diagram-muted"
+        >호스트 명령</small
+      >
+    </div>
+  </div>
+  <div class="diagram-col-arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  </div>
+  <div class="diagram-panel accent-panel">
+    <span class="diagram-pill accent">AgentNativeEmbedded</span
+    ><small class="diagram-muted">agent + workspace</small>
+    <div class="diagram-box" data-rough>
+      Agent-Native 라우트<br /><small class="diagram-muted"
+        >mounted by the server plugin</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-sidecar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-sidecar .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-width: 200px;
+}
+.diagram-sidecar .diagram-col-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-sidecar .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 호스트 인증, 데이터베이스 격리는 [Embedding SDK](/docs/embedding-sdk)를 참조하세요.
 iframe/선택기 모드 및 하위 수준 브리지 API.

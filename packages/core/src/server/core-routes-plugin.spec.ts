@@ -15,6 +15,7 @@ import {
   runDbHealthProbe,
   AVATAR_RASTER_MIME,
   getFrameworkRouteRequestUrl,
+  getFrameworkEnvKeys,
 } from "./core-routes-plugin.js";
 
 function createMockEvent(url: string): H3Event {
@@ -60,6 +61,16 @@ describe("resolveFrameworkSseRoutes", () => {
       "/_agent-native/poll-events",
       "/_agent-native/events",
     ]);
+  });
+});
+
+describe("getFrameworkEnvKeys", () => {
+  it("allows settings to save framework email provider keys", () => {
+    const keys = getFrameworkEnvKeys().map((entry) => entry.key);
+
+    expect(keys).toContain("RESEND_API_KEY");
+    expect(keys).toContain("SENDGRID_API_KEY");
+    expect(keys).toContain("EMAIL_FROM");
   });
 });
 

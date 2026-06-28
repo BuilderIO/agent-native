@@ -25,12 +25,72 @@ Esas son etapas, no productos separados. Un flujo de trabajo puede comenzar sin 
 agente con una acción, aparece en el chat como una tabla o gráfico y luego se convierte en
 pantalla completa en una aplicación sin cambiar la operación que llama el agente.
 
-```an-diagram title="El espectro de superficie" summary="Una superficie de acción, cuatro formas de producto: cada una agrega una interfaz de usuario sin cambiar la operación subyacente."
-{
-  "html": "<div class=\"diagram-spectrum\"><div class=\"diagram-card\"><strong>Headless</strong><small class=\"diagram-muted\">actions, trabajos, scripts, otros agentes</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Chat enriquecido</strong><small class=\"diagram-muted\">compositor, transcripción, tarjetas de herramientas</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\"><strong>Sidecar integrado</strong><small class=\"diagram-muted\">agent beside an existing app</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card accent-card\"><span class=\"diagram-pill accent\">la mayor parte del UI</span><strong>Aplicación completa</strong><small class=\"diagram-muted\">pantallas duraderas, datos, colaboración</small></div></div><div class=\"diagram-base\" data-rough><span class=\"diagram-muted\">mismas actions · mismo SQL · mismo bucle de agente</span></div>",
-  "css": ".diagram-spectrum{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap}.diagram-spectrum .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:150px;flex:1}.diagram-spectrum .diagram-arrow{align-self:center;font-size:22px;line-height:1}.diagram-base{margin-top:12px;padding:10px 14px;text-align:center}"
+<Diagram id="doc-block-1thtwvd" title="El espectro de superficie" summary={"Una superficie de acción, cuatro formas de producto: cada una agrega una interfaz de usuario sin cambiar la operación subyacente."}>
+
+```html
+<div class="diagram-spectrum">
+  <div class="diagram-card">
+    <strong>Headless</strong
+    ><small class="diagram-muted"
+      >actions, trabajos, scripts, otros agentes</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Chat enriquecido</strong
+    ><small class="diagram-muted"
+      >compositor, transcripción, tarjetas de herramientas</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <strong>Sidecar integrado</strong
+    ><small class="diagram-muted">agent beside an existing app</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent-card">
+    <span class="diagram-pill accent">la mayor parte del UI</span
+    ><strong>Aplicación completa</strong
+    ><small class="diagram-muted"
+      >pantallas duraderas, datos, colaboración</small
+    >
+  </div>
+</div>
+<div class="diagram-base" data-rough>
+  <span class="diagram-muted"
+    >mismas actions · mismo SQL · mismo bucle de agente</span
+  >
+</div>
+```
+
+```css
+.diagram-spectrum {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-spectrum .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+  flex: 1;
+}
+.diagram-spectrum .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-base {
+  margin-top: 12px;
+  padding: 10px 14px;
+  text-align: center;
 }
 ```
+
+</Diagram>
 
 ## Agente sin cabeza {#headless}
 
@@ -347,12 +407,64 @@ export function AppShell({ children }) {
 }
 ```
 
-```an-diagram title="Cómo el sidecar se conecta con una aplicación host" summary="El complemento monta rutas Agent-Native en el lado del servidor; el sidecar React transmite el contexto de la página y envía los comandos del host."
-{
-  "html": "<div class=\"diagram-sidecar\"><div class=\"diagram-panel\"><strong>Aplicación host</strong><small class=\"diagram-muted\">tu SaaS existente</small><div class=\"diagram-node\">getContext()<br><small class=\"diagram-muted\">ruta · selección</small></div><div class=\"diagram-node\">onNavigate / onRefresh<br><small class=\"diagram-muted\">comandos del host</small></div></div><div class=\"diagram-col-arrows\"><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div></div><div class=\"diagram-panel accent-panel\"><span class=\"diagram-pill accent\">AgentNativeEmbedded</span><small class=\"diagram-muted\">agent + workspace</small><div class=\"diagram-box\" data-rough>rutas Agent-Native<br><small class=\"diagram-muted\">mounted by the server plugin</small></div></div></div>",
-  "css": ".diagram-sidecar{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sidecar .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px;min-width:200px}.diagram-sidecar .diagram-col-arrows{display:flex;flex-direction:column;gap:6px}.diagram-sidecar .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1ap1jtt" title={"Cómo el sidecar se conecta con una aplicación host"} summary={"El complemento monta rutas Agent-Native en el lado del servidor; el sidecar React transmite el contexto de la página y envía los comandos del host."}>
+
+```html
+<div class="diagram-sidecar">
+  <div class="diagram-panel">
+    <strong>Aplicación host</strong
+    ><small class="diagram-muted">tu SaaS existente</small>
+    <div class="diagram-node">
+      getContext()<br /><small class="diagram-muted">ruta · selección</small>
+    </div>
+    <div class="diagram-node">
+      onNavigate / onRefresh<br /><small class="diagram-muted"
+        >comandos del host</small
+      >
+    </div>
+  </div>
+  <div class="diagram-col-arrows">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  </div>
+  <div class="diagram-panel accent-panel">
+    <span class="diagram-pill accent">AgentNativeEmbedded</span
+    ><small class="diagram-muted">agent + workspace</small>
+    <div class="diagram-box" data-rough>
+      rutas Agent-Native<br /><small class="diagram-muted"
+        >mounted by the server plugin</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-sidecar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-sidecar .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-width: 200px;
+}
+.diagram-sidecar .diagram-col-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-sidecar .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 Consulte [Embedding SDK](/docs/embedding-sdk) para autenticación de host y aislamiento de bases de datos
 modo iframe/selector y puente de nivel inferior API.

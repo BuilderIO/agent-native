@@ -15,12 +15,72 @@ description: "이메일/비밀번호, 소셜 공급자, 조직 및 MCP 보유자
 - **원격 MCP OAuth:** Claude 코드 및 ChatGPT 커넥터와 같은 MCP 호스트용 표준 OAuth 2.1.
 - **사용자 정의:** `getSession` 콜백을 통해 자신만의 인증을 가져옵니다.
 
-```an-diagram title="세 가지 방법으로 하나의 세션" summary="브라우저 방문자, 프로그래밍 방식의 MCP 클라이언트 및 사용자 정의 공급자는 모두 다운스트림 범위 지정이 읽는 동일한 AuthSession을 확인합니다."
-{
-  "html": "<div class=\"auth-modes\"><div class=\"diagram-col\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Default</span><strong>Better Auth</strong><small class=\"diagram-muted\">email/password &middot; Google &middot; GitHub</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Remote MCP OAuth</span><strong>OAuth 2.1 + PKCE</strong><small class=\"diagram-muted\">Claude Code, ChatGPT 커넥터</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Custom</span><strong>getSession callback</strong><small class=\"diagram-muted\">Clerk &middot; Auth0 &middot; Firebase</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">AuthSession</span><small class=\"diagram-muted\">email &middot; orgId &middot; orgRole</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Request context &amp; data scoping</div></div>",
-  "css": ".auth-modes{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.auth-modes .diagram-col{display:flex;flex-direction:column;gap:10px}.auth-modes .diagram-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px}.auth-modes .diagram-arrow{font-size:22px;line-height:1}.auth-modes .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-14pt28n" title={"세 가지 방법으로 하나의 세션"} summary={"브라우저 방문자, 프로그래밍 방식의 MCP 클라이언트 및 사용자 정의 공급자는 모두 다운스트림 범위 지정이 읽는 동일한 AuthSession을 확인합니다."}>
+
+```html
+<div class="auth-modes">
+  <div class="diagram-col">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Default</span
+      ><strong>Better Auth</strong
+      ><small class="diagram-muted"
+        >email/password &middot; Google &middot; GitHub</small
+      >
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Remote MCP OAuth</span
+      ><strong>OAuth 2.1 + PKCE</strong
+      ><small class="diagram-muted">Claude Code, ChatGPT 커넥터</small>
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Custom</span
+      ><strong>getSession callback</strong
+      ><small class="diagram-muted"
+        >Clerk &middot; Auth0 &middot; Firebase</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">AuthSession</span
+    ><small class="diagram-muted">email &middot; orgId &middot; orgRole</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Request context &amp; data scoping</div>
+</div>
+```
+
+```css
+.auth-modes {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.auth-modes .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auth-modes .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.auth-modes .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.auth-modes .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 브라우저 흐름은 모든 곳에서 동일한 Better Auth 흐름입니다. **개발자 인증 우회**가 없으며 `getSession()`는 `local@localhost` 센티넬로 돌아가지 않습니다. 환경 간의 변화는 로그인 장벽이 아니라 가입 마찰입니다.
 
@@ -164,12 +224,66 @@ https://mail.agent-native.com/_agent-native/mcp
 
 인증되지 않은 MCP 요청은 `/.well-known/oauth-protected-resource`를 가리키는 `WWW-Authenticate` 챌린지를 반환합니다. 그런 다음 클라이언트는 앱의 OAuth 메타데이터를 검색하고, 공개 클라이언트를 동적으로 등록하고, 앱의 인증 페이지를 열고, 액세스 및 새로 고침 토큰을 위해 PKCE와 인증 코드를 교환합니다.
 
-```an-diagram title="원격 MCP OAuth 핸드셰이크" summary="OAuth 가능 클라이언트는 MCP URL(챌린지, 검색, 동적 등록, PKCE 코드 교환)에서 부트스트랩합니다."
-{
-  "html": "<div class=\"mcp-flow\"><div class=\"diagram-node\">1 &middot; MCP request<br><small class=\"diagram-muted\">no token</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node warn\">2 &middot; 401 challenge<br><small class=\"diagram-muted\">WWW-Authenticate</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">3 &middot; Discover metadata<br><small class=\"diagram-muted\">.well-known</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">4 &middot; Register client<br><small class=\"diagram-muted\">동적, 공개</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">5 &middot; Authorize + PKCE<br><small class=\"diagram-muted\">code exchange</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node ok\">6 &middot; Access + refresh<br><small class=\"diagram-muted\">audience-bound</small></div></div>",
-  "css": ".mcp-flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.mcp-flow .diagram-node{display:flex;flex-direction:column;gap:2px;padding:8px 12px}.mcp-flow .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-g7a3qa" title={"원격 MCP OAuth 핸드셰이크"} summary={"OAuth 가능 클라이언트는 MCP URL(챌린지, 검색, 동적 등록, PKCE 코드 교환)에서 부트스트랩합니다."}>
+
+```html
+<div class="mcp-flow">
+  <div class="diagram-node">
+    1 &middot; MCP request<br /><small class="diagram-muted">no token</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node warn">
+    2 &middot; 401 challenge<br /><small class="diagram-muted"
+      >WWW-Authenticate</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    3 &middot; Discover metadata<br /><small class="diagram-muted"
+      >.well-known</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    4 &middot; Register client<br /><small class="diagram-muted"
+      >동적, 공개</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    5 &middot; Authorize + PKCE<br /><small class="diagram-muted"
+      >code exchange</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    6 &middot; Access + refresh<br /><small class="diagram-muted"
+      >audience-bound</small
+    >
+  </div>
+</div>
+```
+
+```css
+.mcp-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mcp-flow .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.mcp-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 액세스 토큰은 설정된 경우 `A2A_SECRET`로 서명되고 그렇지 않으면 `BETTER_AUTH_SECRET`로 서명됩니다. 서명된 사용자/조직 ID와 `mcp:read`, `mcp:write` 및/또는 `mcp:apps` 범위를 전달하며 대상은 정확한 MCP 리소스 URL에 바인딩됩니다. 새로 고침 토큰은 해시로만 저장되며 새로 고칠 때마다 교체됩니다. 도구 호출 및 MCP 앱 리소스 읽기는 로그인한 사용자와 동일한 요청 컨텍스트 내에서 실행됩니다. 내장된 MCP 앱 iframe은 원시 OAuth 토큰을 수신하지 않습니다.
 

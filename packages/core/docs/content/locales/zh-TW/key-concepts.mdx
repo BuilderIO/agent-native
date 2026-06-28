@@ -17,12 +17,66 @@ Agent-Native 應用程式如何在幕後工作 - 原則和架構。此頁面為�
 >
 > **電腦** — 資料庫、瀏覽器、程式碼執行。代理直接使用 SQL 和內建工具進行工作； MCP 伺服器是可選的附加元件，而不是基礎。
 
-```an-diagram title="代理、應用程式和電腦" summary="三層在一個共用的 SQL 儲存上協同工作。代理和應用程式讀取和寫入相同的資料。"
-{
-  "html": "<div class=\"diagram-arch\"><div class=\"diagram-row\"><div class=\"diagram-card\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">讀取和寫入資料、執行 actions、修改程式碼</small></div><div class=\"diagram-card\"><span class=\"diagram-pill\">Application</span><small class=\"diagram-muted\">action-only, chat, control plane, or full React 介面</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;&nbsp;&uarr;</div><div class=\"diagram-box\" data-rough>Computer<br><small class=\"diagram-muted\">SQL 資料庫 · browser · code execution</small></div></div>",
-  "css": ".diagram-arch{display:flex;flex-direction:column;align-items:center;gap:10px}.diagram-arch .diagram-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}.diagram-arch .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px;min-width:220px}.diagram-arch .diagram-arrow{font-size:20px;line-height:1}.diagram-arch .diagram-box{text-align:center;padding:12px 18px}"
+<Diagram id="doc-block-1apqpo9" title={"代理、應用程式和電腦"} summary={"三層在一個共用的 SQL 儲存上協同工作。代理和應用程式讀取和寫入相同的資料。"}>
+
+```html
+<div class="diagram-arch">
+  <div class="diagram-row">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Agent</span
+      ><small class="diagram-muted"
+        >讀取和寫入資料、執行 actions、修改程式碼</small
+      >
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Application</span
+      ><small class="diagram-muted"
+        >action-only, chat, control plane, or full React 介面</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">
+    &darr;&nbsp;&uarr;
+  </div>
+  <div class="diagram-box" data-rough>
+    Computer<br /><small class="diagram-muted"
+      >SQL 資料庫 · browser · code execution</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-arch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.diagram-arch .diagram-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.diagram-arch .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 220px;
+}
+.diagram-arch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-arch .diagram-box {
+  text-align: center;
+  padding: 12px 18px;
 }
 ```
+
+</Diagram>
 
 無頭應用程式可以使用 `pnpm agent` 從資料夾執行相同的正式環境應用程式代理迴圈，而 UI 應用程式則安裝嵌入式代理面板並使用 `pnpm dev` 在本機執行。在雲端中，Builder.io 提供了一個託管框架（在您的應用旁邊託管代理的環境），為團隊提供協作、視覺化編輯和託管基礎架構。
 
@@ -271,12 +325,50 @@ useDbSync({ queryClient });
 4. `useActionQuery` 掛鉤和來源版本 `useQuery` 掛鉤重新取得
 5. 元件無需重新載入頁面即可呈現新資料
 
-```an-diagram title="即時同步流程" summary="代理寫入變成 UI 渲染，無需手動重新整理 - 首先是 SSE，輪詢作為通用後備。"
-{
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-node\">Agent 操作<br><small class=\"diagram-muted\">寫入資料庫</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">變更事件<br><small class=\"diagram-muted\">source: action / settings</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">useDbSync</span><small class=\"diagram-muted\">SSE &middot; poll fallback</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-node\">重新取得查詢<br><small class=\"diagram-muted\">渲染，無需重載</small></div></div>",
-  "css": ".diagram-sync{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}.diagram-sync .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 14px}"
+<Diagram id="doc-block-169qyd0" title={"即時同步流程"} summary={"代理寫入變成 UI 渲染，無需手動重新整理 - 首先是 SSE，輪詢作為通用後備。"}>
+
+```html
+<div class="diagram-sync">
+  <div class="diagram-node">
+    Agent 操作<br /><small class="diagram-muted">寫入資料庫</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    變更事件<br /><small class="diagram-muted">source: action / settings</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">useDbSync</span
+    ><small class="diagram-muted">SSE &middot; poll fallback</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    重新取得查詢<br /><small class="diagram-muted">渲染，無需重載</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-sync {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-sync .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 14px;
 }
 ```
+
+</Diagram>
 
 這適用於所有部署環境（包括無伺服器和邊緣），因為它使用資料庫，而不是記憶狀態或檔案系統觀察器。
 

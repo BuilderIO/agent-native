@@ -7,12 +7,46 @@ description: "如何为代理原生应用或模板编写出色的代理指令：
 
 代理在代理本机应用程序中的行为仅与您给出的说明一样好。三个表面承载该指导：`AGENTS.md`（地图）、skills（深入研究）和操作/工具描述（代理如何选择正确的工具）。写下每一篇都是为了快速检索，而不是为了散文。
 
-```an-diagram title="三个创作表面 + 一个运行时表面" summary="AGENTS.md 和工具描述每回合都会加载；按需加载技能； application_state 由您的 UI 实时编写。"
-{
-  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">每一轮</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">地图：用途、核心规则、状态键、action + skills 索引</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">每一轮</span><strong>工具描述</strong><small class=\"diagram-muted\">驱动工具选择 — 每个工具一句精确说明</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">按需</span><strong>技能</strong><small class=\"diagram-muted\">深度指南，在描述匹配时加载</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">由你的 UI 写入：导航、选择、焦点</small></div></div>",
-  "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+<Diagram id="doc-block-1xko9t5" title={"三个创作表面 + 一个运行时表面"} summary={"AGENTS.md 和工具描述每回合都会加载；按需加载技能； application_state 由您的 UI 实时编写。"}>
+
+```html
+<div class="diagram-surfaces">
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">每一轮</span><strong>AGENTS.md</strong
+    ><small class="diagram-muted"
+      >地图：用途、核心规则、状态键、action + skills 索引</small
+    >
+  </div>
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">每一轮</span><strong>工具描述</strong
+    ><small class="diagram-muted">驱动工具选择 — 每个工具一句精确说明</small>
+  </div>
+  <div class="diagram-card ondemand" data-rough>
+    <span class="diagram-pill">按需</span><strong>技能</strong
+    ><small class="diagram-muted">深度指南，在描述匹配时加载</small>
+  </div>
+  <div class="diagram-card runtime" data-rough>
+    <span class="diagram-pill ok">Live</span><strong>application_state</strong
+    ><small class="diagram-muted">由你的 UI 写入：导航、选择、焦点</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-surfaces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.diagram-surfaces .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 ## 保持 AGENTS.md 小且可浏览 {#small-agents-md}
 

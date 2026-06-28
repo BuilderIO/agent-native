@@ -24,12 +24,58 @@ Both paths use the same sandboxed extension runtime as [Extensions](/docs/extens
 the generated HTML runs in an iframe with no host DOM access and reaches the app
 only through scoped bridge helpers.
 
-```an-diagram title="Generated UI in chat" summary="The agent chooses a lifetime, returns an inline-extension payload, and chat mounts the sandboxed extension frame."
-{
-  "html": "<div class=\"diagram-generative-ui\"><div class=\"diagram-card\" data-rough><strong>User asks</strong><small class=\"diagram-muted\">\"give me sliders for this model\"</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">writes Alpine + Tailwind</small><div class=\"diagram-row\"><span class=\"diagram-pill\">transient</span><span class=\"diagram-pill\">persisted</span></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card\" data-rough><strong>Chat iframe</strong><small class=\"diagram-muted\">same theme · app bridge · chat output</small></div></div>",
-  "css": ".diagram-generative-ui{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-generative-ui .diagram-card,.diagram-generative-ui .diagram-panel{display:flex;flex-direction:column;gap:7px;padding:14px 16px;min-width:180px}.diagram-generative-ui .diagram-row{display:flex;gap:6px;flex-wrap:wrap}.diagram-generative-ui .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1fq3zwu" title="Generated UI in chat" summary="The agent chooses a lifetime, returns an inline-extension payload, and chat mounts the sandboxed extension frame.">
+
+```html
+<div class="diagram-generative-ui">
+  <div class="diagram-card" data-rough>
+    <strong>User asks</strong
+    ><small class="diagram-muted">"give me sliders for this model"</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">writes Alpine + Tailwind</small>
+    <div class="diagram-row">
+      <span class="diagram-pill">transient</span
+      ><span class="diagram-pill">persisted</span>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card" data-rough>
+    <strong>Chat iframe</strong
+    ><small class="diagram-muted">same theme · app bridge · chat output</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-generative-ui {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-generative-ui .diagram-card,
+.diagram-generative-ui .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.diagram-generative-ui .diagram-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.diagram-generative-ui .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## When to use it {#when-to-use-it}
 

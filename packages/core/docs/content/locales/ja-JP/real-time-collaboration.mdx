@@ -36,12 +36,56 @@ description: "AI エージェントがファーストクラスのピアである
 
 コラボレーション システムには 5 つの連動レイヤーがあります。
 
-```an-diagram title="5つの連動層" summary="メモリ内の CRDT からピア間で更新を運ぶトランスポートまで、各層には 1 つのジョブがあります。"
-{
-  "html": "<div class=\"diagram-stack\"><div class=\"diagram-card layer\"><span class=\"diagram-pill accent\">1 &middot; Yjs Y.Doc</span><small class=\"diagram-muted\">CRDT &mdash; 競合なしマージ、調整役なし</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">2 &middot; SQL の正規コンテンツ</span><small class=\"diagram-muted\">_collab_docs &mdash; durable source of truth, versioned</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">3 &middot; updatedAt で制御する調整</span><small class=\"diagram-muted\">エージェント編集は SQL bump 経由で伝播</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill\">4 &middot; リードクライアント選出</span><small class=\"diagram-muted\">ちょうど 1 つのタブがスナップショットを適用</small></div><div class=\"diagram-card layer\"><span class=\"diagram-pill ok\">5 &middot; SSE 高速パス + ポーリング</span><small class=\"diagram-muted\">数十 ms 程度、どこでも 2 秒ポーリングへフォールバック</small></div></div>",
-  "css": ".diagram-stack{display:flex;flex-direction:column;gap:8px}.diagram-stack .layer{display:flex;flex-direction:column;gap:4px;padding:12px 14px}"
+<Diagram id="doc-block-nrdan4" title={"5つの連動層"} summary={"メモリ内の CRDT からピア間で更新を運ぶトランスポートまで、各層には 1 つのジョブがあります。"}>
+
+```html
+<div class="diagram-stack">
+  <div class="diagram-card layer">
+    <span class="diagram-pill accent">1 &middot; Yjs Y.Doc</span
+    ><small class="diagram-muted"
+      >CRDT &mdash; 競合なしマージ、調整役なし</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">2 &middot; SQL の正規コンテンツ</span
+    ><small class="diagram-muted"
+      >_collab_docs &mdash; durable source of truth, versioned</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">3 &middot; updatedAt で制御する調整</span
+    ><small class="diagram-muted">エージェント編集は SQL bump 経由で伝播</small>
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill">4 &middot; リードクライアント選出</span
+    ><small class="diagram-muted"
+      >ちょうど 1 つのタブがスナップショットを適用</small
+    >
+  </div>
+  <div class="diagram-card layer">
+    <span class="diagram-pill ok">5 &middot; SSE 高速パス + ポーリング</span
+    ><small class="diagram-muted"
+      >数十 ms 程度、どこでも 2 秒ポーリングへフォールバック</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-stack .layer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
 }
 ```
+
+</Diagram>
 
 ### 1. Yjs Y.Doc (CRDT レイヤー)
 
@@ -100,12 +144,66 @@ Yjs 状態は、base64 でエンコードされたバイナリとして `_collab
 
 ネットワーク エラーでは、最大 15 秒のジッターを伴う指数バックオフが使用されます。
 
-```an-diagram title="2 つの編集パス、1 つのマージ" summary="人間のキーストロークは Y.Doc → サーバー → SSE という流れになります。エージェントの編集は SQL を通過します。アクションが updatedAt に達し、リード クライアントが調整され、変更が Yjs に再度入ります。"
-{
-  "html": "<div class=\"diagram-collab\"><div class=\"lane\"><span class=\"diagram-pill\">人による編集</span><div class=\"diagram-node\">Y.Doc update<br><small class=\"diagram-muted\">debounce 約80ms</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>POST /update<br><small class=\"diagram-muted\">apply + persist</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">SSE push<br><small class=\"diagram-muted\">to all peers</small></div></div><div class=\"lane\"><span class=\"diagram-pill warn\">エージェント編集</span><div class=\"diagram-node\">ActionがSQLを書き込む<br><small class=\"diagram-muted\">updatedAtを更新</small></div><span class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box\" data-rough>リードクライアント<br><small class=\"diagram-muted\">setContentをY.Docへ</small></div><span class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&rarr;</span><div class=\"diagram-box diagram-accent\">POST /update<br><small class=\"diagram-muted\">re-enters Yjs &middot; SSE push</small></div></div></div>",
-  "css": ".diagram-collab{display:flex;flex-direction:column;gap:14px}.diagram-collab .lane{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.diagram-collab .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-ul9tw0" title={"2 つの編集パス、1 つのマージ"} summary={"人間のキーストロークは Y.Doc → サーバー → SSE という流れになります。エージェントの編集は SQL を通過します。アクションが updatedAt に達し、リード クライアントが調整され、変更が Yjs に再度入ります。"}>
+
+```html
+<div class="diagram-collab">
+  <div class="lane">
+    <span class="diagram-pill">人による編集</span>
+    <div class="diagram-node">
+      Y.Doc update<br /><small class="diagram-muted">debounce 約80ms</small>
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      POST /update<br /><small class="diagram-muted">apply + persist</small>
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      SSE push<br /><small class="diagram-muted">to all peers</small>
+    </div>
+  </div>
+  <div class="lane">
+    <span class="diagram-pill warn">エージェント編集</span>
+    <div class="diagram-node">
+      ActionがSQLを書き込む<br /><small class="diagram-muted"
+        >updatedAtを更新</small
+      >
+    </div>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box" data-rough>
+      リードクライアント<br /><small class="diagram-muted"
+        >setContentをY.Docへ</small
+      >
+    </div>
+    <span class="diagram-arrow diagram-accent" aria-hidden="true">&rarr;</span>
+    <div class="diagram-box diagram-accent">
+      POST /update<br /><small class="diagram-muted"
+        >re-enters Yjs &middot; SSE push</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-collab {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-collab .lane {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-collab .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## クイックスタート {#quickstart}
 

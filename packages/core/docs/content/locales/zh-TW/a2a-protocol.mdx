@@ -20,12 +20,52 @@ A2A 是此框架中跨應用程式委派的基礎 - 最顯著的是 [Dispatch](/
 - **工作** - 每條訊息都會建立一個具有生命週期的工作（已提交、正在工作、已完成、失敗、已取消）
 - **JWT 承載驗證** - 正式環境 A2A 需要 `A2A_SECRET` 或顯式遺留 `apiKeyEnv`
 
-```an-diagram title="一名代理將工作交給另一名代理" summary="郵件代理發現分析代理的卡，傳送 JSON-RPC 訊息，並返回已完成的工作。"
-{
-  "html": "<div class=\"diagram-handoff\"><div class=\"diagram-card\"><strong>郵件 Agent</strong><small class=\"diagram-muted\">needs analytics</small></div><div class=\"diagram-col\"><div class=\"diagram-pill\">GET /.well-known/agent-card.json</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-pill accent\">POST /_agent-native/a2a<br><small class=\"diagram-muted\">message/send</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-pill ok\">工作 · 已完成</div></div><div class=\"diagram-card\" data-rough><strong>分析 Agent</strong><small class=\"diagram-muted\">執行 run-query，返回結果</small></div></div>",
-  "css": ".diagram-handoff{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-handoff .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-handoff .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-15j0bdh" title={"一名代理將工作交給另一名代理"} summary={"郵件代理發現分析代理的卡，傳送 JSON-RPC 訊息，並返回已完成的工作。"}>
+
+```html
+<div class="diagram-handoff">
+  <div class="diagram-card">
+    <strong>郵件 Agent</strong
+    ><small class="diagram-muted">needs analytics</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill">GET /.well-known/agent-card.json</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">
+      POST /_agent-native/a2a<br /><small class="diagram-muted"
+        >message/send</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+    <div class="diagram-pill ok">工作 · 已完成</div>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>分析 Agent</strong
+    ><small class="diagram-muted">執行 run-query，返回結果</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-handoff {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-handoff .diagram-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.diagram-handoff .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 伺服器設定 {#server-setup}
 
@@ -176,13 +216,61 @@ JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `ta
 
 當使用 `async: true` 呼叫 `message/send` 時，JSON-RPC 處理常式會將工作排入佇列，並將 POST 自觸發到內部 `/_agent-native/a2a/_process-task` 路由，以便處理常式在具有自己的完全超時的新函式執行中執行。該路由使用綁定到工作 ID 的 HMAC 權杖進行驗證（5 分鐘生存期，使用 `A2A_SECRET` 簽名）。它安裝在 `/_agent-native/a2a` JSON-RPC 路由之前，因此 h3 的前綴匹配不會吞噬它。
 
-```an-diagram title="無伺服器上的非同步工作生命週期" summary="async:true 在幾毫秒內返回工作，然後在呼叫者輪詢時重新執行執行代理迴圈。"
-{
-  "html": "<div class=\"diagram-async\"><div class=\"diagram-box\" data-rough>message/send<br><small class=\"diagram-muted\">async: true</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\"><span class=\"diagram-pill\">enqueue task</span><span class=\"diagram-pill warn\">return working</span><small class=\"diagram-muted\">約毫秒級</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&darr;</div><div class=\"diagram-box\" data-rough>自觸發 POST /_agent-native/a2a/_process-task<br><small class=\"diagram-muted\">HMAC token · 全新執行 · 完整超時</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">tasks/get (poll)</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">completed</div></div></div>",
-  "css": ".diagram-async{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-async .diagram-panel{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-col{display:flex;flex-direction:column;align-items:center;gap:6px}.diagram-async .diagram-arrow{font-size:20px;line-height:1}",
-  "caption": "A recurring sweeper re-claims any task left in flight if the function execution dies mid-run."
+<Diagram id="doc-block-1nmyyj6" title={"無伺服器上的非同步工作生命週期"} summary={"async:true 在幾毫秒內返回工作，然後在呼叫者輪詢時重新執行執行代理迴圈。"} caption="A recurring sweeper re-claims any task left in flight if the function execution dies mid-run.">
+
+```html
+<div class="diagram-async">
+  <div class="diagram-box" data-rough>
+    message/send<br /><small class="diagram-muted">async: true</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill">enqueue task</span
+    ><span class="diagram-pill warn">return working</span
+    ><small class="diagram-muted">約毫秒級</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    自觸發 POST /_agent-native/a2a/_process-task<br /><small
+      class="diagram-muted"
+      >HMAC token · 全新執行 · 完整超時</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">tasks/get (poll)</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+    <div class="diagram-pill ok">completed</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-async {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-async .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.diagram-async .diagram-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.diagram-async .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 > [!IMPORTANT]
 > **無伺服器 Webhook 和閘道超時：**

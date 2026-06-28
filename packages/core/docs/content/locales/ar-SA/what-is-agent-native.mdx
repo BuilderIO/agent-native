@@ -50,12 +50,57 @@ Agent-native هو وسيلة لبناء البرامج حيث يكون وكيل 
 
 هذه هي الدرجة 3. هذا هو الوكيل الأصلي.
 
-```an-diagram title="مبدأ السلم" summary="تتوقف معظم الفرق عند الدرجة 1 أو 2. ويتم تحديد Agent-native في الدرجة 3 — وهو تطبيق حقيقي ووكيل حقيقي على سطح عمل مشترك واحد."
-{
-  "html": "<div class=\"diagram-ladder\"><div class=\"diagram-card rung rung-3\"><span class=\"diagram-pill accent\">الدرجة 3 · agent-native</span><strong>الوكيل + الواجهة كشريكين متساويين</strong><small class=\"diagram-muted\">One action surface. Every agent tool is also a button; every button runs the same logic the agent uses.</small></div><div class=\"diagram-card rung rung-2\"><span class=\"diagram-pill\">الدرجة 2</span><strong>دردشة مع أدوات</strong><small class=\"diagram-muted\">يمكن للوكيل التصرف — لكنه لا يزال مجرد نافذة دردشة. لا توجد لوحات معلومات أو قوائم أو اختصارات.</small></div><div class=\"diagram-card rung rung-1\"><span class=\"diagram-pill warn\">الدرجة 1</span><strong>استدعاء LLM واحد</strong><small class=\"diagram-muted\">Prompt in, string out. Impressive in a demo; breaks the moment reality gets messy.</small></div></div>",
-  "css": ".diagram-ladder{display:flex;flex-direction:column;gap:14px}.diagram-ladder .rung{display:flex;flex-direction:column;gap:6px;padding:16px 18px}.diagram-ladder .rung-2{margin-inline-end:48px}.diagram-ladder .rung-1{margin-inline-end:96px}"
+<Diagram id="doc-block-10yfkx1" title={"مبدأ السلم"} summary={"تتوقف معظم الفرق عند الدرجة 1 أو 2. ويتم تحديد Agent-native في الدرجة 3 — وهو تطبيق حقيقي ووكيل حقيقي على سطح عمل مشترك واحد."}>
+
+```html
+<div class="diagram-ladder">
+  <div class="diagram-card rung rung-3">
+    <span class="diagram-pill accent">الدرجة 3 · agent-native</span
+    ><strong>الوكيل + الواجهة كشريكين متساويين</strong
+    ><small class="diagram-muted"
+      >One action surface. Every agent tool is also a button; every button runs
+      the same logic the agent uses.</small
+    >
+  </div>
+  <div class="diagram-card rung rung-2">
+    <span class="diagram-pill">الدرجة 2</span><strong>دردشة مع أدوات</strong
+    ><small class="diagram-muted"
+      >يمكن للوكيل التصرف — لكنه لا يزال مجرد نافذة دردشة. لا توجد لوحات معلومات
+      أو قوائم أو اختصارات.</small
+    >
+  </div>
+  <div class="diagram-card rung rung-1">
+    <span class="diagram-pill warn">الدرجة 1</span
+    ><strong>استدعاء LLM واحد</strong
+    ><small class="diagram-muted"
+      >Prompt in, string out. Impressive in a demo; breaks the moment reality
+      gets messy.</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-ladder {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.diagram-ladder .rung {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+}
+.diagram-ladder .rung-2 {
+  margin-inline-end: 48px;
+}
+.diagram-ladder .rung-1 {
+  margin-inline-end: 96px;
 }
 ```
+
+</Diagram>
 
 راجع [Key Concepts — Protocols](/docs/key-concepts#protocols) لمعرفة كيفية تعليق كل هذا على نفس تعريف الإجراء.
 
@@ -89,12 +134,55 @@ Agent-native هو وسيلة لبناء البرامج حيث يكون وكيل 
 >
 > **من الوكيل** — لغة طبيعية، وكلاء آخرون عبر A2A، Slack، Telegram. يكتب الوكيل إلى قاعدة البيانات؛ يتم تحديث UI تلقائيًا.
 
-```an-diagram title="نظام واحد، طريقتان للدخول" summary="يكتب الوكيل وواجهة المستخدم نفس الإجراءات ونفس قاعدة البيانات. مهما فعل أحدهما يرى الآخر."
-{
-  "html": "<div class=\"diagram-parity\"><div class=\"diagram-col\"><div class=\"diagram-node\">Human<br><small class=\"diagram-muted\">نقرات، نماذج، اختصارات</small></div><div class=\"diagram-node\">Agent<br><small class=\"diagram-muted\">لغة طبيعية · A2A · Slack</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">defined once</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">قاعدة بيانات SQL</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box\">تتحدث الواجهة مباشرة</div></div>",
-  "css": ".diagram-parity{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-parity .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-parity .diagram-arrow{font-size:22px;line-height:1}.diagram-parity .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-eu5ygn" title={"نظام واحد، طريقتان للدخول"} summary={"يكتب الوكيل وواجهة المستخدم نفس الإجراءات ونفس قاعدة البيانات. مهما فعل أحدهما يرى الآخر."}>
+
+```html
+<div class="diagram-parity">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Human<br /><small class="diagram-muted">نقرات، نماذج، اختصارات</small>
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">لغة طبيعية · A2A · Slack</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted">defined once</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">قاعدة بيانات SQL</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">تتحدث الواجهة مباشرة</div>
+</div>
+```
+
+```css
+.diagram-parity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-parity .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-parity .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-parity .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 عندما يقوم الوكيل بإنشاء مسودة بريد إلكتروني، تظهر في UI. عند النقر فوق "إرسال"، يعلم الوكيل أنه تم إرساله. لا يوجد "عالم وكيل" منفصل و"عالم UI" - إنه نظام واحد. راجع [Key Concepts](/docs/key-concepts) للتعرف على البنية التي تجعل هذا العمل.
 

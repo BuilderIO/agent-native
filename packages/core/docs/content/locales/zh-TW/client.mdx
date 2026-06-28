@@ -15,12 +15,50 @@ description: "用於 Agent-Native 應用程式的 React 掛鉤和實用程式：
 
 從瀏覽器讀取和寫入應用程式資料的主要方式是透過操作掛鉤。切勿手寫 `fetch` 呼叫 `/_agent-native/*` 路由 - 請改用命名助手（請參閱 [Actions](/docs/actions)）。
 
-```an-diagram title="瀏覽器資料迴圈" summary="鉤子透過動作進行讀寫； useDbSync 監視資料庫，以便代理和背景寫入自動重新取得相同的快取。"
-{
-  "html": "<div class=\"diagram-client\"><div class=\"diagram-col\"><div class=\"diagram-node\">useActionQuery<br><small class=\"diagram-muted\">cached read</small></div><div class=\"diagram-node\">useActionMutation<br><small class=\"diagram-muted\">write + invalidate</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-box\" data-rough>Actions<br><small class=\"diagram-muted\">/_agent-native/actions/*</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&harr;</div><div class=\"diagram-panel\" data-rough><strong>SQL 資料庫</strong></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-pill ok\">useDbSync &rarr; refetch on change</div></div>",
-  "css": ".diagram-client{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-client .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-client .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-ttv3d8" title={"瀏覽器資料迴圈"} summary={"鉤子透過動作進行讀寫； useDbSync 監視資料庫，以便代理和背景寫入自動重新取得相同的快取。"}>
+
+```html
+<div class="diagram-client">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useActionQuery<br /><small class="diagram-muted">cached read</small>
+    </div>
+    <div class="diagram-node">
+      useActionMutation<br /><small class="diagram-muted"
+        >write + invalidate</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    Actions<br /><small class="diagram-muted">/_agent-native/actions/*</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-panel" data-rough><strong>SQL 資料庫</strong></div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-pill ok">useDbSync &rarr; refetch on change</div>
+</div>
+```
+
+```css
+.diagram-client {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-client .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-client .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ```tsx
 import {
@@ -376,12 +414,45 @@ function DashboardView({ id }) {
 - **UI-發起的突變：**當您使用 `useActionMutation` 從 UI 執行操作時，突變會在成功時立即觸發 `source: "action"` 本機事件。這會根據該操作觸發所有查詢鍵的**即時、樂觀的重新取得**，從而避免視覺延遲。
 - **背景或代理突變：** 當 AI 代理、Webhook 或背景工作人員突變資料時，更新會廣播到用戶端。用戶端的 `useDbSync` 可以立即透過 SSE（伺服器傳送的事件）捕獲此資訊，也可以回退到 **2 秒輪詢滴答**。然後查詢金鑰版本會發生變化，從而觸發背景重新取得。
 
-```an-diagram title="重新取得的兩條路徑" summary="本機突變會立即使自己的快取失效；遠端寫入透過 SSE 到達此分頁，或作為後備的輪詢標記。"
-{
-  "html": "<div class=\"diagram-latency\"><div class=\"diagram-col\"><div class=\"diagram-card\" data-rough><span class=\"diagram-pill ok\">此標籤頁面</span><strong>useActionMutation</strong><small class=\"diagram-muted\">fires source: \"action\" on success &rarr; instant local refetch</small></div><div class=\"diagram-card\" data-rough><span class=\"diagram-pill accent\">代理 · webhook · 其他標籤頁面</span><strong>遠端寫入</strong><small class=\"diagram-muted\">SSE push, or the ~2s polling tick as fallback &rarr; version bumps &rarr; background refetch</small></div></div></div>",
-  "css": ".diagram-latency .diagram-col{display:flex;flex-direction:column;gap:12px}.diagram-latency .diagram-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px}"
+<Diagram id="doc-block-10uqc8p" title={"重新取得的兩條路徑"} summary={"本機突變會立即使自己的快取失效；遠端寫入透過 SSE 到達此分頁，或作為後備的輪詢標記。"}>
+
+```html
+<div class="diagram-latency">
+  <div class="diagram-col">
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill ok">此標籤頁面</span
+      ><strong>useActionMutation</strong
+      ><small class="diagram-muted"
+        >fires source: "action" on success &rarr; instant local refetch</small
+      >
+    </div>
+    <div class="diagram-card" data-rough>
+      <span class="diagram-pill accent">代理 · webhook · 其他標籤頁面</span
+      ><strong>遠端寫入</strong
+      ><small class="diagram-muted"
+        >SSE push, or the ~2s polling tick as fallback &rarr; version bumps
+        &rarr; background refetch</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-latency .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagram-latency .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 ## cn（...輸入） {#cn}
 

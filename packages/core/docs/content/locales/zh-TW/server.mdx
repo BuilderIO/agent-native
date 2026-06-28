@@ -7,12 +7,74 @@ description: "Nitro 伺服器路由、外掛、框架安裝的路由、請求脈
 
 Agent-Native 應用程式使用 [Nitro](https://nitro.build) 作為伺服器路由和外掛。大多數產品行為應該存在於 [Actions](/docs/actions) 中；自訂路由適用於 actions 不適合的協議表面：上傳、流式傳輸、公開頁面、webhooks、OAuth 回呼和特定於提供者的 API。
 
-```an-diagram title="伺服器上執行什麼" summary="操作是預設的。自訂檔案路由和框架安裝的路由共用相同的 Nitro 應用程式和相同的 SQL 資料庫。"
-{
-  "html": "<div class=\"diagram-server\"><div class=\"diagram-col entry\"><div class=\"diagram-node\">瀏覽器 / UI</div><div class=\"diagram-node\">代理迴圈</div><div class=\"diagram-node\">外部用戶端<br><small class=\"diagram-muted\">HTTP · MCP · A2A</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Nitro 伺服器</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">Actions</span><small class=\"diagram-muted\">預設表面</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/_agent-native/*</span><small class=\"diagram-muted\">framework routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">/api/*</span><small class=\"diagram-muted\">custom file routes</small></div><div class=\"diagram-row\"><span class=\"diagram-pill\">plugins</span><small class=\"diagram-muted\">啟動：遷移、工作</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>SQL 資料庫<br><small class=\"diagram-muted\">Drizzle · 協調點</small></div></div>",
-  "css": ".diagram-server{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-server .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-server .diagram-panel{display:flex;flex-direction:column;gap:8px;padding:14px 16px}.diagram-server .diagram-row{display:flex;align-items:center;gap:8px}.diagram-server .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1gk1inb" title={"伺服器上執行什麼"} summary={"操作是預設的。自訂檔案路由和框架安裝的路由共用相同的 Nitro 應用程式和相同的 SQL 資料庫。"}>
+
+```html
+<div class="diagram-server">
+  <div class="diagram-col entry">
+    <div class="diagram-node">瀏覽器 / UI</div>
+    <div class="diagram-node">代理迴圈</div>
+    <div class="diagram-node">
+      外部用戶端<br /><small class="diagram-muted">HTTP · MCP · A2A</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Nitro 伺服器</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">預設表面</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill">/_agent-native/*</span
+      ><small class="diagram-muted">framework routes</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill">/api/*</span
+      ><small class="diagram-muted">custom file routes</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill">plugins</span
+      ><small class="diagram-muted">啟動：遷移、工作</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL 資料庫<br /><small class="diagram-muted">Drizzle · 協調點</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-server {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-server .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-server .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.diagram-server .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-server .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## 基於檔案的路由 {#file-based-routes}
 
@@ -185,12 +247,50 @@ Agent-Native 不依賴於檔案系統觀察程式或置頂記憶狀態。當 act
 
 這適用於無伺服器和多執行個體部署，因為資料庫是協調點。如果您在 actions 之外編寫自訂突變，請使用框架助手或發出適當的同步失效，以便開啟 UI 重新整理。
 
-```an-diagram title="SQL-backed 同步迴圈" summary="沒有觀察者，沒有置頂狀態。寫入會碰撞 SQL 中的版本；每個用戶端都會輪詢版本並重新取得。"
-{
-  "html": "<div class=\"diagram-sync\"><div class=\"diagram-box\" data-rough>Action / 輔助函式<br><small class=\"diagram-muted\">mutates data</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>SQL 資料庫</strong><small class=\"diagram-muted\">sync version increments</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&larr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">useDbSync()<br><small class=\"diagram-muted\">polls /_agent-native/poll</small></div><div class=\"diagram-pill ok\">invalidate caches &rarr; UI refreshes</div></div></div>",
-  "css": ".diagram-sync{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-sync .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-sync .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-mzpzck" title={"SQL-backed 同步迴圈"} summary={"沒有觀察者，沒有置頂狀態。寫入會碰撞 SQL 中的版本；每個用戶端都會輪詢版本並重新取得。"}>
+
+```html
+<div class="diagram-sync">
+  <div class="diagram-box" data-rough>
+    Action / 輔助函式<br /><small class="diagram-muted">mutates data</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>SQL 資料庫</strong
+    ><small class="diagram-muted">sync version increments</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useDbSync()<br /><small class="diagram-muted"
+        >polls /_agent-native/poll</small
+      >
+    </div>
+    <div class="diagram-pill ok">invalidate caches &rarr; UI refreshes</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-sync {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-sync .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 <Endpoint id="doc-block-1l5m2yi" title={"輪詢端點"} method="GET" path="/_agent-native/poll" summary={"返回目前的每個來源資料庫同步版本，以便用戶端可以偵測更改。"} auth="Session cookie (request-scoped identity)" responses={[
   {
@@ -213,12 +313,69 @@ Agent-Native 不依賴於檔案系統觀察程式或置頂記憶狀態。當 act
 4. 立即返回 200。
 5. 讓新的處理器執行執行代理迴圈並發布結果。
 
-```an-diagram title="整合佇列模式" summary="Webhook 處理常式以毫秒為單位返回；單獨的簽名執行執行緩慢的代理工作。"
-{
-  "html": "<div class=\"diagram-webhook\"><div class=\"diagram-box\" data-rough>入站 webhook<br><small class=\"diagram-muted\">Slack · Stripe · email</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel\" data-rough><strong>Handler</strong><div class=\"diagram-step\"><span class=\"diagram-pill\">1</span><small class=\"diagram-muted\">verify signature</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">2</span><small class=\"diagram-muted\">將工作寫入 SQL</small></div><div class=\"diagram-step\"><span class=\"diagram-pill\">3</span><small class=\"diagram-muted\">self-fire processor</small></div><div class=\"diagram-step\"><span class=\"diagram-pill ok\">4</span><small class=\"diagram-muted\">return 200 now</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Signed processor<br><small class=\"diagram-muted\">執行代理迴圈並發布結果</small></div></div>",
-  "css": ".diagram-webhook{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-webhook .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-webhook .diagram-step{display:flex;align-items:center;gap:8px}.diagram-webhook .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-1qv0b1p" title={"整合佇列模式"} summary={"Webhook 處理常式以毫秒為單位返回；單獨的簽名執行執行緩慢的代理工作。"}>
+
+```html
+<div class="diagram-webhook">
+  <div class="diagram-box" data-rough>
+    入站 webhook<br /><small class="diagram-muted"
+      >Slack · Stripe · email</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Handler</strong>
+    <div class="diagram-step">
+      <span class="diagram-pill">1</span
+      ><small class="diagram-muted">verify signature</small>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">2</span
+      ><small class="diagram-muted">將工作寫入 SQL</small>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">3</span
+      ><small class="diagram-muted">self-fire processor</small>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill ok">4</span
+      ><small class="diagram-muted">return 200 now</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Signed processor<br /><small class="diagram-muted"
+      >執行代理迴圈並發布結果</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-webhook {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-webhook .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-webhook .diagram-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-webhook .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 > [!WARNING]
 > 不要依賴返回回應後未等待的承諾 — 無伺服器主機會凍結執行。請參閱 [Messaging](/docs/messaging) 以了解規範整合佇列。

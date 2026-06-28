@@ -18,12 +18,70 @@ Assets ist ein agentennativer Arbeitsbereich zum Erstellen und Verwalten markenk
 
 Wenn Sie die App öffnen, bleiben die ausgewählte Bibliothek, die Eingabeaufforderung, die Referenzen und die generierten Kandidaten in einem Arbeitsbereich. Der Agent kann jedes Asset über denselben actions durchsuchen, suchen, generieren, verfeinern und exportieren, den auch der UI verwendet.
 
-```an-diagram title="Generieren, überprüfen, wiederverwenden" summary="Referenzen und Eingabeaufforderungen speisen eine Sitzung zum Generieren und Auswählen. Ausgewählte Assets landen in einer Bibliothek und fließen über den Picker oder A2A an andere Apps."
-{
-  "html": "<div class=\"diagram-assets\"><div class=\"diagram-col\"><div class=\"diagram-node\">References<br><small class=\"diagram-muted\">Logos, Produktbilder, Stil</small></div><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">Chat- oder Generate-Steuerung</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Generierungssitzung</span><small class=\"diagram-muted\">image &amp; video candidates · audit log</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill ok\">Library</span><small class=\"diagram-muted\">ausgewählte, markenkonforme Assets</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Picker<br><small class=\"diagram-muted\">iframe / MCP-App</small></div><div class=\"diagram-node\">A2A<br><small class=\"diagram-muted\">Folien · Design · Inhalte</small></div></div></div>",
-  "css": ".diagram-assets{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-assets .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-assets .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-assets .diagram-arrow{font-size:20px;line-height:1}"
+<Diagram id="doc-block-6q66nj" title={"Generieren, überprüfen, wiederverwenden"} summary={"Referenzen und Eingabeaufforderungen speisen eine Sitzung zum Generieren und Auswählen. Ausgewählte Assets landen in einer Bibliothek und fließen über den Picker oder A2A an andere Apps."}>
+
+```html
+<div class="diagram-assets">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      References<br /><small class="diagram-muted"
+        >Logos, Produktbilder, Stil</small
+      >
+    </div>
+    <div class="diagram-node">
+      Prompt<br /><small class="diagram-muted"
+        >Chat- oder Generate-Steuerung</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Generierungssitzung</span
+    ><small class="diagram-muted"
+      >image &amp; video candidates · audit log</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Library</span
+    ><small class="diagram-muted">ausgewählte, markenkonforme Assets</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Picker<br /><small class="diagram-muted">iframe / MCP-App</small>
+    </div>
+    <div class="diagram-node">
+      A2A<br /><small class="diagram-muted">Folien · Design · Inhalte</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-assets {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-assets .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-assets .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-assets .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Wann soll es ausgewählt werden?
 

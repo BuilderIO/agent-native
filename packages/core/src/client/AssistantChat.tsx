@@ -2152,9 +2152,9 @@ const AssistantChatInner = forwardRef<
   }, [tabId]);
 
   // Real activity means the next chunk has started — leave the auto-resume
-  // ("Resuming") state so the indicator settles back to "Thinking". The
+  // ("Resuming") state so the indicator settles back to "thinking". The
   // activity label itself is intentionally not surfaced: the running
-  // indicator stays a steady "Thinking" rather than flipping through
+  // indicator stays a steady "thinking" rather than flipping through
   // transient step labels.
   useEffect(() => {
     const handler = (e: Event) => {
@@ -3254,10 +3254,10 @@ const AssistantChatInner = forwardRef<
                               ? "Reconnecting"
                               : isAutoResuming
                                 ? "Resuming"
-                                : // Keep a steady "Thinking" while the model works —
+                                : // Keep a steady "thinking" while the model works —
                                   // never flip through transient activity labels
                                   // (e.g. "Contacting model", "Preparing X action").
-                                  "Thinking"
+                                  "thinking"
                           }
                         />
                       )}

@@ -19,12 +19,71 @@ Actions 是您的應用所做的任何事情的唯一事實來源。使用 `defi
 如果您正在決定是否在聊天中、在聊天中無頭公開操作
 嵌入式 sidecar，或作為完整的應用螢幕，請參閱 [Agent Surfaces](/docs/agent-surfaces)。
 
-```an-diagram title="一個定義，七個消費者" summary="單一 defineAction() 扇出到每個表面 - 代理、UI、HTTP、MCP、A2A 和 CLI - 具有一個經過驗證的模式和一個 run() 主體。"
-{
-  "html": "<div class=\"diagram-fanout\"><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">defineAction()</span><small class=\"diagram-muted\">schema + run()，只定義一次</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><div class=\"diagram-node\">Agent 工具<br><small class=\"diagram-muted\">脈絡中的 JSON Schema</small></div><div class=\"diagram-node\">React 鉤子<br><small class=\"diagram-muted\">useActionQuery/Mutation</small></div><div class=\"diagram-node\">callAction()<br><small class=\"diagram-muted\">指令式用戶端</small></div><div class=\"diagram-node\">HTTP<br><small class=\"diagram-muted\">/_agent-native/actions/:name</small></div><div class=\"diagram-node\">MCP 工具<br><small class=\"diagram-muted\">外部主機</small></div><div class=\"diagram-node\">A2A 工具<br><small class=\"diagram-muted\">其他 agent-native 應用</small></div><div class=\"diagram-node\">CLI<br><small class=\"diagram-muted\">pnpm action &lt;name&gt;</small></div></div></div>",
-  "css": ".diagram-fanout{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.diagram-fanout .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-fanout .diagram-arrow{font-size:22px;line-height:1}.diagram-fanout .diagram-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}"
+<Diagram id="doc-block-m5p95q" title={"一個定義，七個消費者"} summary={"單一 defineAction() 扇出到每個表面 - 代理、UI、HTTP、MCP、A2A 和 CLI - 具有一個經過驗證的模式和一個 run() 主體。"}>
+
+```html
+<div class="diagram-fanout">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">defineAction()</span
+    ><small class="diagram-muted">schema + run()，只定義一次</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <div class="diagram-node">
+      Agent 工具<br /><small class="diagram-muted">脈絡中的 JSON Schema</small>
+    </div>
+    <div class="diagram-node">
+      React 鉤子<br /><small class="diagram-muted"
+        >useActionQuery/Mutation</small
+      >
+    </div>
+    <div class="diagram-node">
+      callAction()<br /><small class="diagram-muted">指令式用戶端</small>
+    </div>
+    <div class="diagram-node">
+      HTTP<br /><small class="diagram-muted"
+        >/_agent-native/actions/:name</small
+      >
+    </div>
+    <div class="diagram-node">
+      MCP 工具<br /><small class="diagram-muted">外部主機</small>
+    </div>
+    <div class="diagram-node">
+      A2A 工具<br /><small class="diagram-muted">其他 agent-native 應用</small>
+    </div>
+    <div class="diagram-node">
+      CLI<br /><small class="diagram-muted">pnpm action &lt;name&gt;</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fanout {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-fanout .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-fanout .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-fanout .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 ```
+
+</Diagram>
 
 如果 UI 和代理都需要做某事，請採取行動 - 而不是自訂
 路由。對於何時路由型協議才是正確的呼叫，請參閱[首選 Actions

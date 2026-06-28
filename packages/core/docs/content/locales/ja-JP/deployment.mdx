@@ -28,12 +28,59 @@ npx @agent-native/core@latest deploy
 
 各アプリは `APP_BASE_PATH=/<name>` および `VITE_APP_BASE_PATH=/<name>` で構築され、ターゲットの Nitro プリセット用にパッケージ化されます。 Cloudflare Pages がデフォルトのプリセットで、`dist/_worker.js` で生成されたディスパッチャー ワーカーを使用します。 Netlify は、`.netlify/functions-internal/<app>-server` のアプリごとに 1 つの関数と生成されたリダイレクトを使用します。 Vercel は、ビルド出力 API を使用して、ワークスペース レベルの `.vercel/output` を書き込みます。
 
-```an-diagram title="1 つのオリジンで多数のアプリ" summary="各ワークスペース アプリは独自のベース パスを使用して構築され、単一オリジンのパス プレフィックスの下にマウントされます。そのため、ログインとクロスアプリ A2A は同じオリジンで無料です。"
-{
-  "html": "<div class=\"diagram-ws\"><div class=\"diagram-panel\" data-rough><strong>https://your-agents.com</strong><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/mail/*</span><small class=\"diagram-muted\">apps/mail</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/calendar/*</span><small class=\"diagram-muted\">apps/calendar</small></div><div class=\"diagram-row\"><span class=\"diagram-pill accent\">/forms/*</span><small class=\"diagram-muted\">apps/forms</small></div></div><div class=\"diagram-col wins\"><span class=\"diagram-pill ok\">shared login session</span><span class=\"diagram-pill ok\">設定不要のクロスアプリA2A</span></div></div>",
-  "css": ".diagram-ws{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.diagram-ws .diagram-panel{display:flex;flex-direction:column;gap:6px;padding:14px 16px}.diagram-ws .diagram-row{display:flex;align-items:center;gap:8px}.diagram-ws .wins{display:flex;flex-direction:column;gap:8px;align-items:flex-start}"
+<Diagram id="doc-block-hiqubd" title={"1 つのオリジンで多数のアプリ"} summary={"各ワークスペース アプリは独自のベース パスを使用して構築され、単一オリジンのパス プレフィックスの下にマウントされます。そのため、ログインとクロスアプリ A2A は同じオリジンで無料です。"}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">shared login session</span
+    ><span class="diagram-pill ok">設定不要のクロスアプリA2A</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
 }
 ```
+
+</Diagram>
 
 同一オリジンのデプロイにより、無料で 2 つの大きなメリットが得られます:
 
@@ -95,12 +142,60 @@ npx @agent-native/core@latest deploy --preset vercel
 
 出力は自己完結型です。`.output/` を任意の環境にコピーして実行します。
 
-```an-diagram title="構築してデプロイする" summary="1 つのソース ツリーは Nitro プリセットにビルドされます。同じ自己完結型出力が Node、Vercel、Netlify、Cloudflare、AWS、または Deno で実行されます。すべてのインスタンスは同じ永続 DATABASE_URL を指します。"
-{
-  "html": "<div class=\"diagram-deploy\"><div class=\"diagram-box\" data-rough>アプリソース</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">build</span><small class=\"diagram-muted\">Nitro preset</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-grid\"><span class=\"diagram-pill\">Node.js</span><span class=\"diagram-pill\">Vercel</span><span class=\"diagram-pill\">Netlify</span><span class=\"diagram-pill\">Cloudflare</span><span class=\"diagram-pill\">AWS Lambda</span><span class=\"diagram-pill\">Deno</span></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>永続DATABASE_URL<br><small class=\"diagram-muted\">shared by every instance</small></div></div>",
-  "css": ".diagram-deploy{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-deploy .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px 16px}.diagram-deploy .diagram-arrow{font-size:22px;line-height:1}.diagram-deploy .diagram-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}"
+<Diagram id="doc-block-m6nlqv" title={"構築してデプロイする"} summary={"1 つのソース ツリーは Nitro プリセットにビルドされます。同じ自己完結型出力が Node、Vercel、Netlify、Cloudflare、AWS、または Deno で実行されます。すべてのインスタンスは同じ永続 DATABASE_URL を指します。"}>
+
+```html
+<div class="diagram-deploy">
+  <div class="diagram-box" data-rough>アプリソース</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">build</span
+    ><small class="diagram-muted">Nitro preset</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <span class="diagram-pill">Node.js</span
+    ><span class="diagram-pill">Vercel</span
+    ><span class="diagram-pill">Netlify</span
+    ><span class="diagram-pill">Cloudflare</span
+    ><span class="diagram-pill">AWS Lambda</span
+    ><span class="diagram-pill">Deno</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    永続DATABASE_URL<br /><small class="diagram-muted"
+      >shared by every instance</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-deploy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-deploy .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-deploy .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-deploy .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 ```
+
+</Diagram>
 
 ## プリセットの設定 {#setting-the-preset}
 

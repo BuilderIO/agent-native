@@ -20,12 +20,65 @@ Dispatch is the **workspace control plane**. Where other templates are domain ap
 
 If you're running an [multi-app workspace](/docs/multi-app-workspace) with many apps, Dispatch is the glue.
 
-```an-diagram title="Orchestrate, don't specialize" summary="Messages from every channel land in one inbox; the orchestrator triages and delegates domain work to the right specialist app over A2A — secrets, resources, and approvals stay central."
-{
-  "html": "<div class=\"diagram-dispatch\"><div class=\"diagram-col\"><div class=\"diagram-node\">Slack · Telegram</div><div class=\"diagram-node\">Email</div><div class=\"diagram-node\">A2A requests</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Orchestrator</span><small class=\"diagram-muted\">central inbox · triage · route</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-node\">Mail agent</div><div class=\"diagram-node\">Analytics agent</div><div class=\"diagram-node\">Brain · Slides &hellip;</div></div></div><div class=\"diagram-shared\"><span class=\"diagram-pill\">Secrets vault</span><span class=\"diagram-pill\">Workspace resources</span><span class=\"diagram-pill warn\">Approvals</span><span class=\"diagram-pill\">Scheduled jobs</span></div>",
-  "css": ".diagram-dispatch{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-dispatch .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-dispatch .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-dispatch .diagram-arrow{font-size:20px;line-height:1}.diagram-shared{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}"
+<Diagram id="doc-block-12njifj" title={"Orchestrate, don't specialize"} summary={"Messages from every channel land in one inbox; the orchestrator triages and delegates domain work to the right specialist app over A2A — secrets, resources, and approvals stay central."}>
+
+```html
+<div class="diagram-dispatch">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack · Telegram</div>
+    <div class="diagram-node">Email</div>
+    <div class="diagram-node">A2A requests</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Orchestrator</span
+    ><small class="diagram-muted">central inbox · triage · route</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">Mail agent</div>
+    <div class="diagram-node">Analytics agent</div>
+    <div class="diagram-node">Brain · Slides &hellip;</div>
+  </div>
+</div>
+<div class="diagram-shared">
+  <span class="diagram-pill">Secrets vault</span
+  ><span class="diagram-pill">Workspace resources</span
+  ><span class="diagram-pill warn">Approvals</span
+  ><span class="diagram-pill">Scheduled jobs</span>
+</div>
+```
+
+```css
+.diagram-dispatch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-dispatch .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-dispatch .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-dispatch .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-shared {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
 }
 ```
+
+</Diagram>
 
 ## What it does {#what-it-does}
 

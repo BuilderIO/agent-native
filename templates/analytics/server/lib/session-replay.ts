@@ -992,11 +992,7 @@ function hasVisibleSessionRecordingIdentity(row: any): boolean {
 }
 
 function isVisibleSessionRecording(row: any): boolean {
-  return (
-    hasVisibleSessionRecordingIdentity(row) &&
-    Number(row.chunkCount ?? 0) > 0 &&
-    Number(row.eventCount ?? 0) > 0
-  );
+  return hasVisibleSessionRecordingIdentity(row);
 }
 
 function mergeReplayMetadata(
@@ -1357,8 +1353,6 @@ export async function listSessionRecordings(
       orgId: scope.orgId ?? undefined,
     }),
     replayVisibleIdentityCondition(),
-    gte(schema.sessionRecordings.chunkCount, 1),
-    gte(schema.sessionRecordings.eventCount, 1),
   ];
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));

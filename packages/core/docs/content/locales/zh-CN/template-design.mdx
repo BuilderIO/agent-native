@@ -18,12 +18,66 @@ Design 是一家代理原生 HTML 原型工作室。该代理不是分层绘图�
 
 当您打开应用程序时，生成的原型位于工作区的中心，预览模式、提示修订和导出控件触手可及。代理生产的所有东西都是真实的 HTML，您可以精炼、导出或移交。
 
-```an-diagram title="一件神器，无需翻译" summary="代理生成独立的 Alpine/Tailwind HTML； iframe、可编辑源和每个导出都读取相同的文件。链接的设计系统将令牌输入到每个通道中。"
-{
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">提示<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">设计系统</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">代理生成</span><small class=\"diagram-muted\">独立 HTML / JSX 文件</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">调整旋钮 · Cmd+I 优化</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · 交接</small></div></div>",
-  "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1rwuo8n" title={"一件神器，无需翻译"} summary={"代理生成独立的 Alpine/Tailwind HTML； iframe、可编辑源和每个导出都读取相同的文件。链接的设计系统将令牌输入到每个通道中。"}>
+
+```html
+<div class="diagram-design">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      提示<br /><small class="diagram-muted">describe screen / page</small>
+    </div>
+    <div class="diagram-pill">设计系统</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">代理生成</span
+    ><small class="diagram-muted">独立 HTML / JSX 文件</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    iframe preview<br /><small class="diagram-muted"
+      >调整旋钮 · Cmd+I 优化</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Export</span
+    ><small class="diagram-muted">HTML · ZIP · PDF · 交接</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-design {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-design .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-design .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-design .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-design .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## 何时采摘
 

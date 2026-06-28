@@ -19,12 +19,60 @@ Una aplicación que lo captura todo: grabaciones de pantalla, notas de reuniones
 
 Piense en la línea de Loom + Granola + Wispr Flow en una sola aplicación, pero el agente es un editor de primera clase en todas las superficies, y las grabaciones, reuniones y dictados son suyos, no de un proveedor de SaaS. Clips también hace que las grabaciones compartidas sean legibles para el agente: pegue un enlace normal para compartir de Clips en un agente y este podrá "escuchar" la transcripción como texto y "ver" marcos de pantalla con marca de tiempo como imágenes; no se necesita video sin formato. La visualización de cuadros funciona en cualquier agente con capacidad de imagen (ChatGPT, Código Claude, Cursor, Codex); Los chats web de solo texto aún obtienen la transcripción completa y pueden tomar un fotograma que usted cargue.
 
-```an-diagram title="Capturar, transcribir, reutilizar" summary="Tres tipos de captura aterrizan en una biblioteca; el agente transcribe, titula y resume, luego cada transcripción se puede buscar y compartir."
-{
-  "html": "<div class=\"diagram-clips\"><div class=\"diagram-col\"><div class=\"diagram-node\">Grabación de pantalla</div><div class=\"diagram-node\">Reunión de calendario</div><div class=\"diagram-node\">Dictado manteniendo Fn</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Una biblioteca<br><small class=\"diagram-muted\">recordings + transcripts (SQL)</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">Agent</span><small class=\"diagram-muted\">título · resumen · capítulos</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-pill\">Buscar</div><div class=\"diagram-pill\">Compartir</div><div class=\"diagram-pill\">Legible por agentes links</div></div></div>",
-  "css": ".diagram-clips{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-clips .diagram-col{display:flex;flex-direction:column;gap:8px}.diagram-clips .center{display:flex;flex-direction:column;align-items:center;gap:4px}.diagram-clips .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-cw43i6" title="Capturar, transcribir, reutilizar" summary={"Tres tipos de captura aterrizan en una biblioteca; el agente transcribe, titula y resume, luego cada transcripción se puede buscar y compartir."}>
+
+```html
+<div class="diagram-clips">
+  <div class="diagram-col">
+    <div class="diagram-node">Grabación de pantalla</div>
+    <div class="diagram-node">Reunión de calendario</div>
+    <div class="diagram-node">Dictado manteniendo Fn</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Una biblioteca<br /><small class="diagram-muted"
+      >recordings + transcripts (SQL)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">título · resumen · capítulos</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">Buscar</div>
+    <div class="diagram-pill">Compartir</div>
+    <div class="diagram-pill">Legible por agentes links</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-clips {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-clips .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-clips .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-clips .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Qué puedes hacer con él
 

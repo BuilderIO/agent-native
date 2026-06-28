@@ -21,13 +21,50 @@ description: "使用 React Router v8 为代理本机应用程序提供基于文�
 
 为动态参数添加 `$` 前缀。以 `_` 为前缀，使其成为无路径布局路线（无 URL 段）。模板使用 `flatRoutes()` — 上面的点符号文件是主要的；嵌套文件夹形式 `inbox/route.tsx` 也适用。
 
-```an-diagram title="无路径布局包裹页面" summary="_app.tsx 布局（无 URL 段）渲染共享 shell 一次；匹配的页面在其 <Outlet/> 内呈现，因此代理侧边栏永远不会在导航时重新安装。"
-{
-"html": "<div class=\"diagram-layout\" data-rough><div class=\"diagram-shell\"><span class=\"diagram-pill accent\">_app.tsx</span><small class=\"diagram-muted\">无路径布局 · 持久外壳 + Agent 侧边栏</small><div class=\"diagram-outlet\" data-rough><small class=\"diagram-muted\">&lt;Outlet/&gt; — the matched page</small><div class=\"diagram-row\"><span class=\"diagram-pill\">_index.tsx &rarr; /</span><span class=\"diagram-pill\">settings.tsx &rarr; /settings</span><span class=\"diagram-pill\">inbox.$threadId.tsx &rarr; /inbox/:threadId</span></div></div></div></div>",
-"css": ".diagram-layout .diagram-shell{display:flex;flex-direction:column;gap:8px;padding:16px}.diagram-layout .diagram-outlet{display:flex;flex-direction:column;gap:8px;padding:14px;margin-top:6px}.diagram-layout .diagram-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}"
-}
+<Diagram id="doc-block-1t5h7ch" title={"无路径布局包裹页面"} summary={"_app.tsx 布局（无 URL 段）渲染共享 shell 一次；匹配的页面在其 <Outlet/> 内呈现，因此代理侧边栏永远不会在导航时重新安装。"}>
 
+```html
+<div class="diagram-layout" data-rough>
+  <div class="diagram-shell">
+    <span class="diagram-pill accent">_app.tsx</span
+    ><small class="diagram-muted">无路径布局 · 持久外壳 + Agent 侧边栏</small>
+    <div class="diagram-outlet" data-rough>
+      <small class="diagram-muted">&lt;Outlet/&gt; — the matched page</small>
+      <div class="diagram-row">
+        <span class="diagram-pill">_index.tsx &rarr; /</span
+        ><span class="diagram-pill">settings.tsx &rarr; /settings</span
+        ><span class="diagram-pill"
+          >inbox.$threadId.tsx &rarr; /inbox/:threadId</span
+        >
+      </div>
+    </div>
+  </div>
+</div>
 ```
+
+```css
+.diagram-layout .diagram-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+.diagram-layout .diagram-outlet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  margin-top: 6px;
+}
+.diagram-layout .diagram-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+```
+
+</Diagram>
 
 ## 添加新页面 {#adding-a-page}
 

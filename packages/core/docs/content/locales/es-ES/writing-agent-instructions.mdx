@@ -7,12 +7,54 @@ description: "Cómo escribir excelentes instrucciones de agente para una aplicac
 
 El comportamiento del agente en una aplicación nativa del agente es tan bueno como las instrucciones que usted le dé. Tres superficies contienen esa guía: `AGENTS.md` (el mapa), skills (las inmersiones profundas) y descripciones de acciones/herramientas (cómo el agente elige la herramienta adecuada). Escribe cada uno para recuperarlo rápidamente, no para escribirlo en prosa.
 
-```an-diagram title="Tres superficies creadas + una superficie de tiempo de ejecución" summary="AGENTS.md y las descripciones de las herramientas se cargan en cada vuelta; carga de habilidades según demanda; application_state está escrito en vivo por su UI."
-{
-  "html": "<div class=\"diagram-surfaces\"><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Cada turno</span><strong>AGENTS.md</strong><small class=\"diagram-muted\">el mapa: propósito, reglas base, claves de estado, índice de acciones + skills</small></div><div class=\"diagram-card always\" data-rough><span class=\"diagram-pill accent\">Cada turno</span><strong>Descripciones de herramientas</strong><small class=\"diagram-muted\">guía la selección de herramientas — una frase precisa cada una</small></div><div class=\"diagram-card ondemand\" data-rough><span class=\"diagram-pill\">Bajo demanda</span><strong>Habilidades</strong><small class=\"diagram-muted\">guía profunda, cargada cuando coincide la descripción</small></div><div class=\"diagram-card runtime\" data-rough><span class=\"diagram-pill ok\">Live</span><strong>application_state</strong><small class=\"diagram-muted\">lo escribe tu UI: navegación, selección, foco</small></div></div>",
-  "css": ".diagram-surfaces{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.diagram-surfaces .diagram-card{display:flex;flex-direction:column;gap:6px;padding:14px 16px}"
+<Diagram id="doc-block-1mdys4x" title={"Tres superficies creadas + una superficie de tiempo de ejecución"} summary={"AGENTS.md y las descripciones de las herramientas se cargan en cada vuelta; carga de habilidades según demanda; application_state está escrito en vivo por su UI."}>
+
+```html
+<div class="diagram-surfaces">
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Cada turno</span><strong>AGENTS.md</strong
+    ><small class="diagram-muted"
+      >el mapa: propósito, reglas base, claves de estado, índice de acciones +
+      skills</small
+    >
+  </div>
+  <div class="diagram-card always" data-rough>
+    <span class="diagram-pill accent">Cada turno</span
+    ><strong>Descripciones de herramientas</strong
+    ><small class="diagram-muted"
+      >guía la selección de herramientas — una frase precisa cada una</small
+    >
+  </div>
+  <div class="diagram-card ondemand" data-rough>
+    <span class="diagram-pill">Bajo demanda</span><strong>Habilidades</strong
+    ><small class="diagram-muted"
+      >guía profunda, cargada cuando coincide la descripción</small
+    >
+  </div>
+  <div class="diagram-card runtime" data-rough>
+    <span class="diagram-pill ok">Live</span><strong>application_state</strong
+    ><small class="diagram-muted"
+      >lo escribe tu UI: navegación, selección, foco</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-surfaces {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.diagram-surfaces .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
 }
 ```
+
+</Diagram>
 
 ## Mantenga AGENTS.md pequeño y fácil de leer {#small-agents-md}
 

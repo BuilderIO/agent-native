@@ -33,6 +33,12 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
+import {
+  clearBuilderCreditsExhausted,
+  noteBuilderCreditsExhausted,
+} from "./lib/builder-credits-state.js";
+
 // Builder gateway maps this to Gemini 3.1 Flash-Lite (see transcribe-voice.ts:52).
 const BUILDER_MODEL = "gemini-3-1-flash-lite";
 
@@ -117,6 +123,7 @@ export default defineAction({
           wantJson,
         });
         if (text.trim()) {
+          await clearBuilderCreditsExhausted();
           return shapeResult(args.task, text, "builder");
         }
         builderReturnedEmpty = true;
@@ -126,7 +133,18 @@ export default defineAction({
         // Hard errors (e.g. credits exhausted) still surface to the caller.
         const message = (err as Error)?.message ?? String(err);
         builderFailureMessage = message;
-        if (message.includes("credits exhausted")) throw err;
+        if (isBuilderCreditsExhaustedMessage(message)) {
+          await noteBuilderCreditsExhausted({
+            source:
+              args.task === "title"
+                ? "title"
+                : args.task === "summary"
+                  ? "summary"
+                  : "cleanup",
+            message,
+          });
+          throw err;
+        }
         console.warn("[cleanup-transcript] Builder path failed:", message);
       }
     }

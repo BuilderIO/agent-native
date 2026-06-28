@@ -38,7 +38,7 @@ let _resendUnverifiedWarned = false;
 let _sendgridUnverifiedWarned = false;
 
 function escapeLike(value: string): string {
-  return value.replace(/([\\%_])/g, "\\$1");
+  return value.replace(/[!%_]/g, (match) => `!${match}`);
 }
 
 /**
@@ -742,7 +742,7 @@ async function isRateLimited(senderEmail: string): Promise<boolean> {
           FROM integration_pending_tasks
          WHERE platform = ?
            AND created_at >= ?
-           AND payload LIKE ? ESCAPE '\\'
+           AND payload LIKE ? ESCAPE '!'
       `,
       args: ["email", cutoff, `%"senderId":"${escapeLike(senderEmail)}"%`],
     });

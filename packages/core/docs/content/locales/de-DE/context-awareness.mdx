@@ -24,12 +24,65 @@ Sechs Muster lösen dieses Problem:
 5. **Prompte Übergabe** – UI steuert den Anruf `sendToAgentChat()`, wenn ein Klick zum Agentenwechsel werden soll
 6. **`navigate`** – ein einmaliger Befehl vom Agenten, der dem UI mitteilt, wohin er gehen soll
 
-```an-diagram title="Wie der Agent sieht, was Sie sehen" summary="Die Benutzeroberfläche schreibt leichtgewichtige Statusschlüssel. view-screen verwandelt sie in echte Aufzeichnungen; Der Agent kann zurücknavigieren, um die Benutzeroberfläche zu verschieben."
-{
-  "html": "<div class=\"diagram-ctx\"><div class=\"diagram-card col\"><span class=\"diagram-pill\">UI schreibt</span><div class=\"diagram-node\">navigation<br><small class=\"diagram-muted\">Ansicht, offene IDs</small></div><div class=\"diagram-node\">__url__<br><small class=\"diagram-muted\">shareable filters</small></div><div class=\"diagram-node\">selection<br><small class=\"diagram-muted\">Zeilen, Blöcke, Formen</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\" data-rough><span class=\"diagram-pill accent\">view-screen</span><small class=\"diagram-muted\">reads state &middot; fetches records</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">Agent handelt<br><small class=\"diagram-muted\">on the real object</small></div><div class=\"diagram-arrow diagram-accent\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-box diagram-accent\">navigate<br><small class=\"diagram-muted\">Agent bewegt die UI</small></div></div>",
-  "css": ".diagram-ctx{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-ctx .col{display:flex;flex-direction:column;gap:8px;padding:14px}.diagram-ctx .center{display:flex;flex-direction:column;align-items:center;gap:4px;padding:14px}.diagram-ctx .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-13x29d9" title="Wie der Agent sieht, was Sie sehen" summary={"Die Benutzeroberfläche schreibt leichtgewichtige Statusschlüssel. view-screen verwandelt sie in echte Aufzeichnungen; Der Agent kann zurücknavigieren, um die Benutzeroberfläche zu verschieben."}>
+
+```html
+<div class="diagram-ctx">
+  <div class="diagram-card col">
+    <span class="diagram-pill">UI schreibt</span>
+    <div class="diagram-node">
+      navigation<br /><small class="diagram-muted">Ansicht, offene IDs</small>
+    </div>
+    <div class="diagram-node">
+      __url__<br /><small class="diagram-muted">shareable filters</small>
+    </div>
+    <div class="diagram-node">
+      selection<br /><small class="diagram-muted">Zeilen, Blöcke, Formen</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">view-screen</span
+    ><small class="diagram-muted">reads state &middot; fetches records</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Agent handelt<br /><small class="diagram-muted">on the real object</small>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box diagram-accent">
+    navigate<br /><small class="diagram-muted">Agent bewegt die UI</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-ctx {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-ctx .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.diagram-ctx .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-ctx .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>
 
 ## Kontextebenen {#context-layers}
 
@@ -382,9 +435,46 @@ So funktioniert es:
 - Bei der Verarbeitung von Synchronisierungsereignissen filtert der UI Ereignisse heraus, die seinem eigenen `ignoreSource`-Wert entsprechen – sodass er die Daten, die er gerade geschrieben hat, nicht erneut abruft.
 - Ereignisse von Agenten, anderen Registerkarten und actions kommen weiterhin normal durch
 
-```an-diagram title="Durch die Quellenmarkierung wird der Jitter beim Selbst-Refetch gestoppt" summary="Ein Tab ignoriert Synchronisierungsereignisse, die mit seinem eigenen TAB_ID gestempelt sind, reagiert aber weiterhin auf Agent- und andere Tab-Schreibvorgänge."
-{
-  "html": "<div class=\"diagram-jitter\"><div class=\"diagram-node\">Dieser Tab schreibt<br><small class=\"diagram-muted\">X-Request-Source: TAB_ID</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>Server speichert Quelle<br>on the event</div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-card col\"><div class=\"diagram-pill warn\">source == TAB_ID &rarr; ignored</div><small class=\"diagram-muted\">kein Refetch, kein Flackern</small><div class=\"diagram-pill ok\">agent / other tab &rarr; applied</div><small class=\"diagram-muted\">UI aktualisiert live</small></div></div>",
-  "css": ".diagram-jitter{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-jitter .col{display:flex;flex-direction:column;gap:6px;padding:14px}.diagram-jitter .diagram-arrow{font-size:22px;line-height:1}"
+<Diagram id="doc-block-ndlf5o" title="Durch die Quellenmarkierung wird der Jitter beim Selbst-Refetch gestoppt" summary={"Ein Tab ignoriert Synchronisierungsereignisse, die mit seinem eigenen TAB_ID gestempelt sind, reagiert aber weiterhin auf Agent- und andere Tab-Schreibvorgänge."}>
+
+```html
+<div class="diagram-jitter">
+  <div class="diagram-node">
+    Dieser Tab schreibt<br /><small class="diagram-muted"
+      >X-Request-Source: TAB_ID</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Server speichert Quelle<br />on the event
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card col">
+    <div class="diagram-pill warn">source == TAB_ID &rarr; ignored</div>
+    <small class="diagram-muted">kein Refetch, kein Flackern</small>
+    <div class="diagram-pill ok">agent / other tab &rarr; applied</div>
+    <small class="diagram-muted">UI aktualisiert live</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-jitter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jitter .col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-jitter .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
+
+</Diagram>

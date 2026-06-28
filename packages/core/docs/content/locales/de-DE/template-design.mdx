@@ -18,12 +18,66 @@ Design ist ein agentennatives Prototyping-Studio. Anstelle einer geschichteten Z
 
 Wenn Sie die App öffnen, befindet sich der generierte Prototyp im Mittelpunkt des Arbeitsbereichs, mit Vorschaumodi, Eingabeaufforderungen für Überarbeitungen und Exportsteuerelementen in unmittelbarer Nähe. Alles, was der Agent produziert, ist echtes HTML, das Sie verfeinern, exportieren oder weitergeben können.
 
-```an-diagram title="Ein Artefakt, keine Übersetzung" summary="Der Agent generiert eigenständige Alpine/Tailwind HTML; Der Iframe, die bearbeitbare Quelle und jeder Export lesen alle dieselben Dateien. Ein verknüpftes Designsystem führt jedem Durchgang Token zu."
-{
-  "html": "<div class=\"diagram-design\"><div class=\"diagram-col\"><div class=\"diagram-node\">Prompt<br><small class=\"diagram-muted\">describe screen / page</small></div><div class=\"diagram-pill\">Designsystem</div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough><span class=\"diagram-pill accent\">Agent generieren</span><small class=\"diagram-muted\">eigenständige HTML- / JSX-Dateien</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\" data-rough>iframe preview<br><small class=\"diagram-muted\">Regler anpassen · Cmd+I verfeinern</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&#8635;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill ok\">Export</span><small class=\"diagram-muted\">HTML · ZIP · PDF · Übergabe</small></div></div>",
-  "css": ".diagram-design{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-design .diagram-col{display:flex;flex-direction:column;gap:8px;align-items:flex-start}.diagram-design .diagram-box{display:flex;flex-direction:column;gap:4px}.diagram-design .diagram-arrow{font-size:20px;line-height:1}.diagram-design .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-1764u6n" title={"Ein Artefakt, keine Übersetzung"} summary={"Der Agent generiert eigenständige Alpine/Tailwind HTML; Der Iframe, die bearbeitbare Quelle und jeder Export lesen alle dieselben Dateien. Ein verknüpftes Designsystem führt jedem Durchgang Token zu."}>
+
+```html
+<div class="diagram-design">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Prompt<br /><small class="diagram-muted">describe screen / page</small>
+    </div>
+    <div class="diagram-pill">Designsystem</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill accent">Agent generieren</span
+    ><small class="diagram-muted">eigenständige HTML- / JSX-Dateien</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    iframe preview<br /><small class="diagram-muted"
+      >Regler anpassen · Cmd+I verfeinern</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">Export</span
+    ><small class="diagram-muted">HTML · ZIP · PDF · Übergabe</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-design {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-design .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-design .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-design .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-design .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## Wann soll es ausgewählt werden?
 

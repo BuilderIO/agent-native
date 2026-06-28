@@ -18,12 +18,70 @@ Forms عبارة عن أداة إنشاء نماذج أصلية للوكيل. ق
 
 عند فتح التطبيق، ترى النماذج والمحرر الحالي والمعاينة المباشرة. يمكن للوكيل إنشاء نموذج من موجه، وتحديث تسميات الحقول وخياراتها، وتغيير التحقق من الصحة، وتوصيل وجهات الإرسال باستخدام نفس actions الذي يستخدمه UI.
 
-```an-diagram title="بناء ونشر وجمع" summary="يقوم الوكيل والمحرر المرئي بتحرير تعريف نموذج SQL-backed واحد. لم تتم مصادقة صفحة التعبئة العامة، ويتم توجيه عمليات الإرسال من جانب الخادم إلى وجهاتك."
-{
-  "html": "<div class=\"diagram-flow\"><div class=\"diagram-col\"><div class=\"diagram-node\">موجه الوكيل<br><small class=\"diagram-muted\">\"add an NPS question\"</small></div><div class=\"diagram-node\">محرر مرئي<br><small class=\"diagram-muted\">التسميات والتحقق والترتيب</small></div></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-panel center\"><span class=\"diagram-pill accent\">create-form · update-form</span><small class=\"diagram-muted\">JSON للحقول وJSON للإعدادات</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-box\">forms table<br><small class=\"diagram-muted\">SQL عبر Drizzle</small></div><div class=\"diagram-arrow diagram-muted\" aria-hidden=\"true\">&rarr;</div><div class=\"diagram-col\"><div class=\"diagram-box\">صفحة تعبئة عامة<br><small class=\"diagram-muted\">unauthenticated</small></div><div class=\"diagram-box\">responses<br><small class=\"diagram-muted\">+ Slack / webhook / جداول</small></div></div></div>",
-  "css": ".diagram-flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.diagram-flow .diagram-col{display:flex;flex-direction:column;gap:10px}.diagram-flow .diagram-arrow{font-size:22px;line-height:1}.diagram-flow .center{display:flex;flex-direction:column;align-items:center;gap:4px}"
+<Diagram id="doc-block-15vs9gk" title={"بناء ونشر وجمع"} summary={"يقوم الوكيل والمحرر المرئي بتحرير تعريف نموذج SQL-backed واحد. لم تتم مصادقة صفحة التعبئة العامة، ويتم توجيه عمليات الإرسال من جانب الخادم إلى وجهاتك."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      موجه الوكيل<br /><small class="diagram-muted"
+        >"add an NPS question"</small
+      >
+    </div>
+    <div class="diagram-node">
+      محرر مرئي<br /><small class="diagram-muted"
+        >التسميات والتحقق والترتيب</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-form · update-form</span
+    ><small class="diagram-muted">JSON للحقول وJSON للإعدادات</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    forms table<br /><small class="diagram-muted">SQL عبر Drizzle</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      صفحة تعبئة عامة<br /><small class="diagram-muted">unauthenticated</small>
+    </div>
+    <div class="diagram-box">
+      responses<br /><small class="diagram-muted"
+        >+ Slack / webhook / جداول</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 ```
+
+</Diagram>
 
 ## ما يمكنك فعله به
 
