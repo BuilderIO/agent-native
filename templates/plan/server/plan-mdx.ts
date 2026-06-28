@@ -376,12 +376,39 @@ function mdxProcessor() {
 }
 
 async function formatMdx(source: string): Promise<string> {
+  const protectedSource = protectRawPayloadCodeFences(source.trim() + "\n");
   try {
     const prettier = await import("prettier");
-    return await prettier.format(source.trim() + "\n", { parser: "mdx" });
+    return restoreRawPayloadCodeFences(
+      await prettier.format(protectedSource.source, { parser: "mdx" }),
+      protectedSource.fences,
+    );
   } catch {
     return source.trim() + "\n";
   }
+}
+
+const RAW_PAYLOAD_CODE_FENCE_RE = /^(`{3,})(html|css)([^\n]*)\n[\s\S]*?^\1$/gm;
+
+function protectRawPayloadCodeFences(source: string): {
+  source: string;
+  fences: string[];
+} {
+  const fences: string[] = [];
+  return {
+    source: source.replace(RAW_PAYLOAD_CODE_FENCE_RE, (fence) => {
+      const index = fences.push(fence) - 1;
+      return `{/* __PLAN_MDX_RAW_FENCE_${index}__ */}`;
+    }),
+    fences,
+  };
+}
+
+function restoreRawPayloadCodeFences(source: string, fences: string[]) {
+  return source.replace(
+    /\{\/\*\s*__PLAN_MDX_RAW_FENCE_(\d+)__\s*\*\/\}/g,
+    (_marker, rawIndex: string) => fences[Number(rawIndex)] ?? "",
+  );
 }
 
 // `prop`, `escapeAttr`, `jsonExpression`, and the attribute reader
