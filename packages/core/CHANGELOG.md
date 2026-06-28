@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.79.25
+
+### Patch Changes
+
+- 8bac54f: Expose the optional image model menu through AgentSidebar so app sidebars can show secondary generation model controls.
+
 ## 0.79.24
 
 ### Patch Changes
