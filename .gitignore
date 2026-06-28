@@ -5,6 +5,8 @@ dist
 docs/superpowers
 .DS_Store
 
+.idea/
+
 /*.png
 tmp/
 
