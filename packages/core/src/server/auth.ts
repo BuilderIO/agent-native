@@ -842,6 +842,11 @@ function publicAuthError(
 }
 
 function isAuthEmailValidationMessage(message: string): boolean {
+  // Credential failures (e.g. Better Auth's "Invalid email or password") mention
+  // "email" + "invalid" but are NOT email-format errors — don't rewrite them to
+  // the "enter a valid email" message, or every wrong-password attempt looks like
+  // a malformed-email error.
+  if (/password|credential/i.test(message)) return false;
   return (
     /\bemail\b/i.test(message) &&
     /(invalid|input|required|format)/i.test(message)
