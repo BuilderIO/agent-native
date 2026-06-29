@@ -155,7 +155,7 @@ export function parseGradientCss(
       : false;
 
   if (fn === "linear") {
-    kind = fallbackKind === "linear" ? "linear" : fallbackKind;
+    kind = "linear";
     const angleMatch = first.match(ANGLE_RE);
     if (angleMatch) {
       angle = Number(angleMatch[1]);
@@ -375,9 +375,29 @@ export function GradientEditor({
     barClickRef.current = null;
     const position = positionFromPointer(event.clientX);
     const ordered = sortedStops(value.stops);
-    // Interpolate the color from the nearest stops for a natural insert.
+    // Interpolate the color from the adjacent stops for a natural insert.
     const before = [...ordered].reverse().find((s) => s.position <= position);
-    const newColor = before?.color ?? ordered[0]?.color ?? "#000000";
+    const after = ordered.find((s) => s.position > position);
+    let newColor: string;
+    if (before && after) {
+      const range = after.position - before.position;
+      const t = range === 0 ? 0 : (position - before.position) / range;
+      const cb = parseCssColor(before.color);
+      const ca = parseCssColor(after.color);
+      if (cb && ca) {
+        newColor = rgbaToCss({
+          r: Math.round(cb.r + t * (ca.r - cb.r)),
+          g: Math.round(cb.g + t * (ca.g - cb.g)),
+          b: Math.round(cb.b + t * (ca.b - cb.b)),
+          a: cb.a + t * (ca.a - cb.a),
+        });
+      } else {
+        newColor = before.color;
+      }
+    } else {
+      newColor =
+        before?.color ?? after?.color ?? ordered[0]?.color ?? "#000000";
+    }
     const newStop: GradientStopValue = {
       id: nextStopId(),
       color: newColor,
@@ -563,9 +583,14 @@ export function GradientEditor({
                 disabled={disabled}
                 value={angleInput ?? Math.round(value.angle)}
                 onChange={(e) => {
-                  setAngleInput(e.target.value);
                   const next = Number(e.target.value);
-                  if (Number.isFinite(next)) setAngle(next);
+                  if (Number.isFinite(next)) {
+                    const normalised = ((next % 360) + 360) % 360;
+                    setAngle(next);
+                    setAngleInput(String(Math.round(normalised)));
+                  } else {
+                    setAngleInput(e.target.value);
+                  }
                 }}
                 onBlur={() => setAngleInput(null)}
                 className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-[11px] tabular-nums focus-visible:outline-none"

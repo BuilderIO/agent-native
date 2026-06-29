@@ -615,6 +615,10 @@ export function DesignColorPicker({
   const [open, setOpen] = useState(false);
   const [picking, setPicking] = useState(false);
   const skipNextHexBlurCommitRef = useRef(false);
+  // Preserve the last non-zero hue so dragging through an achromatic point
+  // (s=0 or v=0) doesn't snap hue to 0° when the user drags back to a
+  // saturated region. Matches Figma's hue-preservation behavior.
+  const lastHueRef = useRef<number>(0);
 
   // Whole-popover view: the standard picker, or the shader fills panel.
   const [view, setView] = useState<"picker" | "shader">("picker");
@@ -752,7 +756,15 @@ export function DesignColorPicker({
   const fieldColor: RgbaColor = activeGradient
     ? (parseCssColor(selectedStop?.color ?? "#000000") ?? FALLBACK_COLOR)
     : color;
-  const fieldHsv = rgbaToHsv(fieldColor);
+  const rawFieldHsv = rgbaToHsv(fieldColor);
+  // Preserve the last non-zero hue so dragging through gray doesn't lose it.
+  if (rawFieldHsv.s > 0 && rawFieldHsv.v > 0) {
+    lastHueRef.current = rawFieldHsv.h;
+  }
+  const fieldHsv: HsvaColor =
+    rawFieldHsv.s === 0
+      ? { ...rawFieldHsv, h: lastHueRef.current }
+      : rawFieldHsv;
   const fieldHsl = rgbaToHsl(fieldColor);
 
   // In gradient mode, mirror the selected stop's color into the hex draft.
@@ -1210,7 +1222,7 @@ export function DesignColorPicker({
                           emitStopColor(
                             hsvToRgba({
                               ...nextHsv,
-                              a: opacityToAlpha(effectiveOpacity),
+                              a: fieldColor.a,
                             }),
                           );
                         } else {
@@ -1799,12 +1811,16 @@ function ScrubbyNumberInput({
         if (e.key === "ArrowUp") {
           e.preventDefault();
           const step = e.shiftKey ? 10 : 1;
-          onChange(clamp(value + step, min, max));
+          const parsed = Number(draft);
+          const base = Number.isFinite(parsed) ? parsed : value;
+          onChange(clamp(base + step, min, max));
         }
         if (e.key === "ArrowDown") {
           e.preventDefault();
           const step = e.shiftKey ? 10 : 1;
-          onChange(clamp(value - step, min, max));
+          const parsed = Number(draft);
+          const base = Number.isFinite(parsed) ? parsed : value;
+          onChange(clamp(base - step, min, max));
         }
       }}
       onBlur={() => {
@@ -1826,8 +1842,16 @@ export function inferPaintType(
 ): DesignPaintType {
   const lower = value.trim().toLowerCase();
   if (lower.includes("gradient(")) {
-    if (lower.startsWith("radial-gradient")) return "radial";
-    if (lower.startsWith("conic-gradient")) return "angular";
+    if (
+      lower.startsWith("radial-gradient") ||
+      lower.startsWith("repeating-radial-gradient")
+    )
+      return "radial";
+    if (
+      lower.startsWith("conic-gradient") ||
+      lower.startsWith("repeating-conic-gradient")
+    )
+      return "angular";
     return "linear";
   }
   if (lower.startsWith("url(")) return "image";

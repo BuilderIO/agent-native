@@ -257,6 +257,34 @@ type DesignTool =
   | "scale";
 type ShapeTool = "rect" | "line" | "arrow" | "ellipse" | "polygon" | "star";
 
+const DESIGN_EDITOR_TOOLS = new Set<DesignTool>([
+  "move",
+  "frame",
+  "rect",
+  "line",
+  "arrow",
+  "ellipse",
+  "polygon",
+  "star",
+  "text",
+  "pen",
+  "hand",
+  "comment",
+  "draw",
+  "scale",
+]);
+
+function normalizeDesignTool(value: unknown): DesignTool | null {
+  return typeof value === "string" &&
+    DESIGN_EDITOR_TOOLS.has(value as DesignTool)
+    ? (value as DesignTool)
+    : null;
+}
+
+function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
+  return tool === "draw" || tool === "comment";
+}
+
 interface DesignFile {
   id: string;
   filename: string;
@@ -425,13 +453,15 @@ function designEditorCommandFromSearchParams(
     searchParams.get("fileId") ??
     searchParams.get("filename");
   const zoom = Number(searchParams.get("zoom"));
+  const tool = normalizeDesignTool(searchParams.get("tool"));
   if (
     editorView !== "overview" &&
     editorView !== "single" &&
     inspector !== "design" &&
     inspector !== "tweaks" &&
     inspector !== "extensions" &&
-    !screen
+    !screen &&
+    !tool
   ) {
     return null;
   }
@@ -455,6 +485,7 @@ function designEditorCommandFromSearchParams(
   } else if (editorView === "single") {
     command.zoom = FOCUSED_SCREEN_ZOOM;
   }
+  if (tool) command.tool = tool;
   return command;
 }
 
@@ -2571,16 +2602,14 @@ export default function DesignEditor() {
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
   const [, setPatchProof] = useState<PatchProofState | null>(null);
-  const pendingFileSaveRef = useRef<{
-    id: string;
-    content: string;
-    syncCollab: boolean;
-  } | null>(null);
+  const pendingFileSavesRef = useRef<Record<string, FileContentSaveRequest>>(
+    {},
+  );
   const fileSaveChainsRef = useRef<Record<string, Promise<void>>>({});
   const latestFileSaveForUnloadRef = useRef<
     Record<string, FileContentSaveRequest>
   >({});
-  const fileSaveTimerRef = useRef<number | null>(null);
+  const fileSaveTimersRef = useRef<Record<string, number>>({});
 
   const saveFileContent = useCallback(
     (pending: FileContentSaveRequest) => {
@@ -2639,22 +2668,24 @@ export default function DesignEditor() {
       };
       latestFileSaveForUnloadRef.current[fileId] = pending;
       if (options.immediate) {
-        if (fileSaveTimerRef.current) {
-          window.clearTimeout(fileSaveTimerRef.current);
-          fileSaveTimerRef.current = null;
+        const timer = fileSaveTimersRef.current[fileId];
+        if (timer) {
+          window.clearTimeout(timer);
+          delete fileSaveTimersRef.current[fileId];
         }
-        pendingFileSaveRef.current = null;
+        delete pendingFileSavesRef.current[fileId];
         saveFileContent(pending);
         return;
       }
-      pendingFileSaveRef.current = pending;
-      if (fileSaveTimerRef.current) {
-        window.clearTimeout(fileSaveTimerRef.current);
+      pendingFileSavesRef.current[fileId] = pending;
+      const timer = fileSaveTimersRef.current[fileId];
+      if (timer) {
+        window.clearTimeout(timer);
       }
-      fileSaveTimerRef.current = window.setTimeout(() => {
-        const pending = pendingFileSaveRef.current;
-        pendingFileSaveRef.current = null;
-        fileSaveTimerRef.current = null;
+      fileSaveTimersRef.current[fileId] = window.setTimeout(() => {
+        const pending = pendingFileSavesRef.current[fileId];
+        delete pendingFileSavesRef.current[fileId];
+        delete fileSaveTimersRef.current[fileId];
         if (!pending) return;
         saveFileContent(pending);
       }, 400);
@@ -2663,21 +2694,26 @@ export default function DesignEditor() {
   );
 
   useEffect(() => {
-    const handlePageHide = () => {
-      if (pendingFileSaveRef.current) {
-        latestFileSaveForUnloadRef.current[pendingFileSaveRef.current.id] =
-          pendingFileSaveRef.current;
+    const sendPendingKeepaliveSaves = () => {
+      for (const pending of Object.values(pendingFileSavesRef.current)) {
+        latestFileSaveForUnloadRef.current[pending.id] = pending;
       }
       Object.values(latestFileSaveForUnloadRef.current).forEach(
         sendFileContentSaveKeepalive,
       );
     };
+    const handlePageHide = () => {
+      sendPendingKeepaliveSaves();
+    };
     window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
-      if (fileSaveTimerRef.current) {
-        window.clearTimeout(fileSaveTimerRef.current);
+      sendPendingKeepaliveSaves();
+      for (const timer of Object.values(fileSaveTimersRef.current)) {
+        window.clearTimeout(timer);
       }
+      fileSaveTimersRef.current = {};
+      pendingFileSavesRef.current = {};
     };
   }, []);
 
@@ -3077,6 +3113,27 @@ export default function DesignEditor() {
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
 
+      const commandTool = normalizeDesignTool(command.tool);
+      const effectiveCommandTool =
+        editorView === "overview" &&
+        commandTool &&
+        isSingleScreenAnnotationTool(commandTool)
+          ? "move"
+          : commandTool;
+      const applyCommandTool = (fallback: DesignTool) => {
+        const nextTool = effectiveCommandTool ?? fallback;
+        setActiveTool(nextTool);
+        if (isSingleScreenAnnotationTool(nextTool)) {
+          setMode("annotate");
+          setDrawMode(true);
+          setPinMode(nextTool === "comment");
+          return;
+        }
+        setMode("edit");
+        setDrawMode(false);
+        setPinMode(false);
+      };
+
       if (targetFile) {
         setActiveFileId(targetFile.id);
       }
@@ -3087,19 +3144,13 @@ export default function DesignEditor() {
 
       if (editorView === "overview") {
         viewModeRef.current = "overview";
-        setDrawMode(false);
-        setPinMode(false);
-        setMode("edit");
         setSelectedElement(null);
-        setActiveTool("move");
+        applyCommandTool("move");
         setViewMode("overview");
       } else if (editorView === "single") {
         viewModeRef.current = "single";
-        setDrawMode(false);
-        setPinMode(false);
-        setMode("edit");
         setSelectedElement(null);
-        setActiveTool("move");
+        applyCommandTool("move");
         if (
           typeof command.zoom !== "number" ||
           !Number.isFinite(command.zoom)
@@ -3107,6 +3158,8 @@ export default function DesignEditor() {
           setZoom((currentZoom) => Math.max(currentZoom, FOCUSED_SCREEN_ZOOM));
         }
         setViewMode("single");
+      } else if (effectiveCommandTool) {
+        applyCommandTool("move");
       }
 
       return true;

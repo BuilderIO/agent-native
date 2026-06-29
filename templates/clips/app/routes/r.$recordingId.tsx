@@ -44,6 +44,10 @@ import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import {
+  TimestampedCommentButton,
+  TimestampedCommentBar,
+} from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
   VideoPlayer,
@@ -210,7 +214,25 @@ export default function RecordingPage() {
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [commentAtMs, setCommentAtMs] = useState(0);
   const isCompactLayout = useIsCompactRecordingLayout();
+  // Resolve the playback position for reactions/comments. Native <video> exposes
+  // a live `currentTime`; Loom embeds render in a cross-origin iframe with no
+  // live time bridge, so we fall back to the last position the player reported
+  // via onTimeUpdate (seek/initial start).
+  const resolvePlaybackMs = useCallback(() => {
+    const liveCt = playerRef.current?.video?.currentTime;
+    if (
+      typeof liveCt === "number" &&
+      Number.isFinite(liveCt) &&
+      liveCt >= 0 &&
+      liveCt < 1e7
+    ) {
+      return Math.floor(liveCt * 1000);
+    }
+    return currentMs;
+  }, [currentMs]);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -1082,7 +1104,7 @@ export default function RecordingPage() {
             <EditorLayout recordingId={recording.id} className="flex-1" />
           ) : (
             <>
-              <div className="flex-1 min-h-0">
+              <div className="flex-1 min-h-0 relative">
                 <VideoPlayer
                   ref={playerRef}
                   recordingId={recording.id}
@@ -1107,6 +1129,18 @@ export default function RecordingPage() {
                   onTimeUpdate={(ms) => setCurrentMs(ms)}
                   className="h-full"
                 />
+                {commentOpen ? (
+                  <TimestampedCommentBar
+                    recordingId={recording.id}
+                    atMs={commentAtMs}
+                    onClose={() => setCommentOpen(false)}
+                    onAdded={() => {
+                      setPanel("comments");
+                      if (isCompactLayout) setSidePanelOpen(true);
+                      void playerDataQ.refetch();
+                    }}
+                  />
+                ) : null}
               </div>
 
               {/* Title + reactions row */}
@@ -1129,15 +1163,12 @@ export default function RecordingPage() {
                       </span>
                     </NavLink>
                   ) : null}
-                  <EditableRecordingTitle
-                    recordingId={recording.id}
-                    title={recording.title}
-                    canEdit={canEdit}
-                    displayTitle={visibleTitle}
-                    showPendingSkeleton={showTitleSkeleton}
-                    className="text-base font-semibold"
-                    inputClassName="h-8 text-base font-semibold"
-                    skeletonClassName="h-5 w-72 max-w-full"
+                  <TimestampedCommentButton
+                    enableComments={recording.enableComments}
+                    onOpen={() => {
+                      setCommentAtMs(resolvePlaybackMs());
+                      setCommentOpen(true);
+                    }}
                   />
                   {recording.description ? (
                     <p className="text-sm text-muted-foreground line-clamp-2">
@@ -1150,14 +1181,7 @@ export default function RecordingPage() {
                     disabled={!recording.enableReactions}
                     onReact={(emoji) => {
                       tracking.reportReaction(emoji);
-                      const liveCt = playerRef.current?.video?.currentTime;
-                      const liveMs =
-                        typeof liveCt === "number" &&
-                        Number.isFinite(liveCt) &&
-                        liveCt >= 0 &&
-                        liveCt < 1e7
-                          ? Math.floor(liveCt * 1000)
-                          : currentMs;
+                      const liveMs = resolvePlaybackMs();
                       fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",

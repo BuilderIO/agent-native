@@ -867,6 +867,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     replyingTo: "Respondendo a",
     commentAt: "Comentário em",
     writeReply: "Escreva uma resposta...",
+    commentButton: "Comentar",
+    composerPlaceholder: "Adicionar um comentário…",
+    mentionSomeone: "Mencionar alguém",
+    addEmoji: "Adicionar emoji",
   },
   shareMeeting: {
     pageTitle: "Notas da reunião · Clips",

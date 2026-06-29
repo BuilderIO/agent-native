@@ -21,6 +21,7 @@
  *   --inspectorTab Inspector tab for designs: design, tweaks, or extensions
  *   --fileId     Screen/file id to focus in the design editor
  *   --filename   Screen filename to focus in the design editor
+ *   --tool       Design editor tool to activate
  *   --designSystemId Design system ID (for design-systems view)
  *   --path       URL path to navigate to
  */
@@ -29,9 +30,26 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
+const designEditorToolSchema = z.enum([
+  "move",
+  "frame",
+  "rect",
+  "line",
+  "arrow",
+  "ellipse",
+  "polygon",
+  "star",
+  "text",
+  "pen",
+  "hand",
+  "comment",
+  "draw",
+  "scale",
+]);
+
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, templates, settings. Use --designId with editor/present views and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use inspectorTab=extensions to focus the in-editor extension panel.",
+    "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, templates, settings. Use --designId with editor/present views and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use inspectorTab=extensions to focus the in-editor extension panel. Use tool to activate a design editor tool.",
   schema: z.object({
     view: z
       .enum([
@@ -78,6 +96,9 @@ export default defineAction({
       .number()
       .optional()
       .describe("Optional design canvas zoom percentage"),
+    tool: designEditorToolSchema
+      .optional()
+      .describe("Optional design editor tool to activate"),
     designSystemId: z
       .string()
       .optional()
@@ -101,6 +122,7 @@ export default defineAction({
     if (args.filename) nav.filename = args.filename;
     if (args.screen) nav.screen = args.screen;
     if (args.zoom !== undefined) nav.zoom = args.zoom;
+    if (args.tool) nav.tool = args.tool;
     if (args.designSystemId) nav.designSystemId = args.designSystemId;
     if (args.path) nav.path = args.path;
     await writeAppState("navigate", nav);
@@ -112,6 +134,6 @@ export default defineAction({
       args.fileId || args.screenId || args.filename || args.screen
         ? ` (screen: ${args.fileId ?? args.screenId ?? args.filename ?? args.screen})`
         : ""
-    }${args.designSystemId ? ` (design system: ${args.designSystemId})` : ""}`;
+    }${args.tool ? ` (${args.tool} tool)` : ""}${args.designSystemId ? ` (design system: ${args.designSystemId})` : ""}`;
   },
 });

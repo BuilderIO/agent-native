@@ -765,6 +765,16 @@ export function validateDescriptor(descriptor: ShaderDescriptor): {
       if (def.max !== undefined && num > def.max) {
         errors.push(`Param "${key}" value ${num} is above maximum ${def.max}`);
       }
+    } else if (def.kind === "enum") {
+      if (def.options && !def.options.includes(value as string)) {
+        errors.push(
+          `Param "${key}" value "${value}" is not in allowed options: ${def.options.join(", ")}`,
+        );
+      }
+    } else if (def.kind === "bool") {
+      if (typeof value !== "boolean") {
+        errors.push(`Param "${key}" must be a boolean`);
+      }
     }
   }
 

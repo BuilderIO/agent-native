@@ -475,6 +475,7 @@ const messages = {
     assetsTitle: "Assets",
     assetsImagePicker: "Assets圖片選取器",
     loadingAssetsPicker: "載入 Assets 選取器",
+    assetsNoImageUrl: "Assets 未回傳圖片 URL。",
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
     designSystem: "Design系統",

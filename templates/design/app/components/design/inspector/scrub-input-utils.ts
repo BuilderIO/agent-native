@@ -69,9 +69,12 @@ export function getScrubStepFromEvent(
   event: Pick<KeyboardEvent | PointerEvent, "altKey" | "shiftKey">,
   step: number,
 ): number {
+  // Alt (fine-step) and Shift (coarse) are mutually exclusive — alt takes
+  // priority, matching Figma's modifier convention. Applying both independently
+  // would make Shift+Alt a no-op (×10 × 0.1 = ×1).
   let multiplier = 1;
-  if (event.shiftKey) multiplier *= 10;
-  if (event.altKey) multiplier *= 0.1;
+  if (event.altKey) multiplier = 0.1;
+  else if (event.shiftKey) multiplier = 10;
   return step * multiplier;
 }
 

@@ -22,6 +22,7 @@ describe("navigate", () => {
       editorView: "overview",
       filename: "checkout.html",
       zoom: 80,
+      tool: "pen",
     });
 
     expect(mocks.writeAppState).toHaveBeenCalledWith("navigate", {
@@ -30,9 +31,11 @@ describe("navigate", () => {
       editorView: "overview",
       filename: "checkout.html",
       zoom: 80,
+      tool: "pen",
     });
     expect(result).toContain("overview view");
     expect(result).toContain("checkout.html");
+    expect(result).toContain("pen tool");
   });
 
   it("accepts viewMode as an alias for editorView", async () => {

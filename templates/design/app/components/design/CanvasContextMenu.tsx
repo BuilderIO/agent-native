@@ -209,7 +209,7 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
 };
 
 const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
-  pasteHere: "⌘V",
+  pasteHere: "",
   selectAll: "⌘A",
   zoomToFit: "⇧1",
   zoomToSelection: "⇧2",

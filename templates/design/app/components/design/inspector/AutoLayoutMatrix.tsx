@@ -92,6 +92,12 @@ export interface AutoLayoutMatrixValue {
    * unaffected.
    */
   display?: "flex" | "block";
+  /**
+   * When true, the gap mode is "Auto" (CSS `justify-content: space-between`).
+   * When false or omitted, gap mode is "Fixed" (a numeric gap value).
+   * Drives the checked state of the Fixed/Auto items in the gap dropdown.
+   */
+  spaceBetween?: boolean;
 }
 
 export interface AutoLayoutMatrixLabels {
@@ -245,12 +251,14 @@ export function AutoLayoutMatrix({
 }: AutoLayoutMatrixProps) {
   const copy = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labels };
 
-  const horizontalPaddingValue = Math.round(
-    (value.padding.left + value.padding.right) / 2,
-  );
-  const verticalPaddingValue = Math.round(
-    (value.padding.top + value.padding.bottom) / 2,
-  );
+  // Show left/top as the representative value when padding is linked.
+  // Averaging the two sides would silently destroy asymmetric padding on the
+  // next edit — the onChange handler sets both sides to the same number, so
+  // whatever is displayed becomes the new value for both sides. Using the
+  // left/top value means scrubbing up/down from the current value preserves
+  // the user's intent without a silent lossy round-trip through the average.
+  const horizontalPaddingValue = value.padding.left;
+  const verticalPaddingValue = value.padding.top;
 
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
@@ -434,6 +442,8 @@ export function AutoLayoutMatrix({
               onDistribute={onDistribute}
               label={copy.gap}
               disabled={disabled || isBlock}
+              direction={value.direction}
+              gapMode={value.spaceBetween ? "auto" : "fixed"}
             />
           </div>
         </div>
@@ -834,12 +844,16 @@ function GapField({
   onDistribute,
   label,
   disabled,
+  direction,
+  gapMode = "fixed",
 }: {
   value: number;
   onGapChange: (gap: number) => void;
   onDistribute?: (axis: DistributionAxis) => void;
   label: string;
   disabled: boolean;
+  direction: AutoLayoutDirection;
+  gapMode?: "fixed" | "auto";
 }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -897,7 +911,7 @@ function GapField({
               sideOffset={4}
             >
               <DropdownMenuCheckboxItem
-                checked
+                checked={gapMode !== "auto"}
                 className="text-[12px]"
                 onSelect={() => {
                   /* Fixed gap: keep current numeric value (already numeric). */
@@ -906,9 +920,9 @@ function GapField({
                 {"Fixed" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
-                checked={false}
+                checked={gapMode === "auto"}
                 className="text-[12px]"
-                onSelect={() => onDistribute("horizontal")}
+                onSelect={() => onDistribute(direction)}
               >
                 {"Auto" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
@@ -927,7 +941,7 @@ function GapField({
             aria-label={
               "Advanced gap settings" /* i18n-ignore inspector tooltip */
             }
-            onClick={() => onDistribute?.("horizontal")}
+            onClick={() => onDistribute?.(direction)}
             className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
           >
             <IconSlidersMini />
@@ -1076,8 +1090,13 @@ export function SizingField({
 }: SizingFieldProps) {
   const labels = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labelOverrides };
   const isWidth = sizingAxis === "horizontal";
-  // Which inline "add" editor is currently open (none by default).
-  const [editing, setEditing] = useState<null | "min" | "max">(null);
+  // Local pending state for a newly-opened constraint editor. Holds the kind
+  // and seed value so the sub-row is visible before the user has confirmed a
+  // value. We only commit to onMinMaxChange when the user types or scrubs.
+  const [pending, setPending] = useState<{
+    kind: "min" | "max";
+    seed: number;
+  } | null>(null);
 
   const minValue = minMax?.min ?? null;
   const maxValue = minMax?.max ?? null;
@@ -1097,10 +1116,12 @@ export function SizingField({
   const maxLabel = isWidth ? labels.maxWidth : labels.maxHeight;
 
   const openEditor = (kind: "min" | "max") => {
-    // Seed a sensible default when first adding the constraint.
+    // Compute a sensible seed but do NOT write it to the parent yet — only
+    // show the pending sub-row. The value is committed when the user first
+    // scrubs/types in the ConstraintSubRow.
     const seed = Math.max(0, Math.round(resolvedSize ?? 0));
-    onMinMaxChange?.(sizingAxis, kind, kind === "min" ? seed : seed || 1);
-    setEditing(kind);
+    const seedValue = kind === "min" ? seed : seed || 1;
+    setPending({ kind, seed: seedValue });
   };
 
   return (
@@ -1213,8 +1234,20 @@ export function SizingField({
           onChange={(next) => onMinMaxChange?.(sizingAxis, "min", next)}
           onRemove={() => {
             onMinMaxChange?.(sizingAxis, "min", null);
-            setEditing((cur) => (cur === "min" ? null : cur));
           }}
+        />
+      ) : pending?.kind === "min" ? (
+        // Pending (uncommitted) min row — shown before the user confirms a value.
+        <ConstraintSubRow
+          label={minLabel}
+          value={pending.seed}
+          disabled={disabled}
+          removeLabel={labels.removeConstraint}
+          onChange={(next) => {
+            setPending(null);
+            onMinMaxChange?.(sizingAxis, "min", next);
+          }}
+          onRemove={() => setPending(null)}
         />
       ) : null}
       {hasMax ? (
@@ -1226,8 +1259,20 @@ export function SizingField({
           onChange={(next) => onMinMaxChange?.(sizingAxis, "max", next)}
           onRemove={() => {
             onMinMaxChange?.(sizingAxis, "max", null);
-            setEditing((cur) => (cur === "max" ? null : cur));
           }}
+        />
+      ) : pending?.kind === "max" ? (
+        // Pending (uncommitted) max row — shown before the user confirms a value.
+        <ConstraintSubRow
+          label={maxLabel}
+          value={pending.seed}
+          disabled={disabled}
+          removeLabel={labels.removeConstraint}
+          onChange={(next) => {
+            setPending(null);
+            onMinMaxChange?.(sizingAxis, "max", next);
+          }}
+          onRemove={() => setPending(null)}
         />
       ) : null}
     </div>
@@ -1251,11 +1296,7 @@ function SizingMenuItem({
   return (
     <DropdownMenuItem
       disabled={disabled}
-      onSelect={(event) => {
-        // Keep the menu's selection semantics but route through our handler.
-        event.preventDefault();
-        onSelect();
-      }}
+      onSelect={onSelect}
       className="gap-2 pl-2 pr-2 text-[12px]"
     >
       <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">

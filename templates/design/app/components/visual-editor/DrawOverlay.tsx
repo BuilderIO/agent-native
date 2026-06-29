@@ -125,6 +125,7 @@ export function DrawOverlay({
   } | null>(null);
   const [instruction, setInstruction] = useState("");
   const drawing = useRef(false);
+  const canvasSizeRef = useRef({ w: 0, h: 0 });
 
   // Clear all state on hide so the next open starts fresh.
   useEffect(() => {
@@ -146,9 +147,15 @@ export function DrawOverlay({
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = rect.height * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    const dpr = window.devicePixelRatio;
+    const newW = rect.width * dpr;
+    const newH = rect.height * dpr;
+    if (newW !== canvasSizeRef.current.w || newH !== canvasSizeRef.current.h) {
+      canvas.width = newW;
+      canvas.height = newH;
+      canvasSizeRef.current = { w: newW, h: newH };
+      ctx.scale(dpr, dpr);
+    }
 
     ctx.clearRect(0, 0, rect.width, rect.height);
 
@@ -211,6 +218,11 @@ export function DrawOverlay({
     }
     setCurrentStroke(null);
   }, [currentStroke, color, lineWidth]);
+
+  const handlePointerCancel = useCallback(() => {
+    drawing.current = false;
+    setCurrentStroke(null);
+  }, []);
 
   const undo = () => {
     setStrokes((prev) => {
@@ -328,6 +340,7 @@ export function DrawOverlay({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
       />
 
       {/* Rendered text annotations */}

@@ -78,7 +78,7 @@ export function ScrubInput({
   const dragRef = useRef({
     pointerId: -1,
     startX: 0,
-    startValue: value,
+    prevX: 0,
     hasDragged: false,
   });
 
@@ -143,7 +143,7 @@ export function ScrubInput({
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
-      startValue: value,
+      prevX: event.clientX,
       hasDragged: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -152,12 +152,16 @@ export function ScrubInput({
 
   const handlePointerMove = (event: PointerEvent<HTMLLabelElement>) => {
     if (!dragging || dragRef.current.pointerId !== event.pointerId) return;
-    const delta = event.clientX - dragRef.current.startX;
-    if (delta === 0) return;
+    const incr = event.clientX - dragRef.current.prevX;
+    if (incr === 0) return;
+    dragRef.current.prevX = event.clientX;
     dragRef.current.hasDragged = true;
+    // Use incremental deltas from the last move so that clamped/rounded values
+    // committed by onChange are respected. A total-delta approach would create
+    // a dead zone equal to the amount dragged past the clamp boundary.
     const next =
-      dragRef.current.startValue +
-      delta *
+      value +
+      incr *
         getScrubStepFromEvent(
           { altKey: event.altKey, shiftKey: event.shiftKey },
           step,

@@ -29,14 +29,11 @@ export interface AlignmentMatrixLabels {
   alignBottomLeft: string;
   alignBottomCenter: string;
   alignBottomRight: string;
-  distributeHorizontal: string;
-  distributeVertical: string;
 }
 
 export interface AlignmentMatrixProps {
   value: AlignmentMatrixValue;
   onChange: (value: AlignmentMatrixValue) => void;
-  onDistribute?: (axis: DistributionAxis) => void;
   labels?: Partial<AlignmentMatrixLabels>;
   disabled?: boolean;
   className?: string;
@@ -57,8 +54,6 @@ const DEFAULT_LABELS: AlignmentMatrixLabels = {
   alignBottomLeft: "Align bottom left", // i18n-ignore fallback component label
   alignBottomCenter: "Align bottom center", // i18n-ignore fallback component label
   alignBottomRight: "Align bottom right", // i18n-ignore fallback component label
-  distributeHorizontal: "Distribute horizontal spacing", // i18n-ignore fallback component label
-  distributeVertical: "Distribute vertical spacing", // i18n-ignore fallback component label
 };
 
 const MATRIX_OPTIONS: Array<{
@@ -302,7 +297,6 @@ function VerticalFlowBars({
 export function AlignmentMatrix({
   value,
   onChange,
-  onDistribute,
   labels,
   disabled = false,
   className,

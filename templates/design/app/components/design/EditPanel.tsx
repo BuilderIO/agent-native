@@ -175,7 +175,10 @@ function PropInput({
   }, [value]);
 
   const commit = () => {
-    if (defaultUnit === undefined) return;
+    if (defaultUnit === undefined) {
+      if (draft !== value) onChange(draft);
+      return;
+    }
     const next = normalizeLengthValue(draft, defaultUnit);
     if (next !== draft) setDraft(next);
     if (next !== value) onChange(next);
@@ -989,7 +992,6 @@ function DesignSpacingControl({
           onChange={setAll}
           unit="px"
           min={0}
-          precision={1}
           labelClassName="w-16"
           inputClassName="h-6"
         />
@@ -1084,9 +1086,11 @@ const ALIGN_SELF_OPTIONS = [
   { value: "stretch", key: "stretch" },
   { value: "baseline", key: "baseline" },
 ] as const;
+// "center" stroke position is omitted: CSS has no native single-property
+// centered stroke; choosing it in the UI caused a confusing revert to "inside"
+// on next render. Inside (border) and outside (outline) are fully supported.
 const STROKE_POSITION_OPTIONS = [
   { value: "inside", key: "inside" },
-  { value: "center", key: "center" },
   { value: "outside", key: "outside" },
 ] as const;
 const BLEND_MODE_OPTIONS = [
@@ -1112,9 +1116,45 @@ function parseNumericValue(value: string): number {
   return parseFloat(value) || 0;
 }
 
+/**
+ * Resolve a CSS line-height value to a unitless ratio for display/editing.
+ * When the browser returns a px-computed value (e.g. "19.2px" for line-height
+ * 1.2 on a 16px font), divide by the font-size to recover the unitless ratio.
+ * Falls back to 1.2 when the value cannot be parsed.
+ */
+function resolveLineHeight(
+  lineHeight: string | undefined,
+  fontSize: string | undefined,
+): number {
+  const lh = lineHeight?.trim() || "";
+  if (!lh || lh === "normal") return 1.2;
+  if (lh.endsWith("px")) {
+    const lhPx = parseFloat(lh);
+    const fsPx = parseFloat(fontSize || "");
+    if (Number.isFinite(lhPx) && Number.isFinite(fsPx) && fsPx > 0) {
+      return Math.round((lhPx / fsPx) * 100) / 100;
+    }
+  }
+  const numeric = parseFloat(lh);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 1.2;
+}
+
 function parseRotationValue(transform: string | undefined): number {
   const match = transform?.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/);
   return match ? Number(match[1]) : 0;
+}
+
+/**
+ * Parse a CSS `scale` property value (e.g. "-1 1", "1", "none") into two
+ * numeric components [scaleX, scaleY]. Defaults both axes to 1 when absent
+ * or unparseable, matching the CSS initial value.
+ */
+function parseScaleValue(value: string | undefined): [number, number] {
+  if (!value || value === "none") return [1, 1];
+  const parts = value.trim().split(/\s+/);
+  const x = Number(parts[0]);
+  const y = parts.length > 1 ? Number(parts[1]) : x;
+  return [Number.isFinite(x) ? x : 1, Number.isFinite(y) ? y : 1];
 }
 
 function mergeRotationValue(transform: string | undefined, degrees: number) {
@@ -1124,6 +1164,26 @@ function mergeRotationValue(transform: string | undefined, degrees: number) {
     return transform.replace(/rotate\((-?\d+(?:\.\d+)?)deg\)/, nextRotate);
   }
   return `${transform} ${nextRotate}`;
+}
+
+/**
+ * Replace or remove a translateX/translateY function within an existing
+ * transform string while preserving all other transform functions (rotate,
+ * scale, skew, etc.). Pass `null` as `value` to strip the function.
+ */
+function mergeTranslateFunction(
+  transform: string | undefined,
+  axis: "X" | "Y",
+  value: string | null,
+): string {
+  const pattern =
+    axis === "X" ? /translateX\([^)]*\)/g : /translateY\([^)]*\)/g;
+  const base = (!transform || transform === "none" ? "" : transform)
+    .replace(pattern, "")
+    .trim();
+  if (value === null) return base || "none";
+  const fn = `translate${axis}(${value})`;
+  return base ? `${fn} ${base}` : fn;
 }
 
 function ScrubStyleInput({
@@ -1924,10 +1984,7 @@ function StrokeLayerControl({
   const t = useT();
   const strokePositionOptions = STROKE_POSITION_OPTIONS.map((option) => ({
     value: option.value,
-    label:
-      option.key === "center"
-        ? t("editPanel.textAligns.center")
-        : t(`editPanel.labels.${option.key}`),
+    label: t(`editPanel.labels.${option.key}`),
   }));
   const prefix = kind === "border" ? "border" : "outline";
   const position = kind === "border" ? "inside" : "outside";
@@ -2107,7 +2164,7 @@ function serializeShadowLayers(layers: ShadowLayer[]) {
         `${Math.round(layer.x)}px`,
         `${Math.round(layer.y)}px`,
         `${Math.max(0, Math.round(layer.blur))}px`,
-        `${Math.max(0, Math.round(layer.spread))}px`,
+        `${layer.inset ? Math.round(layer.spread) : Math.max(0, Math.round(layer.spread))}px`,
         layer.color,
       ]
         .filter(Boolean)
@@ -2218,9 +2275,11 @@ function ShadowEffectRow({
             <ScrubInput
               label={t("editPanel.labels.spread")}
               value={layer.spread}
-              onChange={(value) => onChange({ spread: Math.max(0, value) })}
+              onChange={(value) =>
+                onChange({ spread: layer.inset ? value : Math.max(0, value) })
+              }
               unit="px"
-              min={0}
+              min={layer.inset ? undefined : 0}
               precision={1}
               inputClassName="h-6"
             />
@@ -2462,7 +2521,7 @@ function TypographyProperties({
           label={t("editPanel.labels.lineHeight")}
           ariaLabel={t("editPanel.labels.lineHeight")}
           icon={IconLineHeight}
-          value={parseNumericValue(styles.lineHeight || "1.2")}
+          value={resolveLineHeight(styles.lineHeight, styles.fontSize)}
           onChange={(value) =>
             onStyleChange("lineHeight", String(Math.max(0.1, value)))
           }
@@ -2662,10 +2721,13 @@ function FlexContainerControls({
         onPaddingLinkedChange={(linked) => {
           setPaddingLinked(linked);
           if (!linked) return;
-          onStyleChange("paddingTop", `${padding.top}px`);
-          onStyleChange("paddingRight", `${padding.top}px`);
-          onStyleChange("paddingBottom", `${padding.top}px`);
-          onStyleChange("paddingLeft", `${padding.top}px`);
+          const avg = Math.round(
+            (padding.top + padding.right + padding.bottom + padding.left) / 4,
+          );
+          onStyleChange("paddingTop", `${avg}px`);
+          onStyleChange("paddingRight", `${avg}px`);
+          onStyleChange("paddingBottom", `${avg}px`);
+          onStyleChange("paddingLeft", `${avg}px`);
         }}
         onClipContentChange={(clipContent) =>
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
@@ -2905,7 +2967,7 @@ function LayoutContextProperties({
 const LAYOUT_GUIDE_MARKER = "/* an-layout-guide */";
 
 function hasLayoutGuide(styles: Record<string, string>): boolean {
-  return Boolean(styles.backgroundImage?.includes("repeating-linear-gradient"));
+  return Boolean(styles.backgroundImage?.includes(LAYOUT_GUIDE_MARKER));
 }
 
 function LayoutGuideProperties({
@@ -2920,8 +2982,9 @@ function LayoutGuideProperties({
 
   const addGuide = () => {
     // 12-column overlay guide — the design editor's default columns layout grid.
-    const guide =
-      "repeating-linear-gradient(to right, color-mix(in srgb, var(--design-editor-accent-color) 22%, transparent) 0 1px, transparent 1px calc(100% / 12))";
+    // The LAYOUT_GUIDE_MARKER comment is embedded so hasLayoutGuide and removeGuide
+    // can detect/remove it without touching unrelated repeating-linear-gradient fills.
+    const guide = `repeating-linear-gradient(to right, color-mix(in srgb, var(--design-editor-accent-color) 22%, transparent) 0 1px, transparent 1px calc(100% / 12)) ${LAYOUT_GUIDE_MARKER}`;
     const existing = compactCssValue(styles.backgroundImage, "");
     onStyleChange(
       "backgroundImage",
@@ -2931,7 +2994,7 @@ function LayoutGuideProperties({
 
   const removeGuide = () => {
     const layers = splitCssLayers(styles.backgroundImage || "").filter(
-      (layer) => !layer.includes("repeating-linear-gradient"),
+      (layer) => !layer.includes(LAYOUT_GUIDE_MARKER),
     );
     onStyleChange(
       "backgroundImage",
@@ -3034,30 +3097,50 @@ function PositionLayoutProperties({
   const alignV = alignToVertical(styles.alignItems);
   const constraintsValue: ConstraintsValue = {
     horizontal:
-      styles.left && styles.right
-        ? "left-right"
-        : styles.right
-          ? "right"
-          : styles.transform?.includes("translateX(-50%)")
-            ? "center"
-            : styles.width === "100%"
-              ? "scale"
+      // Check scale before left+right: "scale" writes width:100% and clears
+      // left/right to auto, but legacy data may have 0px values that are truthy.
+      styles.width === "100%"
+        ? "scale"
+        : styles.left && styles.right
+          ? "left-right"
+          : styles.right
+            ? "right"
+            : styles.transform?.includes("translateX(-50%)")
+              ? "center"
               : "left",
     vertical:
-      styles.top && styles.bottom
-        ? "top-bottom"
-        : styles.bottom
-          ? "bottom"
-          : styles.transform?.includes("translateY(-50%)")
-            ? "center"
-            : styles.height === "100%"
-              ? "scale"
+      styles.height === "100%"
+        ? "scale"
+        : styles.top && styles.bottom
+          ? "top-bottom"
+          : styles.bottom
+            ? "bottom"
+            : styles.transform?.includes("translateY(-50%)")
+              ? "center"
               : "top",
   };
 
   const handleConstraintsChange = useCallback(
     (value: ConstraintsValue) => {
       onStyleChange("position", "absolute");
+
+      // Compute the desired translateX/Y for each axis independently, then
+      // compose both into a single transform write so the two axes don't
+      // overwrite each other when both change simultaneously.
+      const txValue = value.horizontal === "center" ? "-50%" : null;
+      const tyValue = value.vertical === "center" ? "-50%" : null;
+      // Start from the current transform, apply X, then apply Y on top.
+      const transformAfterX = mergeTranslateFunction(
+        styles.transform,
+        "X",
+        txValue,
+      );
+      const transformAfterXY = mergeTranslateFunction(
+        transformAfterX,
+        "Y",
+        tyValue,
+      );
+
       if (value.horizontal === "left") {
         onStyleChange(
           "left",
@@ -3076,10 +3159,11 @@ function PositionLayoutProperties({
       } else if (value.horizontal === "center") {
         onStyleChange("left", "50%");
         onStyleChange("right", "auto");
-        onStyleChange("transform", "translateX(-50%)");
       } else {
-        onStyleChange("left", "0px");
-        onStyleChange("right", "0px");
+        // scale: use auto (not 0px) so the left && right truthiness check
+        // in the reader does not misidentify this as "left-right".
+        onStyleChange("left", "auto");
+        onStyleChange("right", "auto");
         onStyleChange("width", "100%");
       }
 
@@ -3101,12 +3185,15 @@ function PositionLayoutProperties({
       } else if (value.vertical === "center") {
         onStyleChange("top", "50%");
         onStyleChange("bottom", "auto");
-        onStyleChange("transform", "translateY(-50%)");
       } else {
-        onStyleChange("top", "0px");
-        onStyleChange("bottom", "0px");
+        // scale
+        onStyleChange("top", "auto");
+        onStyleChange("bottom", "auto");
         onStyleChange("height", "100%");
       }
+
+      // Write the composed transform once, after both axes are resolved.
+      onStyleChange("transform", transformAfterXY);
     },
     [
       element.boundingRect.x,
@@ -3114,6 +3201,7 @@ function PositionLayoutProperties({
       onStyleChange,
       styles.left,
       styles.top,
+      styles.transform,
     ],
   );
 
@@ -3229,13 +3317,19 @@ function PositionLayoutProperties({
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.labels.flipHorizontal")}
-              onClick={() => onStyleChange("scale", "-1 1")}
+              onClick={() => {
+                const [sx, sy] = parseScaleValue(styles.scale);
+                onStyleChange("scale", `${sx === -1 ? 1 : -1} ${sy}`);
+              }}
             >
               <IconFlipHorizontal className="size-4" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.labels.flipVertical")}
-              onClick={() => onStyleChange("scale", "1 -1")}
+              onClick={() => {
+                const [sx, sy] = parseScaleValue(styles.scale);
+                onStyleChange("scale", `${sx} ${sy === -1 ? 1 : -1}`);
+              }}
             >
               <IconFlipVertical className="size-4" />
             </InspectorIconButton>
@@ -3585,6 +3679,11 @@ function StrokeProperties({
     styles.outlineWidth,
     styles.outlineStyle,
   );
+  // Render the row whenever a stroke has been configured (non-zero width),
+  // even when its style is "none" (hidden). This mirrors Figma's behavior where
+  // hidden stroke rows remain present so the user can re-show them via the eye icon.
+  const borderExists = cssLengthNumber(styles.borderWidth) > 0;
+  const outlineExists = cssLengthNumber(styles.outlineWidth) > 0;
 
   return (
     <PanelSection
@@ -3649,7 +3748,7 @@ function StrokeProperties({
         </SectionIconButton>
       }
     >
-      {borderVisible ? (
+      {borderExists ? (
         <StrokeLayerControl
           kind="border"
           visible={borderVisible}
@@ -3666,7 +3765,7 @@ function StrokeProperties({
           }}
         />
       ) : null}
-      {outlineVisible ? (
+      {outlineExists ? (
         <StrokeLayerControl
           kind="outline"
           visible={outlineVisible}
@@ -3916,12 +4015,14 @@ function EffectsProperties({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={blurValue}
-              onChange={(value) =>
-                onStyleChange(
-                  "filter",
-                  `blur(${Math.max(0, Math.round(value))}px)`,
-                )
-              }
+              onChange={(value) => {
+                const blurFn = `blur(${Math.max(0, Math.round(value))}px)`;
+                const existing = styles.filter || "";
+                const next = existing.includes("blur(")
+                  ? existing.replace(/blur\([^)]*\)/, blurFn)
+                  : blurFn;
+                onStyleChange("filter", next);
+              }}
               unit="px"
               min={0}
               precision={1}

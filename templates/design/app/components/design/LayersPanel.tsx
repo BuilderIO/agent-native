@@ -165,6 +165,10 @@ interface FlatLayerRow {
 const SECTION_CODE_ID = "__design_layers_code__";
 const SECTION_ELEMENT_ID = "__design_layers_elements__";
 
+// Module-level drag state: dataTransfer.getData() returns "" during dragover
+// per spec; the source row stores the drag payload here on dragstart instead.
+let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
+
 function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
@@ -400,6 +404,7 @@ export function LayersPanel({
   const rowElementRefs = useRef(new Map<string, HTMLDivElement>());
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const renameOriginalNameRef = useRef<string>("");
   const [dropIndicator, setDropIndicator] =
     useState<LayersPanelMoveIntent | null>(null);
   const [searchOpen, setSearchOpen] = useState(Boolean(searchQuery));
@@ -501,7 +506,11 @@ export function LayersPanel({
         nextIds = [id];
       }
 
-      lastSelectionAnchorRef.current = id;
+      // Only advance the anchor on plain clicks; Shift+clicks extend from the
+      // existing anchor so the pivot stays fixed across consecutive range clicks.
+      if (!options.range) {
+        lastSelectionAnchorRef.current = id;
+      }
       onSelectionChange(nextIds, { id, selectedIds: nextIds, ...options });
     },
     [onSelectionChange, selectableVisibleIds, selectedIdSet, selectedIds],
@@ -512,9 +521,14 @@ export function LayersPanel({
       const nextName = renameDraft.trim();
       // The panel only emits rename intent. Code-backed DOM layer renames must
       // persist through a safe source edit that updates data-agent-native-layer-name.
-      if (nextName) onRename?.(id, nextName);
+      if (nextName) {
+        onRename?.(id, nextName);
+      }
+      // When the draft is empty, silently revert rather than saving an empty name.
+      // This matches Figma's behavior of restoring the previous name on empty commit.
       setRenamingId(null);
       setRenameDraft("");
+      renameOriginalNameRef.current = "";
     },
     [onRename, renameDraft],
   );
@@ -522,6 +536,7 @@ export function LayersPanel({
   const startRename = useCallback(
     (node: LayersPanelNode) => {
       if (!onRename || node.renamable === false) return;
+      renameOriginalNameRef.current = node.name;
       setRenamingId(node.id);
       setRenameDraft(node.name);
     },
@@ -720,6 +735,7 @@ export function LayersPanel({
                 dropIndicator={dropIndicator}
                 onDropIndicatorChange={setDropIndicator}
                 selectedIds={selectedIds}
+                visibleRows={visibleRows}
               />
             ))}
           </div>
@@ -757,6 +773,7 @@ function LayerRow({
   dropIndicator,
   onDropIndicatorChange,
   selectedIds,
+  visibleRows,
 }: {
   row: FlatLayerRow;
   labels: LayersPanelLabels;
@@ -788,6 +805,7 @@ function LayerRow({
   dropIndicator: LayersPanelMoveIntent | null;
   onDropIndicatorChange: (intent: LayersPanelMoveIntent | null) => void;
   selectedIds: readonly string[];
+  visibleRows: FlatLayerRow[];
 }) {
   const { node, depth, hasChildren } = row;
   const selectable = node.selectable !== false;
@@ -796,6 +814,9 @@ function LayerRow({
   const draggable = selectable && Boolean(onMoveLayer);
   const activeDrop =
     dropIndicator?.targetId === node.id ? dropIndicator.placement : null;
+  // Tracks whether the user pressed Escape to cancel rename so that the
+  // subsequent blur event does not commit the edit.
+  const renameCancelledRef = useRef(false);
 
   const handlePointerSelect = (event: MouseEvent<HTMLButtonElement>) => {
     if (!selectable) return;
@@ -828,34 +849,36 @@ function LayerRow({
       event.preventDefault();
       return;
     }
-    const draggedIds = selectedIds.includes(node.id)
+    const rawDraggedIds = selectedIds.includes(node.id)
       ? selectedIds.filter((id) => !id.startsWith("__"))
       : [node.id];
+    // Remove any node whose ancestor is also being dragged to avoid double-moves.
+    // When a parent is moved, its children move with it automatically.
+    const draggedIdSet = new Set(rawDraggedIds);
+    const draggedIds = rawDraggedIds.filter((id) => {
+      const rowForId = visibleRows.find((r) => r.node.id === id);
+      return !rowForId?.ancestorIds.some((ancestorId) =>
+        draggedIdSet.has(ancestorId),
+      );
+    });
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("application/x-design-layer-id", node.id);
     event.dataTransfer.setData(
       "application/x-design-layer-ids",
       JSON.stringify(draggedIds),
     );
+    // Store drag state at module level so handleDragOver can read it.
+    // dataTransfer.getData() returns "" during dragover per the HTML spec.
+    activeDragState = { sourceId: node.id, draggedIds };
   };
 
   const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
     if (!onMoveLayer || !selectable) return;
-    const sourceId =
-      event.dataTransfer.getData("application/x-design-layer-id") || "";
+    // dataTransfer.getData() always returns "" during dragover per spec.
+    // Read from the module-level activeDragState set in handleDragStart instead.
+    if (!activeDragState) return;
+    const { sourceId, draggedIds } = activeDragState;
     if (sourceId === node.id) return;
-    const rawIds = event.dataTransfer.getData("application/x-design-layer-ids");
-    let draggedIds = [sourceId];
-    try {
-      const parsed = JSON.parse(rawIds);
-      if (Array.isArray(parsed)) {
-        draggedIds = parsed.filter(
-          (id): id is string => typeof id === "string",
-        );
-      }
-    } catch {
-      // Ignore malformed drag payloads and fall back to the primary id.
-    }
     const cleanedIds = draggedIds.filter(
       (id) => id && id !== node.id && !id.startsWith("__"),
     );
@@ -870,16 +893,12 @@ function LayerRow({
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    if (
-      !onMoveLayer ||
-      !selectable ||
-      !dropIndicator ||
-      dropIndicator.targetId !== node.id
-    ) {
+    if (!onMoveLayer || !selectable) {
       onDropIndicatorChange(null);
       return;
     }
     event.preventDefault();
+    // getData() is safe in the drop handler (unlike dragover).
     const rawIds = event.dataTransfer.getData("application/x-design-layer-ids");
     let draggedIds = [
       event.dataTransfer.getData("application/x-design-layer-id"),
@@ -898,10 +917,13 @@ function LayerRow({
       (id) => id && id !== node.id && !id.startsWith("__"),
     );
     if (cleanedIds.length > 0) {
+      // Recompute placement from the drop event position rather than relying on
+      // React state (dropIndicator) which may be stale or null.
+      const placement = dropPlacementForEvent(event, hasChildren);
       onMoveLayer({
         draggedIds: cleanedIds,
         targetId: node.id,
-        placement: dropIndicator.placement,
+        placement,
       });
     }
     onDropIndicatorChange(null);
@@ -918,9 +940,19 @@ function LayerRow({
       draggable={draggable}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
-      onDragLeave={() => onDropIndicatorChange(null)}
+      onDragLeave={(event) => {
+        // Only clear the indicator when the pointer truly leaves this row.
+        // Moving into a child element fires dragleave on the outer div too, so
+        // we suppress the clear when relatedTarget is still within this row.
+        if (event.currentTarget.contains(event.relatedTarget as Node | null))
+          return;
+        onDropIndicatorChange(null);
+      }}
       onDrop={handleDrop}
-      onDragEnd={() => onDropIndicatorChange(null)}
+      onDragEnd={() => {
+        activeDragState = null;
+        onDropIndicatorChange(null);
+      }}
       onMouseEnter={() => onHoverLayer?.(node.id)}
       onMouseLeave={() => onLeaveLayer?.(node.id)}
     >
@@ -1004,13 +1036,21 @@ function LayerRow({
               value={renameDraft}
               onClick={(event) => event.stopPropagation()}
               onChange={(event) => onRenameDraftChange(event.target.value)}
-              onBlur={() => onCommitRename(node.id)}
+              onBlur={() => {
+                // Escape sets renameCancelledRef before blur fires; skip commit.
+                if (renameCancelledRef.current) {
+                  renameCancelledRef.current = false;
+                  return;
+                }
+                onCommitRename(node.id);
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();
                   onCommitRename(node.id);
                 } else if (event.key === "Escape") {
                   event.preventDefault();
+                  renameCancelledRef.current = true;
                   onCancelRename();
                 }
               }}
