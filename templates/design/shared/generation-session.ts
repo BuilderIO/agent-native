@@ -38,6 +38,7 @@ export interface DesignGenerationSession {
   prompt: string;
   contextRefs: string[];
   frames: DesignGenerationFrame[];
+  startedAt: string;
 }
 
 export interface AgentCanvasPresence {

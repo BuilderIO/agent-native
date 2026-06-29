@@ -120,7 +120,21 @@ export default defineAction({
         'A variant picker is open. Wait for the user to choose a direction before generating further. In an inline MCP app their pick returns to you automatically; if it opened as a browser tab (a CLI or code editor), they paste an auto-copied summary or just tell you which one (e.g. "use variant A"). Once you know the choice, read the saved index.html with get-design-snapshot. Do not call generate-design while this picker is open.';
     }
     if (generationSession) {
+      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      const startedAt =
+        typeof (generationSession as { startedAt?: unknown }).startedAt ===
+        "string"
+          ? new Date(
+              (generationSession as { startedAt: string }).startedAt,
+            ).getTime()
+          : 0;
+      const isStale =
+        startedAt > 0 && Date.now() - startedAt > GENERATION_SESSION_TTL_MS;
       screen.generationSession = generationSession;
+      if (isStale) {
+        screen.generationSessionNote =
+          "This generation session may be stale or abandoned (started more than 10 minutes ago). Verify saved screens via the design file list rather than assuming generation is still in progress.";
+      }
     }
 
     if (Object.keys(screen).length === 0) {

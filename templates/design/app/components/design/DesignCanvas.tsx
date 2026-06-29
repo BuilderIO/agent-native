@@ -480,7 +480,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         mixBlendMode: cs.mixBlendMode,
         zIndex: cs.zIndex,
       },
-      boundingRect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+      boundingRect: { x: rect.x + (window.scrollX || window.pageXOffset || 0), y: rect.y + (window.scrollY || window.pageYOffset || 0), width: rect.width, height: rect.height },
       textContent: el.textContent ? el.textContent.slice(0, 200) : undefined,
       htmlContent: el.innerHTML && el.innerHTML !== el.textContent ? el.innerHTML.slice(0, 4000) : undefined,
       isFlexContainer: cs.display === 'flex' || cs.display === 'inline-flex',
@@ -789,13 +789,34 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       overlay.style.display = 'none';
       return;
     }
+    // For the selection overlay, prefer the CSS box + rotation transform so
+    // the handles hug the rotated element rather than its inflated AABB.
+    if (overlay === selectionOverlay) {
+      var elCs = window.getComputedStyle(el);
+      var elLeft = readPx(el.style.left || elCs.left);
+      var elTop = readPx(el.style.top || elCs.top);
+      var elW = readPx(el.style.width || elCs.width);
+      var elH = readPx(el.style.height || elCs.height);
+      var elRot = currentRotation(el);
+      // Convert element-local left/top to viewport coords by walking to the
+      // nearest positioned ancestor (same reference frame as getBoundingClientRect).
+      var parentRect = (el.offsetParent || document.documentElement).getBoundingClientRect();
+      overlay.style.display = 'block';
+      overlay.style.left = (parentRect.left + elLeft) + 'px';
+      overlay.style.top = (parentRect.top + elTop) + 'px';
+      overlay.style.width = elW + 'px';
+      overlay.style.height = elH + 'px';
+      overlay.style.transform = elRot ? 'rotate(' + elRot + 'deg)' : '';
+      overlay.style.transformOrigin = '0 0';
+      updatePaddingOverlay(el);
+      return;
+    }
     var rect = el.getBoundingClientRect();
     overlay.style.display = 'block';
     overlay.style.top = rect.top + 'px';
     overlay.style.left = rect.left + 'px';
     overlay.style.width = rect.width + 'px';
     overlay.style.height = rect.height + 'px';
-    if (overlay === selectionOverlay) updatePaddingOverlay(el);
   }
 
   function refreshOverlays() {
@@ -1381,10 +1402,10 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     }
   }
 
-	  function postVisualStructureChange(el, target) {
+	  function postVisualStructureChange(el, target, origin) {
 	    if (!el || !target || !target.anchor) return;
 	    var requestId = 'move-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-	    pendingStructureMove = { requestId: requestId, el: el, target: target };
+	    pendingStructureMove = { requestId: requestId, el: el, target: target, origin: origin || null };
 	    window.parent.postMessage({
 	      type: 'visual-structure-change',
 	      requestId: requestId,
@@ -1458,11 +1479,15 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	          applyRuntimeReorder(reorderEl, currentTarget);
 	          postVisualDuplicateChange(originalSelectedEl, reorderEl, currentTarget);
 	        } else {
+	          // Capture the pre-drag DOM anchor so we can revert if the parent
+	          // reports applied===false on the structure-ack.
+	          var prevParent = reorderEl.parentElement;
+	          var prevNextSibling = reorderEl.nextSibling;
 	          // Optimistically apply the reorder in the DOM for immediate
 	          // visual feedback; the visual-structure-ack handler will confirm
 	          // or revert once the parent processes the change.
 	          applyRuntimeReorder(reorderEl, currentTarget);
-	          postVisualStructureChange(reorderEl, currentTarget);
+	          postVisualStructureChange(reorderEl, currentTarget, { prevParent: prevParent, prevNextSibling: prevNextSibling });
 	        }
 	      }
       document.addEventListener('mousemove', onReorderMove, true);
@@ -1479,7 +1504,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     // clear-selection postMessage cannot swap selectedEl mid-drag and cause
     // mutations on the wrong element or a null-deref in onUp.
     var dragEl = selectedEl;
+    var moved = false;
+    var DRAG_THRESHOLD = 3;
     function onMove(ev) {
+      if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) > DRAG_THRESHOLD) {
+        moved = true;
+      }
       var nextLeft = originLeft + ev.clientX - startX;
       var nextTop = originTop + ev.clientY - startY;
       dragEl.style.left = Math.round(nextLeft) + 'px';
@@ -1492,6 +1522,14 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       document.removeEventListener('mouseup', onUp, true);
       hideTransformBadge();
       if (!dragEl) return;
+      if (duplicatedForDrag && !moved) {
+        // Alt-click with no real drag — remove the premature clone and restore the original selection.
+        if (dragEl.parentElement) dragEl.parentElement.removeChild(dragEl);
+        selectedEl = originalSelectedEl;
+        positionOverlay(selectionOverlay, selectedEl);
+        window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+        return;
+      }
       if (duplicatedForDrag) {
         postVisualDuplicateChange(originalSelectedEl, dragEl);
       } else {
@@ -1535,9 +1573,19 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     // Snapshot the element so a concurrent clear-selection postMessage cannot
     // cause a null-deref in onMove/onUp.
     var resizeEl = selectedEl;
+    // Capture the element rotation once at drag-start so per-move projection is
+    // cheap and consistent even if the transform changes during the drag.
+    var resizeTheta = currentRotation(resizeEl) * Math.PI / 180;
     function nextRect(ev) {
-      var dx = ev.clientX - startX;
-      var dy = ev.clientY - startY;
+      var screenDx = ev.clientX - startX;
+      var screenDy = ev.clientY - startY;
+      // Project the screen-space pointer delta into the element's local
+      // (un-rotated) coordinate frame so handles behave relative to the
+      // visible rotated box rather than screen axes.
+      var cosT = Math.cos(resizeTheta);
+      var sinT = Math.sin(resizeTheta);
+      var dx = screenDx * cosT + screenDy * sinT;
+      var dy = -screenDx * sinT + screenDy * cosT;
       var left = origin.left;
       var top = origin.top;
       var width = origin.width;
@@ -1570,14 +1618,13 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         }
       }
       // Clamp after ratio correction.
-      var rawWidth = width;
-      var rawHeight = height;
       width = Math.max(8, width);
       height = Math.max(8, height);
-      // Re-anchor the pinned edge for w/n handles after clamping so the
-      // opposite edge doesn't drift when the element hits minimum size.
-      if (handle.indexOf('w') !== -1) left += (rawWidth - width);
-      if (handle.indexOf('n') !== -1) top += (rawHeight - height);
+      // Re-anchor the pinned edge for w/n handles after aspect-ratio lock and
+      // clamping so the opposite (e/s) edge stays fixed regardless of whether
+      // the dimension change was driven by raw dx/dy or by the ratio lock.
+      if (handle.indexOf('w') !== -1) left = origin.left + (origin.width - width);
+      if (handle.indexOf('n') !== -1) top = origin.top + (origin.height - height);
       if (ev.altKey) {
         if (handle.indexOf('w') !== -1 || handle.indexOf('e') !== -1) left = origin.left - (width - origin.width) / 2;
         if (handle.indexOf('n') !== -1 || handle.indexOf('s') !== -1) top = origin.top - (height - origin.height) / 2;
@@ -1958,10 +2005,20 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 	      var move = pendingStructureMove;
 	      pendingStructureMove = null;
 	      if (e.data.applied) {
-	        applyRuntimeReorder(move.el, move.target);
-	        selectedEl = move.el;
-	        positionOverlay(selectionOverlay, selectedEl);
-	        window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	        if (move.el && move.el.isConnected) {
+	          applyRuntimeReorder(move.el, move.target);
+	          selectedEl = move.el;
+	          positionOverlay(selectionOverlay, selectedEl);
+	          window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	        }
+	      } else {
+	        // Revert the optimistic reorder to its pre-drag position.
+	        if (move.el && move.el.isConnected && move.origin && move.origin.prevParent && move.origin.prevParent.isConnected) {
+	          move.origin.prevParent.insertBefore(move.el, move.origin.prevNextSibling);
+	          selectedEl = move.el;
+	          positionOverlay(selectionOverlay, selectedEl);
+	          window.parent.postMessage({ type: 'element-select', payload: getElementInfo(selectedEl) }, '*');
+	        }
 	      }
 	      return;
 	    }
@@ -2660,6 +2717,7 @@ export function DesignCanvas({
         visible={!!drawMode}
         canvasInteractive={!pinMode}
         queuedAnnotationCount={queuedAnnotationPins.length}
+        zoom={zoom}
         onClose={() => onExitDrawMode?.()}
         onSend={(annotations, instruction, canvasSize) => {
           const summary = annotations

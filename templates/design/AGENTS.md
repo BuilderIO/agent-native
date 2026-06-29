@@ -127,8 +127,10 @@ patterns live in `.agents/skills/`.
 - `navigate` moves the UI and is auto-deleted after the client consumes it.
 - `design-selection` includes active screen, selected element, overview mode,
   inspector tab, zoom, and screen list for the current tab.
-- `design-generation-session:<designId>` contains visible multi-screen
-  generation frames created by `generate-screens`.
+- `design-generation-session:<designId>` contains agent-facing multi-screen
+  generation planning state created by `generate-screens` (canvas region
+  assignments and per-frame instructions consumed by `generate-design` and
+  `view-screen`; not rendered as canvas overlays).
 - `show-design-questions` opens focused pre-generation questions in the main
   design canvas (`show-questions` application state).
 - `design-variants` contains in-progress candidates for the variant picker.

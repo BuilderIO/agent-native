@@ -7,6 +7,8 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useCallback, useRef, useState } from "react";
 
+import { toast } from "@/hooks/use-toast";
+
 export const DESIGN_VARIANT_PICKED_EVENT = "agent-native-design-variant-picked";
 
 export interface VariantCandidate {
@@ -108,6 +110,15 @@ export function useVariantFlow(designId: string | undefined) {
   // so a later, genuinely new variant set can still appear.
   const pickedRef = useRef(false);
 
+  // Tracks the designId of a consumed variant set so stale in-flight poll
+  // responses with the same designId cannot re-open the grid, even if the
+  // server DELETE is delayed or the user picks while a poll is in-flight.
+  const consumedDesignIdRef = useRef<string | null>(null);
+  // Bounded suppression window (epoch ms). After it elapses we stop suppressing
+  // so a failed DELETE or a fast follow-up present-design-variants for the same
+  // design can't keep the picker hidden indefinitely.
+  const consumedUntilRef = useRef(0);
+
   const { data } = useQuery({
     queryKey: ["design-variants"],
     queryFn: async () => {
@@ -131,9 +142,24 @@ export function useVariantFlow(designId: string | undefined) {
     const hasVariants = Boolean(
       data?.variants && data.variants.length > 0 && data.designId === designId,
     );
-    // After a pick, keep the grid hidden until the server-side variant state is
-    // actually cleared (DELETE landed), then re-arm for any future variant set.
-    if (pickedRef.current) {
+    // Suppression after a pick covers two things: the brief window where a stale
+    // in-flight poll could re-open the just-picked grid, and the gap until the
+    // server DELETE lands. It is bounded in time so a failed DELETE (server state
+    // never clears) or a fast follow-up variant set for the same design can't
+    // keep the picker hidden forever.
+    const windowElapsed = Date.now() >= consumedUntilRef.current;
+    if ((consumedDesignIdRef.current || pickedRef.current) && windowElapsed) {
+      consumedDesignIdRef.current = null;
+      pickedRef.current = false;
+    } else if (
+      data?.designId &&
+      data.designId === consumedDesignIdRef.current
+    ) {
+      // Re-arm early once the server confirms the consumed state is gone.
+      if (!hasVariants) consumedDesignIdRef.current = null;
+      setState(null);
+      return;
+    } else if (pickedRef.current) {
       if (!hasVariants) pickedRef.current = false;
       setState(null);
       return;
@@ -141,13 +167,40 @@ export function useVariantFlow(designId: string | undefined) {
     setState(hasVariants && data ? data : null);
   }, [data, designId]);
 
-  const clear = useCallback(() => {
-    setState(null);
-    qc.setQueryData(["design-variants"], null);
-    fetch(agentNativePath("/_agent-native/application-state/design-variants"), {
-      method: "DELETE",
-    }).catch(() => {});
-  }, [qc]);
+  const clear = useCallback(
+    async (consumedId?: string) => {
+      setState(null);
+      // Mark the designId as consumed before issuing the DELETE so any
+      // in-flight or subsequent polls with this designId are suppressed
+      // even if the network request is delayed.
+      if (consumedId) {
+        consumedDesignIdRef.current = consumedId;
+        consumedUntilRef.current = Date.now() + 6000;
+      }
+      qc.setQueryData(["design-variants"], null);
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/application-state/design-variants"),
+          { method: "DELETE" },
+        );
+        if (!res.ok) {
+          // DELETE failed — the consumed marker keeps the grid hidden client-side,
+          // but log so the issue is visible rather than silently swallowed.
+          console.warn(
+            "[use-variant-flow] Failed to clear design-variants state:",
+            res.status,
+          );
+        }
+      } catch (err) {
+        // Network error — same: log but don't re-show grid (consumed marker holds).
+        console.warn(
+          "[use-variant-flow] Error clearing design-variants state:",
+          err,
+        );
+      }
+    },
+    [qc],
+  );
 
   const dismissStandalonePick = useCallback(() => setStandalonePick(null), []);
 
@@ -159,6 +212,9 @@ export function useVariantFlow(designId: string | undefined) {
       if (pickingRef.current) return;
       pickingRef.current = true;
       pickedRef.current = true;
+      // Start the bounded suppression window so the just-picked grid stays hidden
+      // through the DELETE round-trip + a poll cycle, but not indefinitely.
+      consumedUntilRef.current = Date.now() + 6000;
       try {
         // Persist the chosen variant as the design's primary file via the
         // agent's own action endpoint so every host lands on the same design.
@@ -194,8 +250,14 @@ export function useVariantFlow(designId: string | undefined) {
             );
           }
         } catch {
-          // Network error: report the choice below so the agent still records it;
-          // the grid still clears so the user isn't stuck.
+          // Network error: show a visible error and keep the grid open so
+          // the user can retry rather than silently losing their choice.
+          toast({
+            title: "Couldn't save your pick",
+            description:
+              "Saving didn't finish. Try again or refresh and re-pick.",
+            variant: "destructive",
+          });
         }
 
         const refineHint = persisted
@@ -240,7 +302,14 @@ export function useVariantFlow(designId: string | undefined) {
           });
         }
 
-        clear();
+        // Only clear the grid when the variant was successfully persisted.
+        // If saving failed, keep the grid open so the user can retry.
+        if (persisted) {
+          await clear(designId);
+        } else {
+          // Re-arm the picking latch so the user can try again.
+          pickedRef.current = false;
+        }
       } finally {
         pickingRef.current = false;
       }
@@ -250,7 +319,7 @@ export function useVariantFlow(designId: string | undefined) {
 
   const dismiss = useCallback(() => {
     const embedded = isEmbedAuthActive();
-    clear();
+    void clear(designId);
     if (isLinkOnlyHandoff() && !isEmbedAuthActive()) {
       // No chat bridge to relay the dismissal — give the user a copyable note
       // so their coding agent doesn't wait on a pick that isn't coming.
@@ -267,7 +336,7 @@ export function useVariantFlow(designId: string | undefined) {
       submit: embedded,
       ...(embedded ? { openSidebar: false } : {}),
     });
-  }, [clear]);
+  }, [clear, designId]);
 
   return { state, useVariant, dismiss, standalonePick, dismissStandalonePick };
 }
