@@ -74,12 +74,12 @@ export function markdownToHtml(markdown: string): string {
         return `<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`;
       }
 
-      if (/^(\-|\*|\+)\s+/m.test(block)) {
+      if (/^(-|\*|\+)\s+/m.test(block)) {
         const items = block
           .split("\n")
           .map((line) => line.trim())
           .filter(Boolean)
-          .map((line) => line.replace(/^(\-|\*|\+)\s+/, ""))
+          .map((line) => line.replace(/^(-|\*|\+)\s+/, ""))
           .map((line) => `<li>${renderInlineMarkdown(line)}</li>`)
           .join("");
         return `<ul>${items}</ul>`;

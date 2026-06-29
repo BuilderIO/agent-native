@@ -230,8 +230,9 @@ export function DesignExtensionsPanel({
 
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", className)}>
-      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-        <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-foreground">
+      {/* Section header — 32 px tall, matches PanelSection / Figma inspector headers */}
+      <div className="flex min-h-8 shrink-0 items-center gap-1.5 border-b border-border/60 px-3">
+        <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
           {t("designEditor.extensions")}
         </h3>
         <Tooltip>
@@ -240,7 +241,7 @@ export function DesignExtensionsPanel({
               href="https://www.agent-native.com/docs/extensions"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="inline-flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label={t("designEditor.extensionsDocs")}
             >
               <IconExternalLink className="size-3.5" />
@@ -255,39 +256,42 @@ export function DesignExtensionsPanel({
         />
       </div>
 
-      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3">
+      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-2 pt-1.5">
         {isLoading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-24 rounded-lg" />
-            <Skeleton className="h-32 rounded-lg" />
+          <div className="space-y-1.5">
+            <Skeleton className="h-24 rounded" />
+            <Skeleton className="h-32 rounded" />
           </div>
         ) : installs.length === 0 ? (
-          <div className="flex min-h-[18rem] flex-col items-center justify-center rounded-lg border border-dashed border-border/80 bg-muted/20 px-3 py-8 text-center">
-            <div className="mb-3 flex size-10 items-center justify-center rounded-lg border border-border/70 bg-background text-muted-foreground">
-              <IconPuzzle className="size-5" />
+          /* Empty state — compact, matches TweaksPanel empty style */
+          <div className="flex flex-col items-center gap-2 py-6 text-center">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-muted/60">
+              <IconPuzzle className="size-4 text-muted-foreground/70" />
             </div>
-            <p className="text-sm font-semibold text-foreground">
-              {t("designEditor.extensionsEmptyTitle")}
-            </p>
-            <p className="mt-1 max-w-[14rem] text-xs leading-relaxed text-muted-foreground">
-              {t("designEditor.extensionsEmptyDescription")}
-            </p>
-            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <div>
+              <p className="text-[11px] font-medium text-foreground">
+                {t("designEditor.extensionsEmptyTitle")}
+              </p>
+              <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">
+                {t("designEditor.extensionsEmptyDescription")}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-1.5">
               <Button
                 type="button"
                 size="sm"
-                className="h-8 cursor-pointer text-xs"
+                className="h-6 cursor-pointer px-2.5 text-[11px]"
                 onClick={() => setCreateOpen(true)}
               >
-                <IconPlus className="size-3.5" />
+                <IconPlus className="size-3" />
                 {t("designEditor.addExtension")}
               </Button>
               <Button
                 asChild
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                className="h-8 cursor-pointer text-xs"
+                className="h-6 cursor-pointer px-2.5 text-[11px]"
               >
                 <a
                   href="https://www.agent-native.com/docs/extensions"
@@ -300,7 +304,7 @@ export function DesignExtensionsPanel({
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-1.5">
             {installs.map((install) => (
               <EmbeddedExtension
                 key={install.installId}
@@ -308,38 +312,36 @@ export function DesignExtensionsPanel({
                 slotId={slotId}
                 context={context}
                 initialHeight={180}
-                className="overflow-hidden rounded-lg border border-border bg-background"
+                className="overflow-hidden rounded border border-border bg-background"
               />
             ))}
           </div>
         )}
 
         {installable.length > 0 ? (
-          <div className="mt-4 border-t border-border/70 pt-3">
-            <p className="mb-2 text-[11px] font-semibold uppercase text-muted-foreground">
+          <div className="mt-3 border-t border-border/60 pt-1.5">
+            <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t("designEditor.extensionsAvailable")}
             </p>
-            <div className="space-y-1.5">
+            <div className="space-y-px">
               {installable.map((extension) => (
                 <button
                   key={extension.extensionId}
                   type="button"
                   disabled={installingId === extension.extensionId}
                   onClick={() => installExtension(extension.extensionId)}
-                  className="flex w-full cursor-pointer items-center gap-2 rounded-md border border-border/70 bg-background px-2.5 py-2 text-left hover:bg-accent disabled:cursor-default disabled:opacity-60"
+                  className="flex h-6 w-full cursor-pointer items-center gap-1.5 rounded px-2 text-left transition-colors hover:bg-accent active:bg-accent/80 disabled:cursor-default disabled:opacity-50"
                 >
-                  <IconSparkles className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-medium text-foreground">
-                      {extension.name}
-                    </span>
-                    {extension.description ? (
-                      <span className="block truncate text-[11px] text-muted-foreground">
-                        {extension.description}
-                      </span>
-                    ) : null}
+                  <IconSparkles className="size-3 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-foreground">
+                    {extension.name}
                   </span>
-                  <span className="text-[11px] font-medium text-muted-foreground">
+                  {extension.description ? (
+                    <span className="hidden truncate text-[11px] text-muted-foreground sm:block">
+                      {extension.description}
+                    </span>
+                  ) : null}
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
                     {t("designEditor.extensionsInstall")}
                   </span>
                 </button>
@@ -371,7 +373,7 @@ function CreateExtensionPopover({
               type="button"
               variant="ghost"
               size="icon"
-              className="size-7 rounded-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="size-6 rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               aria-label={t("designEditor.addExtension")}
             >
               <IconPlus className="size-3.5" />

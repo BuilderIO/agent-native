@@ -24,22 +24,21 @@ Design systems are stored in the `design_systems` SQL table. Each has a `data` c
 
 ### Source: Figma `.fig` file
 
-When the user uploads a raw Figma local copy (`.fig`), parse it in-process with
-`import-file` instead of treating it like a document:
+When the user uploads a raw Figma local copy (`.fig`), start Builder
+design-system indexing with `import-file` instead of treating it like a
+document:
 
 ```bash
 pnpm action import-file --filePath "data/uploads/brand.fig" --format fig
 ```
 
-The action returns `designSystem`, `customInstructions`, and `preview`. Review
-the result, then call `create-design-system` with:
+The action requires Builder to be connected and returns Builder `projectId`,
+`jobId`, `designSystemId`, and `builderUrl`. Builder is the source of truth for
+the indexed brand kit, generated docs, and usage guidance.
 
-- `title`: the returned title or a user-approved name
-- `data`: `JSON.stringify(designSystem)`
-- `customInstructions`: the returned `customInstructions`
-
-Do not call `import-document` for `.fig` files; it only handles metadata and
-will miss the real design tokens.
+Do not call `create-design-system` locally from `.fig` uploads. Do not call
+`import-document` for `.fig` files; it only handles metadata and will miss the
+Builder indexing flow.
 
 ## Applying to Slides
 

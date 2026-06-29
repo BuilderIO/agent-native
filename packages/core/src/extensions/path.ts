@@ -19,10 +19,7 @@ export function extensionNameToSlug(
   return sliced || "extension";
 }
 
-export function extensionPath(
-  id: string,
-  name?: string | null | undefined,
-): string {
+export function extensionPath(id: string, name?: string | null): string {
   const encodedId = encodeURIComponent(id);
   if (name === undefined) return `/extensions/${encodedId}`;
   return `/extensions/${encodedId}/${extensionNameToSlug(name)}`;

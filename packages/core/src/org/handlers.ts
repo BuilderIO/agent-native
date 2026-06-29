@@ -17,8 +17,8 @@ function extractInvitationId(event: H3Event): string | undefined {
   if (fromRouter) return fromRouter;
   const path = getRequestURL(event).pathname;
   const match =
-    path.match(/^\/([^\/]+)\/accept\/?$/) ??
-    path.match(/\/org\/invitations\/([^\/]+)\/accept\/?$/);
+    path.match(/^\/([^/]+)\/accept\/?$/) ??
+    path.match(/\/org\/invitations\/([^/]+)\/accept\/?$/);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
@@ -28,9 +28,9 @@ function extractMemberEmail(event: H3Event): string | undefined {
   if (fromRouter) return fromRouter;
   const path = getRequestURL(event).pathname;
   const match =
-    path.match(/^\/([^\/]+)\/role\/?$/) ??
-    path.match(/^\/([^\/]+)\/?$/) ??
-    path.match(/\/org\/members\/([^\/]+)(?:\/role)?\/?$/);
+    path.match(/^\/([^/]+)\/role\/?$/) ??
+    path.match(/^\/([^/]+)\/?$/) ??
+    path.match(/\/org\/members\/([^/]+)(?:\/role)?\/?$/);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 const nanoid = (): string =>

@@ -65,14 +65,20 @@ function dashboard() {
   };
 }
 
-function createBrowser(options: { waitForFails?: boolean } = {}) {
+function createBrowser(
+  options: {
+    waitForFails?: boolean;
+    captureBox?: { width: number; height: number };
+  } = {},
+) {
+  const captureBox = options.captureBox ?? { width: 960, height: 1200 };
   const locator = {
     waitFor: vi.fn(async () => {
       if (options.waitForFails) {
         throw new Error("Target page, context or browser has been closed");
       }
     }),
-    boundingBox: vi.fn(async () => ({ width: 960, height: 1200 })),
+    boundingBox: vi.fn(async () => captureBox),
     scrollIntoViewIfNeeded: vi.fn(async () => {}),
     screenshot: vi.fn(async () => Buffer.from("png")),
   };
@@ -110,30 +116,34 @@ describe("dashboard report email", () => {
     mocks.getReportDashboard.mockReset();
   });
 
-  it("retries with a compact dashboard screenshot when the full capture closes", async () => {
+  it("retries with a lightweight full dashboard screenshot when the first capture closes", async () => {
     const full = createBrowser({ waitForFails: true });
-    const compact = createBrowser();
+    const lightweight = createBrowser();
     mocks.launch
       .mockResolvedValueOnce(full.browser)
-      .mockResolvedValueOnce(compact.browser);
+      .mockResolvedValueOnce(lightweight.browser);
 
     const result = await sendDashboardReportSubscription(subscription());
 
     expect(result).toMatchObject({
       recipientCount: 1,
       screenshotAttached: true,
-      screenshotMode: "compact",
+      screenshotMode: "full-lightweight",
     });
     expect(mocks.launch).toHaveBeenCalledTimes(2);
-    expect(compact.page.goto).toHaveBeenCalledWith(
-      expect.stringContaining("reportPanelLimit=12"),
+    expect(lightweight.page.goto).toHaveBeenCalledWith(
+      expect.not.stringContaining("reportPanelLimit"),
       expect.any(Object),
     );
-    expect(compact.page.emulateMedia).toHaveBeenCalledWith({
+    expect(lightweight.browser.newPage).toHaveBeenCalledWith({
+      viewport: { width: 1200, height: 1400 },
+      deviceScaleFactor: 1,
+    });
+    expect(lightweight.page.emulateMedia).toHaveBeenCalledWith({
       media: "screen",
       colorScheme: "light",
     });
-    expect(compact.page.addInitScript).toHaveBeenCalledOnce();
+    expect(lightweight.page.addInitScript).toHaveBeenCalledOnce();
     expect(mocks.sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: "steve@builder.io",
@@ -150,7 +160,30 @@ describe("dashboard report email", () => {
     const emailArgs = mocks.sendEmail.mock.calls[0]?.[0];
     expect(emailArgs.html).toContain("Edit subscription settings");
     expect(emailArgs.html).toContain("reportSettings=1");
+    expect(emailArgs.html).not.toContain("reportPanelLimit");
+    expect(emailArgs.html).not.toContain("border:1px solid #e5e7eb");
+    expect(emailArgs.html).toContain("border:0;outline:0;border-radius:0");
     expect(emailArgs.text).toContain("reportSettings=1");
+  });
+
+  it("fits tall dashboard captures beyond the old viewport cap", async () => {
+    const tall = createBrowser({ captureBox: { width: 960, height: 8200 } });
+    mocks.launch.mockResolvedValueOnce(tall.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      recipientCount: 1,
+      screenshotAttached: true,
+      screenshotMode: "full",
+    });
+    expect(tall.page.setViewportSize).toHaveBeenCalledWith({
+      width: 1440,
+      height: 8264,
+    });
+    expect(tall.page.setViewportSize).not.toHaveBeenCalledWith(
+      expect.objectContaining({ height: 7000 }),
+    );
   });
 
   it("still sends the report email without a screenshot when browser capture fails", async () => {

@@ -30,6 +30,11 @@ vi.mock("@agent-native/core/sharing", async (importOriginal) => {
 });
 
 import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server";
+
+import {
   assertReplayKeyBudget,
   getSessionReplaySummary,
   listSessionRecordings,
@@ -616,5 +621,139 @@ describe("session replay ingest parsing", () => {
     ).rejects.toThrow("chunk insert failed");
 
     expect(deletePrivateBlobMock).toHaveBeenCalledWith(handle);
+  });
+
+  // --- Regression coverage for the prod "empty Sessions list" root causes. ---
+  // These exercise behavior the previous suite never did: the anonymous
+  // cross-origin ingest path resolving storage in the key owner's org scope,
+  // and recordings being written org-visible so teammates (not just the key
+  // owner) can see them.
+
+  function replayIngestKeyDbResults(orgId: string | null) {
+    return [
+      [
+        {
+          id: "key_1",
+          publicKey: "anpk_test",
+          ownerEmail: "owner@example.com",
+          orgId,
+          replayAllowedOrigins: "[]",
+          replayMaxBytesPerDay: 100_000,
+          replayMaxRequestsPerMinute: 120,
+        },
+      ],
+      [{ bytes: 0 }],
+      [{ requests: 0 }],
+      [], // no existing recording -> triggers insert
+      [
+        {
+          id: "sr_new",
+          publicKeyId: "key_1",
+          clientRecordingId: "recording_1",
+          sessionId: "session_1",
+          userId: "dev@example.com",
+          anonymousId: "anon_1",
+          userKey: "dev@example.com",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          ownerEmail: "owner@example.com",
+          orgId,
+          chunkCount: 0,
+          eventCount: 0,
+          metadata: "{}",
+          status: "active",
+        },
+      ],
+      [], // existing chunks
+    ];
+  }
+
+  function replayIngestPayload() {
+    return parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      userId: "dev@example.com",
+      anonymousId: "anon_1",
+      sequence: 0,
+      events: [{ type: 4, timestamp: 1 }],
+    });
+  }
+
+  it("uploads replay chunks in the public key owner's org scope (anonymous ingest)", async () => {
+    // The ingest endpoint is anonymous + cross-origin (no session). Without the
+    // runWithRequestContext wrap, resolveBuilderPrivateKey()/S3 scoped-secret
+    // lookups would see no user/org and every upload would 503 -> empty
+    // recordings. Assert the upload runs in the key owner's scope.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    let seenEmail: string | undefined;
+    let seenOrgId: string | undefined;
+    putPrivateBlobMock.mockImplementation(async () => {
+      seenEmail = getRequestUserEmail();
+      seenOrgId = getRequestOrgId();
+      return null; // force the 503 path after capturing the resolution scope
+    });
+    const { db } = createReplayDbMock(replayIngestKeyDbResults("org_123"));
+    getDbMock.mockReturnValue(db);
+    try {
+      await recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }).catch(() => {});
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    expect(seenEmail).toBe("owner@example.com");
+    expect(seenOrgId).toBe("org_123");
+  });
+
+  it("writes org-visible recordings for org-scoped keys", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    putPrivateBlobMock.mockResolvedValue(null);
+    const { db, inserts } = createReplayDbMock(
+      replayIngestKeyDbResults("org_123"),
+    );
+    getDbMock.mockReturnValue(db);
+    try {
+      await recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }).catch(() => {});
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    const recordingInsert = inserts.find(
+      (entry) =>
+        typeof (entry.values as { visibility?: unknown })?.visibility ===
+        "string",
+    );
+    expect((recordingInsert?.values as { visibility: string }).visibility).toBe(
+      "org",
+    );
+  });
+
+  it("writes owner-private recordings when the key has no org", async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    putPrivateBlobMock.mockResolvedValue(null);
+    const { db, inserts } = createReplayDbMock(replayIngestKeyDbResults(null));
+    getDbMock.mockReturnValue(db);
+    try {
+      await recordSessionReplayChunks(replayIngestPayload(), {
+        origin: "https://app.example.com",
+        requestBytes: 100,
+      }).catch(() => {});
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+    const recordingInsert = inserts.find(
+      (entry) =>
+        typeof (entry.values as { visibility?: unknown })?.visibility ===
+        "string",
+    );
+    expect((recordingInsert?.values as { visibility: string }).visibility).toBe(
+      "private",
+    );
   });
 });

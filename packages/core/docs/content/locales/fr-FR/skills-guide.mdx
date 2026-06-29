@@ -118,6 +118,10 @@ Le domaine skills suit le même format que le framework skills. Ils codent des m
 
 ## skills soutenu par une application {#app-backed-skills}
 
+Les skills basées sur des apps incluent aujourd'hui `visual-plan` et
+`visual-recap` depuis Plan, `visual-edit` depuis Design, `assets` depuis Assets
+et `content` pour l'édition docs/blog/MDX depuis le dépôt.
+
 skills basé sur une application regroupe une application native d'agent en tant qu'artefact de marché de compétences. L'ensemble peut inclure des instructions d'agent, des métadonnées de connecteur skills exportées et MCP, des instructions de lancement hébergées/locales et des surfaces UI telles que les applications MCP.
 
 > **Tous les détails ci-dessous :** les mécanismes du skills basé sur l'application (format du manifeste, commandes CLI, adaptateurs de marché, hachage de mise à jour automatique) sont couverts dans [App-backed skills — full details](#app-backed-skills-full).
@@ -328,6 +332,7 @@ travail hors ligne ou utilisation sensible à la confidentialité.
 ```bash
 # Chemin heureux : instructions exportées et connecteur MCP hébergé.
 npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visual-edit
 npx @agent-native/core@latest skills add assets
 
 # Édition docs/blog/MDX avec Content, d'abord dans le dépôt.

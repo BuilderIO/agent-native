@@ -162,6 +162,17 @@
     box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+.agent-layout-main-surface::before,
+.agent-sidebar-main-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: var(--agent-native-raised-outline);
+}
+
 .agent-layout-shell
   :where(.agent-layout-main-surface, .agent-sidebar-main-surface)
   > :first-child
@@ -213,23 +224,19 @@
   .agent-layout-shell > .agent-sidebar-shell > .agent-sidebar-main-surface {
     border-start-start-radius: var(--agent-native-raised-radius);
     border-end-start-radius: var(--agent-native-raised-radius);
-    box-shadow:
-      var(--agent-native-raised-outline), var(--agent-native-raised-shadow-left);
+    box-shadow: var(--agent-native-raised-shadow-left);
   }
 
   .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="right"] {
     border-start-end-radius: var(--agent-native-raised-radius);
     border-end-end-radius: var(--agent-native-raised-radius);
-    box-shadow:
-      var(--agent-native-raised-outline),
-      var(--agent-native-raised-shadow-right);
+    box-shadow: var(--agent-native-raised-shadow-right);
   }
 
   .agent-sidebar-main-surface[data-agent-sidebar-main-state="open"][data-agent-sidebar-main-position="left"] {
     border-start-start-radius: var(--agent-native-raised-radius);
     border-end-start-radius: var(--agent-native-raised-radius);
-    box-shadow:
-      var(--agent-native-raised-outline), var(--agent-native-raised-shadow-left);
+    box-shadow: var(--agent-native-raised-shadow-left);
   }
 }
 

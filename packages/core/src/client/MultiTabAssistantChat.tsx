@@ -1625,7 +1625,7 @@ export function MultiTabAssistantChat({
               return next;
             });
             if (shouldRefreshThreads) {
-              void refreshThreads();
+              refreshThreads();
             }
           }
         }

@@ -14,6 +14,7 @@ import {
   resolveLegacyToolsRedirect,
   runDbHealthProbe,
   AVATAR_RASTER_MIME,
+  resolveAvatarEmailParam,
   getFrameworkRouteRequestUrl,
   getFrameworkEnvKeys,
 } from "./core-routes-plugin.js";
@@ -364,6 +365,33 @@ describe("AVATAR_RASTER_MIME", () => {
 
   it("rejects a plain data:image/ prefix with no subtype", () => {
     expect(AVATAR_RASTER_MIME.test("data:image/")).toBe(false);
+  });
+});
+
+describe("resolveAvatarEmailParam", () => {
+  it("extracts the encoded email after the avatar route", () => {
+    expect(
+      resolveAvatarEmailParam("/_agent-native/avatar/user%40example.com", ""),
+    ).toBe("user%40example.com");
+  });
+
+  it("extracts the encoded email under an app base path", () => {
+    expect(
+      resolveAvatarEmailParam(
+        "/design/_agent-native/avatar/user%40example.com",
+        "/design",
+      ),
+    ).toBe("user%40example.com");
+  });
+
+  it("extracts the encoded email from an h3 mount-stripped path", () => {
+    expect(resolveAvatarEmailParam("/user%40example.com", "")).toBe(
+      "user%40example.com",
+    );
+  });
+
+  it("does not confuse the namespace for the email", () => {
+    expect(resolveAvatarEmailParam("/_agent-native/avatar", "")).toBe("");
   });
 });
 

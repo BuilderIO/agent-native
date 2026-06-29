@@ -39,17 +39,17 @@ const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
 const DEFAULT_SERVERLESS_CHROMIUM_PACK_URL =
   "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
 const DASHBOARD_REPORT_SCREENSHOT_PARAM = "reportScreenshot";
-const DASHBOARD_REPORT_PANEL_LIMIT_PARAM = "reportPanelLimit";
 const DASHBOARD_REPORT_SETTINGS_PARAM = "reportSettings";
 const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
-const COMPACT_REPORT_PANEL_LIMIT = 12;
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 25_000;
 const SERVERLESS_SECOND_READY_TIMEOUT_MS = 10_000;
+const MAX_SCREENSHOT_VIEWPORT_HEIGHT = 30_000;
+const SCREENSHOT_VIEWPORT_PADDING = 64;
 
 type DashboardScreenshotAttempt = {
-  label: "full" | "compact";
-  panelLimit?: number;
+  label: "full" | "full-lightweight";
+  viewport: { width: number; height: number };
 };
 
 function daysAgo(n: number): string {
@@ -119,7 +119,6 @@ function buildDashboardPath(
   options?: {
     reportScreenshot?: boolean;
     reportSettings?: boolean;
-    panelLimit?: number;
   },
 ): string {
   const url = new URL(
@@ -135,12 +134,6 @@ function buildDashboardPath(
   if (options?.reportSettings) {
     url.searchParams.set(DASHBOARD_REPORT_SETTINGS_PARAM, "1");
   }
-  if (options?.panelLimit && options.panelLimit > 0) {
-    url.searchParams.set(
-      DASHBOARD_REPORT_PANEL_LIMIT_PARAM,
-      String(Math.floor(options.panelLimit)),
-    );
-  }
   return `${url.pathname}${url.search}`;
 }
 
@@ -150,7 +143,6 @@ function buildDashboardUrl(
   options?: {
     reportScreenshot?: boolean;
     reportSettings?: boolean;
-    panelLimit?: number;
   },
 ): string {
   const path = buildDashboardPath(dashboardId, filters, options);
@@ -319,6 +311,44 @@ async function scrollDashboardForLazyRendering(page: any): Promise<void> {
   })()`);
 }
 
+async function fitViewportToDashboardCapture(
+  page: any,
+  capture: any,
+  minViewport: { width: number; height: number },
+): Promise<void> {
+  const box = await capture.boundingBox();
+  if (!box) return;
+
+  const size = {
+    width: Math.max(
+      minViewport.width,
+      Math.min(1800, Math.ceil(box.width + SCREENSHOT_VIEWPORT_PADDING)),
+    ),
+    height: Math.max(
+      minViewport.height,
+      Math.min(
+        MAX_SCREENSHOT_VIEWPORT_HEIGHT,
+        Math.ceil(box.height + SCREENSHOT_VIEWPORT_PADDING),
+      ),
+    ),
+  };
+  await page.setViewportSize(size);
+  await page.waitForTimeout(250);
+
+  const resizedBox = await capture.boundingBox();
+  if (!resizedBox) return;
+  const resizedHeight = Math.ceil(
+    resizedBox.height + SCREENSHOT_VIEWPORT_PADDING,
+  );
+  if (resizedHeight > size.height) {
+    await page.setViewportSize({
+      width: size.width,
+      height: Math.min(MAX_SCREENSHOT_VIEWPORT_HEIGHT, resizedHeight),
+    });
+    await page.waitForTimeout(250);
+  }
+}
+
 async function captureDashboardPng(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
@@ -329,7 +359,6 @@ async function captureDashboardPng(
     snapshot.filters,
     {
       reportScreenshot: true,
-      panelLimit: attempt.panelLimit,
     },
   );
   const token = signEmbedSessionToken({
@@ -347,7 +376,7 @@ async function captureDashboardPng(
   try {
     const timeout = screenshotTimeoutMs();
     const page = await browser.newPage({
-      viewport: { width: 1440, height: 1800 },
+      viewport: attempt.viewport,
       deviceScaleFactor: 1,
     });
     page.setDefaultTimeout(timeout);
@@ -371,13 +400,7 @@ async function captureDashboardPng(
         : timeout,
     );
 
-    const box = await capture.boundingBox();
-    if (box) {
-      await page.setViewportSize({
-        width: Math.max(1200, Math.min(1800, Math.ceil(box.width + 64))),
-        height: Math.max(1000, Math.min(7000, Math.ceil(box.height + 64))),
-      });
-    }
+    await fitViewportToDashboardCapture(page, capture, attempt.viewport);
     await capture.scrollIntoViewIfNeeded();
     const image = await capture.screenshot({
       type: "png",
@@ -401,12 +424,12 @@ async function captureDashboardPngWithFallback(
   snapshot: ReportSnapshot,
 ): Promise<{
   png: Buffer | null;
-  mode: "full" | "compact" | "none";
+  mode: "full" | "full-lightweight" | "none";
   error?: string;
 }> {
   const attempts: DashboardScreenshotAttempt[] = [
-    { label: "full" },
-    { label: "compact", panelLimit: COMPACT_REPORT_PANEL_LIMIT },
+    { label: "full", viewport: { width: 1440, height: 1800 } },
+    { label: "full-lightweight", viewport: { width: 1200, height: 1400 } },
   ];
   let lastError: string | undefined;
 
@@ -446,7 +469,7 @@ function renderReportEmailHtml(
   const date = escapeHtml(reportDate(snapshot));
   const screenshotBlock = options.screenshotAttached
     ? `<a href="${dashboardUrl}" style="display:block;text-decoration:none;">
-      <img src="cid:${DASHBOARD_REPORT_CID}" alt="${title}" width="100%" style="display:block;width:100%;max-width:1280px;height:auto;border:1px solid #e5e7eb;border-radius:8px;" />
+      <img src="cid:${DASHBOARD_REPORT_CID}" alt="${title}" width="100%" style="display:block;width:100%;max-width:1280px;height:auto;border:0;outline:0;border-radius:0;" />
     </a>`
     : `<div style="margin:18px 0;padding:14px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;color:#374151;font-size:14px;line-height:1.5;">
       The dashboard image was unavailable for this run. Open the live dashboard to view the latest report.
@@ -502,7 +525,7 @@ export async function sendDashboardReportSubscription(
   dashboardUrl: string;
   recipientCount: number;
   screenshotAttached: boolean;
-  screenshotMode: "full" | "compact" | "none";
+  screenshotMode: "full" | "full-lightweight" | "none";
   screenshotError?: string;
 }> {
   const snapshot = await collectReportSnapshot(sub);

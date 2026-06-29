@@ -47,6 +47,21 @@
     hsl(220 10% 15%) 8%,
     transparent
   );
+  --design-editor-layer-hover-color: color-mix(
+    in srgb,
+    hsl(220 10% 15%) 6%,
+    transparent
+  );
+  --design-editor-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(213 91% 67%) 9%,
+    transparent
+  );
+  --design-editor-panel-divider-color: color-mix(
+    in srgb,
+    hsl(var(--border)) 76%,
+    transparent
+  );
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(344 100% 63%);
@@ -62,7 +77,7 @@
   --foreground: 0 0% 90%;
   --card: 220 5% 13%;
   --card-foreground: 0 0% 90%;
-  --popover: 220 5% 13%;
+  --popover: 220 6% 9%;
   --popover-foreground: 0 0% 90%;
   --primary: 0 0% 75%;
   --primary-foreground: 220 6% 6%;
@@ -70,8 +85,8 @@
   --secondary-foreground: 0 0% 90%;
   --muted: 220 4% 10%;
   --muted-foreground: 220 4% 60%;
-  --accent: 220 4% 13%;
-  --accent-foreground: 0 0% 90%;
+  --accent: 220 5% 20%;
+  --accent-foreground: 0 0% 96%;
   --destructive: 0 63% 51%;
   --destructive-foreground: 0 0% 98%;
   --border: 220 4% 14%;
@@ -94,6 +109,17 @@
     transparent
   );
   --design-editor-active-row-color: hsl(220 4% 20%);
+  --design-editor-layer-hover-color: color-mix(
+    in srgb,
+    hsl(0 0% 100%) 8%,
+    transparent
+  );
+  --design-editor-selected-subtree-color: color-mix(
+    in srgb,
+    hsl(213 91% 67%) 18%,
+    transparent
+  );
+  --design-editor-panel-divider-color: hsl(220 4% 22%);
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
   --design-editor-measure-color: hsl(344 100% 63%);

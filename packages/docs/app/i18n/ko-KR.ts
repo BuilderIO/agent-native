@@ -1106,16 +1106,16 @@ const koKR = {
   },
   skillsPage: {
     metaTitle:
-      "Agent Skills - 코딩 에이전트를 위한 Visual Plan 및 Visual Recap",
+      "Agent Skills - 코딩 에이전트를 위한 Visual Plan, Visual Recap, Visual Edit",
     metaDescription:
-      "코딩 에이전트가 시각적 계획과 PR 요약을 사용할 수 있도록 Agent-Native 앱 기반 스킬을 설치합니다.",
+      "코딩 에이전트가 시각적 계획, PR 요약, 로컬 시각적 편집을 사용할 수 있도록 Agent-Native 앱 기반 스킬을 설치합니다.",
     metaOgDescription:
       "호스팅, 검사, 커스터마이즈가 가능한 Agent-Native 앱으로 코딩 에이전트에 슬래시 명령을 추가하세요.",
     metaKeywords:
-      "agent skills, visual plan, visual recap, 코딩 에이전트, Claude Code, Codex, PR 리뷰, 계획, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, 코딩 에이전트, Claude Code, Codex, PR 리뷰, 계획, agent-native",
     heroTitle: "코딩 에이전트에 새로운 능력을 더하세요",
     heroBody:
-      "완전히 커스터마이즈할 수 있는 Agent-Native 앱 기반 스킬을 설치하세요. 구현 전 시각적 계획과 변경 후 시각적 PR 요약을 제공합니다.",
+      "완전히 커스터마이즈할 수 있는 Agent-Native 앱 기반 스킬을 설치하세요. 구현 전 시각적 계획, 변경 후 시각적 PR 요약, 로컬 UI 흐름의 시각적 편집을 제공합니다.",
     sectionTitle: "코딩 에이전트를 위한 앱 기반 스킬",
     sectionBody:
       "호스팅된 공유 앱 링크, 로컬 파일 또는 자체 호스팅/커스텀 앱을 사용할 수 있으며, 에이전트는 필요한 지침과 해당 MCP 표면을 받습니다.",
@@ -1140,6 +1140,15 @@ const koKR = {
       feature1: "스키마, API, 파일 변경을 요약",
       feature2: "선택적으로 고정 PR 댓글 게시",
       videoAriaLabel: "Visual Recap 스킬 데모 비디오",
+    },
+    visualEdit: {
+      name: "시각적 편집",
+      tagline: "로컬 UI 흐름 편집",
+      description:
+        "실행 중인 localhost 앱을 Design에서 URL 기반 화면으로 열어 시각적으로 검토하고 편집합니다.",
+      feature1: "정렬된 URL로 다중 화면 흐름 배치",
+      feature2: "라이브 라우트 상태를 검사, 복제, 개선",
+      videoAriaLabel: "Visual Edit 스킬 데모 비디오",
     },
   },
   downloadPage: {

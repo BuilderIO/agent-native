@@ -1096,16 +1096,17 @@ const zhCN = {
     },
   },
   skillsPage: {
-    metaTitle: "代理技能 - 面向编码代理的 Visual Plan 和 Visual Recap",
+    metaTitle:
+      "代理技能 - 面向编码代理的 Visual Plan、Visual Recap 和 Visual Edit",
     metaDescription:
-      "安装由 Agent-Native 应用支持的技能，让你的编码代理能进行可视化规划和 PR 回顾。",
+      "安装由 Agent-Native 应用支持的技能，让你的编码代理能进行可视化规划、PR 回顾和本地可视化编辑。",
     metaOgDescription:
       "为你的编码代理添加由 Agent-Native 应用驱动的斜杠命令，可托管、检查并自定义。",
     metaKeywords:
-      "代理技能, visual plan, visual recap, 编码代理, Claude Code, Codex, PR 审查, 规划, agent-native",
+      "代理技能, visual plan, visual recap, visual edit, 编码代理, Claude Code, Codex, PR 审查, 规划, agent-native",
     heroTitle: "给你的编码代理新的超能力",
     heroBody:
-      "安装由 Agent-Native 应用支持、可完全自定义的应用技能：实现前做可视化规划，变更落地后做可视化 PR 回顾。",
+      "安装由 Agent-Native 应用支持、可完全自定义的应用技能：实现前做可视化规划，变更落地后做可视化 PR 回顾，并可视化编辑本地 UI 流程。",
     sectionTitle: "面向编码代理的应用支持技能",
     sectionBody:
       "使用托管的可分享应用链接、本地文件，或自托管/自定义应用；代理会获得指令，并在需要时获得匹配的 MCP 表面。",
@@ -1130,6 +1131,15 @@ const zhCN = {
       feature1: "总结 schema、API 和文件变更",
       feature2: "可选择发布一条固定的 PR 评论",
       videoAriaLabel: "Visual Recap 技能演示视频",
+    },
+    visualEdit: {
+      name: "可视化编辑",
+      tagline: "编辑本地 UI 流程",
+      description:
+        "把正在运行的 localhost 应用作为 URL 支撑的屏幕打开到 Design 中，用于可视化审阅和编辑。",
+      feature1: "从有序 URL 布局多屏流程",
+      feature2: "检查、复制并优化实时路由状态",
+      videoAriaLabel: "Visual Edit 技能演示视频",
     },
   },
   downloadPage: {

@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 export type AlignmentHorizontal = "left" | "center" | "right";
 export type AlignmentVertical = "top" | "middle" | "bottom";
 export type DistributionAxis = "horizontal" | "vertical";
+export type FlowDirection = "horizontal" | "vertical";
 
 export interface AlignmentMatrixValue {
   horizontal: AlignmentHorizontal;
@@ -39,6 +40,8 @@ export interface AlignmentMatrixProps {
   labels?: Partial<AlignmentMatrixLabels>;
   disabled?: boolean;
   className?: string;
+  /** Auto-layout flow direction — controls bar orientation in active cell */
+  direction?: FlowDirection;
 }
 
 type MatrixIcon = ComponentType<{ className?: string }>;
@@ -81,6 +84,7 @@ function AlignmentCell({
   active,
   label,
   disabled,
+  direction,
   onClick,
 }: {
   horizontal: AlignmentHorizontal;
@@ -88,10 +92,9 @@ function AlignmentCell({
   active: boolean;
   label: string;
   disabled: boolean;
+  direction: FlowDirection;
   onClick: () => void;
 }) {
-  // The active cell shows blue bars representing the alignment direction.
-  // Inactive cells show a small faint dot.
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -102,16 +105,20 @@ function AlignmentCell({
           disabled={disabled}
           onClick={onClick}
           className={cn(
-            "flex size-[26px] items-center justify-center rounded-sm transition-colors",
+            "flex size-[22px] items-center justify-center rounded-sm transition-colors",
             "hover:bg-[var(--design-editor-control-bg)]",
             disabled && "pointer-events-none opacity-40",
           )}
         >
           {active ? (
-            <AlignmentBars horizontal={horizontal} vertical={vertical} />
+            <AlignmentBars
+              horizontal={horizontal}
+              vertical={vertical}
+              direction={direction}
+            />
           ) : (
             <span
-              className="block size-1 rounded-full bg-current opacity-25"
+              className="block size-[3px] rounded-full bg-current opacity-20"
               aria-hidden="true"
             />
           )}
@@ -124,95 +131,150 @@ function AlignmentCell({
 
 /**
  * Renders the Figma-style blue bars for the active alignment cell.
- * The bars are drawn as short lines showing the items packed
- * against the given horizontal + vertical edge.
+ *
+ * Bar orientation matches the flow direction:
+ * - HORIZONTAL flow → VERTICAL bars (tall, narrow), packed to the active
+ *   horizontal edge (left/center/right), then aligned vertically.
+ * - VERTICAL flow  → HORIZONTAL bars (wide, short), packed to the active
+ *   vertical edge (top/middle/bottom), then aligned horizontally.
+ *
+ * No outer frame rect — Figma's active cell shows only the bars.
  */
 function AlignmentBars({
   horizontal,
   vertical,
+  direction,
 }: {
   horizontal: AlignmentHorizontal;
   vertical: AlignmentVertical;
+  direction: FlowDirection;
 }) {
-  // We draw 2-3 small bars inside a tiny box to indicate alignment direction.
-  // The bars are positioned based on which corner/edge is active.
   const accent = "var(--design-editor-accent-color, #18a0fb)";
-
-  // Determine the transform for the inner bars container
-  // based on alignment position within the 16×16 drawing area
-  const justifyClass =
-    horizontal === "left"
-      ? "justify-start"
-      : horizontal === "right"
-        ? "justify-end"
-        : "justify-center";
-
-  const alignClass =
-    vertical === "top"
-      ? "items-start"
-      : vertical === "bottom"
-        ? "items-end"
-        : "items-center";
+  const size = 14; // SVG canvas size
 
   return (
     <svg
-      viewBox="0 0 14 14"
-      width={14}
-      height={14}
+      viewBox={`0 0 ${size} ${size}`}
+      width={size}
+      height={size}
       fill="none"
       aria-hidden="true"
     >
-      {/* Outer frame (faint) */}
-      <rect
-        x="0.5"
-        y="0.5"
-        width="13"
-        height="13"
-        rx="1"
-        stroke={accent}
-        strokeWidth="1"
-        opacity="0.35"
-      />
-      {/* Inner content bars — positioned by alignment */}
-      <AlignmentBarsContent
-        horizontal={horizontal}
-        vertical={vertical}
-        accent={accent}
-      />
+      {direction === "horizontal" ? (
+        <HorizontalFlowBars
+          horizontal={horizontal}
+          vertical={vertical}
+          accent={accent}
+          size={size}
+        />
+      ) : (
+        <VerticalFlowBars
+          horizontal={horizontal}
+          vertical={vertical}
+          accent={accent}
+          size={size}
+        />
+      )}
     </svg>
   );
 }
 
-function AlignmentBarsContent({
+/**
+ * HORIZONTAL flow: items are laid out left→right.
+ * Bars are VERTICAL (tall, narrow) representing child items.
+ * Packed toward the active horizontal edge; aligned vertically.
+ */
+function HorizontalFlowBars({
   horizontal,
   vertical,
   accent,
+  size,
 }: {
   horizontal: AlignmentHorizontal;
   vertical: AlignmentVertical;
   accent: string;
+  size: number;
 }) {
-  // Draw 2 bars (representing child items) packed toward the alignment edge.
-  // The bars are thin rectangles with rounded caps.
-  const barH = 2; // bar height in px
-  const barW = [4, 3]; // varying widths for visual interest
-  const gap = 1.5; // gap between bars
-  const totalH = barH * 2 + gap;
-  const totalW = Math.max(...barW);
+  // Two vertical bars of slightly different heights for visual interest
+  const barW = 2; // bar width
+  const barH = [7, 5]; // bar heights
+  const gap = 2; // gap between bars
+  const margin = 1.5; // distance from edge
 
-  // Y position based on vertical alignment
+  // X positions: bars packed toward the horizontal alignment edge
+  const totalW = barW * 2 + gap;
+  const xStart =
+    horizontal === "left"
+      ? margin
+      : horizontal === "right"
+        ? size - margin - totalW
+        : (size - totalW) / 2;
+
+  // Y positions: each bar aligned to the vertical edge
+  const getBarY = (h: number) => {
+    if (vertical === "top") return margin;
+    if (vertical === "bottom") return size - margin - h;
+    return (size - h) / 2;
+  };
+
+  return (
+    <>
+      <rect
+        x={xStart}
+        y={getBarY(barH[0]!)}
+        width={barW}
+        height={barH[0]}
+        rx={0.5}
+        fill={accent}
+      />
+      <rect
+        x={xStart + barW + gap}
+        y={getBarY(barH[1]!)}
+        width={barW}
+        height={barH[1]}
+        rx={0.5}
+        fill={accent}
+      />
+    </>
+  );
+}
+
+/**
+ * VERTICAL flow: items are laid out top→bottom.
+ * Bars are HORIZONTAL (wide, short) representing child items.
+ * Packed toward the active vertical edge; aligned horizontally.
+ */
+function VerticalFlowBars({
+  horizontal,
+  vertical,
+  accent,
+  size,
+}: {
+  horizontal: AlignmentHorizontal;
+  vertical: AlignmentVertical;
+  accent: string;
+  size: number;
+}) {
+  // Two horizontal bars of slightly different widths for visual interest
+  const barH = 2; // bar height
+  const barW = [7, 5]; // bar widths
+  const gap = 2; // gap between bars
+  const margin = 1.5; // distance from edge
+
+  // Y positions: bars packed toward the vertical alignment edge
+  const totalH = barH * 2 + gap;
   const yStart =
     vertical === "top"
-      ? 2.5
+      ? margin
       : vertical === "bottom"
-        ? 14 - 2.5 - totalH
-        : (14 - totalH) / 2;
+        ? size - margin - totalH
+        : (size - totalH) / 2;
 
-  // X positions for the bars based on horizontal alignment
+  // X positions: each bar aligned to the horizontal edge
   const getBarX = (w: number) => {
-    if (horizontal === "left") return 2.5;
-    if (horizontal === "right") return 14 - 2.5 - w;
-    return (14 - w) / 2;
+    if (horizontal === "left") return margin;
+    if (horizontal === "right") return size - margin - w;
+    return (size - w) / 2;
   };
 
   return (
@@ -244,19 +306,23 @@ export function AlignmentMatrix({
   labels,
   disabled = false,
   className,
+  direction = "horizontal",
 }: AlignmentMatrixProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
 
   return (
     <TooltipProvider delayDuration={250}>
-      <div className={cn("space-y-0", className)}>
-        {/* 3×3 dot grid — Figma style */}
+      <div className={cn("flex flex-col gap-0", className)}>
+        {/*
+         * 3×3 dot grid — Figma style.
+         * NO border, NO background box — bare grid of cells.
+         * Each cell is 22px; 3 cols = 66px total.
+         */}
         <div
-          className={cn(
-            "grid grid-cols-3 rounded-md border border-[var(--design-editor-control-border,hsl(var(--border)))]",
-            "bg-[var(--design-editor-control-bg)] p-0.5",
-          )}
-          style={{ width: 84 }}
+          className="grid grid-cols-3"
+          style={{ width: 66 }}
+          role="group"
+          aria-label={copy.title}
         >
           {MATRIX_OPTIONS.map((option) => {
             const active =
@@ -270,6 +336,7 @@ export function AlignmentMatrix({
                 active={active}
                 label={copy[option.labelKey]}
                 disabled={disabled}
+                direction={direction}
                 onClick={() =>
                   onChange({
                     horizontal: option.horizontal,

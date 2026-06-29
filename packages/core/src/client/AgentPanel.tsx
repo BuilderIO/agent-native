@@ -1318,7 +1318,7 @@ function AgentPanelInner({
             data-agent-page-new-chat=""
             aria-label={t("agentPanel.newChat")}
             onClick={() => {
-              void addTab();
+              addTab();
             }}
             className="pointer-events-auto inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >

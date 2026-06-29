@@ -73,11 +73,13 @@ export function ScrubInput({
   );
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
   const skipNextBlurCommitRef = useRef(false);
   const dragRef = useRef({
     pointerId: -1,
     startX: 0,
     startValue: value,
+    hasDragged: false,
   });
 
   useEffect(() => {
@@ -109,7 +111,11 @@ export function ScrubInput({
     if (event.key === "ArrowUp" || event.key === "ArrowDown") {
       event.preventDefault();
       const direction = event.key === "ArrowUp" ? 1 : -1;
-      setNextValue(value + direction * getScrubStepFromEvent(event, step), {
+      // getScrubStepFromEvent handles shiftKey (×10) and altKey (÷10).
+      // Cmd (metaKey) mirrors Shift for ×10 — Figma convention on macOS.
+      const baseStep = getScrubStepFromEvent(event, step);
+      const cmdMultiplier = event.metaKey && !event.shiftKey ? 10 : 1;
+      setNextValue(value + direction * baseStep * cmdMultiplier, {
         source: "keyboard",
       });
       return;
@@ -138,6 +144,7 @@ export function ScrubInput({
       pointerId: event.pointerId,
       startX: event.clientX,
       startValue: value,
+      hasDragged: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
     setDragging(true);
@@ -147,6 +154,7 @@ export function ScrubInput({
     if (!dragging || dragRef.current.pointerId !== event.pointerId) return;
     const delta = event.clientX - dragRef.current.startX;
     if (delta === 0) return;
+    dragRef.current.hasDragged = true;
     const next =
       dragRef.current.startValue +
       delta *
@@ -160,7 +168,15 @@ export function ScrubInput({
   const endDrag = (event: PointerEvent<HTMLLabelElement>) => {
     if (dragRef.current.pointerId !== event.pointerId) return;
     event.currentTarget.releasePointerCapture(event.pointerId);
+    const wasDrag = dragRef.current.hasDragged;
     setDragging(false);
+    // If the pointer was released without dragging (a plain click), focus the
+    // input so the user can type immediately — mirrors Figma's label click
+    // behaviour (the event.preventDefault() in handlePointerDown blocks the
+    // native label→input focus transfer).
+    if (!wasDrag && !disabled) {
+      inputRef.current?.focus();
+    }
   };
 
   return (
@@ -174,9 +190,10 @@ export function ScrubInput({
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
             className={cn(
-              "flex h-6 w-20 shrink-0 cursor-ew-resize select-none items-center gap-1 text-[11px] text-muted-foreground",
-              "hover:bg-[var(--design-editor-control-bg)] hover:rounded-sm",
-              dragging && "text-foreground",
+              "flex h-6 w-20 shrink-0 cursor-ew-resize select-none items-center gap-1 rounded-sm text-[11px] text-muted-foreground transition-colors",
+              "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+              dragging &&
+                "bg-[var(--design-editor-control-bg)] text-foreground",
               disabled && "pointer-events-none cursor-not-allowed opacity-50",
               labelClassName,
             )}
@@ -185,9 +202,10 @@ export function ScrubInput({
             <span className="truncate">{label}</span>
           </Label>
         </TooltipTrigger>
-        <TooltipContent>{`${label}. Drag to scrub, use arrows to step.`}</TooltipContent>
+        <TooltipContent>{`${label} — drag to scrub · ↑↓ step · Shift ×10 · ⌥ fine`}</TooltipContent>
       </Tooltip>
       <Input
+        ref={inputRef}
         id={inputId}
         value={draft}
         disabled={disabled}
@@ -196,7 +214,7 @@ export function ScrubInput({
         aria-label={ariaLabel ?? label}
         onFocus={(event) => {
           setFocused(true);
-          event.target.select();
+          event.currentTarget.select();
         }}
         onBlur={() => {
           setFocused(false);
@@ -208,7 +226,12 @@ export function ScrubInput({
         }}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={handleKeyDown}
-        className={cn("h-6 text-[11px] tabular-nums", inputClassName)}
+        className={cn(
+          // Compact Figma-style: h-6, 11px tabular text, ring-1 with no offset.
+          "h-6 text-[11px] tabular-nums",
+          "focus-visible:ring-1 focus-visible:ring-offset-0",
+          inputClassName,
+        )}
       />
     </div>
   );

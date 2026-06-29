@@ -22,6 +22,7 @@ function dashboardLayoutSummary(config: Record<string, unknown>) {
   const columns = clampDashboardColumns(config.columns);
   const groups = buildDashboardPanelGroups(panels, columns);
   const panelOrder = getPanelOrder(config);
+  let visibleRowNumber = 1;
 
   return {
     panelCount: panelOrder.length,
@@ -32,10 +33,14 @@ function dashboardLayoutSummary(config: Record<string, unknown>) {
       sectionId: group.section?.id ?? null,
       sectionTitle: group.section?.title ?? null,
       columns: group.columns,
-      rows: group.rows.map((row, rowIndex) => ({
-        rowIndex,
-        panelIds: row.panels.map((panel) => panel.id),
-      })),
+      rows: group.rows.map((row, rowIndex) => {
+        const rowNumber = visibleRowNumber++;
+        return {
+          rowNumber,
+          rowIndex,
+          panelIds: row.panels.map((panel) => panel.id),
+        };
+      }),
     })),
   };
 }

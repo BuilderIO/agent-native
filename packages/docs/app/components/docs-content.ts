@@ -289,7 +289,7 @@ function buildSearchIndexFromDocs(
       .map((line) => line.text)
       .filter((l) => !l.startsWith("#"))
       .join(" ")
-      .replace(/[`*_\[\](){}]/g, "")
+      .replace(/[`*_[\](){}]/g, "")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -322,7 +322,7 @@ function buildSearchIndexFromDocs(
         .map((line) => line.text)
         .filter((l) => !l.startsWith("#"))
         .join(" ")
-        .replace(/[`*_\[\](){}]/g, "")
+        .replace(/[`*_[\](){}]/g, "")
         .replace(/\s+/g, " ")
         .trim();
 

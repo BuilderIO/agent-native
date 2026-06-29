@@ -57,7 +57,17 @@ describe("get-sql-dashboard seed fallback", () => {
 
     const result = (await getSqlDashboard.run({ id: "seeded" })) as {
       panels: Array<{ id: string; index: number }>;
-      layout: { panelOrder: string[]; firstPanelIds: string[] };
+      layout: {
+        panelOrder: string[];
+        firstPanelIds: string[];
+        groups: Array<{
+          rows: Array<{
+            rowNumber: number;
+            rowIndex: number;
+            panelIds: string[];
+          }>;
+        }>;
+      };
       ownerEmail: string | null;
       visibility: string;
     };
@@ -66,6 +76,9 @@ describe("get-sql-dashboard seed fallback", () => {
     expect(result.panels[0].index).toBe(0);
     expect(result.layout.panelOrder).toEqual(["seed-panel"]);
     expect(result.layout.firstPanelIds).toEqual(["seed-panel"]);
+    expect(result.layout.groups[0].rows).toEqual([
+      { rowNumber: 1, rowIndex: 0, panelIds: ["seed-panel"] },
+    ]);
     expect(result.ownerEmail).toBeNull();
     expect(result.visibility).toBe("org");
   });

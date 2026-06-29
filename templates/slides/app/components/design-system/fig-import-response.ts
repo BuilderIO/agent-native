@@ -1,18 +1,13 @@
-import type { DesignSystemData } from "../../../shared/api";
-
 export interface FigImportResult {
   ok: boolean;
+  source: "builder";
   suggestedTitle: string;
-  data: DesignSystemData;
-  customInstructions: string;
-  preview: {
-    gradients: string[];
-    palette: { hex: string; name?: string; count: number }[];
-    namedColors: Record<string, string>;
-    thumbnailDataUrl: string | null;
-    nodeCount: number;
-    imageCount: number;
-  };
+  projectId: string;
+  jobId: string;
+  designSystemId: string;
+  builderUrl: string;
+  status: "in-progress";
+  builderConnectUrl?: string;
 }
 
 export const MAX_FIG_UPLOAD_BYTES = 200 * 1024 * 1024;
@@ -51,7 +46,8 @@ export async function readFigImportResponse(
   }
 
   if (json && typeof json === "object" && "error" in json) {
-    const error = (json as { error?: unknown }).error;
+    const error = (json as { error?: unknown; builderConnectUrl?: unknown })
+      .error;
     throw new Error(
       typeof error === "string"
         ? error

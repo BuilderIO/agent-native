@@ -63,6 +63,11 @@ const messages = {
       codeConfidence: "程式碼",
       export: "匯出",
     },
+    textResize: {
+      autoWidth: "自動寬度",
+      autoHeight: "自動高度",
+      fixed: "固定大小",
+    },
     labels: {
       background: "背景",
       font: "字型",
@@ -242,6 +247,7 @@ const messages = {
     notFound: "未找到設計",
     backToDesigns: "返回設計",
     clickToRename: "點選重新命名",
+    collaborators: "協作者",
     modes: {
       annotate: "註解",
       comment: "評論",
@@ -255,6 +261,12 @@ const messages = {
       move: "移動",
       frame: "畫框",
       rect: "矩形",
+      line: "線條",
+      arrow: "箭頭",
+      ellipse: "橢圓",
+      polygon: "多邊形",
+      star: "星形",
+      imageVideo: "圖片/影片...",
       text: "文字",
       pen: "鋼筆",
       hand: "手形",
@@ -395,6 +407,7 @@ const messages = {
   layersPanel: {
     title: "圖層",
     screens: "畫面",
+    thumbnail: "縮圖",
     addScreen: "新增畫面",
     searchPlaceholder: "搜尋圖層...",
     empty: "沒有圖層",

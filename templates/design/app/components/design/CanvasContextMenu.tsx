@@ -1,26 +1,4 @@
 import {
-  IconArrowBarToDown,
-  IconArrowBarToUp,
-  IconArrowDown,
-  IconArrowUp,
-  IconClipboard,
-  IconClipboardCopy,
-  IconCode,
-  IconCopy,
-  IconEye,
-  IconEyeOff,
-  IconHierarchy,
-  IconLayersSubtract,
-  IconLock,
-  IconLockOpen,
-  IconPencil,
-  IconSelectAll,
-  IconTrash,
-  IconZoomInArea,
-  IconZoomScan,
-  type Icon,
-} from "@tabler/icons-react";
-import {
   forwardRef,
   useCallback,
   useImperativeHandle,
@@ -231,42 +209,46 @@ const DEFAULT_LABELS: CanvasContextMenuLabels = {
 };
 
 const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
-  pasteHere: "Cmd+V",
-  selectAll: "Cmd+A",
-  zoomToFit: "Shift+1",
-  zoomToSelection: "Shift+2",
-  copy: "Cmd+C",
-  paste: "Cmd+V",
-  pasteOver: "Shift+Cmd+V",
-  duplicate: "Cmd+D",
-  delete: "Del",
-  bringForward: "Cmd+]",
-  bringToFront: "Opt+Cmd+]",
-  sendBackward: "Cmd+[",
-  sendToBack: "Opt+Cmd+[",
-  group: "Cmd+G",
-  ungroup: "Shift+Cmd+G",
-  rename: "Cmd+R",
-  copyProps: "Opt+Cmd+C",
-  pasteProps: "Opt+Cmd+V",
-  copyAsCode: "Shift+Cmd+C",
+  pasteHere: "⌘V",
+  selectAll: "⌘A",
+  zoomToFit: "⇧1",
+  zoomToSelection: "⇧2",
+  copy: "⌘C",
+  paste: "⌘V",
+  pasteOver: "⇧⌘V",
+  duplicate: "⌘D",
+  delete: "⌫",
+  bringForward: "⌘]",
+  bringToFront: "⌥⌘]",
+  sendBackward: "⌘[",
+  sendToBack: "⌥⌘[",
+  group: "⌘G",
+  ungroup: "⇧⌘G",
+  rename: "⌘R",
+  copyProps: "⌥⌘C",
+  pasteProps: "⌥⌘V",
+  copyAsCode: "⇧⌘C",
 };
 
 type ActionCallbackMap = Partial<
   Record<CanvasContextMenuAction, CanvasContextMenuActionHandler>
 >;
 
+// Figma-style menu chrome: compact, dark-border, subtle shadow, no animation jitter
 const MENU_CONTENT_CLASS =
-  "w-60 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[11px] text-foreground shadow-[0_8px_28px_rgba(0,0,0,0.18)] outline-none animate-none data-[state=open]:animate-none data-[state=closed]:animate-none data-[side=bottom]:slide-in-from-top-0 data-[side=left]:slide-in-from-right-0 data-[side=right]:slide-in-from-left-0 data-[side=top]:slide-in-from-bottom-0";
+  "w-52 min-w-[200px] rounded-[6px] border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] py-[3px] px-[3px] text-[12px] text-foreground shadow-[0_4px_16px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.08)] outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-[0.97] data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 duration-100";
+// Figma row height ~28px, full-width highlight on hover, no icon gap waste
 const MENU_ITEM_CLASS =
-  "h-6 gap-2 rounded-[3px] px-1.5 py-0 text-[11px] leading-none focus:bg-[var(--design-editor-selection-color)] focus:text-foreground data-[disabled]:opacity-40";
-const MENU_ICON_CLASS = "mr-0 size-3.5 shrink-0 text-muted-foreground";
+  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none gap-0 focus:bg-[var(--design-editor-selection-color)] focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-35";
+// Submenu trigger mirrors item styles + chevron sizing
 const MENU_SUB_TRIGGER_CLASS =
-  "h-6 rounded-[3px] px-1.5 py-0 text-[11px] leading-none focus:bg-[var(--design-editor-selection-color)] focus:text-foreground data-[state=open]:bg-[var(--design-editor-selection-color)] data-[state=open]:text-foreground [&>svg:last-child]:size-3.5 [&>svg:last-child]:text-muted-foreground";
+  "flex h-7 cursor-default select-none items-center rounded-[4px] px-2 py-0 text-[12px] leading-none focus:bg-[var(--design-editor-selection-color)] focus:text-white data-[state=open]:bg-[var(--design-editor-selection-color)] data-[state=open]:text-white [&>svg:last-child]:ms-auto [&>svg:last-child]:size-3 [&>svg:last-child]:opacity-50";
+// Separator: 1px, full-width flush, Figma-like muted line
 const MENU_SEPARATOR_CLASS =
-  "-mx-1 my-1 bg-[var(--design-editor-control-border)]";
+  "mx-0 my-[3px] h-px bg-[var(--design-editor-control-border)] opacity-80";
+// Shortcut: right-aligned, muted, use system UI for symbol rendering
 const MENU_SHORTCUT_CLASS =
-  "ml-auto pl-6 text-[10px] tracking-normal text-muted-foreground";
+  "ms-auto ps-4 font-normal text-[11px] tracking-normal text-muted-foreground/70 tabular-nums";
 
 export const CanvasContextMenu = forwardRef<
   CanvasContextMenuHandle,
@@ -496,7 +478,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("paste-here")}
             disabled={!canRun("paste-here", canPasteHere)}
-            icon={IconClipboard}
             label={labels.pasteHere}
             shortcut={shortcuts.pasteHere}
             onSelect={(event) => runAction("paste-here", event)}
@@ -504,7 +485,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("select-all")}
             disabled={!canRun("select-all", canSelectAll)}
-            icon={IconSelectAll}
             label={labels.selectAll}
             shortcut={shortcuts.selectAll}
             onSelect={(event) => runAction("select-all", event)}
@@ -517,7 +497,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("zoom-to-fit")}
             disabled={!canRun("zoom-to-fit", canZoomToFit)}
-            icon={IconZoomScan}
             label={labels.zoomToFit}
             shortcut={shortcuts.zoomToFit}
             onSelect={(event) => runAction("zoom-to-fit", event)}
@@ -525,7 +504,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("zoom-to-selection")}
             disabled={!canRun("zoom-to-selection", canZoomToSelection)}
-            icon={IconZoomInArea}
             label={labels.zoomToSelection}
             shortcut={shortcuts.zoomToSelection}
             onSelect={(event) => runAction("zoom-to-selection", event)}
@@ -538,7 +516,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("copy")}
             disabled={!canRun("copy", canCopy)}
-            icon={IconCopy}
             label={labels.copy}
             shortcut={shortcuts.copy}
             onSelect={(event) => runAction("copy", event)}
@@ -546,7 +523,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("paste")}
             disabled={!canRun("paste", canPaste)}
-            icon={IconClipboard}
             label={labels.paste}
             shortcut={shortcuts.paste}
             onSelect={(event) => runAction("paste", event)}
@@ -554,7 +530,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("paste-over")}
             disabled={!canRun("paste-over", canPasteOver)}
-            icon={IconClipboardCopy}
             label={labels.pasteOver}
             shortcut={shortcuts.pasteOver}
             onSelect={(event) => runAction("paste-over", event)}
@@ -562,7 +537,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("duplicate")}
             disabled={!canRun("duplicate", canDuplicate)}
-            icon={IconCopy}
             label={labels.duplicate}
             shortcut={shortcuts.duplicate}
             onSelect={(event) => runAction("duplicate", event)}
@@ -588,14 +562,12 @@ export const CanvasContextMenu = forwardRef<
                 }
                 className={MENU_SUB_TRIGGER_CLASS}
               >
-                <IconArrowUp className={MENU_ICON_CLASS} />
                 {labels.order}
               </ContextMenuSubTrigger>
-              <ContextMenuSubContent className={cn(MENU_CONTENT_CLASS, "w-56")}>
+              <ContextMenuSubContent className={cn(MENU_CONTENT_CLASS, "w-52")}>
                 <CanvasMenuItem
                   hidden={isHiddenAction("bring-forward")}
                   disabled={!canRun("bring-forward", canReorder)}
-                  icon={IconArrowUp}
                   label={labels.bringForward}
                   shortcut={shortcuts.bringForward}
                   onSelect={(event) => runAction("bring-forward", event)}
@@ -603,7 +575,6 @@ export const CanvasContextMenu = forwardRef<
                 <CanvasMenuItem
                   hidden={isHiddenAction("bring-to-front")}
                   disabled={!canRun("bring-to-front", canReorder)}
-                  icon={IconArrowBarToUp}
                   label={labels.bringToFront}
                   shortcut={shortcuts.bringToFront}
                   onSelect={(event) => runAction("bring-to-front", event)}
@@ -611,7 +582,6 @@ export const CanvasContextMenu = forwardRef<
                 <CanvasMenuItem
                   hidden={isHiddenAction("send-backward")}
                   disabled={!canRun("send-backward", canReorder)}
-                  icon={IconArrowDown}
                   label={labels.sendBackward}
                   shortcut={shortcuts.sendBackward}
                   onSelect={(event) => runAction("send-backward", event)}
@@ -619,7 +589,6 @@ export const CanvasContextMenu = forwardRef<
                 <CanvasMenuItem
                   hidden={isHiddenAction("send-to-back")}
                   disabled={!canRun("send-to-back", canReorder)}
-                  icon={IconArrowBarToDown}
                   label={labels.sendToBack}
                   shortcut={shortcuts.sendToBack}
                   onSelect={(event) => runAction("send-to-back", event)}
@@ -630,7 +599,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("group")}
             disabled={!canRun("group", canGroup)}
-            icon={IconHierarchy}
             label={labels.group}
             shortcut={shortcuts.group}
             onSelect={(event) => runAction("group", event)}
@@ -638,7 +606,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("ungroup")}
             disabled={!canRun("ungroup", canUngroup)}
-            icon={IconLayersSubtract}
             label={labels.ungroup}
             shortcut={shortcuts.ungroup}
             onSelect={(event) => runAction("ungroup", event)}
@@ -651,7 +618,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("rename")}
             disabled={!canRun("rename", canRename)}
-            icon={IconPencil}
             label={labels.rename}
             shortcut={shortcuts.rename}
             onSelect={(event) => runAction("rename", event)}
@@ -659,14 +625,12 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("toggle-lock")}
             disabled={!canRun("toggle-lock", canToggleLocked)}
-            icon={isLocked ? IconLockOpen : IconLock}
             label={isLocked ? labels.unlock : labels.lock}
             onSelect={(event) => runAction("toggle-lock", event)}
           />
           <CanvasMenuItem
             hidden={isHiddenAction("toggle-hide")}
             disabled={!canRun("toggle-hide", canToggleHidden)}
-            icon={isHidden ? IconEye : IconEyeOff}
             label={isHidden ? labels.show : labels.hide}
             onSelect={(event) => runAction("toggle-hide", event)}
           />
@@ -678,7 +642,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("copy-props")}
             disabled={!canRun("copy-props", canCopyProps)}
-            icon={IconClipboardCopy}
             label={labels.copyProps}
             shortcut={shortcuts.copyProps}
             onSelect={(event) => runAction("copy-props", event)}
@@ -686,7 +649,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("paste-props")}
             disabled={!canRun("paste-props", canPasteProps)}
-            icon={IconClipboard}
             label={labels.pasteProps}
             shortcut={shortcuts.pasteProps}
             onSelect={(event) => runAction("paste-props", event)}
@@ -694,7 +656,6 @@ export const CanvasContextMenu = forwardRef<
           <CanvasMenuItem
             hidden={isHiddenAction("copy-as-code")}
             disabled={!canRun("copy-as-code", canCopyAsCode)}
-            icon={IconCode}
             label={labels.copyAsCode}
             shortcut={shortcuts.copyAsCode}
             onSelect={(event) => runAction("copy-as-code", event)}
@@ -706,7 +667,6 @@ export const CanvasContextMenu = forwardRef<
         <CanvasMenuItem
           hidden={isHiddenAction("delete")}
           disabled={!canRun("delete", canDelete)}
-          icon={IconTrash}
           label={labels.delete}
           shortcut={shortcuts.delete}
           destructive
@@ -721,7 +681,6 @@ function CanvasMenuItem({
   hidden,
   disabled,
   destructive,
-  icon: Icon,
   label,
   shortcut,
   onSelect,
@@ -729,7 +688,6 @@ function CanvasMenuItem({
   hidden?: boolean;
   disabled?: boolean;
   destructive?: boolean;
-  icon: Icon;
   label: string;
   shortcut?: string;
   onSelect: (event: Event) => void;
@@ -742,11 +700,11 @@ function CanvasMenuItem({
       onSelect={onSelect}
       className={cn(
         MENU_ITEM_CLASS,
-        destructive && "text-destructive focus:text-destructive",
+        destructive &&
+          "text-destructive focus:bg-destructive/10 focus:text-destructive",
       )}
     >
-      <Icon className={MENU_ICON_CLASS} />
-      <span className="truncate">{label}</span>
+      <span className="flex-1 truncate">{label}</span>
       {shortcut ? (
         <ContextMenuShortcut className={MENU_SHORTCUT_CLASS}>
           {shortcut}
