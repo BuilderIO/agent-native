@@ -4198,7 +4198,6 @@ export default function DesignEditor() {
       setCollabContent(nextContent);
       lastLocalContentRef.current = nextContent;
       if (id) {
-        const optimisticUpdatedAt = new Date().toISOString();
         queryClient.setQueryData(
           ["action", "get-design", { id }],
           (old: any) => {
@@ -4209,11 +4208,12 @@ export default function DesignEditor() {
               ...old,
               files: old.files.map((file: DesignFile) =>
                 file.id === activeFile.id
-                  ? {
-                      ...file,
-                      content: nextContent,
-                      updatedAt: optimisticUpdatedAt,
-                    }
+                  ? // Update content optimistically but keep the file's prior
+                    // (server-clock) updatedAt. Seeding the reconcile watermark
+                    // from a client-clock timestamp can, under clock skew, make a
+                    // later server-authored agent edit look "older" and get
+                    // dropped by the watermark gate (agent edit silently lost).
+                    { ...file, content: nextContent }
                   : file,
               ),
             };
