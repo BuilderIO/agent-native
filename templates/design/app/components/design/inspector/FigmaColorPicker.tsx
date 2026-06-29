@@ -155,6 +155,13 @@ export interface FigmaColorPickerProps {
   onAddGradientStop?: () => void;
   onRemoveGradientStop?: (id: string) => void;
   /**
+   * Colors already present in the document (e.g. unique hex values collected
+   * from the current selection or page). Rendered as a swatch grid under the
+   * "Document colors" heading — click any swatch to apply it. Deduplicated and
+   * limited in the caller; the component renders whatever is passed.
+   */
+  documentColors?: string[];
+  /**
    * Optional design context forwarded to the apply-shader action when a shader
    * fill is selected, so the agent can write real shader code for the target.
    */
@@ -590,6 +597,7 @@ export function FigmaColorPicker({
   onGradientStopChange: _onGradientStopChange,
   onAddGradientStop: _onAddGradientStop,
   onRemoveGradientStop: _onRemoveGradientStop,
+  documentColors,
   shaderContext,
   onShaderChange,
   labels,
@@ -1365,42 +1373,54 @@ export function FigmaColorPicker({
                   </div>
                 )}
 
-                {/* ── "On this page" source + swatches ────────────────────── */}
-                {/* No real document-color pipeline exists yet; show only the
-                    current color as the single real swatch. The source selector
-                    is kept for Figma visual parity but is non-interactive until
-                    a doc-color prop is wired in. */}
+                {/* ── Document colors ──────────────────────────────────────── */}
+                {/* Renders the palette of colors already used in the design.
+                    When `documentColors` is provided, those swatches are shown;
+                    otherwise falls back to the single current color so the
+                    section is never empty. */}
                 <div className="border-t border-border/70 px-3 py-2.5">
-                  {/* Source label — static, matches Figma layout */}
+                  {/* Source label — matches Figma layout */}
                   <div className="mb-2 flex h-6 w-full items-center justify-between px-0.5 text-[11px] text-muted-foreground">
                     {"Document colors" /* i18n-ignore Figma picker source */}
                   </div>
 
-                  {/* Swatch grid: only the active color until real data is wired */}
-                  <div className="flex flex-wrap gap-1">
-                    {(() => {
-                      const currentHex = rgbaToHex(color);
-                      const currentCss = rgbaToCss(color);
+                  {/* Swatch grid: document palette when available, else current color */}
+                  <div className="grid grid-cols-8 gap-1">
+                    {(documentColors && documentColors.length > 0
+                      ? documentColors
+                      : [rgbaToCss(color)]
+                    ).map((docColor) => {
+                      const currentHex = rgbaToHex(
+                        parseCssColor(docColor) ?? color,
+                      );
+                      const isActive =
+                        rgbaToHex(color) === currentHex && !activeGradient;
                       return (
-                        <Tooltip>
+                        <Tooltip key={docColor}>
                           <TooltipTrigger asChild>
                             <button
                               type="button"
                               disabled={disabled}
                               aria-label={currentHex}
-                              aria-pressed={true}
-                              className="size-5 rounded-sm border border-primary ring-1 ring-primary transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              style={swatchStyle(currentCss)}
+                              aria-pressed={isActive}
+                              className={cn(
+                                "size-5 rounded-sm border transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                isActive
+                                  ? "border-primary ring-1 ring-primary"
+                                  : "border-border/60",
+                              )}
+                              style={swatchStyle(docColor)}
                               onClick={() => {
-                                if (activeGradient) emitStopColor(color);
-                                else emitColor(color);
+                                const parsed = parseCssColor(docColor) ?? color;
+                                if (activeGradient) emitStopColor(parsed);
+                                else emitColor(parsed);
                               }}
                             />
                           </TooltipTrigger>
                           <TooltipContent>{currentHex}</TooltipContent>
                         </Tooltip>
                       );
-                    })()}
+                    })}
                   </div>
                 </div>
               </>

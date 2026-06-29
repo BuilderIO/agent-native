@@ -220,6 +220,7 @@ function ColorInput({
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
+  documentColors,
 }: {
   label: string;
   value: string;
@@ -229,6 +230,8 @@ function ColorInput({
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
+  /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
+  documentColors?: string[];
 }) {
   const [draft, setDraft] = useState(value);
   const [selectedFillId, setSelectedFillId] = useState(SOLID_FILL_ID);
@@ -459,6 +462,10 @@ function ColorInput({
       : colorHasVisibleAlpha(draft || value)
         ? "solid"
         : "none";
+  const pickerValue =
+    selectedLayerIndex !== null
+      ? (backgroundLayers[selectedLayerIndex] ?? draft ?? value ?? "#000000")
+      : draft || "#000000";
 
   const handlePaintTypeChange = (type: FigmaPaintType) => {
     const selectedLayer = fillLayerIndex(selectedFillId);
@@ -513,7 +520,7 @@ function ColorInput({
   return (
     <FigmaColorPicker
       label={label}
-      value={draft || "#000000"}
+      value={pickerValue}
       onChange={setNext}
       onPaintValueChange={
         supportsLayeredFills ? handlePaintValueChange : undefined
@@ -539,6 +546,7 @@ function ColorInput({
         supportsLayeredFills ? handleAddGradientStop : undefined
       }
       onRemoveGradientStop={handleRemoveGradientStop}
+      documentColors={documentColors}
     />
   );
 }
@@ -3265,9 +3273,51 @@ function FillProperties({
   const hasBackgroundLayer = !isTextElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
-  const fallbackValue = isTextElement
-    ? cssColorOrFallback(styles.color, "#000000")
-    : cssColorOrFallback(styles.backgroundColor, "#ffffff");
+
+  // Non-destructive fill hide: stash the color before hiding so toggling
+  // visible again restores the exact original value (Figma never loses color).
+  // Keyed by `${element.id ?? tagName}:${fillProperty}` so separate elements
+  // don't share stash slots.
+  const [hiddenFillStash, setHiddenFillStash] = useState<
+    Record<string, string>
+  >({});
+  const stashKey = `${element.id ?? element.tagName}:${fillProperty}`;
+  const isHidden = fillValue === "transparent" || fillValue === "";
+  const handleFillVisibilityToggle = () => {
+    if (isHidden) {
+      // Restore the stashed color, or fall back to a sensible default.
+      const restored =
+        hiddenFillStash[stashKey] ?? (isTextElement ? "#000000" : "#ffffff");
+      onStyleChange(fillProperty, restored);
+      setHiddenFillStash((prev) => {
+        const next = { ...prev };
+        delete next[stashKey];
+        return next;
+      });
+    } else {
+      // Stash the current color before going transparent.
+      setHiddenFillStash((prev) => ({ ...prev, [stashKey]: fillValue }));
+      onStyleChange(fillProperty, "transparent");
+    }
+  };
+
+  // Document colors: unique hex strings from all CSS color properties on the
+  // selected element, collected via the existing selectionColorValues helper.
+  const docColorHexes = selectionColorValues(element)
+    .map((c) => {
+      const parsed = parseCssColor(c.value);
+      return parsed ? rgbaToHex(parsed) : null;
+    })
+    .filter((h): h is string => Boolean(h));
+  // Deduplicate (selectionColorValues already dedupes by raw CSS value, but
+  // hex normalisation may collapse additional entries e.g. rgb vs #hex).
+  const seenHex = new Set<string>();
+  const documentColors = docColorHexes.filter((h) => {
+    const key = h.toUpperCase();
+    if (seenHex.has(key)) return false;
+    seenHex.add(key);
+    return true;
+  });
 
   return (
     <PanelSection
@@ -3334,23 +3384,19 @@ function FillProperties({
                       ? undefined
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
+                  documentColors={documentColors}
                 />
               </div>
               <SectionIconButton
                 className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={
-                  fillValue === "transparent"
+                  isHidden
                     ? t("editPanel.labels.showLayer")
                     : t("editPanel.labels.hideLayer")
                 }
-                onClick={() =>
-                  onStyleChange(
-                    fillProperty,
-                    fillValue === "transparent" ? fallbackValue : "transparent",
-                  )
-                }
+                onClick={handleFillVisibilityToggle}
               >
-                {fillValue === "transparent" ? (
+                {isHidden ? (
                   <IconEyeOff className="size-3.5" />
                 ) : (
                   <IconEye className="size-3.5" />
@@ -3436,7 +3482,7 @@ function FillProperties({
                         className="w-80 p-0"
                       >
                         <FigmaColorPicker
-                          value={gradient?.stops[0]?.color ?? "#000000"}
+                          value={gradient?.stops[0]?.color ?? layer}
                           onPaintValueChange={replaceLayer}
                           onChange={(nextColor) => {
                             if (!gradient) return;
