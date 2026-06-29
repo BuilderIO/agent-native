@@ -565,7 +565,7 @@ export function FigmaColorPicker({
           disabled={disabled}
           aria-label={copy.hex}
           spellCheck={false}
-          className="h-7 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] tabular-nums uppercase"
+          className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] tabular-nums uppercase"
           onChange={(e) => setHexDraft(e.target.value)}
           onFocus={(e) => e.target.select()}
           onKeyDown={(e) => {
@@ -681,14 +681,14 @@ export function FigmaColorPicker({
             disabled={disabled}
             aria-label={copy.trigger}
             className={cn(
-              "flex h-7 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-xs shadow-none",
+              "flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none",
               "hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
               disabled && "pointer-events-none opacity-50",
             )}
           >
             {/* Flat swatch chip — no shadow-inner (Figma is flat) */}
             <span
-              className="size-[18px] shrink-0 rounded-[3px] border border-border/60"
+              className="size-4 shrink-0 rounded-[3px] border border-border/60"
               style={swatchStyle(rgbaToCss(color))}
             />
             <span className="min-w-0 flex-1 truncate text-left tabular-nums uppercase text-[11px]">
@@ -709,8 +709,8 @@ export function FigmaColorPicker({
         >
           <div className="overflow-hidden rounded-md bg-popover text-popover-foreground">
             {/* ── Header: Custom | Libraries  +  ✕ ────────────────────────── */}
-            <div className="flex items-center justify-between px-3 py-2">
-              <div className="flex items-center gap-3">
+            <div className="flex items-center justify-between px-3 py-1.5">
+              <div className="flex items-center gap-2">
                 {(["custom", "libraries"] as const).map((tab) => (
                   <button
                     key={tab}
@@ -719,7 +719,7 @@ export function FigmaColorPicker({
                     aria-selected={sourceTab === tab}
                     onClick={() => setSourceTab(tab)}
                     className={cn(
-                      "cursor-pointer rounded px-1 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       sourceTab === tab
                         ? "bg-[var(--design-editor-control-bg)] text-foreground shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]"
                         : "text-muted-foreground hover:text-foreground",
@@ -741,9 +741,9 @@ export function FigmaColorPicker({
                       "Close" /* i18n-ignore Figma picker close label */
                     }
                     onClick={() => setOpen(false)}
-                    className="flex size-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <IconX className="size-3.5" />
+                    <IconX className="size-3" />
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>{"Close" /* i18n-ignore */}</TooltipContent>
@@ -753,8 +753,8 @@ export function FigmaColorPicker({
             {sourceTab === "custom" ? (
               <>
                 {/* ── Paint-type icon row ──────────────────────────────────── */}
-                <div className="border-t border-border/70 px-3 py-2">
-                  <div className="grid grid-cols-7 gap-0.5">
+                <div className="border-t border-border/70 px-2 py-1.5">
+                  <div className="grid grid-cols-7 gap-px">
                     {PAINT_TYPES.map(({ type, label, Icon }) => {
                       const isActive = effectivePaintType === type;
                       const isGradientType =
@@ -781,7 +781,7 @@ export function FigmaColorPicker({
                               disabled={isDisabled}
                               onClick={() => setPaintType(type)}
                               className={cn(
-                                "flex size-7 cursor-pointer items-center justify-center rounded-sm transition-colors",
+                                "flex h-6 w-full cursor-pointer items-center justify-center rounded-sm transition-colors",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                 "active:scale-95",
                                 isActive
@@ -800,8 +800,8 @@ export function FigmaColorPicker({
                   </div>
                 </div>
 
-                {/* ── 2D Saturation/Brightness field ──────────────────────── */}
-                <div className="border-t border-border/70 px-3 pt-3">
+                {/* ── 2D Saturation/Brightness field (edge-to-edge, no side padding) */}
+                <div className="border-t border-border/70">
                   <SaturationBrightnessField
                     hsv={hsv}
                     label={copy.saturationBrightness}
@@ -812,7 +812,7 @@ export function FigmaColorPicker({
 
                 {/* ── Eyedropper + Hue slider / Swatch + Alpha slider ─────── */}
                 {/* Left gutter spans both rows with dropper centered vertically */}
-                <div className="mt-3 px-3">
+                <div className="mt-2.5 px-3">
                   <div className="grid grid-cols-[1.5rem_1fr] items-center gap-x-2">
                     {/* Eyedropper centered across the two slider rows via row-span-2 */}
                     <div className="row-span-2 flex items-center justify-center">
@@ -886,31 +886,31 @@ export function FigmaColorPicker({
                 </div>
 
                 {/* ── Value row: [Hex ▾] [value input(s)] [opacity %] ─────── */}
-                <div className="mt-3 px-3 pb-3">
-                  <div className="grid grid-cols-[5rem_1fr_3.5rem] items-center gap-1.5">
+                <div className="mt-2.5 px-3 pb-3">
+                  <div className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-1">
                     {/* Model dropdown */}
                     <Select
                       value={mode}
                       onValueChange={(v) => setMode(v as FigmaColorMode)}
                       disabled={disabled}
                     >
-                      <SelectTrigger className="h-7 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] font-medium [&>svg]:size-3 [&>svg]:shrink-0">
+                      <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] font-medium [&>svg]:size-3 [&>svg]:shrink-0">
                         <SelectValue />
                       </SelectTrigger>
-                      <SelectContent className="text-xs">
-                        <SelectItem value="hex" className="text-xs">
+                      <SelectContent className="text-[11px]">
+                        <SelectItem value="hex" className="text-[11px]">
                           Hex
                         </SelectItem>{" "}
                         {/* i18n-ignore color mode */}
-                        <SelectItem value="rgb" className="text-xs">
+                        <SelectItem value="rgb" className="text-[11px]">
                           RGB
                         </SelectItem>{" "}
                         {/* i18n-ignore color mode */}
-                        <SelectItem value="hsl" className="text-xs">
+                        <SelectItem value="hsl" className="text-[11px]">
                           HSL
                         </SelectItem>{" "}
                         {/* i18n-ignore color mode */}
-                        <SelectItem value="hsb" className="text-xs">
+                        <SelectItem value="hsb" className="text-[11px]">
                           HSB
                         </SelectItem>{" "}
                         {/* i18n-ignore color mode */}
@@ -921,7 +921,7 @@ export function FigmaColorPicker({
                     {renderValueInputs()}
 
                     {/* Opacity % field */}
-                    <div className="flex h-7 overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
+                    <div className="flex h-6 overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
                       <ScrubbyNumberInput
                         aria-label={copy.opacity}
                         value={effectiveOpacity}
@@ -929,10 +929,10 @@ export function FigmaColorPicker({
                         max={100}
                         disabled={disabled}
                         onChange={setOpacity}
-                        className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1.5 text-[11px] tabular-nums shadow-none focus-visible:ring-0"
+                        className="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent px-1 text-[11px] tabular-nums shadow-none focus-visible:ring-0"
                         compact
                       />
-                      <span className="flex w-5 shrink-0 items-center justify-center border-l border-border/60 text-[10px] text-muted-foreground">
+                      <span className="flex w-4 shrink-0 items-center justify-center border-l border-border/60 text-[10px] text-muted-foreground">
                         %
                       </span>
                     </div>
@@ -940,11 +940,11 @@ export function FigmaColorPicker({
                 </div>
 
                 {/* ── "On this page" source + swatches ────────────────────── */}
-                <div className="border-t border-border/70 px-3 py-3">
+                <div className="border-t border-border/70 px-3 py-2.5">
                   {/* Source selector styled as a full-width bordered dropdown */}
                   <button
                     type="button"
-                    className="mb-2.5 flex h-7 w-full items-center justify-between rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left text-[11px] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]"
+                    className="mb-2 flex h-6 w-full items-center justify-between rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left text-[11px] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]"
                   >
                     {"On this page" /* i18n-ignore Figma picker source */}
                     <IconChevronDown className="size-3 text-muted-foreground" />
@@ -1085,8 +1085,8 @@ function SaturationBrightnessField({
       }}
       onKeyDown={stepWithKeyboard}
       className={cn(
-        "relative h-48 w-full cursor-crosshair overflow-hidden rounded-md border border-border/60 outline-none",
-        "ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "relative h-48 w-full cursor-crosshair overflow-hidden outline-none",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         "active:cursor-grabbing",
         disabled && "cursor-not-allowed opacity-60",
       )}
@@ -1254,7 +1254,7 @@ function ScrubbyNumberInput({
       max={max}
       disabled={disabled}
       className={cn(
-        "h-7 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center text-[11px] tabular-nums",
+        "h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-center text-[11px] tabular-nums",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         compact && "border-0 shadow-none focus-visible:ring-0",
         className,

@@ -10,7 +10,7 @@ import {
   IconAlignCenter,
   IconAlignLeft,
   IconAlignRight,
-  IconArrowsMaximize,
+  IconBorderStyle,
   IconBrush,
   IconChevronDown,
   IconCode,
@@ -25,6 +25,9 @@ import {
   IconLayoutAlignMiddle,
   IconLayoutAlignRight,
   IconLayoutAlignTop,
+  IconLetterCase,
+  IconLetterSpacing,
+  IconLineHeight,
   IconLink,
   IconMaximize,
   IconMinus,
@@ -1680,13 +1683,16 @@ function StrokeLayerControl({
   };
 
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-[1fr_auto_auto] items-start gap-1.5">
-        <ColorInput
-          label=""
-          value={cssColorOrFallback(color, "#000000")}
-          onChange={(value) => onStyleChange(`${prefix}Color`, value)}
-        />
+    <div className="space-y-1.5">
+      {/* Figma stroke row: [swatch+hex trigger (flex-1)] [eye] [remove] */}
+      <div className="flex items-center gap-1.5">
+        <div className="min-w-0 flex-1">
+          <ColorInput
+            label=""
+            value={cssColorOrFallback(color, "#000000")}
+            onChange={(value) => onStyleChange(`${prefix}Color`, value)}
+          />
+        </div>
         <SectionIconButton
           label={
             visible
@@ -1718,42 +1724,41 @@ function StrokeLayerControl({
           <IconMinus className="size-3.5" />
         </SectionIconButton>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <SubsectionLabel>{t("editPanel.labels.position")}</SubsectionLabel>
-          <Select value={position} onValueChange={movePosition}>
-            <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {strokePositionOptions.map((option) => (
-                <SelectItem
-                  key={option.value}
-                  value={option.value}
-                  className="text-[11px]"
-                >
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1">
-          <SubsectionLabel>{t("editPanel.labels.weight")}</SubsectionLabel>
-          <ScrubStyleInput
-            label="↔"
-            value={width}
-            onChange={(value) =>
-              onStyleChange(
-                `${prefix}Width`,
-                `${Math.max(0, Math.round(value))}px`,
-              )
-            }
-            unit="px"
-            min={0}
-            inputClassName="h-6"
-          />
-        </div>
+      {/* Figma stroke geometry: position + weight side by side */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <Select value={position} onValueChange={movePosition}>
+          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {strokePositionOptions.map((option) => (
+              <SelectItem
+                key={option.value}
+                value={option.value}
+                className="text-[11px]"
+              >
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <ScrubInput
+          label={t("editPanel.labels.weight")}
+          icon={IconBorderStyle}
+          value={cssLengthNumber(width)}
+          onChange={(value) =>
+            onStyleChange(
+              `${prefix}Width`,
+              `${Math.max(0, Math.round(value))}px`,
+            )
+          }
+          unit="px"
+          min={0}
+          precision={1}
+          className="gap-0"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px]"
+          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        />
       </div>
     </div>
   );
@@ -1865,22 +1870,23 @@ function ShadowEffectRow({
   const t = useT();
   return (
     <Popover>
-      <div className="flex items-center gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-1.5">
+      {/* Figma effect row: [swatch+label+x,y,blur trigger (flex-1)] [remove] */}
+      <div className="flex items-center gap-1.5">
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="min-w-0 flex flex-1 items-center gap-2 rounded px-1 text-left hover:bg-[var(--design-editor-panel-bg)]"
+            className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
           >
             <span
-              className="size-4 rounded border border-[var(--design-editor-control-border)]"
+              className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
               style={swatchStyle(layer.color)}
             />
-            <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
+            <span className="min-w-0 flex-1 truncate font-medium text-foreground">
               {index === 0
                 ? t("editPanel.labels.dropShadow")
                 : `${t("editPanel.labels.dropShadow")} ${index + 1}`}
             </span>
-            <span className="text-[11px] tabular-nums text-muted-foreground">
+            <span className="shrink-0 tabular-nums text-muted-foreground">
               {Math.round(layer.x)}, {Math.round(layer.y)},{" "}
               {Math.round(layer.blur)}
             </span>
@@ -2036,75 +2042,119 @@ function TypographyProperties({
 
   return (
     <PanelSection title={t("editPanel.sections.typography")}>
-      <PropSelect
-        label={t("editPanel.labels.font")}
+      {/* Row 1: font family full-width */}
+      <Select
         value={styles.fontFamily || "sans-serif"}
-        onChange={(v) => onStyleChange("fontFamily", v)}
-        options={fontFamilyOptions}
-      />
-      <ScrubStyleInput
-        label={t("editPanel.labels.size")}
-        value={styles.fontSize || ""}
-        placeholder={16}
-        onChange={(value) =>
-          onStyleChange("fontSize", `${Math.max(1, Math.round(value))}px`)
-        }
-        unit="px"
-        min={1}
-        inputClassName="h-6"
-      />
-      <PropSelect
-        label={t("editPanel.labels.weight")}
-        value={styles.fontWeight || "400"}
-        onChange={(v) => onStyleChange("fontWeight", v)}
-        options={fontWeightOptions}
-      />
-      <div className="flex items-center gap-1.5">
-        <FieldLabel>{t("editPanel.labels.align")}</FieldLabel>
-        <InspectorSegment>
-          <InspectorIconButton
-            label={t("editPanel.textAligns.left")}
-            active={textAlign === "left" || textAlign === "start"}
-            onClick={() => onStyleChange("textAlign", "left")}
-          >
-            <IconAlignLeft className="size-4" />
-          </InspectorIconButton>
-          <InspectorIconButton
-            label={t("editPanel.textAligns.center")}
-            active={textAlign === "center"}
-            onClick={() => onStyleChange("textAlign", "center")}
-          >
-            <IconAlignCenter className="size-4" />
-          </InspectorIconButton>
-          <InspectorIconButton
-            label={t("editPanel.textAligns.right")}
-            active={textAlign === "right" || textAlign === "end"}
-            onClick={() => onStyleChange("textAlign", "right")}
-          >
-            <IconAlignRight className="size-4" />
-          </InspectorIconButton>
-        </InspectorSegment>
+        onValueChange={(v) => onStyleChange("fontFamily", v)}
+      >
+        <SelectTrigger className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {fontFamilyOptions.map((opt) => (
+            <SelectItem
+              key={opt.value}
+              value={opt.value}
+              className="text-[11px]"
+            >
+              {opt.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      {/* Row 2: weight + size side by side */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <Select
+          value={styles.fontWeight || "400"}
+          onValueChange={(v) => onStyleChange("fontWeight", v)}
+        >
+          <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {fontWeightOptions.map((opt) => (
+              <SelectItem
+                key={opt.value}
+                value={opt.value}
+                className="text-[11px]"
+              >
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <ScrubInput
+          label={t("editPanel.labels.size")}
+          icon={IconLetterCase}
+          value={styles.fontSize ? parseNumericValue(styles.fontSize) : 16}
+          onChange={(value) =>
+            onStyleChange("fontSize", `${Math.max(1, Math.round(value))}px`)
+          }
+          unit="px"
+          min={1}
+          precision={1}
+          className="gap-0"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px]"
+          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        />
       </div>
-      <ScrubInput
-        label={t("editPanel.labels.lineHeight")}
-        value={parseNumericValue(styles.lineHeight || "1.2")}
-        onChange={(value) =>
-          onStyleChange("lineHeight", String(Math.max(0.1, value)))
-        }
-        min={0.1}
-        step={0.1}
-        precision={2}
-        labelClassName="w-24"
-        inputClassName="h-6"
-      />
-      <ScrubStyleInput
-        label={t("editPanel.labels.tracking")}
-        value={styles.letterSpacing || ""}
-        placeholder={0}
-        onChange={(value) => onStyleChange("letterSpacing", `${value}px`)}
-        unit="px"
-        inputClassName="h-6"
-      />
+
+      {/* Row 3: line-height + letter-spacing with Figma-style leading icons */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <ScrubInput
+          label={t("editPanel.labels.lineHeight")}
+          icon={IconLineHeight}
+          value={parseNumericValue(styles.lineHeight || "1.2")}
+          onChange={(value) =>
+            onStyleChange("lineHeight", String(Math.max(0.1, value)))
+          }
+          min={0.1}
+          step={0.1}
+          precision={2}
+          className="gap-0"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px]"
+          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        />
+        <ScrubInput
+          label={t("editPanel.labels.tracking")}
+          icon={IconLetterSpacing}
+          value={
+            styles.letterSpacing ? parseNumericValue(styles.letterSpacing) : 0
+          }
+          onChange={(value) => onStyleChange("letterSpacing", `${value}px`)}
+          unit="px"
+          precision={1}
+          className="gap-0"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px]"
+          inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+        />
+      </div>
+
+      {/* Row 4: text alignment */}
+      <InspectorSegment>
+        <InspectorIconButton
+          label={t("editPanel.textAligns.left")}
+          active={textAlign === "left" || textAlign === "start"}
+          onClick={() => onStyleChange("textAlign", "left")}
+        >
+          <IconAlignLeft className="size-3.5" />
+        </InspectorIconButton>
+        <InspectorIconButton
+          label={t("editPanel.textAligns.center")}
+          active={textAlign === "center"}
+          onClick={() => onStyleChange("textAlign", "center")}
+        >
+          <IconAlignCenter className="size-3.5" />
+        </InspectorIconButton>
+        <InspectorIconButton
+          label={t("editPanel.textAligns.right")}
+          active={textAlign === "right" || textAlign === "end"}
+          onClick={() => onStyleChange("textAlign", "right")}
+        >
+          <IconAlignRight className="size-3.5" />
+        </InspectorIconButton>
+      </InspectorSegment>
     </PanelSection>
   );
 }
@@ -2340,54 +2390,8 @@ function LayoutContextProperties({
   if (!element.isFlexContainer) {
     return (
       <PanelSection title={t("editPanel.sections.layout")}>
-        <div className="space-y-1.5">
-          <SubsectionLabel>
-            {"Resizing" /* i18n-ignore Figma inspector label */}
-          </SubsectionLabel>
-          <InspectorSegment>
-            {(["hug", "fill", "fixed"] as AutoLayoutSizing[])
-              .filter(
-                (mode) =>
-                  availableSizing.horizontal?.includes(mode) &&
-                  availableSizing.vertical?.includes(mode),
-              )
-              .map((mode) => (
-                <InspectorIconButton
-                  key={mode}
-                  label={sizingModeLabel(mode)}
-                  active={
-                    inferElementSizing(element, "horizontal") === mode &&
-                    inferElementSizing(element, "vertical") === mode
-                  }
-                  onClick={() => {
-                    commitElementSizing(
-                      element,
-                      "horizontal",
-                      mode,
-                      onStyleChange,
-                      onStylesChange,
-                    );
-                    commitElementSizing(
-                      element,
-                      "vertical",
-                      mode,
-                      onStyleChange,
-                      onStylesChange,
-                    );
-                  }}
-                >
-                  {mode === "hug" ? (
-                    <IconLayoutAlignCenter className="size-4" />
-                  ) : mode === "fill" ? (
-                    <IconLayoutAlignRight className="size-4" />
-                  ) : (
-                    <IconArrowsMaximize className="size-4" />
-                  )}
-                </InspectorIconButton>
-              ))}
-          </InspectorSegment>
-        </div>
-        <div className="grid grid-cols-2 gap-2">
+        {/* Figma-style single-row-per-axis: [W | value | Fixed/Hug ▾] */}
+        <div className="grid grid-cols-2 gap-1.5">
           <SizingModeButton
             axis="W"
             value={inferElementSizing(element, "horizontal")}
@@ -2416,28 +2420,6 @@ function LayoutContextProperties({
                 onStyleChange,
                 onStylesChange,
               )
-            }
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <ScrubStyleInput
-            label="W"
-            value={element.computedStyles.width || ""}
-            placeholder={element.boundingRect.width}
-            min={1}
-            inputClassName="h-6"
-            onChange={(v) =>
-              onStyleChange("width", `${Math.max(1, Math.round(v))}px`)
-            }
-          />
-          <ScrubStyleInput
-            label="H"
-            value={element.computedStyles.height || ""}
-            placeholder={element.boundingRect.height}
-            min={1}
-            inputClassName="h-6"
-            onChange={(v) =>
-              onStyleChange("height", `${Math.max(1, Math.round(v))}px`)
             }
           />
         </div>
@@ -2757,23 +2739,26 @@ function FillProperties({
       {hasVisibleFill ? (
         <div className="space-y-1.5">
           {isTextElement || colorHasVisibleAlpha(fillValue) ? (
-            <div className="grid grid-cols-[1fr_auto_auto] items-start gap-1.5">
-              <ColorInput
-                label=""
-                value={fillValue}
-                onChange={(v) => onStyleChange(fillProperty, v)}
-                backgroundImage=""
-                blendMode={
-                  isTextElement
-                    ? undefined
-                    : styles.backgroundBlendMode || "normal"
-                }
-                onBlendModeChange={
-                  isTextElement
-                    ? undefined
-                    : (v) => onStyleChange("backgroundBlendMode", v)
-                }
-              />
+            /* Figma row: [swatch+hex trigger (flex-1)] [eye] [remove] */
+            <div className="flex items-center gap-1.5">
+              <div className="min-w-0 flex-1">
+                <ColorInput
+                  label=""
+                  value={fillValue}
+                  onChange={(v) => onStyleChange(fillProperty, v)}
+                  backgroundImage=""
+                  blendMode={
+                    isTextElement
+                      ? undefined
+                      : styles.backgroundBlendMode || "normal"
+                  }
+                  onBlendModeChange={
+                    isTextElement
+                      ? undefined
+                      : (v) => onStyleChange("backgroundBlendMode", v)
+                  }
+                />
+              </div>
               <SectionIconButton
                 label={
                   fillValue === "transparent"
@@ -2842,15 +2827,16 @@ function FillProperties({
                 };
 
                 return (
+                  /* Figma row: [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
                   <div
                     key={`${layer}-${index}`}
-                    className="grid grid-cols-[1fr_auto_auto] items-center gap-1.5"
+                    className="flex items-center gap-1.5"
                   >
                     <Popover>
                       <PopoverTrigger asChild>
                         <button
                           type="button"
-                          className="flex h-6 min-w-0 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+                          className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
                         >
                           <span
                             className="size-4 shrink-0 rounded-sm border border-[var(--design-editor-control-border)]"
@@ -3176,11 +3162,22 @@ function EffectsProperties({
         </div>
       ) : null}
       {blurValue > 0 ? (
-        <div className="rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-2">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-foreground">
-              {t("editPanel.labels.layerBlur")}
-            </span>
+        /* Figma effect row for layer blur: flat row matching shadow rows */
+        <Popover>
+          <div className="flex items-center gap-1.5">
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                  {t("editPanel.labels.layerBlur")}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {Math.round(blurValue)}px
+                </span>
+              </button>
+            </PopoverTrigger>
             <SectionIconButton
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("filter", "none")}
@@ -3189,22 +3186,29 @@ function EffectsProperties({
               <IconMinus className="size-3.5" />
             </SectionIconButton>
           </div>
-          <ScrubInput
-            label={t("editPanel.labels.blur")}
-            value={blurValue}
-            onChange={(value) =>
-              onStyleChange(
-                "filter",
-                `blur(${Math.max(0, Math.round(value))}px)`,
-              )
-            }
-            unit="px"
-            min={0}
-            precision={1}
-            labelClassName="w-16"
-            inputClassName="h-6"
-          />
-        </div>
+          <PopoverContent
+            side="left"
+            align="start"
+            sideOffset={8}
+            className="w-56 p-3"
+          >
+            <ScrubInput
+              label={t("editPanel.labels.blur")}
+              value={blurValue}
+              onChange={(value) =>
+                onStyleChange(
+                  "filter",
+                  `blur(${Math.max(0, Math.round(value))}px)`,
+                )
+              }
+              unit="px"
+              min={0}
+              precision={1}
+              labelClassName="w-16"
+              inputClassName="h-6"
+            />
+          </PopoverContent>
+        </Popover>
       ) : null}
     </PanelSection>
   );
