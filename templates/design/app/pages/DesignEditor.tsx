@@ -1648,6 +1648,8 @@ function DesignBottomToolbar({
   pinMode,
   drawMode,
   activeTool,
+  isOverview,
+  hasActiveFile,
   onMove,
   onFrame,
   onShape,
@@ -1663,6 +1665,8 @@ function DesignBottomToolbar({
   pinMode: boolean;
   drawMode: boolean;
   activeTool: DesignTool;
+  isOverview: boolean;
+  hasActiveFile: boolean;
   onMove: () => void;
   onFrame: () => void;
   onShape: (tool: ShapeTool) => void;
@@ -1865,7 +1869,7 @@ function DesignBottomToolbar({
           label: t("designEditor.modes.draw"),
           icon: <IconBrush className="size-4" />,
           active: activeTool === "draw" && mode === "annotate" && drawMode,
-          disabled: !activeFile || viewMode === "overview",
+          disabled: !hasActiveFile || isOverview,
           onSelect: onDraw,
         },
       ],
@@ -1883,7 +1887,7 @@ function DesignBottomToolbar({
           icon: <IconMessage className="size-4" />,
           shortcut: "C",
           active: activeTool === "comment" && mode === "annotate" && pinMode,
-          disabled: !activeFile || viewMode === "overview",
+          disabled: !hasActiveFile || isOverview,
           onSelect: onCommentPin,
         },
         {
@@ -1891,7 +1895,7 @@ function DesignBottomToolbar({
           label: t("designEditor.modes.draw"),
           icon: <IconBrush className="size-4" />,
           active: activeTool === "draw" && mode === "annotate" && drawMode,
-          disabled: !activeFile || viewMode === "overview",
+          disabled: !hasActiveFile || isOverview,
           onSelect: onDraw,
         },
       ],
@@ -7418,6 +7422,8 @@ ${serializedHtml}
             pinMode={pinMode}
             drawMode={drawMode}
             activeTool={activeTool}
+            isOverview={viewMode === "overview"}
+            hasActiveFile={Boolean(activeFile)}
             onMove={handleMoveTool}
             onFrame={handleFrameTool}
             onShape={handleShapeTool}
