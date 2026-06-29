@@ -491,6 +491,8 @@ function DatabaseTable({
   const items = data?.items ?? [];
   const totalItemCount = data?.pagination?.totalItems ?? items.length;
   const hasMoreItems = data?.pagination?.hasMore === true;
+  const isLoadingMoreItems =
+    database.isFetching && data?.pagination?.limit !== databaseItemLimit;
   const databaseId = data?.database.id ?? null;
   const source = data?.source ?? null;
   const sources = data?.sources ?? (source ? [source] : []);
@@ -1085,11 +1087,14 @@ function DatabaseTable({
     const nextViewConfig = normalizeClientDatabaseViewConfig(
       data.database.viewConfig,
     );
-    hydratedViewRef.current = databaseViewStateKey(
-      data.database.id,
-      nextViewConfig,
+    const nextKey = databaseViewStateKey(data.database.id, nextViewConfig);
+    if (hydratedViewRef.current === nextKey) return;
+    hydratedViewRef.current = nextKey;
+    setViewConfig((current) =>
+      databaseViewStateKey(data.database.id, current) === nextKey
+        ? current
+        : nextViewConfig,
     );
-    setViewConfig(nextViewConfig);
   }, [data?.database.id, data?.database.viewConfig]);
 
   useEffect(() => {
@@ -1553,14 +1558,14 @@ function DatabaseTable({
             type="button"
             variant="outline"
             size="sm"
-            disabled={database.isFetching}
+            disabled={isLoadingMoreItems}
             onClick={() =>
               setDatabaseItemLimit(
                 (current) => current + CONTENT_DATABASE_PAGE_SIZE,
               )
             }
           >
-            {database.isFetching
+            {isLoadingMoreItems
               ? "Loading..."
               : `Load more rows (${items.length} of ${totalItemCount})`}
           </Button>
