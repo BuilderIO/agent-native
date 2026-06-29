@@ -1,13 +1,11 @@
+import { useActionMutation, useT } from "@agent-native/core/client";
+import { IconMessagePlus, IconAt, IconMoodSmile } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
-import {
-  IconMessagePlus,
-  IconAt,
-  IconMoodSmile,
-} from "@tabler/icons-react";
-import { useActionMutation } from "@agent-native/core/client";
+
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+
 import { msToClock } from "./scrubber";
 
 interface TimestampedCommentButtonProps {
@@ -22,6 +20,7 @@ export function TimestampedCommentButton({
   onOpen,
   className,
 }: TimestampedCommentButtonProps) {
+  const t = useT();
   if (!enableComments) return null;
   return (
     <Button
@@ -32,7 +31,7 @@ export function TimestampedCommentButton({
       onClick={onOpen}
     >
       <IconMessagePlus className="h-4 w-4" />
-      Comment
+      {t("commentsPanel.commentButton")}
     </Button>
   );
 }
@@ -56,6 +55,7 @@ export function TimestampedCommentBar({
   onAdded,
   className,
 }: TimestampedCommentBarProps) {
+  const t = useT();
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -114,7 +114,7 @@ export function TimestampedCommentBar({
               onClose();
             }
           }}
-          placeholder="Add a comment…"
+          placeholder={t("commentsPanel.composerPlaceholder")}
           rows={2}
           className="min-h-[3rem] resize-none border-0 bg-transparent px-1 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
         />
@@ -125,7 +125,7 @@ export function TimestampedCommentBar({
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-muted-foreground"
-              aria-label="Mention someone"
+              aria-label={t("commentsPanel.mentionSomeone")}
               onClick={() => insertAtCursor("@")}
             >
               <IconAt className="h-4 w-4" />
@@ -135,20 +135,15 @@ export function TimestampedCommentBar({
               variant="ghost"
               size="icon"
               className="h-8 w-8 text-muted-foreground"
-              aria-label="Add emoji"
+              aria-label={t("commentsPanel.addEmoji")}
               onClick={() => insertAtCursor("🙂")}
             >
               <IconMoodSmile className="h-4 w-4" />
             </Button>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={onClose}
-            >
-              Cancel
+            <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+              {t("common.cancel")}
             </Button>
             <Button
               type="button"
@@ -157,7 +152,7 @@ export function TimestampedCommentBar({
               disabled={!draft.trim() || addComment.isPending}
               onClick={submit}
             >
-              Comment at {msToClock(atMs)}
+              {t("commentsPanel.commentAt")} {msToClock(atMs)}
             </Button>
           </div>
         </div>

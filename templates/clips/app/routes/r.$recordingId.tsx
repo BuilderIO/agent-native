@@ -44,6 +44,10 @@ import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
+import {
+  TimestampedCommentButton,
+  TimestampedCommentBar,
+} from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
   VideoPlayer,
@@ -73,10 +77,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  TimestampedCommentButton,
-  TimestampedCommentBar,
-} from "@/components/player/timestamped-comment-button";
 import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
@@ -1120,7 +1120,8 @@ export default function RecordingPage() {
                     onClose={() => setCommentOpen(false)}
                     onAdded={() => {
                       setPanel("comments");
-                      playerDataQ.refetch();
+                      if (isCompactLayout) setSidePanelOpen(true);
+                      void playerDataQ.refetch();
                     }}
                   />
                 ) : null}

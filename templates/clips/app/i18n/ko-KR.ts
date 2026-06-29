@@ -851,6 +851,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     replyingTo: "답글 대상",
     commentAt: "댓글 위치",
     writeReply: "답글 쓰기...",
+    commentButton: "댓글",
+    composerPlaceholder: "댓글 추가…",
+    mentionSomeone: "멘션하기",
+    addEmoji: "이모지 추가",
   },
   shareMeeting: {
     pageTitle: "회의 노트 · Clips",
