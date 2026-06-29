@@ -337,6 +337,7 @@ export function AutoLayoutMatrix({
               <div className="min-w-0 flex-1">
                 <ScrubInput
                   label={copy.gap}
+                  ariaLabel={copy.gap}
                   value={value.gap}
                   onChange={(next) => onGapChange(next)}
                   icon={IconGap}
@@ -345,7 +346,7 @@ export function AutoLayoutMatrix({
                   step={1}
                   precision={1}
                   disabled={disabled}
-                  labelClassName="w-5 shrink-0"
+                  labelClassName="w-5 shrink-0 [&>span]:hidden"
                   inputClassName="h-6 text-[11px]"
                 />
               </div>
@@ -382,6 +383,7 @@ export function AutoLayoutMatrix({
             {/* Horizontal padding (left + right) */}
             <ScrubInput
               label={copy.padding}
+              ariaLabel={copy.paddingLeft + " / " + copy.paddingRight}
               value={
                 value.paddingLinked ? value.padding.top : horizontalPaddingValue
               }
@@ -407,12 +409,13 @@ export function AutoLayoutMatrix({
               step={1}
               precision={1}
               disabled={disabled}
-              labelClassName="w-5 shrink-0"
+              labelClassName="w-5 shrink-0 [&>span]:hidden"
               inputClassName="h-6 text-[11px]"
             />
             {/* Vertical padding (top + bottom) */}
             <ScrubInput
               label={copy.padding}
+              ariaLabel={copy.paddingTop + " / " + copy.paddingBottom}
               value={
                 value.paddingLinked ? value.padding.top : verticalPaddingValue
               }
@@ -438,7 +441,7 @@ export function AutoLayoutMatrix({
               step={1}
               precision={1}
               disabled={disabled}
-              labelClassName="w-5 shrink-0"
+              labelClassName="w-5 shrink-0 [&>span]:hidden"
               inputClassName="h-6 text-[11px]"
             />
             {/* Link/unlink independent padding */}

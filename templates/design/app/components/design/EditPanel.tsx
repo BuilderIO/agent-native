@@ -1744,6 +1744,7 @@ function StrokeLayerControl({
         </Select>
         <ScrubInput
           label={t("editPanel.labels.weight")}
+          ariaLabel={t("editPanel.labels.weight")}
           icon={IconBorderStyle}
           value={cssLengthNumber(width)}
           onChange={(value) =>
@@ -1756,7 +1757,7 @@ function StrokeLayerControl({
           min={0}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px]"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -2086,6 +2087,7 @@ function TypographyProperties({
         </Select>
         <ScrubInput
           label={t("editPanel.labels.size")}
+          ariaLabel={t("editPanel.labels.size")}
           icon={IconLetterCase}
           value={styles.fontSize ? parseNumericValue(styles.fontSize) : 16}
           onChange={(value) =>
@@ -2095,7 +2097,7 @@ function TypographyProperties({
           min={1}
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px]"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
@@ -2104,6 +2106,7 @@ function TypographyProperties({
       <div className="grid grid-cols-2 gap-1.5">
         <ScrubInput
           label={t("editPanel.labels.lineHeight")}
+          ariaLabel={t("editPanel.labels.lineHeight")}
           icon={IconLineHeight}
           value={parseNumericValue(styles.lineHeight || "1.2")}
           onChange={(value) =>
@@ -2113,11 +2116,12 @@ function TypographyProperties({
           step={0.1}
           precision={2}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px]"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
         <ScrubInput
           label={t("editPanel.labels.tracking")}
+          ariaLabel={t("editPanel.labels.tracking")}
           icon={IconLetterSpacing}
           value={
             styles.letterSpacing ? parseNumericValue(styles.letterSpacing) : 0
@@ -2126,7 +2130,7 @@ function TypographyProperties({
           unit="px"
           precision={1}
           className="gap-0"
-          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px]"
+          labelClassName="h-6 w-6 justify-center gap-0 rounded-l-md border border-r-0 border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-[11px] [&>span]:hidden"
           inputClassName="h-6 rounded-l-none rounded-r-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
         />
       </div>
