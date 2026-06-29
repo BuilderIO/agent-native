@@ -29,6 +29,7 @@ import {
 } from "./delete-extension.js";
 import {
   extensionLoadError,
+  extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
 } from "./extension-load-error.js";
 import {
@@ -74,6 +75,15 @@ export interface EmbeddedExtensionProps {
   className?: string;
   /** Initial iframe height before content reports a real height. */
   initialHeight?: number;
+  /** Fires once when the embedded iframe first signals content readiness — its
+   * first height report, or iframe load as a fallback. Hosts that gate on
+   * content paint (e.g. dashboard report screenshots) use this. */
+  onReady?: () => void;
+  /** Fires when the extension can't be loaded for this viewer (e.g. 403/404 —
+   * the extension isn't shared with them or no longer exists). Hosts can use
+   * this to render an explanatory fallback instead of a blank panel. By default
+   * the component renders nothing on failure (slot-style silent skip). */
+  onUnavailable?: (status?: number) => void;
 }
 
 /**
@@ -87,8 +97,20 @@ export function EmbeddedExtension({
   context,
   className,
   initialHeight = 80,
+  onReady,
+  onUnavailable,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Latch the readiness signal so onReady fires at most once per iframe
+  // instance. Reset when the iframe is recreated (extensionId/updatedAt change).
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const readyFiredRef = useRef(false);
+  const fireReady = () => {
+    if (readyFiredRef.current) return;
+    readyFiredRef.current = true;
+    onReadyRef.current?.();
+  };
   const [height, setHeight] = useState<number>(initialHeight);
   const [isDark, setIsDark] = useState(false);
   // (audit H4) Mirror ExtensionViewer's role-aware gating; deny-by-default until
@@ -120,6 +142,8 @@ export function EmbeddedExtension({
     data: extension,
     isFetching,
     isLoading,
+    isError,
+    error,
   } = useQuery<Extension>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
@@ -141,6 +165,21 @@ export function EmbeddedExtension({
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
   });
 
+  // Notify the host once when the extension can't be loaded for this viewer so
+  // it can show a fallback instead of a blank panel.
+  const onUnavailableRef = useRef(onUnavailable);
+  onUnavailableRef.current = onUnavailable;
+  const unavailableFiredRef = useRef(false);
+  useEffect(() => {
+    unavailableFiredRef.current = false;
+  }, [extensionId]);
+  useEffect(() => {
+    if (isError && !isFetching && !unavailableFiredRef.current) {
+      unavailableFiredRef.current = true;
+      onUnavailableRef.current?.(extensionLoadErrorStatus(error));
+    }
+  }, [isError, isFetching, error]);
+
   // Initial dark state is baked into the URL on first load only; subsequent
   // theme toggles update the iframe's <html class="dark"> via postMessage so
   // the user's interaction state inside the extension survives the toggle.
@@ -158,6 +197,7 @@ export function EmbeddedExtension({
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
+    readyFiredRef.current = false;
   }, [extensionId, extension?.updatedAt]);
 
   useEffect(() => {
@@ -215,6 +255,8 @@ export function EmbeddedExtension({
         const h = Number(message.height);
         if (Number.isFinite(h) && h > 0) {
           setHeight(Math.ceil(h));
+          // First laid-out height means the content has painted.
+          fireReady();
         }
         return;
       }
@@ -330,6 +372,9 @@ export function EmbeddedExtension({
             { type: "agent-native-slot-context", context: context ?? {} },
             "*",
           );
+          // Fallback readiness signal in case the extension never reports a
+          // height (e.g. fixed-height content that skips auto-resize).
+          fireReady();
         }}
       />
       <EmbeddedToolMenu

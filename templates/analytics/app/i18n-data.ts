@@ -392,6 +392,9 @@ const enUS = {
     off: "Off",
     since: "Since",
     sectionOptions: "Section options",
+    extensionMissingId: "This extension panel has no extension selected.",
+    extensionUnavailable:
+      "This extension isn't shared with you, or it no longer exists.",
     panelOptions: "Panel options",
     fullScreen: "Full screen",
     refresh: "Refresh",
@@ -5249,6 +5252,8 @@ const translatedAnalyticsDebtTranslations = {
       saveView: "保存视图",
       savedViews: "已保存的视图",
       sectionOptions: "部分选项",
+      extensionMissingId: "此扩展面板未选择任何扩展。",
+      extensionUnavailable: "此扩展未与您共享，或已不存在。",
       sharedWithOrg: "与组织共享",
       unhideFailed: "无法取消隐藏仪表板",
       untitledDashboard: "无标题仪表板",
@@ -5424,6 +5429,10 @@ const translatedAnalyticsDebtTranslations = {
       saveView: "Guardar vista",
       savedViews: "Vistas guardadas",
       sectionOptions: "Opciones de sección",
+      extensionMissingId:
+        "Este panel de extensión no tiene ninguna extensión seleccionada.",
+      extensionUnavailable:
+        "Esta extensión no está compartida contigo o ya no existe.",
       sharedWithOrg: "Compartido con la organización",
       unhideFailed: "No se pudo mostrar el panel",
       untitledDashboard: "Panel de control sin título",
@@ -5601,6 +5610,10 @@ const translatedAnalyticsDebtTranslations = {
       saveView: "Enregistrer la vue",
       savedViews: "Vues enregistrées",
       sectionOptions: "Options de sections",
+      extensionMissingId:
+        "Ce panneau d'extension n'a aucune extension sélectionnée.",
+      extensionUnavailable:
+        "Cette extension n'est pas partagée avec vous ou n'existe plus.",
       sharedWithOrg: "Partagé avec l'organisation",
       unhideFailed: "Impossible d'afficher le tableau de bord",
       untitledDashboard: "Tableau de bord sans titre",
@@ -5779,6 +5792,10 @@ const translatedAnalyticsDebtTranslations = {
       saveView: "Ansicht speichern",
       savedViews: "Gespeicherte Ansichten",
       sectionOptions: "Abschnittsoptionen",
+      extensionMissingId:
+        "Für dieses Erweiterungs-Panel ist keine Erweiterung ausgewählt.",
+      extensionUnavailable:
+        "Diese Erweiterung ist nicht für Sie freigegeben oder existiert nicht mehr.",
       sharedWithOrg: "Mit Org geteilt",
       unhideFailed: "Das Dashboard konnte nicht eingeblendet werden",
       untitledDashboard: "Unbenanntes Dashboard",
@@ -5952,6 +5969,10 @@ const translatedAnalyticsDebtTranslations = {
       saveView: "ビューを保存",
       savedViews: "保存されたビュー",
       sectionOptions: "セクションのオプション",
+      extensionMissingId:
+        "この拡張機能パネルには拡張機能が選択されていません。",
+      extensionUnavailable:
+        "この拡張機能はあなたと共有されていないか、存在しません。",
       sharedWithOrg: "組織と共有",
       unhideFailed: "ダッシュボードを再表示できませんでした",
       untitledDashboard: "無題のダッシュボード",
@@ -6124,6 +6145,10 @@ const translatedAnalyticsDebtTranslations = {
       saveView: "보기 저장",
       savedViews: "저장된 보기",
       sectionOptions: "섹션 옵션",
+      extensionMissingId:
+        "이 확장 프로그램 패널에 선택된 확장 프로그램이 없습니다.",
+      extensionUnavailable:
+        "이 확장 프로그램이 공유되지 않았거나 더 이상 존재하지 않습니다.",
       sharedWithOrg: "조직과 공유됨",
       unhideFailed: "대시보드를 숨기기 해제할 수 없습니다.",
       untitledDashboard: "제목 없는 대시보드",
@@ -6300,6 +6325,10 @@ const translatedAnalyticsDebtTranslations = {
       saveView: "Salvar visualização",
       savedViews: "Visualizações salvas",
       sectionOptions: "Opções de seção",
+      extensionMissingId:
+        "Este painel de extensão não tem nenhuma extensão selecionada.",
+      extensionUnavailable:
+        "Esta extensão não foi compartilhada com você ou não existe mais.",
       sharedWithOrg: "Compartilhado com a organização",
       unhideFailed: "Não foi possível exibir o painel",
       untitledDashboard: "Painel sem título",
@@ -6472,6 +6501,9 @@ const translatedAnalyticsDebtTranslations = {
       saveView: "दृश्य सहेजें",
       savedViews: "सहेजे गए दृश्य",
       sectionOptions: "अनुभाग विकल्प",
+      extensionMissingId: "इस एक्सटेंशन पैनल में कोई एक्सटेंशन चयनित नहीं है।",
+      extensionUnavailable:
+        "यह एक्सटेंशन आपके साथ साझा नहीं किया गया है, या अब मौजूद नहीं है।",
       sharedWithOrg: "संगठन के साथ साझा किया गया",
       unhideFailed: "डैशबोर्ड को उजागर नहीं किया जा सका",
       untitledDashboard: "शीर्षक रहित डैशबोर्ड",
@@ -6644,6 +6676,8 @@ const translatedAnalyticsDebtTranslations = {
       saveView: "حفظ العرض",
       savedViews: "المشاهدات المحفوظة",
       sectionOptions: "خيارات القسم",
+      extensionMissingId: "لم يتم تحديد أي إضافة في لوحة الإضافة هذه.",
+      extensionUnavailable: "هذه الإضافة غير مشاركة معك، أو لم تعد موجودة.",
       sharedWithOrg: "تمت المشاركة مع منظمة",
       unhideFailed: "تعذر إظهار لوحة البيانات",
       untitledDashboard: "لوحة تحكم بلا عنوان",
