@@ -1,16 +1,11 @@
 import { parseCssColor, rgbaToCss } from "@shared/color-utils";
-import { IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconTrash } from "@tabler/icons-react";
 import {
+  type PointerEvent as ReactPointerEvent,
   useRef,
   useState,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -196,6 +191,115 @@ export function parseGradientCss(
   return { kind, angle, stops };
 }
 
+// ─── AngleDial ────────────────────────────────────────────────────────────────
+
+interface AngleDialProps {
+  angle: number;
+  onChange: (angle: number) => void;
+  disabled?: boolean;
+}
+
+/** Figma-style circular dial for rotating gradient angle. */
+function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
+  const dialRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef(false);
+
+  const angleFromPointer = (clientX: number, clientY: number): number => {
+    const rect = dialRef.current?.getBoundingClientRect();
+    if (!rect) return angle;
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const rad = Math.atan2(clientY - cy, clientX - cx);
+    // atan2 gives angle from east; Figma's 0° is north (up), clockwise.
+    let deg = (rad * 180) / Math.PI + 90;
+    if (deg < 0) deg += 360;
+    if (deg >= 360) deg -= 360;
+    return Math.round(deg);
+  };
+
+  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (disabled) return;
+    draggingRef.current = true;
+    e.currentTarget.setPointerCapture(e.pointerId);
+    onChange(angleFromPointer(e.clientX, e.clientY));
+  };
+
+  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!draggingRef.current) return;
+    onChange(angleFromPointer(e.clientX, e.clientY));
+  };
+
+  const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    draggingRef.current = false;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+  };
+
+  const dotAngle = ((angle - 90) * Math.PI) / 180;
+  // Dot placed at ~65% radius from center.
+  const r = 7;
+  const dotX = 50 + r * Math.cos(dotAngle);
+  const dotY = 50 + r * Math.sin(dotAngle);
+
+  return (
+    <div
+      ref={dialRef}
+      role="slider"
+      aria-label={"Gradient angle" /* i18n-ignore */}
+      aria-valuenow={Math.round(angle)}
+      aria-valuemin={0}
+      aria-valuemax={360}
+      tabIndex={disabled ? -1 : 0}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onKeyDown={(e) => {
+        if (disabled) return;
+        if (e.key === "ArrowRight" || e.key === "ArrowUp") {
+          e.preventDefault();
+          onChange((angle + 1) % 360);
+        } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
+          e.preventDefault();
+          onChange((angle - 1 + 360) % 360);
+        }
+      }}
+      className={cn(
+        "relative flex size-[18px] shrink-0 cursor-pointer select-none items-center justify-center rounded-full",
+        "border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        disabled && "pointer-events-none opacity-40",
+      )}
+    >
+      <svg
+        viewBox="0 0 100 100"
+        className="absolute inset-0 size-full"
+        aria-hidden="true"
+      >
+        {/* Outer ring track */}
+        <circle
+          cx="50"
+          cy="50"
+          r="38"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="0"
+          opacity="0"
+        />
+        {/* Dot indicator */}
+        <circle
+          cx={dotX}
+          cy={dotY}
+          r="12"
+          fill="currentColor"
+          className="text-foreground"
+        />
+      </svg>
+    </div>
+  );
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────────
 
 export interface GradientEditorProps {
@@ -207,6 +311,15 @@ export interface GradientEditorProps {
   className?: string;
 }
 
+// Stop handle dimensions — Figma uses ~12px handles with white ring.
+const STOP_SIZE = 12; // px, the colored circle diameter
+const STOP_RING = 2; // px, white border thickness
+const STOP_OUTER = STOP_SIZE + STOP_RING * 2; // 16px total outer
+const BAR_HEIGHT = 16; // px — the gradient preview bar
+// Handles sit below the bar with a 2px notch gap.
+const HANDLE_AREA = STOP_OUTER + 4; // px — vertical space for handles below bar
+const WRAPPER_HEIGHT = BAR_HEIGHT + HANDLE_AREA; // total component height
+
 export function GradientEditor({
   value,
   onChange,
@@ -217,6 +330,10 @@ export function GradientEditor({
 }: GradientEditorProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const draggingStopRef = useRef<string | null>(null);
+  // Track whether a pointerdown on the bar started a drag (vs click-to-add).
+  const barClickRef = useRef<{ moved: boolean; startX: number } | null>(null);
+
+  const [angleInput, setAngleInput] = useState<string | null>(null);
 
   const positionFromPointer = (clientX: number): number => {
     const rect = barRef.current?.getBoundingClientRect();
@@ -233,9 +350,26 @@ export function GradientEditor({
     });
   };
 
+  // Bar background click → add a new stop (only if no significant drag movement).
   const handleBarPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled) return;
-    // Clicking the empty bar area adds a stop at that position.
+    barClickRef.current = { moved: false, startX: event.clientX };
+  };
+
+  const handleBarPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!barClickRef.current) return;
+    if (Math.abs(event.clientX - barClickRef.current.startX) > 3) {
+      barClickRef.current.moved = true;
+    }
+  };
+
+  const handleBarClick = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // Only add if the pointer didn't move significantly (not a drag).
+    if (!barClickRef.current || barClickRef.current.moved) {
+      barClickRef.current = null;
+      return;
+    }
+    barClickRef.current = null;
     const position = positionFromPointer(event.clientX);
     const ordered = sortedStops(value.stops);
     // Interpolate the color from the nearest stops for a natural insert.
@@ -289,89 +423,106 @@ export function GradientEditor({
   };
 
   const setAngle = (angle: number) => {
-    onChange({ ...value, angle: clamp(angle, 0, 360) });
+    onChange({ ...value, angle: ((angle % 360) + 360) % 360 });
   };
 
   const showAngle = value.kind === "linear" || value.kind === "angular";
+  const selectedStop = value.stops.find((s) => s.id === selectedStopId);
 
   return (
-    <div className={cn("px-3 pt-1.5 pb-1", className)}>
-      {/* ── Gradient bar with draggable stops ─────────────────────────────── */}
-      <div className="relative h-6 select-none">
-        {/* Checkerboard underlay so alpha stops read correctly */}
+    <div className={cn("px-3 pt-1.5 pb-1 select-none", className)}>
+      {/* ── Gradient bar + stop handles ──────────────────────────────────────── */}
+      <div
+        className="relative"
+        style={{ height: WRAPPER_HEIGHT }}
+        onPointerMove={handleBarPointerMove}
+      >
+        {/* Checkerboard underlay */}
         <div
-          className="absolute inset-0 rounded-md"
+          className="absolute left-0 right-0 top-0 rounded-md"
           style={{
+            height: BAR_HEIGHT,
             backgroundImage: CHECKERBOARD_IMAGE,
             backgroundSize: CHECKER_SIZE,
             backgroundPosition: CHECKER_POS,
           }}
           aria-hidden="true"
         />
+        {/* Gradient bar — clicking empty area adds a stop */}
         <div
           ref={barRef}
           role="group"
           aria-label={"Gradient stops" /* i18n-ignore */}
           onPointerDown={handleBarPointerDown}
+          onPointerUp={(e) => handleBarClick(e)}
           className={cn(
-            "absolute inset-0 cursor-copy rounded-md border border-border/60",
+            "absolute left-0 right-0 top-0 cursor-copy rounded-md border border-border/50",
             disabled && "cursor-not-allowed opacity-60",
           )}
-          style={{ backgroundImage: stopsBarCss(value.stops) }}
-        >
-          {value.stops.map((stop) => {
-            const isSelected = stop.id === selectedStopId;
-            const parsed = parseCssColor(stop.color);
-            return (
-              <Tooltip key={stop.id}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={`${stop.color} ${Math.round(stop.position)}%`}
-                    aria-pressed={isSelected}
-                    disabled={disabled}
-                    onPointerDown={(event) => startStopDrag(event, stop.id)}
-                    onPointerMove={handleStopPointerMove}
-                    onPointerUp={endStopDrag}
-                    onPointerCancel={endStopDrag}
-                    onClick={(event) => event.stopPropagation()}
-                    onDoubleClick={(event) => {
-                      event.stopPropagation();
-                      removeStop(stop.id);
-                    }}
-                    className={cn(
-                      "absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 active:cursor-grabbing",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      isSelected
-                        ? "border-white shadow-[0_0_0_1.5px_var(--primary)]"
-                        : "border-white shadow-[0_0_0_1px_hsl(var(--foreground)/0.6)]",
-                    )}
-                    style={{
-                      left: `${stop.position}%`,
-                      backgroundColor: parsed
-                        ? rgbaToCss({ ...parsed, a: 1 })
-                        : stop.color,
-                    }}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>
-                  {Math.round(stop.position)}%{" "}
-                  {value.stops.length > 2
-                    ? "· double-click to remove" /* i18n-ignore */
-                    : ""}
-                </TooltipContent>
-              </Tooltip>
-            );
-          })}
-        </div>
+          style={{ height: BAR_HEIGHT, backgroundImage: stopsBarCss(value.stops) }}
+        />
+
+        {/* Stop handles — positioned below the bar */}
+        {value.stops.map((stop) => {
+          const isSelected = stop.id === selectedStopId;
+          const parsed = parseCssColor(stop.color);
+          // Opaque version for the handle swatch.
+          const solidColor = parsed
+            ? rgbaToCss({ ...parsed, a: 1 })
+            : stop.color;
+          // Position the handle horizontally along the bar width.
+          // Handles sit 2px below the bar's bottom edge.
+          const topOffset = BAR_HEIGHT + 2;
+
+          return (
+            <button
+              key={stop.id}
+              type="button"
+              aria-label={`${stop.color} at ${Math.round(stop.position)}%`}
+              aria-pressed={isSelected}
+              disabled={disabled}
+              onPointerDown={(e) => startStopDrag(e, stop.id)}
+              onPointerMove={handleStopPointerMove}
+              onPointerUp={endStopDrag}
+              onPointerCancel={endStopDrag}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectStop(stop.id);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                removeStop(stop.id);
+              }}
+              className={cn(
+                // Base: round handle with white border ring + outer accent ring
+                "absolute cursor-grab active:cursor-grabbing",
+                "rounded-full border-[2px] border-white",
+                "focus-visible:outline-none",
+                // Selected: accent-colored outer ring (like Figma's blue ring)
+                isSelected
+                  ? "shadow-[0_0_0_1.5px_var(--primary),0_1px_3px_rgba(0,0,0,0.35)]"
+                  : "shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_3px_rgba(0,0,0,0.25)]",
+              )}
+              style={{
+                width: STOP_OUTER,
+                height: STOP_OUTER,
+                left: `${stop.position}%`,
+                top: topOffset,
+                // Center horizontally on the position %.
+                transform: "translateX(-50%)",
+                backgroundColor: solidColor,
+              }}
+            />
+          );
+        })}
       </div>
 
-      {/* ── Stop controls: position + angle/center + add/remove ───────────── */}
+      {/* ── Controls row: position, angle, remove ──────────────────────────── */}
       <div className="mt-2 flex items-center gap-1">
         {/* Selected stop position % */}
         <div className="flex h-6 flex-1 items-center overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
           <span className="flex w-7 shrink-0 items-center justify-center border-r border-border/60 text-[10px] text-muted-foreground">
-            {"Pos" /* i18n-ignore gradient stop position abbreviation */}
+            {"%" /* i18n-ignore */}
           </span>
           <input
             type="number"
@@ -379,9 +530,7 @@ export function GradientEditor({
             max={100}
             aria-label={"Stop position" /* i18n-ignore */}
             disabled={disabled}
-            value={Math.round(
-              value.stops.find((s) => s.id === selectedStopId)?.position ?? 0,
-            )}
+            value={Math.round(selectedStop?.position ?? 0)}
             onChange={(event) => {
               const next = Number(event.target.value);
               if (Number.isFinite(next))
@@ -389,97 +538,55 @@ export function GradientEditor({
             }}
             className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-[11px] tabular-nums focus-visible:outline-none"
           />
-          <span className="flex w-4 shrink-0 items-center justify-center text-[10px] text-muted-foreground">
-            %
-          </span>
         </div>
 
-        {/* Angle (linear/angular) */}
+        {/* Angle: rotatable dial + numeric input */}
         {showAngle && (
-          <div className="flex h-6 w-[4.5rem] items-center overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
-            <span className="flex w-6 shrink-0 items-center justify-center border-r border-border/60 text-[10px] text-muted-foreground">
-              {"∠" /* i18n-ignore angle glyph */}
-            </span>
-            <input
-              type="number"
-              min={0}
-              max={360}
-              aria-label={"Gradient angle" /* i18n-ignore */}
+          <div className="flex items-center gap-0.5">
+            <AngleDial
+              angle={value.angle}
+              onChange={setAngle}
               disabled={disabled}
-              value={Math.round(value.angle)}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                if (Number.isFinite(next)) setAngle(next);
-              }}
-              className="h-full min-w-0 flex-1 bg-transparent px-1 text-[11px] tabular-nums focus-visible:outline-none"
             />
-            <span className="flex w-4 shrink-0 items-center justify-center text-[10px] text-muted-foreground">
-              °
-            </span>
+            <div className="flex h-6 w-14 items-center overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
+              <input
+                type="number"
+                min={0}
+                max={360}
+                aria-label={"Gradient angle" /* i18n-ignore */}
+                disabled={disabled}
+                value={angleInput ?? Math.round(value.angle)}
+                onChange={(e) => {
+                  setAngleInput(e.target.value);
+                  const next = Number(e.target.value);
+                  if (Number.isFinite(next)) setAngle(next);
+                }}
+                onBlur={() => setAngleInput(null)}
+                className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-[11px] tabular-nums focus-visible:outline-none"
+              />
+              <span className="flex w-4 shrink-0 items-center justify-center text-[10px] text-muted-foreground">
+                °
+              </span>
+            </div>
           </div>
         )}
 
-        {/* Add stop (at midpoint of the two widest-spaced stops) */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              disabled={disabled}
-              aria-label={"Add stop" /* i18n-ignore */}
-              onClick={() => {
-                const ordered = sortedStops(value.stops);
-                let gapStart = ordered[0];
-                let gapEnd = ordered[ordered.length - 1];
-                let widest = -1;
-                for (let i = 0; i < ordered.length - 1; i += 1) {
-                  const gap = ordered[i + 1].position - ordered[i].position;
-                  if (gap > widest) {
-                    widest = gap;
-                    gapStart = ordered[i];
-                    gapEnd = ordered[i + 1];
-                  }
-                }
-                const position = (gapStart.position + gapEnd.position) / 2;
-                const newStop: GradientStopValue = {
-                  id: nextStopId(),
-                  color: gapStart.color,
-                  position,
-                };
-                onChange({ ...value, stops: [...value.stops, newStop] });
-                onSelectStop(newStop.id);
-              }}
-              className={cn(
-                "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground hover:text-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                disabled && "pointer-events-none opacity-40",
-              )}
-            >
-              <IconPlus className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{"Add stop" /* i18n-ignore */}</TooltipContent>
-        </Tooltip>
-
-        {/* Remove selected stop */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              disabled={disabled || value.stops.length <= 2}
-              aria-label={"Remove stop" /* i18n-ignore */}
-              onClick={() => removeStop(selectedStopId)}
-              className={cn(
-                "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground hover:text-destructive",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                (disabled || value.stops.length <= 2) &&
-                  "pointer-events-none opacity-40",
-              )}
-            >
-              <IconTrash className="size-3.5" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{"Remove stop" /* i18n-ignore */}</TooltipContent>
-        </Tooltip>
+        {/* Delete selected stop */}
+        <button
+          type="button"
+          disabled={disabled || value.stops.length <= 2}
+          aria-label={"Remove stop" /* i18n-ignore */}
+          onClick={() => removeStop(selectedStopId)}
+          className={cn(
+            "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground",
+            "hover:border-destructive/40 hover:text-destructive",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            (disabled || value.stops.length <= 2) &&
+              "pointer-events-none opacity-40",
+          )}
+        >
+          <IconTrash className="size-3" />
+        </button>
       </div>
     </div>
   );

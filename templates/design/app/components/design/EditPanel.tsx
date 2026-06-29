@@ -834,7 +834,7 @@ function PanelSection({
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   return (
-    <section className="shrink-0 border-t border-border/60 first:border-t-0">
+    <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
       <div className="flex min-h-9 items-center gap-2 px-3">
         <button
           type="button"
@@ -2322,8 +2322,21 @@ function FlexContainerControls({
 }) {
   const t = useT();
   const styles = element.computedStyles;
+  // The element's CURRENT layout flow as authored in code, read from its own
+  // computed `display`: block/flow-root/grid/etc. = "normal flow",
+  // flex/inline-flex = auto layout. We forward it so the AutoLayoutMatrix Flow
+  // control can show the right state (normal vs horizontal/vertical/wrap)
+  // instead of an empty "add" affordance.
+  const display = (styles.display || "").toLowerCase();
+  const isFlex = display.includes("flex");
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
+  // When the element is in normal flow (not flex yet), picking any flow option
+  // must first turn it into a flex container; otherwise setting flex-direction
+  // alone is a no-op against a block element.
+  const ensureFlex = () => {
+    if (!isFlex) onStyleChange("display", "flex");
+  };
   const padding = {
     top: parseNumericValue(styles.paddingTop || "0"),
     right: parseNumericValue(styles.paddingRight || "0"),
@@ -2356,19 +2369,28 @@ function FlexContainerControls({
       horizontal: element.boundingRect.width,
       vertical: element.boundingRect.height,
     },
+    // Forward the raw CSS display so the matrix can render the correct Flow
+    // state (normal flow for block/grid, flex for flex/inline-flex). Added as an
+    // optional contract field consumed by AutoLayoutMatrix; harmless when the
+    // matrix ignores it.
+    ...({ display } as Partial<AutoLayoutMatrixValue>),
   };
 
   return (
     <div className="space-y-2">
       <AutoLayoutMatrix
         value={autoLayoutValue}
-        onDirectionChange={(direction) =>
+        onDirectionChange={(direction) => {
+          ensureFlex();
           onStyleChange(
             "flexDirection",
             direction === "vertical" ? "column" : "row",
-          )
-        }
-        onWrapChange={(wrap) => onStyleChange("flexWrap", wrap)}
+          );
+        }}
+        onWrapChange={(wrap) => {
+          ensureFlex();
+          onStyleChange("flexWrap", wrap);
+        }}
         onAlignmentChange={(alignment) => {
           if (autoLayoutValue.direction === "vertical") {
             onStyleChange(
@@ -2537,7 +2559,6 @@ function LayoutContextProperties({
   const flexChild = isParentFlex(element);
   const gridChild = isParentGrid(element);
   const availableSizing = availableSizingForElement(element);
-  const isFlex = element.isFlexContainer;
   const isContainer = isContainerElement(element);
 
   const childControls = (
@@ -2556,8 +2577,7 @@ function LayoutContextProperties({
   );
 
   // Leaf elements (text, img, svg, etc.) never get auto layout — show the plain
-  // Figma W/H sizing block instead. Containers always show the Auto layout
-  // section, in an "add" state until display:flex is applied.
+  // Figma W/H sizing block instead.
   if (!isContainer) {
     return (
       <PanelSection title={t("editPanel.sections.layout")}>
@@ -2599,75 +2619,20 @@ function LayoutContextProperties({
     );
   }
 
-  const applyAutoLayout = () => {
-    // Sensible Figma defaults when turning a container into an auto-layout
-    // frame: horizontal row, a small gap, top-left packing, hug contents.
-    commitStylePatch(
-      {
-        display: "flex",
-        flexDirection: "row",
-        alignItems: "flex-start",
-        justifyContent: "flex-start",
-        gap: "10px",
-      },
-      onStyleChange,
-      onStylesChange,
-    );
-  };
-
-  const removeAutoLayout = () => {
-    // Returning to a plain block container — drop the flex layout props.
-    commitStylePatch(
-      {
-        display: "block",
-        flexDirection: "row",
-        flexWrap: "nowrap",
-        gap: "0px",
-      },
-      onStyleChange,
-      onStylesChange,
-    );
-  };
-
+  // Any container element ALREADY has a layout in code — normal flow (block) by
+  // default, or flex when it uses flexbox. Figma never makes you "add" auto
+  // layout for a frame, so we always render the full layout controls and let
+  // the Flow control reflect/switch the element's current `display`. Choosing a
+  // horizontal/vertical/wrap/grid flow applies `display:flex`; choosing the
+  // normal-flow option resets to `display:block`.
   return (
-    <PanelSection
-      title={t("editPanel.sections.autoLayout")}
-      actions={
-        <SectionIconToggle
-          label={
-            isFlex
-              ? "Remove auto layout" /* i18n-ignore Figma inspector action */
-              : "Add auto layout" /* i18n-ignore Figma inspector action */
-          }
-          active={isFlex}
-          onClick={isFlex ? removeAutoLayout : applyAutoLayout}
-        >
-          <IconLayoutGrid className="size-3.5" />
-        </SectionIconToggle>
-      }
-    >
-      {isFlex ? (
-        <>
-          <FlexContainerControls
-            element={element}
-            onStyleChange={onStyleChange}
-            onStylesChange={onStylesChange}
-          />
-          {childControls}
-        </>
-      ) : (
-        <button
-          type="button"
-          onClick={applyAutoLayout}
-          className="flex w-full items-center gap-2 rounded-md border border-dashed border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 py-2 text-left text-[11px] text-muted-foreground transition-colors hover:border-[var(--design-editor-accent-color)] hover:text-foreground"
-        >
-          <IconLayoutGrid className="size-4 shrink-0" />
-          <span className="min-w-0 flex-1 truncate">
-            {"Add auto layout" /* i18n-ignore Figma inspector hint */}
-          </span>
-          <IconPlus className="size-3.5 shrink-0" />
-        </button>
-      )}
+    <PanelSection title={t("editPanel.sections.autoLayout")}>
+      <FlexContainerControls
+        element={element}
+        onStyleChange={onStyleChange}
+        onStylesChange={onStylesChange}
+      />
+      {childControls}
     </PanelSection>
   );
 }

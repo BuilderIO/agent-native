@@ -3,6 +3,13 @@ import { useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -109,14 +116,8 @@ export function ImageFillControls({
     event.target.value = "";
   };
 
-  const previewLabel = value.url
-    ? value.url.startsWith("data:")
-      ? "Uploaded image" /* i18n-ignore */
-      : value.url
-    : "No image selected"; /* i18n-ignore */
-
   return (
-    <div className={cn("space-y-2 px-3 pt-2 pb-1", className)}>
+    <div className={cn("space-y-1.5 px-3 pt-2 pb-2", className)}>
       {/* ── Preview / drop target ─────────────────────────────────────────── */}
       <div
         className="relative h-24 w-full overflow-hidden rounded-md border border-border/60"
@@ -210,38 +211,23 @@ export function ImageFillControls({
         />
       </div>
 
-      <p
-        className="truncate text-[10px] text-muted-foreground"
-        title={previewLabel}
+      {/* ── Fit mode dropdown ─────────────────────────────────────────────── */}
+      <Select
+        value={value.fit}
+        onValueChange={(v) => onChange({ ...value, fit: v as ImageFitMode })}
+        disabled={disabled}
       >
-        {previewLabel}
-      </p>
-
-      {/* ── Fit mode segmented control ────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-px rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-0.5">
-        {FIT_MODES.map(({ mode, label }) => {
-          const isActive = value.fit === mode;
-          return (
-            <button
-              key={mode}
-              type="button"
-              disabled={disabled}
-              aria-pressed={isActive}
-              onClick={() => onChange({ ...value, fit: mode })}
-              className={cn(
-                "h-5 rounded-sm text-[11px] transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                isActive
-                  ? "bg-popover text-foreground shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]"
-                  : "text-muted-foreground hover:text-foreground",
-                disabled && "pointer-events-none opacity-40",
-              )}
-            >
+        <SelectTrigger className="h-6 w-full rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent className="text-[11px]">
+          {FIT_MODES.map(({ mode, label }) => (
+            <SelectItem key={mode} value={mode} className="text-[11px]">
               {label}
-            </button>
-          );
-        })}
-      </div>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

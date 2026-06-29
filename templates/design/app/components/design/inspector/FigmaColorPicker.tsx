@@ -11,7 +11,7 @@ import {
   type RgbaColor,
 } from "@shared/color-utils";
 import type { ShaderDescriptor } from "@shared/shader-presets";
-import { IconChevronDown, IconColorPicker, IconX } from "@tabler/icons-react";
+import { IconChevronDown, IconColorPicker } from "@tabler/icons-react";
 import {
   useEffect,
   useRef,
@@ -1068,32 +1068,14 @@ export function FigmaColorPicker({
               />
             ) : (
               <>
-                {/* ── Header: title + close ─────────────────────────────── */}
-                <div className="flex items-center justify-between px-3 py-1.5">
-                  <span className="text-[11px] font-semibold text-foreground">
-                    {triggerLabel(effectivePaintType, color)}
-                  </span>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={
-                          "Close" /* i18n-ignore Figma picker close label */
-                        }
-                        onClick={() => setOpen(false)}
-                        className="flex size-5 cursor-pointer items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <IconX className="size-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>{"Close" /* i18n-ignore */}</TooltipContent>
-                  </Tooltip>
-                </div>
-
-                {/* ── Paint-type icon row ──────────────────────────────────── */}
-                <div className="border-t border-border/70 px-2 py-1.5">
-                  <div className="grid grid-cols-11 gap-px">
-                    {PAINT_TYPES.map(({ type, label, Icon }) => {
+                {/* ── Paint-type icon row (Figma-style, full-width tabs) ─── */}
+                {/* 11 types → two rows: first 6, then 5. Each icon is a
+                    clearly-hittable 36×32px target with a distinct active
+                    accent so the selected mode is immediately obvious. */}
+                <div className="border-b border-border/70 px-2 pt-2 pb-1.5">
+                  {/* Row 1: Solid · Linear · Radial · Angular · Diamond · Image */}
+                  <div className="mb-1 grid grid-cols-6 gap-1">
+                    {PAINT_TYPES.slice(0, 6).map(({ type, label, Icon }) => {
                       const isActive = effectivePaintType === type;
                       return (
                         <Tooltip key={type}>
@@ -1105,28 +1087,68 @@ export function FigmaColorPicker({
                               disabled={disabled}
                               onClick={() => setPaintType(type)}
                               className={cn(
-                                "flex h-6 w-full cursor-pointer items-center justify-center rounded-sm transition-colors",
+                                "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-colors",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                 "active:scale-95",
                                 isActive
-                                  ? "bg-primary/10 text-primary shadow-[inset_0_0_0_1px_var(--primary)]"
+                                  ? "bg-accent text-accent-foreground ring-1 ring-primary/60"
                                   : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
                                 disabled && "pointer-events-none opacity-40",
                               )}
                             >
-                              <Icon className="size-3.5" />
+                              <Icon className="size-4" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent>{label}</TooltipContent>
+                          <TooltipContent side="bottom" className="text-[10px]">
+                            {label}
+                          </TooltipContent>
                         </Tooltip>
                       );
                     })}
                   </div>
+                  {/* Row 2: Video · Shader · Noise · Pattern · None */}
+                  <div className="grid grid-cols-5 gap-1">
+                    {PAINT_TYPES.slice(6).map(({ type, label, Icon }) => {
+                      const isActive = effectivePaintType === type;
+                      return (
+                        <Tooltip key={type}>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={label}
+                              aria-pressed={isActive}
+                              disabled={disabled}
+                              onClick={() => setPaintType(type)}
+                              className={cn(
+                                "flex h-8 w-full cursor-pointer flex-col items-center justify-center gap-0.5 rounded transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                "active:scale-95",
+                                isActive
+                                  ? "bg-accent text-accent-foreground ring-1 ring-primary/60"
+                                  : "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                                disabled && "pointer-events-none opacity-40",
+                              )}
+                            >
+                              <Icon className="size-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className="text-[10px]">
+                            {label}
+                          </TooltipContent>
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                  {/* Active-type label — shows which mode is selected */}
+                  <p className="mt-1 text-center text-[10px] font-medium text-muted-foreground">
+                    {PAINT_TYPES.find((p) => p.type === effectivePaintType)
+                      ?.label ?? effectivePaintType}
+                  </p>
                 </div>
 
                 {/* ── Image fill controls ─────────────────────────────────── */}
                 {effectivePaintType === "image" && (
-                  <div className="border-t border-border/70">
+                  <div>
                     <ImageFillControls
                       value={imageFill}
                       disabled={disabled}
@@ -1137,7 +1159,7 @@ export function FigmaColorPicker({
 
                 {/* ── Video fill: source field ────────────────────────────── */}
                 {effectivePaintType === "video" && (
-                  <div className="border-t border-border/70 px-3 py-2">
+                  <div className="px-3 py-2">
                     <p className="mb-1.5 text-[10px] text-muted-foreground">
                       {
                         "Paste a video URL to use as the fill." /* i18n-ignore */
@@ -1170,7 +1192,7 @@ export function FigmaColorPicker({
 
                 {/* ── Gradient editor (linear / radial / angular / diamond) ── */}
                 {activeGradient && (
-                  <div className="border-t border-border/70">
+                  <div>
                     <GradientEditor
                       value={activeGradient}
                       selectedStopId={selectedStopId}

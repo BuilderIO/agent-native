@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import {
   Select,
   SelectContent,
@@ -62,27 +64,37 @@ const DEFAULT_LABELS: ConstraintsWidgetLabels = {
 };
 
 // ── pin-box geometry ────────────────────────────────────────────────────────
-// The preview box is 40×40px (size-10). Inside it sits a 16×16px inner rect
-// (representing the element) centered at (20,20). The four edge pins are thin
-// bars that can be toggled on/off. When an axis is in "scale" mode the pins
-// on that axis render dashed. When an axis is in "center" mode a center-line
-// is drawn through the inner rect on that axis.
+// The preview box is 40×40px (size-10). Inside it sits an 18×14px inner rect
+// (representing a child element) centered at (20,20). The proportions match
+// Figma's "little box" widget — inner rect is ~45–50% of the outer box width
+// and slightly shorter in height to resemble a real element.
 //
-//  Edge pins: 6px long, 1.5px wide, placed 2px from the box edge.
-//    left  : x=2..8,  y center=20
-//    right : x=32..38, y center=20
-//    top   : x center=20, y=2..8
-//    bottom: x center=20, y=32..38
+// Edge pins: 5px long, 2px wide, placed 2px from the box edge (flush to border).
+//   left  : x=2..7,   y center=20
+//   right : x=33..38, y center=20
+//   top   : x center=20, y=2..7
+//   bottom: x center=20, y=33..38
 //
-//  Center marker: a line through the inner rect midpoint for h=center or v=center.
+// Gap between pin tip and inner rect edge:
+//   left  : inner left edge at x=11 → gap from x=7 to x=11  (4px)
+//   right : inner right edge at x=29 → gap from x=29 to x=33 (4px)
+//   top   : inner top edge at y=13  → gap from y=7 to y=13  (6px)
+//   bottom: inner bottom edge at y=27 → gap from y=27 to y=33 (6px)
+//
+// Center marker: for h=center or v=center, a single accent line runs through
+// the full width/height of the box (including through the inner rect), drawn
+// on top at the midpoint — matching Figma's solid crosshair treatment.
+//
+// Scale mode: all four pins on that axis render dashed, accent color.
 
 const BOX = 40; // viewBox width/height (matches size-10 = 40px)
-const INNER = 16; // inner rect size
-const INNER_X = (BOX - INNER) / 2; // 12
-const INNER_Y = (BOX - INNER) / 2; // 12
-const PIN_LEN = 6;
-const PIN_W = 1.5;
-const MARGIN = 2; // gap between box edge and pin start
+const INNER_W = 18; // inner rect width
+const INNER_H = 14; // inner rect height (slightly shorter than wide = realistic element)
+const INNER_X = (BOX - INNER_W) / 2; // 11
+const INNER_Y = (BOX - INNER_H) / 2; // 13
+const PIN_LEN = 5; // visual pin length
+const PIN_W = 2; // pin stroke width (Figma: 2px thick pins)
+const MARGIN = 2; // gap between outer box edge and pin start
 const CENTER = BOX / 2; // 20
 
 // Returns whether a given horizontal pin should be active (solid/accent).
@@ -160,6 +172,10 @@ function PinBox({
   onToggleH,
   onToggleV,
 }: PinBoxProps) {
+  const [hoveredPin, setHoveredPin] = useState<
+    "left" | "right" | "top" | "bottom" | null
+  >(null);
+
   const leftOn = hPinActive("left", value.horizontal);
   const rightOn = hPinActive("right", value.horizontal);
   const topOn = vPinActive("top", value.vertical);
@@ -169,29 +185,47 @@ function PinBox({
   const hScale = value.horizontal === "scale";
   const vScale = value.vertical === "scale";
 
-  // Pin rendering helpers:
-  //   active  → accent color, solid
-  //   scale   → accent color, dashed (Figma: Scale makes pins dashed)
-  //   inactive → muted/dim, solid
+  // Colors:
+  //   active / scale → accent (primary)
+  //   hovered inactive → slightly brighter muted
+  //   inactive → muted (30% foreground opacity)
   const ACCENT = "hsl(var(--primary))";
+  // Hover: lighten inactive pins on hover — use 55% opacity instead of 30%
   const MUTED = "hsl(var(--foreground) / 0.30)";
+  const MUTED_HOVER = "hsl(var(--foreground) / 0.60)";
   const SCALE_DASH = "3 2";
 
-  // Hit-area size for each pin button (larger than the visual stroke for
-  // easy clicking — 10×10 centered on the pin midpoint).
-  const HIT = 10;
+  // Hit-area size for each pin (larger than the visual stroke for easy clicking
+  // — 10px wide / 14px tall centered on the pin midpoint).
+  const HIT_CROSS = 10; // perpendicular extent of hit area
+  const HIT_LONG = 14; // along-pin extent of hit area (covers pin + gap to inner rect)
 
-  // Pin color: accent when active or scale, muted otherwise.
-  const lColor = leftOn || hScale ? ACCENT : MUTED;
-  const rColor = rightOn || hScale ? ACCENT : MUTED;
-  const tColor = topOn || vScale ? ACCENT : MUTED;
-  const bColor = bottomOn || vScale ? ACCENT : MUTED;
+  // Pin color: accent when active or scale; hover-boosted or muted when inactive.
+  function pinColor(
+    side: "left" | "right" | "top" | "bottom",
+    isActive: boolean,
+    isScale: boolean,
+  ): string {
+    if (isActive || isScale) return ACCENT;
+    if (hoveredPin === side) return MUTED_HOVER;
+    return MUTED;
+  }
 
-  // Dash: scale mode makes that axis's pins dashed.
+  const lColor = pinColor("left", leftOn, hScale);
+  const rColor = pinColor("right", rightOn, hScale);
+  const tColor = pinColor("top", topOn, vScale);
+  const bColor = pinColor("bottom", bottomOn, vScale);
+
   const lDash = hScale ? SCALE_DASH : undefined;
   const rDash = hScale ? SCALE_DASH : undefined;
   const tDash = vScale ? SCALE_DASH : undefined;
   const bDash = vScale ? SCALE_DASH : undefined;
+
+  // Pin end coordinates (tip = closer to inner rect)
+  // left pin:   x from MARGIN to MARGIN+PIN_LEN, y=CENTER
+  // right pin:  x from BOX-MARGIN to BOX-MARGIN-PIN_LEN, y=CENTER
+  // top pin:    x=CENTER, y from MARGIN to MARGIN+PIN_LEN
+  // bottom pin: x=CENTER, y from BOX-MARGIN to BOX-MARGIN-PIN_LEN
 
   return (
     <svg
@@ -203,7 +237,7 @@ function PinBox({
         "shrink-0 rounded-sm",
         disabled && "pointer-events-none opacity-40",
       )}
-      style={{ background: "hsl(var(--muted) / 0.3)" }}
+      style={{ background: "hsl(var(--muted) / 0.4)" }}
     >
       {/* outer border */}
       <rect
@@ -211,76 +245,52 @@ function PinBox({
         y={0.75}
         width={BOX - 1.5}
         height={BOX - 1.5}
-        rx={3}
+        rx={2.5}
         fill="none"
-        stroke="hsl(var(--border))"
+        stroke="hsl(var(--foreground) / 0.20)"
         strokeWidth={1.5}
       />
 
-      {/* inner element rect */}
+      {/* inner element rect — represents the selected element */}
       <rect
         x={INNER_X}
         y={INNER_Y}
-        width={INNER}
-        height={INNER}
-        rx={1.5}
+        width={INNER_W}
+        height={INNER_H}
+        rx={1}
         fill="hsl(var(--background))"
-        stroke="hsl(var(--foreground) / 0.40)"
+        stroke="hsl(var(--foreground) / 0.35)"
         strokeWidth={1}
       />
 
-      {/* center lines for h-center or v-center — run from box edge to inner rect edge */}
+      {/* center crosshair lines — drawn THROUGH the full box width/height
+          (including through the inner rect), matching Figma's solid crosshair.
+          Only rendered when the constraint is "center" on that axis.            */}
       {hCenter && (
-        <>
-          {/* left segment: outer box to inner rect left edge */}
-          <line
-            x1={MARGIN + PIN_LEN}
-            y1={CENTER}
-            x2={INNER_X}
-            y2={CENTER}
-            stroke={ACCENT}
-            strokeWidth={1}
-            strokeDasharray="2 1.5"
-          />
-          {/* right segment: inner rect right edge to outer box */}
-          <line
-            x1={INNER_X + INNER}
-            y1={CENTER}
-            x2={BOX - MARGIN - PIN_LEN}
-            y2={CENTER}
-            stroke={ACCENT}
-            strokeWidth={1}
-            strokeDasharray="2 1.5"
-          />
-        </>
+        <line
+          x1={MARGIN + PIN_LEN}
+          y1={CENTER}
+          x2={BOX - MARGIN - PIN_LEN}
+          y2={CENTER}
+          stroke={ACCENT}
+          strokeWidth={1}
+          strokeLinecap="round"
+        />
       )}
       {vCenter && (
-        <>
-          {/* top segment: outer box to inner rect top edge */}
-          <line
-            x1={CENTER}
-            y1={MARGIN + PIN_LEN}
-            x2={CENTER}
-            y2={INNER_Y}
-            stroke={ACCENT}
-            strokeWidth={1}
-            strokeDasharray="2 1.5"
-          />
-          {/* bottom segment: inner rect bottom edge to outer box */}
-          <line
-            x1={CENTER}
-            y1={INNER_Y + INNER}
-            x2={CENTER}
-            y2={BOX - MARGIN - PIN_LEN}
-            stroke={ACCENT}
-            strokeWidth={1}
-            strokeDasharray="2 1.5"
-          />
-        </>
+        <line
+          x1={CENTER}
+          y1={MARGIN + PIN_LEN}
+          x2={CENTER}
+          y2={BOX - MARGIN - PIN_LEN}
+          stroke={ACCENT}
+          strokeWidth={1}
+          strokeLinecap="round"
+        />
       )}
 
       {/* edge pins — visual strokes */}
-      {/* left pin */}
+      {/* left pin: from outer edge toward inner rect */}
       <line
         x1={MARGIN}
         y1={CENTER}
@@ -325,54 +335,62 @@ function PinBox({
         strokeDasharray={bDash}
       />
 
-      {/* invisible click targets — rendered on top of strokes */}
+      {/* invisible click + hover targets — rendered on top of strokes */}
       {!disabled && (
         <>
-          {/* left pin hit area — clamped to x>=0 */}
+          {/* left pin hit area */}
           <rect
             x={0}
-            y={CENTER - HIT / 2}
-            width={MARGIN + PIN_LEN + HIT / 2}
-            height={HIT}
+            y={CENTER - HIT_CROSS / 2}
+            width={MARGIN + PIN_LEN + HIT_LONG / 2}
+            height={HIT_CROSS}
             fill="transparent"
             className="cursor-pointer"
             onClick={() => onToggleH("left")}
+            onMouseEnter={() => setHoveredPin("left")}
+            onMouseLeave={() => setHoveredPin(null)}
             role="button"
             aria-label={labels.left}
           />
-          {/* right pin hit area — clamped to x<=BOX */}
+          {/* right pin hit area */}
           <rect
-            x={BOX - MARGIN - PIN_LEN - HIT / 2}
-            y={CENTER - HIT / 2}
-            width={MARGIN + PIN_LEN + HIT / 2}
-            height={HIT}
+            x={BOX - MARGIN - PIN_LEN - HIT_LONG / 2}
+            y={CENTER - HIT_CROSS / 2}
+            width={MARGIN + PIN_LEN + HIT_LONG / 2}
+            height={HIT_CROSS}
             fill="transparent"
             className="cursor-pointer"
             onClick={() => onToggleH("right")}
+            onMouseEnter={() => setHoveredPin("right")}
+            onMouseLeave={() => setHoveredPin(null)}
             role="button"
             aria-label={labels.right}
           />
-          {/* top pin hit area — clamped to y>=0 */}
+          {/* top pin hit area */}
           <rect
-            x={CENTER - HIT / 2}
+            x={CENTER - HIT_CROSS / 2}
             y={0}
-            width={HIT}
-            height={MARGIN + PIN_LEN + HIT / 2}
+            width={HIT_CROSS}
+            height={MARGIN + PIN_LEN + HIT_LONG / 2}
             fill="transparent"
             className="cursor-pointer"
             onClick={() => onToggleV("top")}
+            onMouseEnter={() => setHoveredPin("top")}
+            onMouseLeave={() => setHoveredPin(null)}
             role="button"
             aria-label={labels.top}
           />
-          {/* bottom pin hit area — clamped to y<=BOX */}
+          {/* bottom pin hit area */}
           <rect
-            x={CENTER - HIT / 2}
-            y={BOX - MARGIN - PIN_LEN - HIT / 2}
-            width={HIT}
-            height={MARGIN + PIN_LEN + HIT / 2}
+            x={CENTER - HIT_CROSS / 2}
+            y={BOX - MARGIN - PIN_LEN - HIT_LONG / 2}
+            width={HIT_CROSS}
+            height={MARGIN + PIN_LEN + HIT_LONG / 2}
             fill="transparent"
             className="cursor-pointer"
             onClick={() => onToggleV("bottom")}
+            onMouseEnter={() => setHoveredPin("bottom")}
+            onMouseLeave={() => setHoveredPin(null)}
             role="button"
             aria-label={labels.bottom}
           />
@@ -409,7 +427,7 @@ export function ConstraintsWidget({
       </span>
 
       {/* main row: pin-box LEFT + dropdowns RIGHT */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {/* pin box */}
         <PinBox
           value={value}

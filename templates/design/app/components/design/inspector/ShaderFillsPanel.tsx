@@ -255,7 +255,8 @@ export function ShaderFillsPanel({
     const preset = SHADER_PRESET_MAP[active.preset];
     return (
       <div className="flex flex-col">
-        <div className="flex items-center gap-1.5 px-3 py-1.5">
+        {/* Detail header: ← preset-name × */}
+        <div className="flex h-6 items-center gap-1.5 px-3">
           <button
             type="button"
             aria-label={"Back to shader fills" /* i18n-ignore */}
@@ -286,32 +287,48 @@ export function ShaderFillsPanel({
     );
   }
 
-  // ── Browse view: title + search + Created by you + By Figma grid ──────────
+  // ── Browse view: Figma-style title + search + Created by you + By Figma ───
   return (
     <div className="flex flex-col">
-      {/* Header: title + back/close */}
-      <div className="flex items-center gap-1.5 px-3 py-1.5">
-        <button
-          type="button"
-          aria-label={"Back to color picker" /* i18n-ignore */}
-          onClick={onBack}
-          className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <IconArrowLeft className="size-3.5" />
-        </button>
+      {/* Header: "Shader fills" title + + button + × button */}
+      <div className="flex h-6 items-center gap-1 px-3">
         <span className="flex-1 truncate text-[11px] font-semibold text-foreground">
           {"Shader fills" /* i18n-ignore Figma panel title */}
         </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={"Create new shader" /* i18n-ignore */}
+              disabled={disabled}
+              onClick={() => commit(descriptorFromPreset(SHADER_PRESETS[0]))}
+              className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-40"
+            >
+              <IconPlus className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            {"Create new shader" /* i18n-ignore */}
+          </TooltipContent>
+        </Tooltip>
+        <button
+          type="button"
+          aria-label={"Close shader fills" /* i18n-ignore */}
+          onClick={onBack}
+          className="flex size-5 items-center justify-center rounded text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconX className="size-3" />
+        </button>
       </div>
 
-      {/* Search */}
+      {/* Search field */}
       <div className="border-t border-border/70 px-3 py-2">
         <div className="flex h-6 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2">
           <IconSearch className="size-3 shrink-0 text-muted-foreground" />
           <Input
             value={search}
             disabled={disabled}
-            placeholder={"Search shaders" /* i18n-ignore */}
+            placeholder={"Search" /* i18n-ignore */}
             aria-label={"Search shaders" /* i18n-ignore */}
             className="h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-[11px] shadow-none focus-visible:ring-0"
             onChange={(event) => setSearch(event.target.value)}
@@ -330,71 +347,76 @@ export function ShaderFillsPanel({
       </div>
 
       <div className="max-h-[360px] overflow-y-auto px-3 pb-3">
-        {/* Created by you → Create new */}
+        {/* ── Created by you ── */}
         {!search && (
-          <div className="mb-3">
-            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <section className="mb-3">
+            <p className="mb-1.5 text-[10px] font-semibold text-muted-foreground">
               {"Created by you" /* i18n-ignore Figma section */}
             </p>
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={() => commit(descriptorFromPreset(SHADER_PRESETS[0]))}
-              className={cn(
-                "flex aspect-[4/3] w-[calc(50%-0.25rem)] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-[var(--design-editor-control-border)] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                disabled && "pointer-events-none opacity-40",
-              )}
-            >
-              <IconPlus className="size-4" />
-              <span className="text-[10px]">
-                {"Create new" /* i18n-ignore Figma create tile */}
-              </span>
-            </button>
-          </div>
+            {/* 2-col grid — "Create new" tile occupies the first cell */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => commit(descriptorFromPreset(SHADER_PRESETS[0]))}
+                className={cn(
+                  "group relative flex aspect-[4/3] w-full flex-col items-center justify-center gap-1 rounded-md border border-dashed border-[var(--design-editor-control-border)] text-muted-foreground transition-colors",
+                  "hover:border-foreground/40 hover:text-foreground",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  disabled && "pointer-events-none opacity-40",
+                )}
+              >
+                {/* AI badge — top-right corner */}
+                <span className="absolute right-1.5 top-1.5 rounded bg-[var(--design-editor-control-bg)] px-1 py-px text-[9px] font-semibold leading-none text-muted-foreground">
+                  {"AI" /* i18n-ignore */}
+                </span>
+                <IconPlus className="size-4" />
+                <span className="text-[10px]">
+                  {"Create new" /* i18n-ignore Figma create tile */}
+                </span>
+              </button>
+            </div>
+          </section>
         )}
 
-        {/* By Figma → preset thumbnails */}
-        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          {"By Figma" /* i18n-ignore Figma section */}
-        </p>
-        {filtered.length === 0 ? (
-          <p className="py-4 text-center text-[11px] text-muted-foreground">
-            {"No shaders match your search" /* i18n-ignore */}
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 gap-2">
-            {filtered.map((preset) => (
-              <Tooltip key={preset.name}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    disabled={disabled}
-                    aria-label={preset.label}
-                    onClick={() => commit(descriptorFromPreset(preset))}
-                    className={cn(
-                      "group flex flex-col gap-1 text-left focus-visible:outline-none",
-                      disabled && "pointer-events-none opacity-40",
-                    )}
-                  >
-                    <ShaderThumbnail
-                      preset={preset}
-                      selected={
-                        active
-                          ? (active as ShaderDescriptor).preset === preset.name
-                          : false
-                      }
-                    />
-                    <span className="truncate text-[10px] text-muted-foreground group-hover:text-foreground">
-                      {preset.label}
-                    </span>
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{preset.description}</TooltipContent>
-              </Tooltip>
-            ))}
-          </div>
-        )}
+        {/* ── By Figma — 2-col preset thumbnail grid ── */}
+        <section>
+          {!search && (
+            <p className="mb-1.5 text-[10px] font-semibold text-muted-foreground">
+              {"By Figma" /* i18n-ignore Figma section */}
+            </p>
+          )}
+          {filtered.length === 0 ? (
+            <p className="py-4 text-center text-[11px] text-muted-foreground">
+              {"No shaders match your search" /* i18n-ignore */}
+            </p>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              {filtered.map((preset) => (
+                <Tooltip key={preset.name}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      disabled={disabled}
+                      aria-label={preset.label}
+                      onClick={() => commit(descriptorFromPreset(preset))}
+                      className={cn(
+                        "group flex flex-col gap-1 text-left focus-visible:outline-none",
+                        disabled && "pointer-events-none opacity-40",
+                      )}
+                    >
+                      <ShaderThumbnail preset={preset} selected={false} />
+                      <span className="truncate text-[10px] text-muted-foreground group-hover:text-foreground">
+                        {preset.label}
+                      </span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{preset.description}</TooltipContent>
+                </Tooltip>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
