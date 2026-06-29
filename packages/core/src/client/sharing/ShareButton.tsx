@@ -47,6 +47,8 @@ export interface ShareButtonProps {
   variant?: "compact" | "label";
   /** Optional trigger style. Defaults to the Google-Docs-style "Share" label. */
   trigger?: "label" | "icon";
+  /** Hide the visibility/share glyph in the label trigger. */
+  hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
   /** Notified when the share popover opens or closes. Hosts that render the
@@ -154,7 +156,7 @@ const BUTTON_GHOST_ICON = cn(
   "h-7 w-7 p-0 text-muted-foreground hover:bg-accent hover:text-accent-foreground",
 );
 const SHARE_POPOVER_SURFACE =
-  "border-[hsl(var(--sidebar-border,var(--border)))] bg-[hsl(var(--sidebar-background,var(--popover)))]";
+  "border border-border bg-popover text-popover-foreground";
 const MEMBER_SUGGESTION_LIMIT = 25;
 const MEMBER_SEARCH_DEBOUNCE_MS = 140;
 
@@ -311,6 +313,7 @@ export function ShareButton(props: ShareButtonProps) {
       : currentVisibility === "org"
         ? IconBuilding
         : IconLock;
+  const showTriggerIcon = iconOnly || !props.hideTriggerIcon;
   const TriggerIcon = iconOnly ? IconShare3 : VisibilityIcon;
 
   return (
@@ -324,14 +327,16 @@ export function ShareButton(props: ShareButtonProps) {
           )}
           aria-label={iconOnly ? "Share" : undefined}
         >
-          {loaded || iconOnly ? (
-            <TriggerIcon size={16} strokeWidth={1.75} />
-          ) : (
-            <span
-              aria-hidden
-              className="inline-block h-4 w-4 rounded-sm bg-muted animate-pulse"
-            />
-          )}
+          {showTriggerIcon ? (
+            loaded || iconOnly ? (
+              <TriggerIcon size={16} strokeWidth={1.75} />
+            ) : (
+              <span
+                aria-hidden
+                className="inline-block h-4 w-4 rounded-sm bg-muted animate-pulse"
+              />
+            )
+          ) : null}
           {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>
@@ -1029,7 +1034,7 @@ function AdvancedAccessPopover({
             disabled={!canManage || control.pending}
             onClick={onToggle}
             className={cn(
-              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-background px-3 py-2.5 text-start transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
+              "flex w-full items-start gap-3 rounded-md border border-border/70 bg-card px-3 py-2.5 text-start transition-colors hover:bg-accent/45 disabled:cursor-not-allowed disabled:opacity-60",
               control.checked && "border-border bg-accent/35 text-foreground",
             )}
           >
@@ -1042,7 +1047,7 @@ function AdvancedAccessPopover({
             >
               <span
                 className={cn(
-                  "ml-0.5 size-4 rounded-full bg-background shadow-sm transition-transform",
+                  "ml-0.5 size-4 rounded-full bg-popover shadow-sm transition-transform",
                   control.checked && "translate-x-4",
                 )}
               />
@@ -1210,7 +1215,7 @@ function MemberAutocomplete({
             }}
             onKeyDown={handleKeyDown}
             autoComplete="off"
-            className="h-9 w-full min-w-0 rounded-md border border-input bg-background ps-8 pe-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+            className="h-9 w-full min-w-0 rounded-md border border-input bg-card ps-8 pe-8 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
           />
           {search.isLoading ? (
             <IconLoader2
@@ -1355,13 +1360,13 @@ function CopyLinkField({
         <input
           readOnly
           value={value}
-          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm text-muted-foreground outline-none"
+          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm text-muted-foreground outline-none"
           onFocus={(event) => event.currentTarget.select()}
         />
         <button
           type="button"
           onClick={handleCopy}
-          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-accent"
+          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground hover:bg-accent"
         >
           {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
           {copied ? "Copied" : "Copy"}
@@ -1439,7 +1444,7 @@ function RoleSelect(props: {
               )
             : cn(
                 BUTTON_BASE,
-                "h-9 px-3 border border-input bg-background hover:bg-accent hover:text-accent-foreground",
+                "h-9 px-3 border border-input bg-card hover:bg-accent hover:text-accent-foreground",
               )
         }
         aria-label="Role"

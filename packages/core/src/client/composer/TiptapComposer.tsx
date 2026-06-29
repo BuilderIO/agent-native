@@ -31,8 +31,10 @@ import {
   reasoningEffortLabel,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
+import type { VoiceContextPack } from "../../voice/index.js";
 import {
   AgentComposerReference,
+  formatAgentChatContextItemsForPrompt,
   normalizeAgentComposerReference,
   sendToAgentChat,
   type AgentChatContextItem,
@@ -200,6 +202,13 @@ function metadataString(
 ): string | null {
   const value = metadata?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function trimVoiceContextValue(value: string, maxChars: number): string | null {
+  const trimmed = value.replace(/\0/g, "").trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars).trimEnd()}\n[truncated]`;
 }
 
 function filterMentionItemsForSlots(
@@ -497,6 +506,8 @@ export interface TiptapComposerProps {
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
   ) => void;
+  /** Return false to stop a submit before it enters the chat runtime. */
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
   /**
    * Clear the editor after an onSubmit handler runs. Standalone workflows that
    * may fail outside the composer can keep the draft visible for quick edits.
@@ -1216,6 +1227,7 @@ export function TiptapComposer({
   initialText,
   initialTextKey,
   onSubmit,
+  onBeforeSubmit,
   clearOnSubmit = true,
   onTextChange,
   actionButton,
@@ -1252,6 +1264,7 @@ export function TiptapComposer({
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
+  const submitInFlightRef = useRef(false);
   const [editorHasText, setEditorHasText] = useState(false);
   const [slotReferences, setSlotReferences] = useState<
     AgentComposerReference[]
@@ -1585,7 +1598,7 @@ export function TiptapComposer({
         const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
         if (submitIntent) {
           event.preventDefault();
-          submitComposer(submitIntent);
+          void submitComposer(submitIntent);
           return true;
         }
 
@@ -1845,9 +1858,57 @@ export function TiptapComposer({
     [editor],
   );
 
+  const buildVoiceContextPack = useCallback(():
+    | VoiceContextPack
+    | undefined => {
+    const snippets: Array<{ label: string; value: string }> = [];
+
+    const activeContext = trimVoiceContextValue(
+      formatAgentChatContextItemsForPrompt(contextItems),
+      3200,
+    );
+    if (activeContext) {
+      snippets.push({ label: "Active app context", value: activeContext });
+    }
+
+    const selectedReferences = trimVoiceContextValue(
+      slotReferences.map((ref) => slotReferenceTitle(ref)).join(", "),
+      1200,
+    );
+    if (selectedReferences) {
+      snippets.push({
+        label: "Selected references",
+        value: selectedReferences,
+      });
+    }
+
+    const draft = editor
+      ? trimVoiceContextValue(editor.state.doc.textContent, 1200)
+      : null;
+    if (draft) snippets.push({ label: "Current draft", value: draft });
+
+    if (typeof document !== "undefined") {
+      const title = trimVoiceContextValue(document.title, 160);
+      if (title) snippets.push({ label: "Page title", value: title });
+    }
+
+    if (typeof window !== "undefined") {
+      const route = trimVoiceContextValue(window.location.pathname, 240);
+      if (route) snippets.push({ label: "Route", value: route });
+    }
+
+    if (snippets.length === 0) return undefined;
+    return {
+      surface: "agent-composer",
+      mode: "dictation",
+      snippets,
+    };
+  }, [contextItems, editor, slotReferences]);
+
   const voice = useVoiceDictation({
     onTranscript: insertTranscript,
     onLiveUpdate: handleLiveUpdate,
+    contextPack: buildVoiceContextPack,
   });
 
   // Clean up live text if voice session ends without a final transcript (cancel/error)
@@ -2005,9 +2066,10 @@ export function TiptapComposer({
   }, [composerRuntime, execMode, extractComposerPayload]);
 
   const submitComposer = useCallback(
-    (intent: ComposerSubmitIntent = "immediate") => {
+    async (intent: ComposerSubmitIntent = "immediate") => {
       const ed = editor;
       if (!ed) return;
+      if (submitInFlightRef.current) return;
 
       const { text, references } = syncComposerState();
       const attachments = composerRuntime.getState().attachments;
@@ -2042,6 +2104,38 @@ export function TiptapComposer({
           closePopover();
           onSlashCommandRef.current?.(matched.name);
           return;
+        }
+      }
+
+      // Builder iframe delegation: when this app is mounted inside the
+      // Builder.io webview and the user typed a "build me an app/agent"
+      // prompt, hand it up to the parent Builder chat instead of sending
+      // it to this app's domain agent. Builder is the code-writing agent;
+      // the local agent (dispatch, mail, etc.) cannot scaffold workspace
+      // apps from inside its own iframe.
+      if (
+        !composerMode &&
+        interceptBuildRequestsForBuilder &&
+        tryDelegateBuildRequestToBuilder(trimmed)
+      ) {
+        cancelActiveVoice();
+        ed.commands.clearContent();
+        setEditorHasText(false);
+        setSlotReferences([]);
+        try {
+          localStorage.removeItem(draftKey);
+        } catch {}
+        closePopover();
+        return;
+      }
+
+      if (onBeforeSubmit) {
+        submitInFlightRef.current = true;
+        try {
+          const shouldSubmit = await onBeforeSubmit();
+          if (!shouldSubmit) return;
+        } finally {
+          submitInFlightRef.current = false;
         }
       }
 
@@ -2088,27 +2182,6 @@ export function TiptapComposer({
         return;
       }
 
-      // Builder iframe delegation: when this app is mounted inside the
-      // Builder.io webview and the user typed a "build me an app/agent"
-      // prompt, hand it up to the parent Builder chat instead of sending
-      // it to this app's domain agent. Builder is the code-writing agent;
-      // the local agent (dispatch, mail, etc.) cannot scaffold workspace
-      // apps from inside its own iframe.
-      if (
-        interceptBuildRequestsForBuilder &&
-        tryDelegateBuildRequestToBuilder(trimmed)
-      ) {
-        cancelActiveVoice();
-        ed.commands.clearContent();
-        setEditorHasText(false);
-        setSlotReferences([]);
-        try {
-          localStorage.removeItem(draftKey);
-        } catch {}
-        closePopover();
-        return;
-      }
-
       if (onSubmit) {
         onSubmit(text, references, attachments, { intent });
         // Clear any pending attachments now that the host has them.
@@ -2133,9 +2206,11 @@ export function TiptapComposer({
       closePopover,
       composerMode,
       composerRuntime,
+      draftKey,
       editor,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
+      onBeforeSubmit,
       onSubmit,
       syncComposerState,
       voice,
@@ -2472,7 +2547,7 @@ export function TiptapComposer({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => submitComposer("immediate")}
+                  onClick={() => void submitComposer("immediate")}
                   disabled={!canSend}
                   data-agent-composer-slot="send-button"
                   className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"

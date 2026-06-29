@@ -1,5 +1,31 @@
 # @agent-native/core
 
+## 0.80.0
+
+### Minor Changes
+
+- aa345cc: Add `agent-native design connect` foundations for localhost Design bridge manifests.
+
+### Patch Changes
+
+- aa345cc: App shells use an outline-style raised surface ring and Dispatch left navigation can collapse to an animated icon rail.
+- aa345cc: Live cursors now use Figma-style pointer markers with adjacent participant labels.
+- aa345cc: Surface missing LLM provider connections before agent chat starts a run, including Builder and AI SDK engines.
+- aa345cc: Fix Chrome visual glitchiness (blank/stale regions on scroll, pan, and zoom) in
+  plan documents and canvases by removing `backdrop-filter` (`backdrop-blur`) from
+  always-rendered per-block controls. A long plan rendered 40+ per-block edit
+  triggers, each forcing its own composited backdrop layer; Chrome re-samples every
+  backdrop snapshot on each scroll frame and its backdrop-filter invalidation drops
+  tiles, leaving regions blank until the next repaint. The tiny hover-trigger chips
+  now use an opaque background, which is visually identical but eliminates the
+  composited backdrop layers. Affects the block edit trigger, diagram/mermaid
+  expand/style triggers, and wireframe style trigger.
+- aa345cc: Allow embedded MCP App controls to target their own local agent sidebar instead of relaying every submitted prompt to the host chat.
+- aa345cc: Respect silent chat context staging across app/frame boundaries so selection context can update without opening the agent sidebar.
+- aa345cc: Polish the shared chat thinking status with capitalized text and a subtle shine animation.
+- aa345cc: Add the Design `/visual-edit` skill and route it through the built-in skill installers so agents can open localhost routes as URL-backed Design screens.
+- aa345cc: Improve voice transcription and cleanup with bounded voice context packs for active composer context, learned vocabulary, and transcript cleanup prompts.
+
 ## 0.79.27
 
 ### Patch Changes

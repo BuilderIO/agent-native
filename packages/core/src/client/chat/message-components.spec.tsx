@@ -29,8 +29,8 @@ describe("ThinkingIndicator", () => {
     });
 
     const status = container.querySelector('[role="status"]');
-    expect(status?.getAttribute("aria-label")).toBe("thinking");
-    expect(status?.textContent).toBe("thinking");
+    expect(status?.getAttribute("aria-label")).toBe("Thinking");
+    expect(status?.textContent).toBe("Thinking");
     expect(container.querySelector("svg")).toBeNull();
     expect(
       container.querySelectorAll(".agent-thinking-indicator__ellipsis-dot"),

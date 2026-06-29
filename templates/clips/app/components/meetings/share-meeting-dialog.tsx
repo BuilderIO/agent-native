@@ -38,7 +38,7 @@ export function ShareMeetingPopover({
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-[440px] max-w-[calc(100vw-1rem)] overflow-hidden p-0"
+        className="w-[440px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
       >
         <ShareMeetingContent
           meetingId={meetingId}

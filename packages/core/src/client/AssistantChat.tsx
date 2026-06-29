@@ -34,6 +34,7 @@ import React, {
   useImperativeHandle,
 } from "react";
 
+import { LLM_MISSING_CREDENTIALS_MESSAGE } from "../agent/engine/credential-errors.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   getActiveRun,
@@ -48,9 +49,11 @@ import {
 import {
   appendAgentChatContextToMessage,
   formatAgentChatContextItemsForPrompt,
+  getAgentChatContextState,
   normalizeAgentChatContextItem,
   publishAgentChatContextItems,
   refreshAgentChatContext,
+  subscribeAgentChatContext,
   type AgentChatContextItem,
 } from "./agent-chat.js";
 import { captureError } from "./analytics.js";
@@ -147,7 +150,10 @@ import {
   readSSEStreamRaw,
   settleInterruptedToolCalls,
 } from "./sse-event-processor.js";
-import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
+import {
+  fetchAgentEngineConfiguredState,
+  useAgentEngineConfigured,
+} from "./use-agent-engine-configured.js";
 import type {
   ChatThreadScope,
   ChatThreadSnapshot,
@@ -223,6 +229,7 @@ function createUserMessageRunConfig(
 const PENDING_SELECTION_KEY = "pending-selection-context";
 const ACTIVE_RUN_CLEAR_TIMEOUT_MS = 5_000;
 const ACTIVE_RUN_POLL_INTERVAL_MS = 150;
+const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
 type ActiveRunLookup = {
   active?: boolean;
@@ -1131,15 +1138,32 @@ const AssistantChatInner = forwardRef<
       }
     };
   }, [threadRuntime]);
-  const missingApiKey = useAgentEngineConfigured(
+  const agentEngineConfigured = useAgentEngineConfigured(
     providerStatusChecksEnabled,
-  ).missing;
+  );
+  const missingApiKey = agentEngineConfigured.missing;
   const isComposerDisabled = missingApiKey || composerDisabled;
   const missingApiKeySetupAboveComposer =
     missingApiKeySetupLayout === "sidebar";
   // Increments each time the user tries to chat while no LLM is connected.
   // `BuilderSetupCard` watches this to replay a one-shot bounce.
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
+  const ensureAgentEngineReadyForSubmit = useCallback(async () => {
+    const state =
+      agentEngineConfigured.state === "missing"
+        ? "missing"
+        : await fetchAgentEngineConfiguredState(providerStatusChecksEnabled, {
+            timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
+          });
+    if (state !== "missing") return true;
+
+    setComposerError(LLM_MISSING_CREDENTIALS_MESSAGE);
+    setMissingKeyBouncePulse((p) => p + 1);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+    }
+    return false;
+  }, [agentEngineConfigured.state, providerStatusChecksEnabled]);
   const [authError, setAuthError] = useState<{
     sessionExpired?: boolean;
   } | null>(null);
@@ -1231,8 +1255,15 @@ const AssistantChatInner = forwardRef<
       composerContextItemsRef.current = state.items;
       setComposerContextItems(state.items);
     });
+    const unsubscribe = subscribeAgentChatContext(() => {
+      if (cancelled || !isActiveComposerRef.current) return;
+      const state = getAgentChatContextState();
+      composerContextItemsRef.current = state.items;
+      setComposerContextItems(state.items);
+    });
     return () => {
       cancelled = true;
+      unsubscribe();
     };
   }, [isActiveComposer]);
   // Tracks the JSON of the last queue we successfully persisted so the
@@ -2152,9 +2183,9 @@ const AssistantChatInner = forwardRef<
   }, [tabId]);
 
   // Real activity means the next chunk has started — leave the auto-resume
-  // ("Resuming") state so the indicator settles back to "thinking". The
+  // ("Resuming") state so the indicator settles back to "Thinking". The
   // activity label itself is intentionally not surfaced: the running
-  // indicator stays a steady "thinking" rather than flipping through
+  // indicator stays a steady "Thinking" rather than flipping through
   // transient step labels.
   useEffect(() => {
     const handler = (e: Event) => {
@@ -2454,6 +2485,9 @@ const AssistantChatInner = forwardRef<
       includeComposerContext = false,
       trackInRunsTray = false,
     ) => {
+      if (!(await ensureAgentEngineReadyForSubmit())) {
+        return;
+      }
       materializeFrozenReconnectContent();
       setShowContinue(false);
       setLoopLimitInfo(null);
@@ -2660,6 +2694,7 @@ const AssistantChatInner = forwardRef<
     [
       applyLocalQueuedMessages,
       buildComposerContextSubmission,
+      ensureAgentEngineReadyForSubmit,
       execMode,
       isRunning,
       materializeFrozenReconnectContent,
@@ -3254,10 +3289,10 @@ const AssistantChatInner = forwardRef<
                               ? "Reconnecting"
                               : isAutoResuming
                                 ? "Resuming"
-                                : // Keep a steady "thinking" while the model works —
+                                : // Keep a steady "Thinking" while the model works —
                                   // never flip through transient activity labels
                                   // (e.g. "Contacting model", "Preparing X action").
-                                  "thinking"
+                                  "Thinking"
                           }
                         />
                       )}
@@ -3439,6 +3474,7 @@ const AssistantChatInner = forwardRef<
                         : undefined
                     }
                     onSlashCommand={onSlashCommand}
+                    onBeforeSubmit={ensureAgentEngineReadyForSubmit}
                     execMode={execMode}
                     onExecModeChange={onExecModeChange}
                     planModeDisabled={planModeDisabled}

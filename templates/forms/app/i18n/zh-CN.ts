@@ -42,6 +42,8 @@ const messages = {
     suggestionExport: "将回复导出为 CSV",
   },
   sidebar: {
+    collapseSidebar: "折叠侧边栏",
+    expandSidebar: "展开侧边栏",
     formGenerationStale: "表单生成时间比预期更长。你可以重试。",
     untitledForm: "未命名表单",
     newForm: "新建表单",

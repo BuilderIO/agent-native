@@ -412,6 +412,46 @@ export async function isStoredEngineUsableForRequest(
   return true;
 }
 
+/**
+ * Request-aware credential preflight for an already-resolved engine instance.
+ * `resolveEngine()` may still return a default or explicitly requested engine
+ * object before credentials are actually usable; call this before starting a
+ * user-visible run so missing providers fail immediately.
+ */
+export async function isResolvedEngineUsableForRequest(
+  engine: AgentEngine,
+  options: { apiKey?: string } = {},
+): Promise<boolean> {
+  const entry = _registry.get(engine.name);
+  // Custom engines may have their own credential contract outside the core
+  // registry metadata, so do not block them speculatively.
+  if (!entry) return true;
+  if (!isAgentEnginePackageInstalled(entry)) return false;
+  if (entry.requiredEnvVars.length === 0) return true;
+
+  if (entry.name === "builder") {
+    const creds = await resolveBuilderCredentials();
+    return Boolean(creds.privateKey && creds.publicKey);
+  }
+
+  if (options.apiKey?.trim()) return true;
+
+  for (const key of entry.requiredEnvVars) {
+    try {
+      if (await resolveSecret(key)) continue;
+    } catch {
+      // Fall through to deployment-level fallback when allowed.
+    }
+    if (
+      !canUseDeployCredentialFallbackForRequest() ||
+      !readDeployCredentialEnv(key)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export interface ResolveEngineConfig {
   /** Explicit engine name or instance from createAgentChatPlugin options */
   engineOption?:

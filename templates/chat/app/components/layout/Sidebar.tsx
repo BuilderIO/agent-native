@@ -442,7 +442,7 @@ export function Sidebar({
     <aside
       data-collapsed={collapsed ? "true" : "false"}
       className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-150",
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
         collapsed ? "w-12" : "w-60",
       )}
     >
@@ -540,25 +540,14 @@ export function Sidebar({
         </div>
       </nav>
 
-      <div
-        className={cn(
-          "mt-auto shrink-0",
-          collapsed && "border-t border-sidebar-border py-2",
-        )}
-      >
+      <div className={cn("mt-auto shrink-0", collapsed && "py-2")}>
         {!collapsed ? (
-          <div className="border-t border-sidebar-border px-2 py-1">
+          <div className="px-2 py-1">
             <ExtensionsSidebarSection />
           </div>
         ) : null}
 
-        <div
-          className={cn(
-            collapsed
-              ? "px-1 py-1"
-              : "border-t border-sidebar-border px-3 py-2",
-          )}
-        >
+        <div className={cn(collapsed ? "px-1 py-1" : "px-3 py-2")}>
           <OrgSwitcher
             reserveSpace
             className={
@@ -571,9 +560,7 @@ export function Sidebar({
 
         <div
           className={cn(
-            collapsed
-              ? "flex justify-center px-1 py-1"
-              : "border-t border-sidebar-border px-3 py-2",
+            collapsed ? "flex justify-center px-1 py-1" : "px-3 py-2",
           )}
         >
           <FeedbackButton
@@ -588,7 +575,7 @@ export function Sidebar({
             className={cn(
               collapsed
                 ? "flex justify-center px-1 py-1"
-                : "flex justify-end border-t border-sidebar-border px-3 py-2",
+                : "flex justify-end px-3 py-2",
             )}
           >
             {collapseButton}

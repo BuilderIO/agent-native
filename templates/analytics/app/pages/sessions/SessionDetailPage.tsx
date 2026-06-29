@@ -1269,12 +1269,19 @@ function visitorLabel(
   recording: SessionRecordingSummary,
   t: ReturnType<typeof useT>,
 ): string {
+  const email = emailLike(recording.userId) || emailLike(recording.userKey);
+  if (email) return email;
   return (
     recording.userId ||
     recording.userKey ||
     recording.anonymousId ||
     t("sessions.anonymous")
   );
+}
+
+function emailLike(value: string | null): string | null {
+  if (!value?.includes("@")) return null;
+  return value;
 }
 
 function formatDuration(ms: number | null): string {

@@ -43,6 +43,8 @@ const messages = {
     suggestionExport: "صدر الردود إلى CSV",
   },
   sidebar: {
+    collapseSidebar: "طي الشريط الجانبي",
+    expandSidebar: "توسيع الشريط الجانبي",
     formGenerationStale:
       "يستغرق إنشاء النموذج وقتا أطول من المتوقع. يمكنك المحاولة مرة أخرى.",
     untitledForm: "نموذج بلا عنوان",

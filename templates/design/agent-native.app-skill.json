@@ -29,6 +29,11 @@
       "id": "design-exploration",
       "action": "present-design-variants",
       "path": "/design"
+    },
+    {
+      "id": "visual-edit",
+      "action": "add-localhost-screens",
+      "path": "/design"
     }
   ],
   "skills": [
@@ -36,6 +41,11 @@
       "path": ".agents/skills/design-generation",
       "visibility": "both",
       "exportAs": "design-exploration"
+    },
+    {
+      "path": ".agents/skills/visual-edit",
+      "visibility": "both",
+      "exportAs": "visual-edit"
     }
   ],
   "hostAdapters": [

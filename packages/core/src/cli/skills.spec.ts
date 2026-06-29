@@ -581,6 +581,34 @@ describe("agent-native skills", () => {
     );
   });
 
+  it("accepts visual-edit as a Design skill alias", async () => {
+    const root = tmpDir();
+
+    const result = await addAgentNativeSkill(
+      parseSkillsArgs([
+        "add",
+        "visual-edit",
+        "--client",
+        "codex",
+        "--scope",
+        "project",
+      ]),
+      { baseDir: root, runCommand: async () => 0 },
+    );
+
+    expect(result.id).toBe("design");
+    expect(result.skillNames).toEqual(["visual-edit"]);
+    const skillDir = path.join(root, ".agents", "skills", "visual-edit");
+    expect(result.written).toContain(skillDir);
+    expect(fs.existsSync(path.join(skillDir, "SKILL.md"))).toBe(true);
+    expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8")).toContain(
+      "npx @agent-native/core@latest design connect",
+    );
+    expect(result.mcpUrl).toBe(
+      "https://design.agent-native.com/_agent-native/mcp",
+    );
+  });
+
   it("accepts shorthand aliases for the built-in Plans skill", async () => {
     const root = tmpDir();
     const codexHome = path.join(root, "codex-home");
@@ -1380,6 +1408,7 @@ describe("agent-native skills", () => {
       "assets",
       "content",
       "design-exploration",
+      "visual-edit",
       "context-xray",
     ]);
     expect(context?.initialTargets).toEqual(["visual-plan", "visual-recap"]);
@@ -1454,6 +1483,7 @@ describe("agent-native skills", () => {
       "assets",
       "content",
       "design-exploration",
+      "visual-edit",
       "context-xray",
       "quick-recap",
     ]);

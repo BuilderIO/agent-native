@@ -1,4 +1,8 @@
 const messages = {
+  sidebar: {
+    collapseSidebar: "طي الشريط الجانبي",
+    expandSidebar: "توسيع الشريط الجانبي",
+  },
   mail: {
     appName: "البريد",
     pages: {
