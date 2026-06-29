@@ -6,11 +6,6 @@ overrides:
   "@assistant-ui/store": ">=0.2.9 <0.2.14"
   "@assistant-ui/tap": "^0.5.14"
   better-auth: "1.6.0"
-  # nf3@0.3.18 (Nitro's file-tracer fork) switched to a named ESM import of
-  # `nodeFileTrace` from the CJS-only `@vercel/nft`, crashing `agent-native
-  # build` ("Named export 'nodeFileTrace' not found ... is a CommonJS module").
-  # 0.3.17 does not pull in @vercel/nft, so it avoids the broken interop.
-  nf3: "0.3.17"
 
 onlyBuiltDependencies:
   - "@swc/core"
