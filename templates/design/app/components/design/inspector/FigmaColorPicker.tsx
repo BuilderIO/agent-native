@@ -28,13 +28,6 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -567,31 +560,6 @@ const NOISE_FALLBACK_CSS =
   "repeating-conic-gradient(#0000 0% 25%, #00000010 0% 50%) 0 0 / 6px 6px, #8a8a8a";
 const PATTERN_FALLBACK_CSS =
   "repeating-linear-gradient(45deg, #00000014 0 6px, #ffffff14 6px 12px), #9aa0a6";
-
-// ─── Document swatch placeholder (shown until real doc colors are provided) ────
-
-const PLACEHOLDER_SWATCHES = [
-  "#1f2937",
-  "#6b7280",
-  "#ffffff",
-  "#a3a3a3",
-  "#f8fafc",
-  "#111111",
-  "#000000",
-  "#a8a29e",
-  "#22c1e8",
-  "#f08ce3",
-  "#737373",
-  "#050505",
-  "#23d4b5",
-  "#d9d9d2",
-  "#e6d05c",
-  "#9ca3af",
-  "#020617",
-  "#171717",
-  "#d4d4d8",
-  "#27272a",
-];
 
 // ─── Main component ────────────────────────────────────────────────────────────
 
@@ -1338,34 +1306,12 @@ export function FigmaColorPicker({
                   activeGradient) && (
                   <div className="mt-2.5 px-3 pb-3">
                     <div className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-1">
-                      {/* Model dropdown */}
-                      <Select
+                      {/* Model pill — bare text+chevron, no border or bg box (Figma-style) */}
+                      <ColorModelPill
                         value={mode}
-                        onValueChange={(v) => setMode(v as FigmaColorMode)}
                         disabled={disabled}
-                      >
-                        <SelectTrigger className="h-6 w-[4.5rem] rounded-md border-transparent bg-transparent px-1.5 text-[11px] font-semibold shadow-none hover:bg-[var(--design-editor-control-bg)] focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="text-[11px]">
-                          <SelectItem value="hex" className="text-[11px]">
-                            Hex
-                          </SelectItem>{" "}
-                          {/* i18n-ignore color mode */}
-                          <SelectItem value="rgb" className="text-[11px]">
-                            RGB
-                          </SelectItem>{" "}
-                          {/* i18n-ignore color mode */}
-                          <SelectItem value="hsl" className="text-[11px]">
-                            HSL
-                          </SelectItem>{" "}
-                          {/* i18n-ignore color mode */}
-                          <SelectItem value="hsb" className="text-[11px]">
-                            HSB
-                          </SelectItem>{" "}
-                          {/* i18n-ignore color mode */}
-                        </SelectContent>
-                      </Select>
+                        onChange={(v) => setMode(v as FigmaColorMode)}
+                      />
 
                       {/* Value field(s) — adapts to mode */}
                       {renderValueInputs()}
@@ -1404,48 +1350,41 @@ export function FigmaColorPicker({
                 )}
 
                 {/* ── "On this page" source + swatches ────────────────────── */}
+                {/* No real document-color pipeline exists yet; show only the
+                    current color as the single real swatch. The source selector
+                    is kept for Figma visual parity but is non-interactive until
+                    a doc-color prop is wired in. */}
                 <div className="border-t border-border/70 px-3 py-2.5">
-                  {/* Source selector styled as a full-width bordered dropdown */}
-                  <button
-                    type="button"
-                    className="mb-2 flex h-6 w-full items-center justify-between rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left text-[11px] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]"
-                  >
-                    {"On this page" /* i18n-ignore Figma picker source */}
-                    <IconChevronDown className="size-3 text-muted-foreground" />
-                  </button>
+                  {/* Source label — static, matches Figma layout */}
+                  <div className="mb-2 flex h-6 w-full items-center justify-between px-0.5 text-[11px] text-muted-foreground">
+                    {"Document colors" /* i18n-ignore Figma picker source */}
+                  </div>
 
-                  {/* Swatch grid: flat chips (no shadow-inner), 8 columns */}
-                  <div className="grid grid-cols-8 gap-1">
-                    {PLACEHOLDER_SWATCHES.map((swatch, index) => {
-                      const isCurrentColor =
-                        rgbaToHex(parseCssColor(swatch) ?? FALLBACK_COLOR) ===
-                        rgbaToHex(color);
+                  {/* Swatch grid: only the active color until real data is wired */}
+                  <div className="flex flex-wrap gap-1">
+                    {(() => {
+                      const currentHex = rgbaToHex(color);
+                      const currentCss = rgbaToCss(color);
                       return (
-                        <Tooltip key={`${swatch}-${index}`}>
+                        <Tooltip>
                           <TooltipTrigger asChild>
                             <button
                               type="button"
                               disabled={disabled}
-                              aria-label={swatch}
-                              aria-pressed={isCurrentColor}
-                              className={cn(
-                                "size-5 rounded-sm border transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                isCurrentColor
-                                  ? "border-primary ring-1 ring-primary"
-                                  : "border-border/60",
-                              )}
-                              style={swatchStyle(swatch)}
+                              aria-label={currentHex}
+                              aria-pressed={true}
+                              className="size-5 rounded-sm border border-primary ring-1 ring-primary transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              style={swatchStyle(currentCss)}
                               onClick={() => {
-                                const parsed = parseCssColor(swatch) ?? color;
-                                if (activeGradient) emitStopColor(parsed);
-                                else emitColor(parsed);
+                                if (activeGradient) emitStopColor(color);
+                                else emitColor(color);
                               }}
                             />
                           </TooltipTrigger>
-                          <TooltipContent>{swatch}</TooltipContent>
+                          <TooltipContent>{currentHex}</TooltipContent>
                         </Tooltip>
                       );
-                    })}
+                    })()}
                   </div>
                 </div>
               </>
@@ -1458,6 +1397,104 @@ export function FigmaColorPicker({
 }
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
+
+const COLOR_MODES: Array<{ value: FigmaColorMode; label: string }> = [
+  { value: "hex", label: "Hex" }, // i18n-ignore color mode
+  { value: "rgb", label: "RGB" }, // i18n-ignore color mode
+  { value: "hsl", label: "HSL" }, // i18n-ignore color mode
+  { value: "hsb", label: "HSB" }, // i18n-ignore color mode
+];
+
+/**
+ * Figma-style bare color-model selector: text + small chevron, no border/bg box.
+ * Hover reveals a subtle bg tint; active mode is font-semibold.
+ * Renders its own lightweight dropdown (no Radix Select overhead).
+ */
+function ColorModelPill({
+  value,
+  disabled,
+  onChange,
+}: {
+  value: FigmaColorMode;
+  disabled: boolean;
+  onChange: (mode: FigmaColorMode) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const label =
+    COLOR_MODES.find((m) => m.value === value)?.label ?? value.toUpperCase();
+
+  // Close on outside click.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        disabled={disabled}
+        aria-haspopup="listbox"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((o) => !o)}
+        className={cn(
+          "flex h-6 w-[4.5rem] items-center gap-0.5 rounded px-1.5",
+          "text-[11px] font-semibold text-foreground",
+          "bg-transparent border-0 shadow-none",
+          "hover:bg-[var(--design-editor-control-bg)]",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "transition-colors",
+          disabled && "pointer-events-none opacity-50",
+        )}
+      >
+        <span className="flex-1 text-left">{label}</span>
+        <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
+      </button>
+
+      {menuOpen && (
+        <div
+          role="listbox"
+          aria-label="Color model" // i18n-ignore aria label
+          className={cn(
+            "absolute left-0 top-full z-[10001] mt-0.5 min-w-[4.5rem]",
+            "rounded-md border border-border bg-popover shadow-lg",
+            "overflow-hidden py-0.5",
+          )}
+        >
+          {COLOR_MODES.map((m) => (
+            <button
+              key={m.value}
+              type="button"
+              role="option"
+              aria-selected={m.value === value}
+              onClick={() => {
+                onChange(m.value);
+                setMenuOpen(false);
+              }}
+              className={cn(
+                "flex w-full items-center px-2 py-1 text-[11px]",
+                "hover:bg-accent hover:text-accent-foreground",
+                "focus-visible:outline-none focus-visible:bg-accent",
+                m.value === value
+                  ? "font-semibold text-foreground"
+                  : "font-normal text-foreground/80",
+              )}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SaturationBrightnessField({
   hsv,
