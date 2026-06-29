@@ -80,6 +80,22 @@ describe("importFigmaSystem", () => {
     expect(result).toEqual({ error: "Upload too large or malformed." });
   });
 
+  it("rejects oversized parsed multipart payloads", async () => {
+    mockReadMultipartFormData.mockResolvedValue([
+      {
+        name: "file",
+        filename: "brand.fig",
+        data: { length: mockMaxFigBytes + 1 },
+      },
+    ]);
+
+    const result = await importFigmaSystem({} as any);
+
+    expect(mockStartBuilderDesignSystemIndex).not.toHaveBeenCalled();
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 413);
+    expect(result).toEqual({ error: "File too large (max 200 MB)." });
+  });
+
   it("passes uploaded fig bytes to Builder indexing", async () => {
     const data = Buffer.from("fig-kiwi\0\0\0\0");
     mockReadMultipartFormData.mockResolvedValue([

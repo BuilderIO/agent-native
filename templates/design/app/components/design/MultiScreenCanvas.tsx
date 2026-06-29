@@ -22,7 +22,6 @@ import {
   createSmoothNode,
   getPenPathGeometry,
   isPenCloseTarget,
-  offsetPenPath,
   scalePenPathToGeometry,
   serializePenPath,
   translatePenPath,
@@ -760,15 +759,19 @@ export function MultiScreenCanvas({
       handleMouseUp: (ev: MouseEvent) => void,
     ) => {
       dragCleanup.current?.();
+      let lastMouseEvent: MouseEvent | null = null;
       const move = (ev: MouseEvent) => {
+        lastMouseEvent = ev;
         ev.preventDefault();
         handleMouseMove(ev);
       };
       const up = (ev: MouseEvent) => {
+        lastMouseEvent = ev;
         ev.preventDefault();
         handleMouseUp(ev);
       };
-      const cleanupOnBlur = () => handleMouseUp(new MouseEvent("mouseup"));
+      const cleanupOnBlur = () =>
+        handleMouseUp(lastMouseEvent ?? new MouseEvent("mouseup"));
       dragCleanup.current = () => {
         window.removeEventListener("mousemove", move);
         window.removeEventListener("mouseup", up);
@@ -950,15 +953,32 @@ export function MultiScreenCanvas({
     (draft: DraftPrimitive) => {
       const targetFrame = getTargetFrameForDraft(draft);
       if (!targetFrame || !onCreatePrimitive) return null;
+      const targetScreen = screens.find(
+        (screen) => screen.id === targetFrame.id,
+      );
+      const targetMetadata = targetScreen
+        ? resolveScreenMetadata(
+            targetScreen,
+            metadataById?.[targetScreen.id],
+            getScreenMetadata?.(targetScreen),
+          )
+        : undefined;
 
       const localPrimitive = draftPrimitiveToInsert(
         draft,
         targetFrame.geometry,
+        targetMetadata,
       );
       const persisted = onCreatePrimitive(targetFrame.id, localPrimitive);
       return persisted ? targetFrame.id : null;
     },
-    [getTargetFrameForDraft, onCreatePrimitive],
+    [
+      getScreenMetadata,
+      getTargetFrameForDraft,
+      metadataById,
+      onCreatePrimitive,
+      screens,
+    ],
   );
 
   const commitDraftPrimitive = useCallback(
@@ -1247,10 +1267,17 @@ export function MultiScreenCanvas({
         }
 
         let endCanvas = getCanvasPoint(ev.clientX, ev.clientY);
+        const releaseMoved =
+          state.hasMoved ||
+          Math.hypot(
+            ev.clientX - state.originClient.x,
+            ev.clientY - state.originClient.y,
+          ) >= DRAG_THRESHOLD;
+        state.hasMoved = releaseMoved;
         let points = state.tool === "pen" ? state.points : undefined;
         if (state.tool === "pen") {
           points = appendPolylinePoint(state.points, endCanvas, 0);
-          if (!state.hasMoved || points.length < 2) {
+          if (!releaseMoved || points.length < 2) {
             finishDrag();
             return;
           }
@@ -1272,7 +1299,7 @@ export function MultiScreenCanvas({
           start: state.originCanvas,
           end: endCanvas,
           points,
-          moved: state.hasMoved,
+          moved: releaseMoved,
           toolProps,
           fallbackText: t("designEditor.tools.text"),
         });
@@ -3645,26 +3672,40 @@ function cloneDraftPrimitive(draft: DraftPrimitive): DraftPrimitive {
 function draftPrimitiveToInsert(
   draft: DraftPrimitive,
   frameGeometry: FrameGeometry,
+  metadata?: ResolvedScreenMetadata,
 ): CanvasPrimitiveInsert {
+  const scaleX =
+    metadata && frameGeometry.width > 0
+      ? metadata.width / frameGeometry.width
+      : 1;
+  const scaleY =
+    metadata && frameGeometry.height > 0
+      ? metadata.height / frameGeometry.height
+      : 1;
+  const toLocalPoint = (point: Point) => ({
+    x: Math.round((point.x - frameGeometry.x) * scaleX),
+    y: Math.round((point.y - frameGeometry.y) * scaleY),
+  });
   const localGeometry = {
     ...draft.geometry,
-    x: Math.round(draft.geometry.x - frameGeometry.x),
-    y: Math.round(draft.geometry.y - frameGeometry.y),
+    x: Math.round((draft.geometry.x - frameGeometry.x) * scaleX),
+    y: Math.round((draft.geometry.y - frameGeometry.y) * scaleY),
+    width: Math.max(1, Math.round(draft.geometry.width * scaleX)),
+    height: Math.max(1, Math.round(draft.geometry.height * scaleY)),
   };
-  const pathOrigin = {
-    x: frameGeometry.x + localGeometry.x,
-    y: frameGeometry.y + localGeometry.y,
-  };
+  const scaledPenPath = draft.penPath
+    ? scalePenPathToGeometry(draft.penPath, frameGeometry, {
+        x: 0,
+        y: 0,
+        width: metadata?.width ?? frameGeometry.width,
+        height: metadata?.height ?? frameGeometry.height,
+      })
+    : undefined;
   return {
     kind: draft.kind,
     geometry: localGeometry,
-    points: draft.points?.map((point) => ({
-      x: Math.round(point.x - frameGeometry.x),
-      y: Math.round(point.y - frameGeometry.y),
-    })),
-    pathData: draft.penPath
-      ? serializePenPath(offsetPenPath(draft.penPath, pathOrigin))
-      : undefined,
+    points: draft.points?.map(toLocalPoint),
+    pathData: scaledPenPath ? serializePenPath(scaledPenPath) : undefined,
     text: draft.text,
     fill: draft.fill,
     stroke: draft.stroke,

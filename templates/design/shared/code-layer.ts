@@ -1812,6 +1812,87 @@ function simpleSelectorMatches(node: CodeLayerNode, selector: string): boolean {
   return node.tag === selector.toLowerCase();
 }
 
+function unescapeCssAttributeValue(value: string): string {
+  return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+function simpleSelectorMatchesElement(
+  element: ParsedElement,
+  selector: string,
+): boolean {
+  let remaining = selector.trim();
+  if (!remaining) return false;
+
+  const nthMatch = remaining.match(/:nth-of-type\((\d+)\)$/);
+  if (nthMatch?.[1]) {
+    if (element.nthOfType !== Number(nthMatch[1])) return false;
+    remaining = remaining.slice(0, nthMatch.index).trim();
+  }
+
+  const tagMatch = remaining.match(/^([A-Za-z][A-Za-z0-9:-]*)/);
+  if (tagMatch?.[1] && element.tag !== tagMatch[1].toLowerCase()) {
+    return false;
+  }
+
+  const idMatch = remaining.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
+  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
+    return false;
+  }
+
+  const attributes = Array.from(
+    remaining.matchAll(
+      /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g,
+    ),
+  );
+  for (const match of attributes) {
+    const name = match[1];
+    if (!name) return false;
+    const expected = unescapeCssAttributeValue(match[2] ?? match[3] ?? "");
+    if (attributeValue(element, name) !== expected) return false;
+  }
+
+  const classes = classList(element);
+  const requiredClasses = Array.from(
+    remaining.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
+    (match) => match[1],
+  ).filter((value): value is string => Boolean(value));
+  if (requiredClasses.some((className) => !classes.includes(className))) {
+    return false;
+  }
+
+  return Boolean(
+    tagMatch ||
+    idMatch ||
+    attributes.length > 0 ||
+    requiredClasses.length > 0 ||
+    nthMatch,
+  );
+}
+
+function selectorPathMatchesElement(
+  element: ParsedElement | undefined,
+  selector: string,
+  elementByIndex: Map<number, ParsedElement>,
+): boolean {
+  const parts = normalizeSelectorForMatch(selector)
+    .split(" > ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) return false;
+
+  let current: ParsedElement | undefined = element;
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const selectorPart = parts[index];
+    if (!current || !selectorPart) return false;
+    if (!simpleSelectorMatchesElement(current, selectorPart)) return false;
+    current =
+      current.parentIndex === undefined
+        ? undefined
+        : elementByIndex.get(current.parentIndex);
+  }
+  return true;
+}
+
 function nodeMatchesStableSourceId(
   node: CodeLayerNode,
   sourceId: string,
@@ -1824,7 +1905,12 @@ function nodeMatchesStableSourceId(
   return node.attributes.id === sourceId;
 }
 
-function selectorMatches(node: CodeLayerNode, selector: string): boolean {
+function selectorMatches(
+  node: CodeLayerNode,
+  selector: string,
+  element: ParsedElement | undefined,
+  elementByIndex: Map<number, ParsedElement>,
+): boolean {
   const normalizedSelector = normalizeSelectorForMatch(selector);
   const normalizedNodeSelectors = [
     node.selector,
@@ -1832,16 +1918,25 @@ function selectorMatches(node: CodeLayerNode, selector: string): boolean {
     ...node.selectors,
   ].map(normalizeSelectorForMatch);
   if (normalizedNodeSelectors.includes(normalizedSelector)) return true;
+  const selectorHasDirectPath = normalizedSelector.includes(" > ");
   if (
-    normalizedSelector.includes(" > ") &&
+    selectorHasDirectPath &&
     normalizedNodeSelectors.some(
       (candidate) =>
         candidate.endsWith(` > ${normalizedSelector}`) ||
-        normalizedSelector.endsWith(` > ${candidate}`),
+        (candidate.includes(" > ") &&
+          normalizedSelector.endsWith(` > ${candidate}`)),
     )
   ) {
     return true;
   }
+  if (
+    selectorHasDirectPath &&
+    selectorPathMatchesElement(element, normalizedSelector, elementByIndex)
+  ) {
+    return true;
+  }
+  if (selectorHasDirectPath) return false;
   if (simpleSelectorMatches(node, normalizedSelector)) return true;
   const lastPart = lastSelectorPart(normalizedSelector);
   return (
@@ -1850,9 +1945,16 @@ function selectorMatches(node: CodeLayerNode, selector: string): boolean {
 }
 
 function resolveTarget(
-  projection: CodeLayerProjection,
+  build: ProjectionBuild,
   target: EditIntentTarget,
 ): EditIntentResolution {
+  const { projection, elementByNodeId } = build;
+  const elementByIndex = new Map(
+    Array.from(elementByNodeId.values()).map((element) => [
+      element.index,
+      element,
+    ]),
+  );
   if (target.nodeId) {
     const matches = projection.nodes.filter((candidate) =>
       nodeMatchesStableSourceId(candidate, target.nodeId ?? ""),
@@ -1883,7 +1985,12 @@ function resolveTarget(
   }
 
   const matches = projection.nodes.filter((node) =>
-    selectorMatches(node, target.selector ?? ""),
+    selectorMatches(
+      node,
+      target.selector ?? "",
+      elementByNodeId.get(node.id),
+      elementByIndex,
+    ),
   );
   if (matches.length === 1 && matches[0]) {
     return { status: "resolved", node: matches[0] };
@@ -2179,7 +2286,7 @@ export function applyVisualEdit(
   }
 
   const initial = buildProjection(html, source);
-  const resolution = resolveTarget(initial.projection, intent.target);
+  const resolution = resolveTarget(initial, intent.target);
   if (resolution.status !== "resolved" || !resolution.node) {
     return {
       content: html,
@@ -2222,7 +2329,7 @@ export function applyVisualEdit(
   } else if (intent.kind === "textContent") {
     edit = applyTextEdit(html, element, intent);
   } else {
-    const anchorResolution = resolveTarget(initial.projection, intent.anchor);
+    const anchorResolution = resolveTarget(initial, intent.anchor);
     if (anchorResolution.status !== "resolved" || !anchorResolution.node) {
       return {
         content: html,

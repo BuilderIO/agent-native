@@ -433,6 +433,23 @@ describe("applyVisualEdit", () => {
     );
   });
 
+  it("does not collapse full bridge selector paths to ambiguous leaf selectors", () => {
+    const html = `<main><section data-layer-name="First"><button class="secondary">First</button></section><section data-layer-name="Second"><button class="secondary">Second</button></section></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `section[data-layer-name="Second"] > button.secondary`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<main><section data-layer-name="First"><button class="secondary">First</button></section><section data-layer-name="Second"><button class="secondary" style="color: #111">Second</button></section></main>`,
+    );
+  });
+
   it("rejects moving a node into itself or its descendant", () => {
     const html = `<main id="parent"><section id="child"><p>Text</p></section></main>`;
     const patch = applyVisualEdit(html, {

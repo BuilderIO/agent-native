@@ -55,6 +55,12 @@ export const importFigmaSystem = defineEventHandler(async (event) => {
       error: "No .fig file uploaded (expected multipart field 'file').",
     };
   }
+  if (part.data.length > MAX_FIG_BYTES) {
+    setResponseStatus(event, 413);
+    return {
+      error: `File too large (max ${Math.round(MAX_FIG_BYTES / 1024 / 1024)} MB).`,
+    };
+  }
 
   const suggestedTitle =
     (part.filename || "Imported brand")

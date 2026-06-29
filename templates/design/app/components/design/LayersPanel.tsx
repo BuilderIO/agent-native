@@ -107,7 +107,6 @@ export interface LayersPanelMoveIntent {
 export interface LayersPanelLabels {
   title: string;
   screens: string;
-  thumbnail: string;
   screenOverview: string;
   addScreen: string;
   searchPlaceholder: string;
@@ -170,7 +169,6 @@ function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
     screens: t("layersPanel.screens"),
-    thumbnail: t("layersPanel.thumbnail"),
     screenOverview: t("designEditor.screenOverview"),
     addScreen: t("layersPanel.addScreen"),
     searchPlaceholder: t("layersPanel.searchPlaceholder"),
@@ -558,14 +556,6 @@ export function LayersPanel({
       if (selectedRow.hasChildren && expandedIdSet.has(selectedRow.node.id)) {
         return selectedRow.node.id;
       }
-      for (
-        let pathIndex = selectedRow.ancestorIds.length - 1;
-        pathIndex >= 0;
-        pathIndex -= 1
-      ) {
-        const ancestorId = selectedRow.ancestorIds[pathIndex];
-        if (expandedIdSet.has(ancestorId)) return ancestorId;
-      }
     }
     return null;
   }, [expandedIdSet, selectedIds, visibleRows]);
@@ -671,7 +661,7 @@ export function LayersPanel({
       </div>
 
       {shouldShowSearch ? (
-        <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] p-2">
+        <div className="shrink-0 p-2">
           <div className="relative">
             <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -993,7 +983,6 @@ function LayerRow({
           onClick={handlePointerSelect}
           onDoubleClick={() => onStartRename(node)}
           onKeyDown={handleKeyDown}
-          title={node.name}
         >
           <span
             className={cn(
@@ -1278,29 +1267,69 @@ function LayoutLayerGlyph({
   if (node.layout?.isFlexContainer) {
     const isRow = node.layout.flexDirection?.startsWith("row");
     const align = node.layout.alignItems ?? "stretch";
+    const justify = node.layout.justifyContent ?? "flex-start";
     return isRow ? (
-      <HorizontalAutoLayoutGlyph align={align} className={className} />
+      <HorizontalAutoLayoutGlyph
+        align={align}
+        justify={justify}
+        className={className}
+      />
     ) : (
-      <VerticalAutoLayoutGlyph align={align} className={className} />
+      <VerticalAutoLayoutGlyph
+        align={align}
+        justify={justify}
+        className={className}
+      />
     );
   }
   return <FrameLayerGlyph className={className} />;
 }
 
-function alignmentOffset(align: string | undefined, axis: "x" | "y") {
-  if (align === "center") return axis === "x" ? 5 : 5;
-  if (align === "flex-end" || align === "end") return axis === "x" ? 7 : 8;
+function normalizedAlignment(value: string | undefined) {
+  if (!value) return "start";
+  if (value === "center") return "center";
+  if (value === "flex-end" || value === "end") return "end";
+  if (value === "space-between") return "space-between";
+  if (value === "space-around" || value === "space-evenly")
+    return "space-around";
+  if (value === "stretch") return "stretch";
+  return "start";
+}
+
+function crossAxisOffset(align: string | undefined, axis: "x" | "y") {
+  const normalized = normalizedAlignment(align);
+  if (normalized === "center") return axis === "x" ? 5 : 5.5;
+  if (normalized === "end") return axis === "x" ? 7 : 8;
   return axis === "x" ? 3 : 3;
+}
+
+function mainAxisPositions(justify: string | undefined, axis: "x" | "y") {
+  const normalized = normalizedAlignment(justify);
+  if (axis === "x") {
+    if (normalized === "center") return [3.6, 7.1, 10.6];
+    if (normalized === "end") return [4.4, 7.8, 11.2];
+    if (normalized === "space-between") return [2.6, 7.1, 11.6];
+    if (normalized === "space-around") return [3.1, 7.1, 11.1];
+    return [3, 6.6, 10.2];
+  }
+  if (normalized === "center") return [3.5, 7.1, 10.7];
+  if (normalized === "end") return [4.2, 7.8, 11.4];
+  if (normalized === "space-between") return [2.8, 7.1, 11.4];
+  if (normalized === "space-around") return [3.2, 7.1, 11];
+  return [3, 6.6, 10.2];
 }
 
 function VerticalAutoLayoutGlyph({
   align,
+  justify,
   className,
 }: {
   align?: string;
+  justify?: string;
   className?: string;
 }) {
-  const x = alignmentOffset(align, "x");
+  const x = crossAxisOffset(align, "x");
+  const yPositions = mainAxisPositions(justify, "y");
   return (
     <svg
       viewBox="0 0 16 16"
@@ -1311,21 +1340,24 @@ function VerticalAutoLayoutGlyph({
       className={className}
       aria-hidden="true"
     >
-      <rect x={x} y="3" width="6" height="1.8" rx=".55" />
-      <rect x={x} y="7.1" width="6" height="1.8" rx=".55" />
-      <rect x={x} y="11.2" width="6" height="1.8" rx=".55" />
+      <rect x={x} y={yPositions[0]} width="6" height="1.55" rx=".45" />
+      <rect x={x} y={yPositions[1]} width="6" height="1.55" rx=".45" />
+      <rect x={x} y={yPositions[2]} width="6" height="1.55" rx=".45" />
     </svg>
   );
 }
 
 function HorizontalAutoLayoutGlyph({
   align,
+  justify,
   className,
 }: {
   align?: string;
+  justify?: string;
   className?: string;
 }) {
-  const y = alignmentOffset(align, "y");
+  const y = crossAxisOffset(align, "y");
+  const xPositions = mainAxisPositions(justify, "x");
   return (
     <svg
       viewBox="0 0 16 16"
@@ -1336,9 +1368,9 @@ function HorizontalAutoLayoutGlyph({
       className={className}
       aria-hidden="true"
     >
-      <rect x="3" y={y} width="1.8" height="5" rx=".55" />
-      <rect x="7.1" y={y} width="1.8" height="5" rx=".55" />
-      <rect x="11.2" y={y} width="1.8" height="5" rx=".55" />
+      <rect x={xPositions[0]} y={y} width="1.55" height="5" rx=".45" />
+      <rect x={xPositions[1]} y={y} width="1.55" height="5" rx=".45" />
+      <rect x={xPositions[2]} y={y} width="1.55" height="5" rx=".45" />
     </svg>
   );
 }
@@ -1380,14 +1412,14 @@ function TextLayerGlyph({ className }: { className?: string }) {
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.35"
+      strokeWidth="1.45"
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
       aria-hidden="true"
     >
-      <path d="M2.8 13 7.7 2.8 12.6 13" />
-      <path d="M5 8.8h5.4" />
+      <path d="M3.2 4h9.6" />
+      <path d="M8 4v8.4" />
     </svg>
   );
 }

@@ -11,6 +11,8 @@ import {
   PresenceBar,
   AgentToggleButton,
   ShareButton,
+  agentNativePath,
+  ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
   sendToAgentChat,
   getBrowserTabId,
@@ -200,9 +202,42 @@ const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
 const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const FOCUSED_SCREEN_ZOOM = 100;
+const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
 // Higher than the toolbar presets so overview zooming still feels like canvas
 // work; trackpad/pinch zooming past this commits to editing that screen.
 const OVERVIEW_EDIT_ZOOM_THRESHOLD = 250;
+
+interface FileContentSaveRequest {
+  id: string;
+  content: string;
+  syncCollab: boolean;
+}
+
+function byteLength(value: string): number {
+  if (typeof TextEncoder === "undefined") return value.length;
+  return new TextEncoder().encode(value).length;
+}
+
+function sendFileContentSaveKeepalive(pending: FileContentSaveRequest): void {
+  if (typeof window === "undefined") return;
+  const body = JSON.stringify({
+    id: pending.id,
+    content: pending.content,
+    syncCollab: pending.syncCollab,
+  });
+  if (byteLength(body) > KEEPALIVE_FILE_SAVE_MAX_BYTES) return;
+  ensureEmbedAuthFetchInterceptor();
+  void fetch(agentNativePath("/_agent-native/actions/update-file"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Agent-Native-Frontend": "1",
+    },
+    body,
+    cache: "no-store",
+    keepalive: true,
+  }).catch(() => {});
+}
 
 type EditorMode = "annotate" | "edit" | "interact";
 type DesignTool =
@@ -440,7 +475,7 @@ function applyInlineStylesToHtml(
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(selector) as HTMLElement | null;
+    const element = queryUniqueSelector(doc, selector) as HTMLElement | null;
     if (!element) return null;
     Object.entries(styles).forEach(([property, value]) => {
       (element.style as any)[property] = value;
@@ -907,6 +942,18 @@ function queryFirstSelector(
   return null;
 }
 
+function queryUniqueSelector(
+  root: ParentNode,
+  selector: string,
+): Element | null {
+  try {
+    const matches = root.querySelectorAll(selector);
+    return matches.length === 1 ? (matches[0] ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
 function insertClonedHtmlLayer(
   content: string,
   cloneHtml: string,
@@ -968,7 +1015,7 @@ function getElementOuterHtml(content: string, selector: string): string | null {
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    return doc.querySelector(selector)?.outerHTML ?? null;
+    return queryUniqueSelector(doc, selector)?.outerHTML ?? null;
   } catch {
     return null;
   }
@@ -981,7 +1028,7 @@ function removeElementFromHtml(
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(selector);
+    const element = queryUniqueSelector(doc, selector);
     if (!element) return null;
     element.remove();
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
@@ -1041,7 +1088,7 @@ function updateElementContentInHtml(
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(selector);
+    const element = queryUniqueSelector(doc, selector);
     if (!element) return null;
     if (html !== undefined) {
       element.innerHTML = sanitizeEditableInnerHtml(html);
@@ -1108,12 +1155,15 @@ function codeLayerSelectorMatches(
 ): boolean {
   if (!node || !selector) return false;
   const target = normalizeCodeLayerSelector(selector);
+  const targetHasDirectPath = target.includes(" > ");
   return codeLayerSelectorAliases(node).some((candidate) => {
     const normalized = normalizeCodeLayerSelector(candidate);
     return (
       normalized === target ||
       normalized.endsWith(` > ${target}`) ||
-      target.endsWith(` > ${normalized}`)
+      (targetHasDirectPath &&
+        normalized.includes(" > ") &&
+        target.endsWith(` > ${normalized}`))
     );
   });
 }
@@ -1218,6 +1268,30 @@ function resolveCodeLayerNodeFromBridge(
       codeLayerNodeMatchesBridgeTarget(node, selector, sourceId),
     ) ?? null
   );
+}
+
+function elementInfoExistsInContent(
+  content: string,
+  info: ElementInfo | null,
+): boolean {
+  if (!info) return false;
+  const projection = buildCodeLayerProjection(content);
+  if (
+    resolveCodeLayerNodeFromBridge(
+      projection,
+      info.selector,
+      info.sourceId ?? info.id,
+    )
+  ) {
+    return true;
+  }
+  if (!info.selector || typeof window === "undefined") return false;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    return Boolean(queryUniqueSelector(doc, info.selector));
+  } catch {
+    return false;
+  }
 }
 
 function collectCodeLayerAncestors(
@@ -2502,19 +2576,78 @@ export default function DesignEditor() {
     content: string;
     syncCollab: boolean;
   } | null>(null);
+  const fileSaveChainsRef = useRef<Record<string, Promise<void>>>({});
+  const latestFileSaveForUnloadRef = useRef<
+    Record<string, FileContentSaveRequest>
+  >({});
   const fileSaveTimerRef = useRef<number | null>(null);
+
+  const saveFileContent = useCallback(
+    (pending: FileContentSaveRequest) => {
+      latestFileSaveForUnloadRef.current[pending.id] = pending;
+      const previous =
+        fileSaveChainsRef.current[pending.id] ?? Promise.resolve();
+      const current = previous
+        .catch(() => {})
+        .then(async () => {
+          try {
+            await updateFileMutation.mutateAsync({
+              id: pending.id,
+              content: pending.content,
+              syncCollab: pending.syncCollab,
+            } as any);
+            setPatchProof((prev) =>
+              prev && prev.fileId === pending.id && prev.status === "queued"
+                ? { ...prev, status: "applied" }
+                : prev,
+            );
+          } catch (error) {
+            setPatchProof((prev) =>
+              prev && prev.fileId === pending.id && prev.status === "queued"
+                ? {
+                    ...prev,
+                    status: "failed",
+                    error:
+                      error instanceof Error
+                        ? error.message
+                        : t("common.genericError"),
+                  }
+                : prev,
+            );
+          }
+        });
+      fileSaveChainsRef.current[pending.id] = current;
+      void current.finally(() => {
+        if (fileSaveChainsRef.current[pending.id] === current) {
+          delete fileSaveChainsRef.current[pending.id];
+        }
+      });
+    },
+    [t, updateFileMutation],
+  );
 
   const queueFileContentSave = useCallback(
     (
       fileId: string,
       content: string,
-      options: { syncCollab?: boolean } = {},
+      options: { syncCollab?: boolean; immediate?: boolean } = {},
     ) => {
-      pendingFileSaveRef.current = {
+      const pending = {
         id: fileId,
         content,
         syncCollab: options.syncCollab ?? true,
       };
+      latestFileSaveForUnloadRef.current[fileId] = pending;
+      if (options.immediate) {
+        if (fileSaveTimerRef.current) {
+          window.clearTimeout(fileSaveTimerRef.current);
+          fileSaveTimerRef.current = null;
+        }
+        pendingFileSaveRef.current = null;
+        saveFileContent(pending);
+        return;
+      }
+      pendingFileSaveRef.current = pending;
       if (fileSaveTimerRef.current) {
         window.clearTimeout(fileSaveTimerRef.current);
       }
@@ -2523,43 +2656,25 @@ export default function DesignEditor() {
         pendingFileSaveRef.current = null;
         fileSaveTimerRef.current = null;
         if (!pending) return;
-        updateFileMutation.mutate(
-          {
-            id: pending.id,
-            content: pending.content,
-            syncCollab: pending.syncCollab,
-          } as any,
-          {
-            onSuccess: () => {
-              setPatchProof((prev) =>
-                prev && prev.fileId === pending.id && prev.status === "queued"
-                  ? { ...prev, status: "applied" }
-                  : prev,
-              );
-            },
-            onError: (error) => {
-              setPatchProof((prev) =>
-                prev && prev.fileId === pending.id && prev.status === "queued"
-                  ? {
-                      ...prev,
-                      status: "failed",
-                      error:
-                        error instanceof Error
-                          ? error.message
-                          : t("common.genericError"),
-                    }
-                  : prev,
-              );
-            },
-          },
-        );
+        saveFileContent(pending);
       }, 400);
     },
-    [t, updateFileMutation],
+    [saveFileContent],
   );
 
   useEffect(() => {
+    const handlePageHide = () => {
+      if (pendingFileSaveRef.current) {
+        latestFileSaveForUnloadRef.current[pendingFileSaveRef.current.id] =
+          pendingFileSaveRef.current;
+      }
+      Object.values(latestFileSaveForUnloadRef.current).forEach(
+        sendFileContentSaveKeepalive,
+      );
+    };
+    window.addEventListener("pagehide", handlePageHide);
     return () => {
+      window.removeEventListener("pagehide", handlePageHide);
       if (fileSaveTimerRef.current) {
         window.clearTimeout(fileSaveTimerRef.current);
       }
@@ -3334,34 +3449,11 @@ export default function DesignEditor() {
       if (!isLocalEdit) {
         setSelectedElement((prev) => {
           if (!prev) return prev;
-          try {
-            const iframe = document.querySelector<HTMLIFrameElement>(
-              "iframe[data-design-preview-iframe]",
-            );
-            const doc = iframe?.contentDocument;
-            if (doc && (!prev.selector || !doc.querySelector(prev.selector))) {
-              return null;
-            }
-          } catch {
-            // iframe not accessible yet — clear defensively
-            return null;
-          }
-          return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
         });
         setHoveredElement((prev) => {
           if (!prev) return prev;
-          try {
-            const iframe = document.querySelector<HTMLIFrameElement>(
-              "iframe[data-design-preview-iframe]",
-            );
-            const doc = iframe?.contentDocument;
-            if (doc && (!prev.selector || !doc.querySelector(prev.selector))) {
-              return null;
-            }
-          } catch {
-            return null;
-          }
-          return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
         });
       }
     };
@@ -3743,11 +3835,38 @@ export default function DesignEditor() {
   const applyLocalContentUpdate = useCallback(
     (
       nextContent: string,
-      options: { refreshPreview?: boolean; skipPreview?: boolean } = {},
+      options: {
+        refreshPreview?: boolean;
+        skipPreview?: boolean;
+        immediateSave?: boolean;
+      } = {},
     ) => {
       if (!activeFile) return;
       setCollabContent(nextContent);
       lastLocalContentRef.current = nextContent;
+      if (id) {
+        const optimisticUpdatedAt = new Date().toISOString();
+        queryClient.setQueryData(
+          ["action", "get-design", { id }],
+          (old: any) => {
+            if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+              return old;
+            }
+            return {
+              ...old,
+              files: old.files.map((file: DesignFile) =>
+                file.id === activeFile.id
+                  ? {
+                      ...file,
+                      content: nextContent,
+                      updatedAt: optimisticUpdatedAt,
+                    }
+                  : file,
+              ),
+            };
+          },
+        );
+      }
       const forceRefresh = options.refreshPreview === true;
       const replacedPreview = options.skipPreview
         ? true
@@ -3768,9 +3887,18 @@ export default function DesignEditor() {
       }
       queueFileContentSave(activeFile.id, nextContent, {
         syncCollab: !(ydoc && isSynced),
+        immediate: options.immediateSave,
       });
     },
-    [activeFile, isSynced, queueFileContentSave, replacePreviewContent, ydoc],
+    [
+      activeFile,
+      id,
+      isSynced,
+      queryClient,
+      queueFileContentSave,
+      replacePreviewContent,
+      ydoc,
+    ],
   );
 
   const applyFileContentUpdate = useCallback(
@@ -3794,21 +3922,13 @@ export default function DesignEditor() {
           ),
         };
       });
-      updateFileMutation.mutate({ id: fileId, content: nextContent } as any, {
-        onError: () => {
-          queryClient.invalidateQueries({
-            queryKey: ["action", "get-design"],
-          });
-        },
+      saveFileContent({
+        id: fileId,
+        content: nextContent,
+        syncCollab: true,
       });
     },
-    [
-      activeFile?.id,
-      applyLocalContentUpdate,
-      id,
-      queryClient,
-      updateFileMutation,
-    ],
+    [activeFile?.id, applyLocalContentUpdate, id, queryClient, saveFileContent],
   );
 
   const handleCreatePrimitive = useCallback(
@@ -3816,7 +3936,11 @@ export default function DesignEditor() {
       const targetFile = files.find((file) => file.id === screenId);
       if (!targetFile) return false;
       const baseContent =
-        targetFile.id === activeFile?.id ? activeContent : targetFile.content;
+        targetFile.id === activeFile?.id
+          ? ydoc && isSynced
+            ? ydoc.getText("content").toString()
+            : (collabContentRef.current ?? activeContent)
+          : targetFile.content;
       const nextContent = appendCanvasPrimitiveToHtml(baseContent, primitive);
       if (!nextContent) {
         toast.error(t("designEditor.toasts.primitiveInsertFailed"));
@@ -3824,7 +3948,7 @@ export default function DesignEditor() {
       }
 
       if (targetFile.id === activeFile?.id) {
-        applyLocalContentUpdate(nextContent);
+        applyLocalContentUpdate(nextContent, { immediateSave: true });
       } else {
         queryClient.setQueryData(
           ["action", "get-design", { id }],
@@ -3842,16 +3966,11 @@ export default function DesignEditor() {
             };
           },
         );
-        updateFileMutation.mutate(
-          { id: targetFile.id, content: nextContent } as any,
-          {
-            onError: () => {
-              queryClient.invalidateQueries({
-                queryKey: ["action", "get-design"],
-              });
-            },
-          },
-        );
+        saveFileContent({
+          id: targetFile.id,
+          content: nextContent,
+          syncCollab: true,
+        });
       }
 
       return true;
@@ -3862,9 +3981,11 @@ export default function DesignEditor() {
       applyLocalContentUpdate,
       files,
       id,
+      isSynced,
       queryClient,
+      saveFileContent,
       t,
-      updateFileMutation,
+      ydoc,
     ],
   );
 
@@ -4533,16 +4654,31 @@ export default function DesignEditor() {
         );
         return false;
       }
-      applyLocalContentUpdate(patch.content, { refreshPreview: false });
-      if (targetNode) setSelectedLayerIdsState([targetNode.id]);
+      const movedNode =
+        (patch.result.after?.nodeId
+          ? patch.projection.nodes.find(
+              (node) => node.id === patch.result.after?.nodeId,
+            )
+          : null) ??
+        resolveCodeLayerNodeFromBridge(
+          patch.projection,
+          selector,
+          details?.sourceId ??
+            elementInfo?.sourceId ??
+            (targetNode
+              ? bridgeSourceIdForCodeLayerNode(targetNode)
+              : undefined),
+        );
+      applyLocalContentUpdate(patch.content, { skipPreview: true });
+      if (movedNode) setSelectedLayerIdsState([movedNode.id]);
       if (elementInfo) {
         setSelectedElement({
           ...elementInfo,
-          sourceId: targetNode
-            ? bridgeSourceIdForCodeLayerNode(targetNode)
+          sourceId: movedNode
+            ? bridgeSourceIdForCodeLayerNode(movedNode)
             : elementInfo.sourceId,
-          selector: targetNode
-            ? preferredCodeLayerSelector(targetNode)
+          selector: movedNode
+            ? preferredCodeLayerSelector(movedNode)
             : elementInfo.selector,
         });
       }
@@ -6106,7 +6242,9 @@ ${serializedHtml}
         moved = true;
       }
       if (!moved || nextContent === sourceContent) return;
-      applyFileContentUpdate(targetOwner.fileId, nextContent);
+      applyFileContentUpdate(targetOwner.fileId, nextContent, {
+        refreshPreview: targetOwner.fileId === activeFile?.id,
+      });
     },
     [
       activeContent,

@@ -47,6 +47,7 @@
     "./server/request-context": "./dist/server/request-context.js",
     "./server/design-token-utils": "./dist/server/design-token-utils.js",
     "./brand-kit": "./dist/brand-kit/index.js",
+    "./brand-kit/fig": "./dist/brand-kit/fig/index.js",
     "./data-widgets": "./dist/data-widgets/index.js",
     "./action": {
       "types": "./dist/action.d.ts",

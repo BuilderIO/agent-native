@@ -85,7 +85,14 @@ export function routeUrl(
   route: { path?: string; url?: string },
 ) {
   const raw = route.url ?? route.path ?? "/";
-  const parsed = new URL(withLocalhostProtocol(raw), `${baseUrl}/`);
+  let parsed: URL;
+  try {
+    parsed = new URL(withLocalhostProtocol(raw), `${baseUrl}/`);
+  } catch {
+    throw new Error(
+      `Invalid localhost screen URL "${raw}". Use a path like /pricing or an http(s) localhost URL.`,
+    );
+  }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error(`Localhost screen URL must be an http(s) URL: ${raw}`);
   }

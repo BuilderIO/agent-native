@@ -335,7 +335,7 @@ export function DesignSystemSetup({
 
     if (githubLinks.length > 0) {
       parts.push(
-        `\n## GitHub Repositories\nStart Builder design-system indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. If Builder is not connected, stop and tell me to connect Builder from Settings.`,
+        `\n## GitHub Repositories\nStart Builder design-system indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder from Settings.`,
       );
     }
 
@@ -399,7 +399,7 @@ export function DesignSystemSetup({
     }
 
     parts.push(
-      `\n---\nAfter processing all sources, if you started Builder design-system indexing, report the Builder job/design-system URL and do not call \`create-design-system\` for those Builder-indexed sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
+      `\n---\nAfter processing all sources, if you started Builder design-system indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for those Builder-indexed sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
           ? " AND the verbatim --customInstructions string from above"
           : ""

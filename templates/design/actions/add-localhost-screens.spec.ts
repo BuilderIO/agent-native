@@ -36,4 +36,10 @@ describe("add-localhost-screens URL handling", () => {
       routeUrl("http://localhost:1234", { url: "mailto:test" }),
     ).toThrow(/http\(s\) URL/);
   });
+
+  it("reports malformed route URLs as validation errors", () => {
+    expect(() =>
+      routeUrl("http://localhost:1234", { url: "http://[::1" }),
+    ).toThrow(/Invalid localhost screen URL/);
+  });
 });
