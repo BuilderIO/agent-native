@@ -10,7 +10,7 @@ import type {
   ReviewContentDatabaseSourceChangeSetRequest,
 } from "../shared/api.js";
 import {
-  getExistingSource,
+  getExistingSourceForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
@@ -28,6 +28,10 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
+    sourceId: z
+      .string()
+      .optional()
+      .describe("Target source ID (defaults to the primary source)"),
     changeSetId: z.string().describe("Source change-set ID"),
     decision: z
       .enum(["approve", "reject"])
@@ -41,7 +45,7 @@ export default defineAction({
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
-    const source = await getExistingSource(database.id);
+    const source = await getExistingSourceForWrite(database.id, args.sourceId);
     if (!source) throw new Error("Attach a source before reviewing changes.");
 
     const [changeSet] = await getDb()

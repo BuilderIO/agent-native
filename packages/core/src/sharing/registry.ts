@@ -101,6 +101,22 @@ const REGISTRY_KEY = "__agentNativeShareableResources__";
 type RegistryStore = Map<string, ShareableResourceRegistration>;
 const globalRegistry: { [K in typeof REGISTRY_KEY]?: RegistryStore } =
   globalThis as any;
+
+function isTestRuntime(): boolean {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.env.VITEST === "true" ||
+    process.env.VITEST === "1"
+  );
+}
+
+function registrationCameFromTestFile(): boolean {
+  const stack = new Error().stack ?? "";
+  return /[./\\](?:[^/\\]+[.-])(?:test|spec)\.[cm]?[jt]sx?(?::\d+)?(?::\d+)?/.test(
+    stack,
+  );
+}
+
 function getRegistry(): RegistryStore {
   let r = globalRegistry[REGISTRY_KEY];
   if (!r) {
@@ -113,6 +129,7 @@ function getRegistry(): RegistryStore {
 export function registerShareableResource(
   entry: ShareableResourceRegistration,
 ): void {
+  if (!isTestRuntime() && registrationCameFromTestFile()) return;
   getRegistry().set(entry.type, entry);
 }
 

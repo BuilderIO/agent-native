@@ -8,7 +8,10 @@ import type {
   ContentDatabaseResponse,
   ContentDatabaseUnavailableResponse,
 } from "../shared/api.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  CONTENT_DATABASE_MAX_READ_LIMIT,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 export default defineAction({
   description:
@@ -16,7 +19,12 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
-    limit: z.coerce.number().int().min(1).max(500).optional(),
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(CONTENT_DATABASE_MAX_READ_LIMIT)
+      .optional(),
     offset: z.coerce.number().int().min(0).optional(),
   }),
   http: { method: "GET" },

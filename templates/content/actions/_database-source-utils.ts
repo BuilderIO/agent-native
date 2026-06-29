@@ -31,6 +31,12 @@ import type {
   DocumentProperty,
   DocumentPropertyValue,
 } from "../shared/api.js";
+import {
+  parsePropertyOptions,
+  serializePropertyOptions,
+  serializePropertyValue,
+  type DocumentPropertyOptionColor,
+} from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
 import {
   readBuilderCmsContentEntries,
@@ -85,6 +91,8 @@ type SourceMetadataRecord = {
   pushMode?: ContentDatabaseSourcePushMode;
   pushModeLabel?: string | null;
   pushModeDescription?: string | null;
+  writeMode?: ContentDatabaseSource["metadata"]["writeMode"];
+  allowPublicationTransitions?: boolean;
   notes?: string | null;
   readMode?: string | null;
   liveReadConfigured?: boolean;
@@ -381,16 +389,9 @@ function reviewedChangeSet(args: {
     riskLevel = maxRisk(riskLevel, "high");
     riskReasons.push("external write");
   }
-  if (args.changeSet.pushMode === "publish") {
+  if (!args.changeSet.localOnly && args.changeSet.pushMode === "publish") {
     riskLevel = maxRisk(riskLevel, "high");
     riskReasons.push("publish mode");
-  }
-  if (
-    args.changeSet.direction === "outbound" &&
-    normalizeCapabilities(args.source.capabilitiesJson).liveWritesEnabled
-  ) {
-    riskLevel = maxRisk(riskLevel, "high");
-    riskReasons.push("live writes enabled");
   }
 
   const sourceRow = args.changeSet.documentId
@@ -417,11 +418,61 @@ function reviewedChangeSet(args: {
   };
 }
 
+// Stable, key-order-insensitive serialization so two same-shape property values
+// (source baseline vs local) don't false-diff purely on key order.
+function stableValueString(value: unknown): string {
+  if (value === null || value === undefined) return "null";
+  if (Array.isArray(value)) {
+    return `[${value.map(stableValueString).join(",")}]`;
+  }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableValueString(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+// Equal when both normalize the same. null/undefined/"" are all "empty"; strings
+// are trimmed; objects compared by stable serialization.
+function sameSourceFieldValue(a: unknown, b: unknown): boolean {
+  const normalize = (value: unknown) => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string") return value.trim();
+    return stableValueString(value);
+  };
+  return normalize(a) === normalize(b);
+}
+
 export function buildBuilderLocalOutboundChangeSets(args: {
   source: ContentDatabaseSourceRowDb;
   rowRows: ContentDatabaseSourceRecordRowDb[];
   documentTitleById: Map<string, string>;
   storedChangeSets: ContentDatabaseSourceChangeSet[];
+  // Optional inputs that enable new-row creates. When omitted (e.g. legacy
+  // callers/tests) the function behaves exactly as before (title diffs only).
+  databaseItems?: Array<{ databaseItemId: string; documentId: string }>;
+  localValuesByDocument?: Map<string, Map<string, unknown>>;
+  writableFields?: Array<{
+    propertyId: string | null;
+    localFieldKey: string;
+    sourceFieldKey: string;
+    sourceFieldLabel: string;
+  }>;
+  // Row-union scoping (multi-source). Documents owned by ANOTHER source must
+  // never be create candidates for this one — each row belongs to exactly one
+  // collection. And a truly unsourced ("Local") row creates only against the
+  // primary, not every attached collection. Both default to the single-source
+  // behavior when omitted (no other owners; creates allowed).
+  otherSourceDocumentIds?: Set<string>;
+  allowUnsourcedCreates?: boolean;
+  // Per-document ownership from the visible "Source" select tag (documentId →
+  // owning sourceId). A new, still-unlinked row tagged for a specific
+  // collection is adopted as a create_draft by THAT collection only; an
+  // untagged / "Local" row falls back to the primary (allowUnsourcedCreates).
+  taggedSourceByDocumentId?: Map<string, string>;
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
 
@@ -442,19 +493,45 @@ export function buildBuilderLocalOutboundChangeSets(args: {
 
     const sourceTitle = row.sourceDisplayKey.trim();
     const localTitle = args.documentTitleById.get(row.documentId)?.trim() ?? "";
-    if (!localTitle || localTitle === sourceTitle) continue;
-
-    const fieldChanges: ContentDatabaseSourceFieldChange[] = [
-      {
+    const fieldChanges: ContentDatabaseSourceFieldChange[] = [];
+    if (localTitle && localTitle !== sourceTitle) {
+      fieldChanges.push({
         propertyId: null,
         propertyName: "Title",
         localFieldKey: "title",
         sourceFieldKey: "data.title",
         currentValue: sourceTitle,
         proposedValue: localTitle,
-      },
-    ];
-    const matchingStoredChange = args.storedChangeSets.some((changeSet) => {
+      });
+    }
+    // Diff every mapped property field: local value vs the synced source
+    // baseline (same-shape DocumentPropertyValue, stable compare). An absent
+    // local value means "not loaded", not "cleared" — skip it.
+    const rowLocalValues = args.localValuesByDocument?.get(row.documentId);
+    if (rowLocalValues) {
+      const rowSourceValues =
+        parseObject<Record<string, DocumentPropertyValue>>(
+          row.sourceValuesJson,
+        ) ?? {};
+      for (const field of args.writableFields ?? []) {
+        if (!rowLocalValues.has(field.localFieldKey)) continue;
+        const localValue = rowLocalValues.get(field.localFieldKey);
+        const baseValue = rowSourceValues[field.sourceFieldKey];
+        if (sameSourceFieldValue(localValue, baseValue)) continue;
+        fieldChanges.push({
+          propertyId: field.propertyId,
+          propertyName: field.sourceFieldLabel,
+          localFieldKey: field.localFieldKey,
+          sourceFieldKey: field.sourceFieldKey,
+          currentValue: (baseValue ?? null) as DocumentPropertyValue,
+          proposedValue: localValue as DocumentPropertyValue,
+        });
+      }
+    }
+    if (fieldChanges.length === 0) continue;
+    // Skip if this row already has a live (non-rejected/applied) stored outbound
+    // autosave change-set — the stored one is what's being reviewed/pushed.
+    const matchesStoredChange = args.storedChangeSets.some((changeSet) => {
       if (
         changeSet.direction !== "outbound" ||
         changeSet.documentId !== row.documentId ||
@@ -464,14 +541,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       ) {
         return false;
       }
-      return changeSet.fieldChanges.some(
-        (fieldChange) =>
-          fieldChange.localFieldKey === "title" &&
-          fieldChange.currentValue === sourceTitle &&
-          fieldChange.proposedValue === localTitle,
+      return changeSet.fieldChanges.some((stored) =>
+        fieldChanges.some(
+          (change) =>
+            change.localFieldKey === stored.localFieldKey &&
+            sameSourceFieldValue(change.currentValue, stored.currentValue) &&
+            sameSourceFieldValue(change.proposedValue, stored.proposedValue),
+        ),
       );
     });
-    if (matchingStoredChange) continue;
+    if (matchesStoredChange) continue;
 
     const now = new Date().toISOString();
     pending.push({
@@ -483,7 +562,10 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       state: "pending_push",
       pushMode: "autosave",
       localOnly: true,
-      summary: `Pending local Builder CMS title change for "${localTitle}".`,
+      summary:
+        fieldChanges.length === 1 && fieldChanges[0]?.localFieldKey === "title"
+          ? `Pending local Builder CMS title change for "${localTitle}".`
+          : `Pending local Builder CMS changes for "${localTitle || sourceTitle}".`,
       fieldChanges,
       bodyChange: null,
       riskLevel: "low",
@@ -494,6 +576,91 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       createdAt: now,
       updatedAt: now,
     });
+  }
+
+  // New-row creates: a local database item NOT linked to a Builder entry (no
+  // source row) and with a non-empty title becomes a create_draft change-set.
+  // No baseline comparison here — we send the local values; the create_draft
+  // effect (derived from a null target entryId) writes the entry as a draft.
+  if (args.databaseItems && args.databaseItems.length > 0) {
+    const linkedDocumentIds = new Set(
+      args.rowRows.map((row) => row.documentId),
+    );
+    const documentIdsWithStoredChange = new Set(
+      args.storedChangeSets
+        .filter(
+          (changeSet) =>
+            changeSet.direction === "outbound" &&
+            changeSet.state !== "applied" &&
+            changeSet.state !== "rejected",
+        )
+        .map((changeSet) => changeSet.documentId),
+    );
+    const allowUnsourcedCreates = args.allowUnsourcedCreates ?? true;
+    for (const item of args.databaseItems) {
+      if (linkedDocumentIds.has(item.documentId)) continue;
+      // Owned by another collection's row identity — not this source's to create.
+      if (args.otherSourceDocumentIds?.has(item.documentId)) continue;
+      const taggedSourceId = args.taggedSourceByDocumentId?.get(
+        item.documentId,
+      );
+      if (taggedSourceId) {
+        // Explicitly tagged for a collection via the "Source" property: only
+        // that collection adopts it (regardless of primary/non-primary).
+        if (taggedSourceId !== args.source.id) continue;
+      } else if (!allowUnsourcedCreates) {
+        // Untagged / "Local": only the primary adopts it as a create; other
+        // collections leave it alone until it's explicitly assigned to them.
+        continue;
+      }
+      if (documentIdsWithStoredChange.has(item.documentId)) continue;
+      const title = args.documentTitleById.get(item.documentId)?.trim() ?? "";
+      if (!title) continue;
+      const localValues = args.localValuesByDocument?.get(item.documentId);
+      const fieldChanges: ContentDatabaseSourceFieldChange[] = [
+        {
+          propertyId: null,
+          propertyName: "Title",
+          localFieldKey: "title",
+          sourceFieldKey: "data.title",
+          currentValue: null,
+          proposedValue: title,
+        },
+      ];
+      for (const field of args.writableFields ?? []) {
+        if (!localValues?.has(field.localFieldKey)) continue;
+        fieldChanges.push({
+          propertyId: field.propertyId,
+          propertyName: field.sourceFieldLabel,
+          localFieldKey: field.localFieldKey,
+          sourceFieldKey: field.sourceFieldKey,
+          currentValue: null,
+          proposedValue: (localValues.get(field.localFieldKey) ??
+            null) as DocumentPropertyValue,
+        });
+      }
+      const now = new Date().toISOString();
+      pending.push({
+        id: `local-pending-create-${item.databaseItemId}`,
+        databaseItemId: item.databaseItemId,
+        documentId: item.documentId,
+        kind: "field_update",
+        direction: "outbound",
+        state: "pending_push",
+        pushMode: "autosave",
+        localOnly: true,
+        summary: `Pending new Builder entry "${title}".`,
+        fieldChanges,
+        bodyChange: null,
+        riskLevel: "low",
+        riskReasons: ["new Builder entry (create as draft)"],
+        conflictState: "none",
+        reviewEvents: [],
+        executions: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
   }
 
   return pending;
@@ -542,9 +709,50 @@ export async function getContentDatabaseSourceSnapshot(
     .select()
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.databaseId, database.id))
-    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+    .orderBy(
+      asc(schema.contentDatabaseSources.createdAt),
+      asc(schema.contentDatabaseSources.id),
+    );
   if (!source) return null;
   return loadSourceSnapshot(source, database);
+}
+
+/**
+ * Load one specific attached source by id (scoped to the database). Multi-source
+ * write paths use this so an action can target a non-primary source; single-source
+ * callers keep using {@link getContentDatabaseSourceSnapshot} (the primary).
+ */
+export async function getContentDatabaseSourceSnapshotById(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId: string,
+): Promise<ContentDatabaseSource | null> {
+  const db = getDb();
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, database.id),
+        eq(schema.contentDatabaseSources.id, sourceId),
+      ),
+    );
+  if (!source) return null;
+  return loadSourceSnapshot(source, database);
+}
+
+/**
+ * Resolve the source an action should operate on: the explicit `sourceId` when
+ * given (multi-source), otherwise the primary (back-compat single-source). The
+ * default path is byte-for-byte the old behavior, so existing callers that omit
+ * `sourceId` are unaffected.
+ */
+export async function getContentDatabaseSourceSnapshotForWrite(
+  database: ContentDatabaseRow | ContentDatabase,
+  sourceId?: string | null,
+): Promise<ContentDatabaseSource | null> {
+  return sourceId
+    ? getContentDatabaseSourceSnapshotById(database, sourceId)
+    : getContentDatabaseSourceSnapshot(database);
 }
 
 /**
@@ -563,7 +771,10 @@ export async function getAllContentDatabaseSourceSnapshots(
     .select()
     .from(schema.contentDatabaseSources)
     .where(eq(schema.contentDatabaseSources.databaseId, database.id))
-    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+    .orderBy(
+      asc(schema.contentDatabaseSources.createdAt),
+      asc(schema.contentDatabaseSources.id),
+    );
   const snapshots: ContentDatabaseSource[] = [];
   for (const source of sources) {
     snapshots.push(await loadSourceSnapshot(source, database));
@@ -647,8 +858,32 @@ async function loadSourceSnapshot(
     executions.push(serializeExecution(row));
     executionsByChangeSetId.set(row.changeSetId, executions);
   }
+  const isBuilderSource =
+    normalizeSourceType(source.sourceType) === "builder-cms";
+  // For Builder sources, load ALL database items (not just synced source rows)
+  // so brand-new local rows (no source link) can become create_draft change-sets.
+  const databaseItemRows = isBuilderSource
+    ? await db
+        .select({
+          id: schema.contentDatabaseItems.id,
+          documentId: schema.contentDatabaseItems.documentId,
+        })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.databaseId, database.id),
+            eq(schema.contentDatabaseItems.ownerEmail, source.ownerEmail),
+          ),
+        )
+    : [];
+  const allDocumentIds = Array.from(
+    new Set([
+      ...rowRows.map((row) => row.documentId),
+      ...databaseItemRows.map((item) => item.documentId),
+    ]),
+  );
   const rowDocuments =
-    rowRows.length > 0
+    allDocumentIds.length > 0
       ? await db
           .select({
             id: schema.documents.id,
@@ -657,10 +892,7 @@ async function loadSourceSnapshot(
           .from(schema.documents)
           .where(
             and(
-              inArray(
-                schema.documents.id,
-                rowRows.map((row) => row.documentId),
-              ),
+              inArray(schema.documents.id, allDocumentIds),
               eq(schema.documents.ownerEmail, source.ownerEmail),
             ),
           )
@@ -668,11 +900,123 @@ async function loadSourceSnapshot(
   const documentTitleById = new Map(
     rowDocuments.map((document) => [document.id, document.title]),
   );
+  const propertyValueRows =
+    isBuilderSource && allDocumentIds.length > 0
+      ? await db
+          .select({
+            documentId: schema.documentPropertyValues.documentId,
+            propertyId: schema.documentPropertyValues.propertyId,
+            valueJson: schema.documentPropertyValues.valueJson,
+          })
+          .from(schema.documentPropertyValues)
+          .where(
+            and(
+              inArray(schema.documentPropertyValues.documentId, allDocumentIds),
+              eq(schema.documentPropertyValues.ownerEmail, source.ownerEmail),
+            ),
+          )
+      : [];
+  const localValuesByDocument = new Map<string, Map<string, unknown>>();
+  for (const valueRow of propertyValueRows) {
+    let byField = localValuesByDocument.get(valueRow.documentId);
+    if (!byField) {
+      byField = new Map<string, unknown>();
+      localValuesByDocument.set(valueRow.documentId, byField);
+    }
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(valueRow.valueJson);
+    } catch {
+      parsed = null;
+    }
+    byField.set(valueRow.propertyId, parsed);
+  }
+  const writableFields = fieldRows
+    .filter((row) => row.mappingType === "property")
+    .map((row) => ({
+      propertyId: row.propertyId ?? null,
+      localFieldKey: row.localFieldKey,
+      sourceFieldKey: row.sourceFieldKey,
+      sourceFieldLabel: row.sourceFieldLabel,
+    }));
+  // Row-union ownership scoping (Builder only). Determine which documents belong
+  // to OTHER sources and whether this source is the primary (oldest), so the
+  // create-candidate logic never claims another collection's rows and unsourced
+  // "Local" rows only create against the primary. Single-source: no other
+  // sources ⇒ empty set, isPrimary ⇒ identical to the old behavior.
+  let otherSourceDocumentIds = new Set<string>();
+  let isPrimarySource = true;
+  let taggedSourceByDocumentId = new Map<string, string>();
+  if (isBuilderSource) {
+    const dbSources = await db
+      .select({
+        id: schema.contentDatabaseSources.id,
+        sourceName: schema.contentDatabaseSources.sourceName,
+      })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, database.id))
+      // Same (createdAt, id) ordering as getExistingSource /
+      // getContentDatabaseSourceSnapshot, so "primary" here is definitionally
+      // the same source the write path treats as primary — never a different
+      // pick on a createdAt tie.
+      .orderBy(
+        asc(schema.contentDatabaseSources.createdAt),
+        asc(schema.contentDatabaseSources.id),
+      );
+    isPrimarySource = dbSources[0]?.id === source.id;
+    const otherSourceIds = dbSources
+      .map((row) => row.id)
+      .filter((id) => id !== source.id);
+    if (otherSourceIds.length > 0) {
+      const ownedRows = await db
+        .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          inArray(schema.contentDatabaseSourceRows.sourceId, otherSourceIds),
+        );
+      otherSourceDocumentIds = new Set(ownedRows.map((row) => row.documentId));
+    }
+    // Multi-source: a row's visible "Source" tag value IS its owning source id
+    // (the Source option id equals the source id), so adoption is pure id
+    // matching — no source-name hop, immune to duplicate names or a "Local"
+    // collision. The "Local" sentinel isn't a real source id, so untagged rows
+    // fall through to the primary-only path.
+    if (dbSources.length > 1) {
+      const [sourceProp] = await db
+        .select({ id: schema.documentPropertyDefinitions.id })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, database.id),
+            eq(schema.documentPropertyDefinitions.name, SOURCE_PROPERTY_NAME),
+            eq(schema.documentPropertyDefinitions.type, "select"),
+          ),
+        );
+      if (sourceProp) {
+        const validSourceIds = new Set(dbSources.map((row) => row.id));
+        for (const [documentId, byProperty] of localValuesByDocument) {
+          const optionId = byProperty.get(sourceProp.id);
+          if (typeof optionId === "string" && validSourceIds.has(optionId)) {
+            taggedSourceByDocumentId.set(documentId, optionId);
+          }
+        }
+      }
+    }
+  }
   const localOutboundChangeSets = buildBuilderLocalOutboundChangeSets({
     source,
     rowRows,
     documentTitleById,
     storedChangeSets,
+    databaseItems: databaseItemRows.map((item) => ({
+      databaseItemId: item.id,
+      documentId: item.documentId,
+    })),
+    localValuesByDocument,
+    writableFields,
+    otherSourceDocumentIds,
+    allowUnsourcedCreates: isPrimarySource,
+    taggedSourceByDocumentId,
   });
   const rowByDocumentId = new Map(rowRows.map((row) => [row.documentId, row]));
   const changeSets = [...storedChangeSets, ...localOutboundChangeSets].map(
@@ -686,6 +1030,16 @@ async function loadSourceSnapshot(
       }),
   );
   const metadata = parseObject<SourceMetadataRecord>(source.metadataJson) ?? {};
+  const normalizedWriteMode =
+    metadata.writeMode === "read_only" ||
+    metadata.writeMode === "stage_only" ||
+    metadata.writeMode === "publish_updates"
+      ? metadata.writeMode
+      : undefined;
+  const capabilities = normalizeCapabilities(source.capabilitiesJson);
+  if (normalizedWriteMode) {
+    capabilities.liveWritesEnabled = normalizedWriteMode !== "read_only";
+  }
 
   // A local-table source shows the target database's *live* title, so renaming
   // the underlying table is reflected here instead of the name frozen at attach.
@@ -709,7 +1063,7 @@ async function loadSourceSnapshot(
     lastRefreshedAt: source.lastRefreshedAt,
     lastSourceUpdatedAt: source.lastSourceUpdatedAt,
     lastError: source.lastError,
-    capabilities: normalizeCapabilities(source.capabilitiesJson),
+    capabilities,
     metadata: {
       primaryKey: metadata.primaryKey ?? "id",
       titleField: metadata.titleField ?? "title",
@@ -717,6 +1071,9 @@ async function loadSourceSnapshot(
       pushMode: metadata.pushMode ?? "none",
       pushModeLabel: metadata.pushModeLabel ?? null,
       pushModeDescription: metadata.pushModeDescription ?? null,
+      writeMode: normalizedWriteMode,
+      allowPublicationTransitions:
+        metadata.allowPublicationTransitions === true,
       notes: metadata.notes ?? null,
       readMode: metadata.readMode ?? null,
       liveReadConfigured: metadata.liveReadConfigured === true,
@@ -977,47 +1334,65 @@ export async function seedMockSourceFields(args: {
       createdAt: args.now,
       updatedAt: args.now,
     },
-    ...args.properties.map((property) => ({
-      id: crypto.randomUUID(),
-      ownerEmail: args.ownerEmail,
-      sourceId: args.sourceId,
-      propertyId: property.definition.id,
-      localFieldKey: property.definition.id,
-      sourceFieldKey: isBuilder
-        ? builderCmsSourceFieldKey(
-            property.definition.id,
-            property.definition.name,
-          )
-        : `fields.${slugifySourceField(property.definition.name)}`,
-      sourceFieldLabel: property.definition.name,
-      sourceFieldType: property.definition.type,
-      mappingType: "property",
-      writeOwner:
-        property.definition.type === "created_time" ||
-        property.definition.type === "created_by" ||
-        property.definition.type === "last_edited_time" ||
-        property.definition.type === "last_edited_by"
-          ? "derived"
-          : isBuilder
-            ? "source"
-            : "local",
-      readOnly:
-        property.definition.type === "created_time" ||
-        property.definition.type === "created_by" ||
-        property.definition.type === "last_edited_time" ||
-        property.definition.type === "last_edited_by"
-          ? 1
-          : 0,
-      provenance:
-        property.definition.type === "formula" ||
-        property.definition.type === "rollup"
-          ? "derived"
-          : "source field",
-      freshness: "fresh",
-      lastSyncedAt: args.now,
-      createdAt: args.now,
-      updatedAt: args.now,
-    })),
+    // The auto-created "Source" property is internal row-tagging (which
+    // collection a row belongs to). It must NEVER become a writable Builder
+    // source field — otherwise its local option-id value diffs against an
+    // absent baseline and every row shows a phantom pending change, and a push
+    // would try to write the internal tag to Builder. Match the SAME shape
+    // ensureDatabaseSourceProperty uses to identify it (a `select` named
+    // "Source") and only for Builder sources, so a user's own field happening
+    // to be named "Source" — or any non-Builder/local-table source — is left
+    // untouched.
+    ...args.properties
+      .filter(
+        (property) =>
+          !(
+            isBuilder &&
+            property.definition.name === SOURCE_PROPERTY_NAME &&
+            property.definition.type === "select"
+          ),
+      )
+      .map((property) => ({
+        id: crypto.randomUUID(),
+        ownerEmail: args.ownerEmail,
+        sourceId: args.sourceId,
+        propertyId: property.definition.id,
+        localFieldKey: property.definition.id,
+        sourceFieldKey: isBuilder
+          ? builderCmsSourceFieldKey(
+              property.definition.id,
+              property.definition.name,
+            )
+          : `fields.${slugifySourceField(property.definition.name)}`,
+        sourceFieldLabel: property.definition.name,
+        sourceFieldType: property.definition.type,
+        mappingType: "property",
+        writeOwner:
+          property.definition.type === "created_time" ||
+          property.definition.type === "created_by" ||
+          property.definition.type === "last_edited_time" ||
+          property.definition.type === "last_edited_by"
+            ? "derived"
+            : isBuilder
+              ? "source"
+              : "local",
+        readOnly:
+          property.definition.type === "created_time" ||
+          property.definition.type === "created_by" ||
+          property.definition.type === "last_edited_time" ||
+          property.definition.type === "last_edited_by"
+            ? 1
+            : 0,
+        provenance:
+          property.definition.type === "formula" ||
+          property.definition.type === "rollup"
+            ? "derived"
+            : "source field",
+        freshness: "fresh",
+        lastSyncedAt: args.now,
+        createdAt: args.now,
+        updatedAt: args.now,
+      })),
   ];
   if (isBuilder) {
     const existingSourceFieldKeys = new Set(
@@ -1528,6 +1903,11 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
   now: string;
   sourceTable: string;
   existingSourceRows?: ContentDatabaseSourceRecordRowDb[];
+  // When importing an ADDITIONAL source (row-union), two collections may share
+  // a title legitimately, so the cross-database title dedup must be skipped —
+  // per-source re-import idempotency is still handled by
+  // builderCmsEntryAlreadyRepresented (existingSourceRows).
+  skipTitleDedup?: boolean;
 }) {
   if (args.entries.length === 0) return 0;
   const db = getDb();
@@ -1580,7 +1960,7 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
 
     const title = entry.title.trim() || entry.id;
     const titleKey = title.toLowerCase();
-    if (existingTitles.has(titleKey)) continue;
+    if (!args.skipTitleDedup && existingTitles.has(titleKey)) continue;
     existingTitles.add(titleKey);
 
     const documentId = nanoid();
@@ -1690,12 +2070,34 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
       builderRead.state === "live" ? builderRead.entries : [],
     now: args.now,
   });
+  // Row-union: a resync must only (re)link items that BELONG to this source —
+  // never claim every database item. With a single source, all items belong to
+  // it (back-compat). With multiple sources, link only this source's
+  // remote-backed rows when the read is live (this self-heals any prior
+  // over-claim, since rows are deleted then reseeded); when offline, preserve
+  // just the rows already owned so nothing is orphaned. New / "Local" /
+  // other-collection rows stay unlinked, so the Source-tag create path can
+  // adopt them into the right collection.
+  const databaseSourceCount = (
+    await db
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.databaseId, args.database.id))
+  ).length;
+  const itemsToLink =
+    databaseSourceCount > 1
+      ? response.items.filter((item) =>
+          builderRead.state === "live"
+            ? builderEntriesByDocumentId.has(item.document.id)
+            : existingBuilderRows.has(item.document.id),
+        )
+      : response.items;
   await seedMockSourceRows({
     sourceId: args.source.id,
     ownerEmail: args.database.ownerEmail,
     sourceType: "builder-cms",
     sourceTable: args.source.sourceTable,
-    items: response.items,
+    items: itemsToLink,
     now: args.now,
     existingBuilderRows,
     builderEntriesByDocumentId,
@@ -1949,6 +2351,13 @@ export async function seedSecondarySourceFields(args: {
   now: string;
 }) {
   const db = getDb();
+  const existingFields = await db
+    .select()
+    .from(schema.contentDatabaseSourceFields)
+    .where(eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId));
+  const existingBySourceFieldKey = new Map(
+    existingFields.map((field) => [field.sourceFieldKey, field]),
+  );
   await db
     .delete(schema.contentDatabaseSourceFields)
     .where(eq(schema.contentDatabaseSourceFields.sourceId, args.sourceId));
@@ -1958,32 +2367,57 @@ export async function seedSecondarySourceFields(args: {
       normalizeBuilderCmsSourceFieldType(field.type),
     ]),
   );
-  const keys = new Set<string>(args.modelFields.map((field) => field.name));
-  for (const key of Object.keys(args.sampleEntry?.sourceValues ?? {})) {
-    keys.add(key);
+  const modelFieldByName = new Map(
+    args.modelFields.map((field) => [field.name, field]),
+  );
+  const sampleKeys = new Set(Object.keys(args.sampleEntry?.sourceValues ?? {}));
+  const keys = new Set<string>(sampleKeys);
+  for (const field of args.modelFields) {
+    if (sampleKeys.has(field.name)) {
+      keys.add(field.name);
+    } else if (sampleKeys.has(`data.${field.name}`)) {
+      keys.add(`data.${field.name}`);
+    } else {
+      keys.add(field.name);
+    }
   }
   if (keys.size === 0) return;
   await db.insert(schema.contentDatabaseSourceFields).values(
-    [...keys].map((key) => ({
-      id: crypto.randomUUID(),
-      ownerEmail: args.ownerEmail,
-      sourceId: args.sourceId,
-      propertyId: null,
-      localFieldKey: key,
-      sourceFieldKey: key,
-      sourceFieldLabel:
-        args.modelFields.find((field) => field.name === key)?.label ??
-        builderCmsModelFieldLabel(key),
-      sourceFieldType: fieldTypeByKey.get(key) ?? "text",
-      mappingType: "property" as const,
-      writeOwner: "source" as const,
-      readOnly: 1,
-      provenance: "secondary source field",
-      freshness: "fresh" as const,
-      lastSyncedAt: args.now,
-      createdAt: args.now,
-      updatedAt: args.now,
-    })),
+    [...keys].map((key) => {
+      const unprefixedKey = key.replace(/^data\./, "");
+      const existing =
+        existingBySourceFieldKey.get(key) ??
+        (key.startsWith("data.")
+          ? existingBySourceFieldKey.get(unprefixedKey)
+          : existingBySourceFieldKey.get(`data.${key}`));
+      const modelField =
+        modelFieldByName.get(key) ?? modelFieldByName.get(unprefixedKey);
+      return {
+        id: crypto.randomUUID(),
+        ownerEmail: args.ownerEmail,
+        sourceId: args.sourceId,
+        propertyId: existing?.propertyId ?? null,
+        localFieldKey: existing?.localFieldKey ?? key,
+        sourceFieldKey: key,
+        sourceFieldLabel:
+          modelField?.label ??
+          existing?.sourceFieldLabel ??
+          builderCmsModelFieldLabel(key),
+        sourceFieldType:
+          fieldTypeByKey.get(key) ??
+          fieldTypeByKey.get(unprefixedKey) ??
+          existing?.sourceFieldType ??
+          "text",
+        mappingType: "property" as const,
+        writeOwner: "source" as const,
+        readOnly: 1,
+        provenance: "secondary source field",
+        freshness: "fresh" as const,
+        lastSyncedAt: args.now,
+        createdAt: existing?.createdAt ?? args.now,
+        updatedAt: args.now,
+      };
+    }),
   );
 }
 
@@ -2059,8 +2493,223 @@ export async function getExistingSource(databaseId: string) {
   const [source] = await db
     .select()
     .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.databaseId, databaseId));
+    .where(eq(schema.contentDatabaseSources.databaseId, databaseId))
+    // Oldest-first so "the source" is deterministically the primary, matching
+    // getContentDatabaseSourceSnapshot. Without this, a multi-source database
+    // could resolve a non-primary source when a caller omits sourceId. The `id`
+    // tie-break keeps the choice stable when two sources share a createdAt
+    // timestamp (no uniqueness guarantee on created_at).
+    .orderBy(
+      asc(schema.contentDatabaseSources.createdAt),
+      asc(schema.contentDatabaseSources.id),
+    );
   return source ?? null;
+}
+
+/** The source DB row for one attached source by id (scoped to the database). */
+export async function getExistingSourceById(
+  databaseId: string,
+  sourceId: string,
+) {
+  const db = getDb();
+  const [source] = await db
+    .select()
+    .from(schema.contentDatabaseSources)
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, databaseId),
+        eq(schema.contentDatabaseSources.id, sourceId),
+      ),
+    );
+  return source ?? null;
+}
+
+/** The source DB row for an action: explicit `sourceId` when given, else primary. */
+export async function getExistingSourceForWrite(
+  databaseId: string,
+  sourceId?: string | null,
+) {
+  return sourceId
+    ? getExistingSourceById(databaseId, sourceId)
+    : getExistingSource(databaseId);
+}
+
+/** Whether a source for this model (sourceTable) is already attached. */
+export async function databaseSourceExistsForTable(
+  databaseId: string,
+  sourceTable: string,
+): Promise<boolean> {
+  const db = getDb();
+  const [row] = await db
+    .select({ id: schema.contentDatabaseSources.id })
+    .from(schema.contentDatabaseSources)
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, databaseId),
+        eq(schema.contentDatabaseSources.sourceTable, sourceTable),
+      ),
+    );
+  return !!row;
+}
+
+export const SOURCE_PROPERTY_NAME = "Source";
+// The "Local" (no collection) option id. A fixed non-UUID sentinel so it never
+// collides with a source id (which is what every collection option's id is).
+export const SOURCE_LOCAL_OPTION_ID = "local";
+
+const SOURCE_OPTION_PALETTE: DocumentPropertyOptionColor[] = [
+  "blue",
+  "green",
+  "orange",
+  "purple",
+  "pink",
+  "yellow",
+  "brown",
+  "red",
+];
+
+/**
+ * Ensure a "Source" select property exists tagging each row with the collection
+ * it belongs to, and (re)set every item's value. Rows with no source binding are
+ * "Local" — the same first-class state a brand-new local row has. Only runs once
+ * a database has 2+ sources (row-union); a single-source database doesn't need
+ * the tag. Option ids are preserved across re-runs so colors/filters stay stable.
+ */
+export async function ensureDatabaseSourceProperty(args: {
+  database: ContentDatabaseRow;
+  now: string;
+}) {
+  const db = getDb();
+  const sources = await db
+    .select({
+      id: schema.contentDatabaseSources.id,
+      sourceName: schema.contentDatabaseSources.sourceName,
+    })
+    .from(schema.contentDatabaseSources)
+    .where(eq(schema.contentDatabaseSources.databaseId, args.database.id))
+    .orderBy(asc(schema.contentDatabaseSources.createdAt));
+  if (sources.length < 2) return;
+
+  const [existing] = await db
+    .select()
+    .from(schema.documentPropertyDefinitions)
+    .where(
+      and(
+        eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
+        eq(schema.documentPropertyDefinitions.name, SOURCE_PROPERTY_NAME),
+        eq(schema.documentPropertyDefinitions.type, "select"),
+      ),
+    );
+
+  const priorOptions = existing
+    ? (parsePropertyOptions(existing.optionsJson).options ?? [])
+    : [];
+  // Each source option's id IS the sourceId (and "Local" uses a fixed sentinel
+  // that can't collide with a UUID source id). Resolving a row's tag back to a
+  // source is then pure id matching — no source-name hop — so duplicate display
+  // names or a collection literally named "Local" can never misroute a row.
+  const priorById = new Map(priorOptions.map((option) => [option.id, option]));
+  const options = [
+    ...sources.map((source, index) => ({
+      id: source.id,
+      name: source.sourceName,
+      color:
+        priorById.get(source.id)?.color ??
+        SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length],
+    })),
+    {
+      id: SOURCE_LOCAL_OPTION_ID,
+      name: "Local",
+      color: (priorById.get(SOURCE_LOCAL_OPTION_ID)?.color ??
+        "gray") as DocumentPropertyOptionColor,
+    },
+  ];
+  const optionsJson = serializePropertyOptions({ options });
+
+  let propertyId: string;
+  if (existing) {
+    propertyId = existing.id;
+    await db
+      .update(schema.documentPropertyDefinitions)
+      .set({ optionsJson, updatedAt: args.now })
+      .where(eq(schema.documentPropertyDefinitions.id, existing.id));
+  } else {
+    const [maxPos] = await db
+      .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
+      );
+    propertyId = crypto.randomUUID();
+    await db.insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: args.database.ownerEmail,
+      orgId: args.database.orgId,
+      databaseId: args.database.id,
+      name: SOURCE_PROPERTY_NAME,
+      type: "select",
+      visibility: "always_show",
+      optionsJson,
+      position: (maxPos?.max ?? -1) + 1,
+      createdAt: args.now,
+      updatedAt: args.now,
+    });
+  }
+
+  // A row's Source value IS its owning source id (= the option id); unsourced
+  // rows get the "Local" sentinel. Pure id mapping, no source-name hop.
+  const rows = await db
+    .select({
+      documentId: schema.contentDatabaseSourceRows.documentId,
+      sourceId: schema.contentDatabaseSourceRows.sourceId,
+    })
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      inArray(
+        schema.contentDatabaseSourceRows.sourceId,
+        sources.map((source) => source.id),
+      ),
+    );
+  const ownerSourceIdByDocumentId = new Map<string, string>();
+  for (const row of rows) {
+    if (row.documentId)
+      ownerSourceIdByDocumentId.set(row.documentId, row.sourceId);
+  }
+
+  const items = await db
+    .select({ documentId: schema.contentDatabaseItems.documentId })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, args.database.id));
+  for (const item of items) {
+    const optionId =
+      ownerSourceIdByDocumentId.get(item.documentId) ?? SOURCE_LOCAL_OPTION_ID;
+    const valueJson = serializePropertyValue(optionId);
+    const [existingValue] = await db
+      .select({ id: schema.documentPropertyValues.id })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, item.documentId),
+          eq(schema.documentPropertyValues.propertyId, propertyId),
+        ),
+      );
+    if (existingValue) {
+      await db
+        .update(schema.documentPropertyValues)
+        .set({ valueJson, updatedAt: args.now })
+        .where(eq(schema.documentPropertyValues.id, existingValue.id));
+    } else {
+      await db.insert(schema.documentPropertyValues).values({
+        id: crypto.randomUUID(),
+        ownerEmail: args.database.ownerEmail,
+        documentId: item.documentId,
+        propertyId,
+        valueJson,
+        createdAt: args.now,
+        updatedAt: args.now,
+      });
+    }
+  }
 }
 
 export async function getSourceRows(sourceId: string) {

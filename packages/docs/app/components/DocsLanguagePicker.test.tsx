@@ -24,6 +24,8 @@ import DocsLanguageSuggestion, {
 const ORIGINAL_NAVIGATOR_LANGUAGES = navigator.languages;
 const ORIGINAL_NAVIGATOR_LANGUAGE = navigator.language;
 
+installTestLocalStorage();
+
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
@@ -32,6 +34,38 @@ afterEach(() => {
     ORIGINAL_NAVIGATOR_LANGUAGE,
   );
 });
+
+function installTestLocalStorage() {
+  const values = new Map<string, string>();
+  const storage: Storage = {
+    get length() {
+      return values.size;
+    },
+    clear() {
+      values.clear();
+    },
+    getItem(key) {
+      return values.get(key) ?? null;
+    },
+    key(index) {
+      return [...values.keys()][index] ?? null;
+    },
+    removeItem(key) {
+      values.delete(key);
+    },
+    setItem(key, value) {
+      values.set(key, value);
+    },
+  };
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+}
 
 function setBrowserLanguages(
   languages: readonly string[],

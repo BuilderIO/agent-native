@@ -12,7 +12,6 @@ const TEST_DB_PATH = join(
   tmpdir(),
   `content-database-lifecycle-${process.pid}-${Date.now()}.sqlite`,
 );
-process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -32,6 +31,7 @@ const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
 
 beforeAll(async () => {
+  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;

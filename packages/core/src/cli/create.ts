@@ -1054,6 +1054,7 @@ function postProcessStandalone(
       sections.overrides = {
         '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
         '"@assistant-ui/tap"': '"^0.5.14"',
+        nf3: '"0.3.17"',
       };
     }
     let updated = mergeWorkspaceYamlSections(existing, sections);

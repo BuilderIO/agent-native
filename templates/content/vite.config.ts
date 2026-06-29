@@ -31,6 +31,15 @@ const LOCAL_COMPONENTS_STUB_IMPORTS = new Set([
   "./local-components.generated.ts",
 ]);
 const COMPONENT_EXTENSIONS = new Set([".tsx", ".jsx", ".ts", ".js"]);
+const LOCAL_COMPONENT_SKIP_DIRS = new Set([
+  "__tests__",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+]);
+const LOCAL_COMPONENT_SKIP_FILE_RE =
+  /(?:^|[.-])(?:test|spec|stories|story)\.[cm]?[jt]sx?$/;
 const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
   "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION";
 const CONTENT_LOCAL_DEFAULTS: LocalArtifactOptions["defaults"] = {
@@ -145,18 +154,16 @@ async function walkComponentFiles(directory: string): Promise<string[]> {
     if (entry.isSymbolicLink()) continue;
     const absolutePath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      if (
-        entry.name === "node_modules" ||
-        entry.name === "dist" ||
-        entry.name === "build"
-      ) {
-        continue;
-      }
+      if (LOCAL_COMPONENT_SKIP_DIRS.has(entry.name)) continue;
       files.push(...(await walkComponentFiles(absolutePath)));
       continue;
     }
     if (
       !entry.isFile() ||
+      entry.name.endsWith(".generated.ts") ||
+      entry.name.endsWith(".generated.tsx") ||
+      entry.name.endsWith(".d.ts") ||
+      LOCAL_COMPONENT_SKIP_FILE_RE.test(entry.name) ||
       !COMPONENT_EXTENSIONS.has(path.extname(entry.name).toLowerCase())
     ) {
       continue;

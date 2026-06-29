@@ -68,4 +68,41 @@ describe("suggestJoinKey", () => {
     expect(suggestion!.primary.keyField).toBe("slug");
     expect(suggestion!.secondary.keyField).toBe("ref");
   });
+
+  it("matches Builder reference values to the referenced collection id", () => {
+    const suggestion = suggestJoinKey({
+      primaryValues: [
+        { "data.author": "blog-author:alice" },
+        { "data.author": "blog-author:bob" },
+      ],
+      secondaryValues: [{ id: "alice" }, { id: "bob" }],
+    });
+
+    expect(suggestion).not.toBeNull();
+    expect(suggestion!.primary.keyField).toBe("data.author");
+    expect(suggestion!.secondary.keyField).toBe("id");
+    expect(suggestion!.primary.normalizationFormula).toContain("regexreplace");
+    expect(
+      suggestion!.sampleMatches.filter((match) => match.matched),
+    ).toHaveLength(2);
+  });
+
+  it("prefers author names over low-information published status overlap", () => {
+    const suggestion = suggestJoinKey({
+      primaryValues: [
+        { "data.author": "Alice Moore", published: "published" },
+        { "data.author": "Steve Sewell", published: "published" },
+        { "data.author": "Amy Cross", published: "published" },
+      ],
+      secondaryValues: [
+        { "data.fullName": "Alice Moore", published: "published" },
+        { "data.fullName": "Amy Cross", published: "published" },
+        { "data.fullName": "Josh Adams", published: "published" },
+      ],
+    });
+
+    expect(suggestion).not.toBeNull();
+    expect(suggestion!.primary.keyField).toBe("data.author");
+    expect(suggestion!.secondary.keyField).toBe("data.fullName");
+  });
 });

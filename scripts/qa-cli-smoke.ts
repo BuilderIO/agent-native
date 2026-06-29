@@ -324,6 +324,11 @@ try {
     /catalog:/,
     "workspace scaffold must include dependency catalog for catalog: versions",
   );
+  assert.match(
+    workspaceCatalog,
+    /nf3:\s+"0\.3\.17"/,
+    "workspace scaffold must pin nf3 to the version compatible with Nitro's @vercel/nft import",
+  );
 
   const addedOutput = runCli(
     ["add-app", "qa-forms-app", "--template=forms"],

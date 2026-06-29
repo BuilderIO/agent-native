@@ -8,7 +8,9 @@ import addSourceFieldProperty, {
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
 import attachSource from "./attach-content-database-source";
+import changeSourceRole from "./change-content-database-source-role";
 import disconnectSource from "./disconnect-content-database-source";
+import executeBatch from "./execute-builder-source-batch";
 import executeExecution from "./execute-builder-source-execution";
 import getSource from "./get-content-database-source";
 import listBuilderModels from "./list-builder-cms-models";
@@ -32,6 +34,26 @@ describe("content database source actions", () => {
     });
   });
 
+  it("accepts Builder source batch execution args", () => {
+    expect(
+      executeBatch.schema.parse({
+        documentId: "database-page",
+        changeSetIds: ["change-1", "change-2"],
+        maxConcurrency: 2,
+        transitions: {
+          "change-2": { publicationTransition: "publish" },
+        },
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      changeSetIds: ["change-1", "change-2"],
+      maxConcurrency: 2,
+      transitions: {
+        "change-2": { publicationTransition: "publish" },
+      },
+    });
+  });
+
   it("defaults source attachment to the safe mock-local source type", () => {
     expect(attachSource.schema.parse({ documentId: "database-page" })).toEqual({
       documentId: "database-page",
@@ -48,6 +70,7 @@ describe("content database source actions", () => {
         sourceType: "builder-cms",
         sourceName: "Mock Builder",
         sourceTable: "blog_article",
+        relationshipMode: "items",
         limit: 50,
         offset: 25,
       }),
@@ -56,6 +79,7 @@ describe("content database source actions", () => {
       sourceType: "builder-cms",
       sourceName: "Mock Builder",
       sourceTable: "blog_article",
+      relationshipMode: "items",
       limit: 50,
       offset: 25,
     });
@@ -98,7 +122,7 @@ describe("content database source actions", () => {
     expect(
       normalizeContentDatabasePageOptions({ limit: 10_000, offset: 25 }),
     ).toEqual({
-      limit: 500,
+      limit: 5_000,
       offset: 25,
     });
     expect(normalizeContentDatabasePageOptions({})).toEqual({
@@ -112,6 +136,22 @@ describe("content database source actions", () => {
       disconnectSource.schema.parse({ documentId: "database-page" }),
     ).toEqual({
       documentId: "database-page",
+    });
+  });
+
+  it("accepts source role changes with an explicit relationship mode", () => {
+    expect(
+      changeSourceRole.schema.parse({
+        documentId: "database-page",
+        sourceId: "source-1",
+        relationshipMode: "items",
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceId: "source-1",
+      relationshipMode: "items",
+      limit: 100,
+      offset: 0,
     });
   });
 
@@ -241,10 +281,14 @@ describe("content database source actions", () => {
       prepareReview.schema.parse({
         documentId: "database-page",
         pushModeConfirmation: "autosave",
+        publicationTransition: "unpublish",
+        confirmUnpublish: true,
       }),
     ).toEqual({
       documentId: "database-page",
       pushModeConfirmation: "autosave",
+      publicationTransition: "unpublish",
+      confirmUnpublish: true,
     });
   });
 
@@ -254,11 +298,13 @@ describe("content database source actions", () => {
         documentId: "database-page",
         changeSetId: "change-set",
         idempotencyKey: "builder-cms:source:change:autosave",
+        publicationTransition: "publish",
       }),
     ).toEqual({
       documentId: "database-page",
       changeSetId: "change-set",
       idempotencyKey: "builder-cms:source:change:autosave",
+      publicationTransition: "publish",
     });
   });
 
@@ -289,6 +335,20 @@ describe("content database source actions", () => {
       documentId: "database-page",
       liveWritesEnabled: true,
       allowedWriteModes: ["autosave"],
+    });
+  });
+
+  it("accepts tiered Builder write mode requests", () => {
+    expect(
+      setWriteMode.schema.parse({
+        documentId: "database-page",
+        writeMode: "publish_updates",
+        allowPublicationTransitions: true,
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
     });
   });
 
