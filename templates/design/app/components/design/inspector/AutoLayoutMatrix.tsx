@@ -421,6 +421,7 @@ export function AutoLayoutMatrix({
               onChange={onAlignmentChange}
               direction={value.direction}
               disabled={disabled || isBlock}
+              onDistribute={onDistribute}
             />
           </div>
 
@@ -584,62 +585,117 @@ const ALIGNMENT_CELLS: Array<{
  * Compact 3×3 alignment grid (no border box). Inactive cells show a faint dot;
  * the active cell shows accent bars oriented by flow — horizontal bars for a
  * vertical flow, vertical bars for a horizontal flow (Figma convention).
+ * When `onDistribute` is provided, two distribute buttons (H + V) are rendered
+ * below the grid, matching Figma's inspector layout.
  */
 function CompactAlignmentMatrix({
   value,
   onChange,
   direction,
   disabled,
+  onDistribute,
 }: {
   value: AlignmentMatrixValue;
   onChange: (value: AlignmentMatrixValue) => void;
   direction: AutoLayoutDirection;
   disabled: boolean;
+  onDistribute?: (axis: DistributionAxis) => void;
 }) {
   return (
     <div
-      className={cn(
-        "grid w-fit grid-cols-3 rounded-md",
-        disabled && "pointer-events-none opacity-40",
-      )}
+      className={cn("space-y-1", disabled && "pointer-events-none opacity-40")}
     >
-      {ALIGNMENT_CELLS.map((cell) => {
-        const active =
-          cell.horizontal === value.horizontal &&
-          cell.vertical === value.vertical;
-        return (
-          <button
-            key={`${cell.horizontal}-${cell.vertical}`}
-            type="button"
-            aria-label={`${cell.vertical} ${cell.horizontal}`}
-            aria-pressed={active}
-            disabled={disabled}
-            onClick={() =>
-              onChange({
-                horizontal: cell.horizontal,
-                vertical: cell.vertical,
-              })
-            }
-            className={cn(
-              "flex size-[22px] items-center justify-center rounded-[3px] transition-colors",
-              "hover:bg-[var(--design-editor-control-bg)]",
-            )}
-          >
-            {active ? (
-              <AlignmentBars
-                horizontal={cell.horizontal}
-                vertical={cell.vertical}
-                direction={direction}
-              />
-            ) : (
-              <span
-                className="block size-[3px] rounded-full bg-current opacity-25"
-                aria-hidden="true"
-              />
-            )}
-          </button>
-        );
-      })}
+      <div className={cn("grid w-fit grid-cols-3 rounded-md")}>
+        {ALIGNMENT_CELLS.map((cell) => {
+          const active =
+            cell.horizontal === value.horizontal &&
+            cell.vertical === value.vertical;
+          return (
+            <button
+              key={`${cell.horizontal}-${cell.vertical}`}
+              type="button"
+              aria-label={`${cell.vertical} ${cell.horizontal}`}
+              aria-pressed={active}
+              disabled={disabled}
+              onClick={() =>
+                onChange({
+                  horizontal: cell.horizontal,
+                  vertical: cell.vertical,
+                })
+              }
+              className={cn(
+                "flex size-[22px] items-center justify-center rounded-[3px] transition-colors",
+                "hover:bg-[var(--design-editor-control-bg)]",
+              )}
+            >
+              {active ? (
+                <AlignmentBars
+                  horizontal={cell.horizontal}
+                  vertical={cell.vertical}
+                  direction={direction}
+                />
+              ) : (
+                <span
+                  className="block size-[3px] rounded-full bg-current opacity-25"
+                  aria-hidden="true"
+                />
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {onDistribute != null ? (
+        <div className="flex gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={
+                  "Distribute horizontal spacing" /* i18n-ignore Figma inspector tooltip */
+                }
+                disabled={disabled}
+                onClick={() => onDistribute("horizontal")}
+                className={cn(
+                  "flex size-[22px] items-center justify-center rounded-[3px] transition-colors",
+                  "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                  "disabled:pointer-events-none disabled:opacity-40",
+                )}
+              >
+                <IconDistributeH />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {
+                "Distribute horizontal spacing" /* i18n-ignore Figma inspector tooltip */
+              }
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={
+                  "Distribute vertical spacing" /* i18n-ignore Figma inspector tooltip */
+                }
+                disabled={disabled}
+                onClick={() => onDistribute("vertical")}
+                className={cn(
+                  "flex size-[22px] items-center justify-center rounded-[3px] transition-colors",
+                  "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                  "disabled:pointer-events-none disabled:opacity-40",
+                )}
+              >
+                <IconDistributeV />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>
+              {
+                "Distribute vertical spacing" /* i18n-ignore Figma inspector tooltip */
+              }
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1464,6 +1520,70 @@ function PaddingSideGlyph({
     >
       <rect x="4" y="4" width="16" height="16" rx="2" opacity="0.4" />
       <line x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth="3" />
+    </svg>
+  );
+}
+
+/** Distribute horizontal spacing (space-between on main/cross axis). */
+function IconDistributeH() {
+  return (
+    <svg
+      viewBox="0 0 14 14"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      {/* left edge line */}
+      <line x1="1.5" y1="2" x2="1.5" y2="12" />
+      {/* right edge line */}
+      <line x1="12.5" y1="2" x2="12.5" y2="12" />
+      {/* center block */}
+      <rect
+        x="4.5"
+        y="4"
+        width="5"
+        height="6"
+        rx="1"
+        fill="currentColor"
+        stroke="none"
+        opacity="0.5"
+      />
+    </svg>
+  );
+}
+
+/** Distribute vertical spacing (space-between on cross/main axis). */
+function IconDistributeV() {
+  return (
+    <svg
+      viewBox="0 0 14 14"
+      width={14}
+      height={14}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.2"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      {/* top edge line */}
+      <line x1="2" y1="1.5" x2="12" y2="1.5" />
+      {/* bottom edge line */}
+      <line x1="2" y1="12.5" x2="12" y2="12.5" />
+      {/* center block */}
+      <rect
+        x="4"
+        y="4.5"
+        width="6"
+        height="5"
+        rx="1"
+        fill="currentColor"
+        stroke="none"
+        opacity="0.5"
+      />
     </svg>
   );
 }

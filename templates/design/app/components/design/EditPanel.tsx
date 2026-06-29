@@ -302,6 +302,26 @@ function ColorInput({
     setSelectedFillId(SOLID_FILL_ID);
   };
 
+  const handlePaintValueChange = (nextValue: string) => {
+    if (!supportsLayeredFills || !onBackgroundImageChange) {
+      setNext(nextValue);
+      return;
+    }
+
+    const selectedLayer = fillLayerIndex(selectedFillId);
+    if (selectedLayer !== null) {
+      replaceBackgroundLayer(selectedLayer, nextValue);
+      const gradient = parseGradientLayer(nextValue);
+      if (gradient) setSelectedStopId(gradient.stops[0]?.id);
+      return;
+    }
+
+    onBackgroundImageChange(joinCssLayers([nextValue, ...backgroundLayers]));
+    setSelectedFillId(fillLayerId(0));
+    const gradient = parseGradientLayer(nextValue);
+    setSelectedStopId(gradient?.stops[0]?.id);
+  };
+
   const fillRows = supportsLayeredFills
     ? buildFillRows(
         draft || value || "#000000",
@@ -495,6 +515,9 @@ function ColorInput({
       label={label}
       value={draft || "#000000"}
       onChange={setNext}
+      onPaintValueChange={
+        supportsLayeredFills ? handlePaintValueChange : undefined
+      }
       blendMode={blendMode}
       onBlendModeChange={onBlendModeChange}
       showBlendMode={supportsLayeredFills}
@@ -861,7 +884,7 @@ function PanelSection({
             {title}
           </h3>
         </button>
-        {actions && !collapsed ? (
+        {actions ? (
           <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
         ) : null}
       </div>
@@ -1628,11 +1651,13 @@ function SectionIconButton({
   onClick,
   children,
   disabled = false,
+  className,
 }: {
   label: string;
   onClick?: () => void;
   children: ReactNode;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <Tooltip>
@@ -1641,7 +1666,10 @@ function SectionIconButton({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed"
+          className={cn(
+            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
+            className,
+          )}
           disabled={disabled}
           onClick={onClick}
           aria-label={label}
@@ -1909,7 +1937,7 @@ function StrokeLayerControl({
   return (
     <div className="space-y-1.5">
       {/* Figma stroke row: [swatch+hex trigger (flex-1)] [eye] [remove] */}
-      <div className="flex items-center gap-1.5">
+      <div className="group flex items-center gap-1.5">
         <div className="min-w-0 flex-1">
           <ColorInput
             label=""
@@ -1918,6 +1946,7 @@ function StrokeLayerControl({
           />
         </div>
         <SectionIconButton
+          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={
             visible
               ? t("editPanel.labels.hideLayer")
@@ -1942,6 +1971,7 @@ function StrokeLayerControl({
           )}
         </SectionIconButton>
         <SectionIconButton
+          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -2096,7 +2126,7 @@ function ShadowEffectRow({
   return (
     <Popover>
       {/* Figma effect row: [swatch+label+x,y,blur trigger (flex-1)] [remove] */}
-      <div className="flex items-center gap-1.5">
+      <div className="group flex items-center gap-1.5">
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -2118,6 +2148,7 @@ function ShadowEffectRow({
           </button>
         </PopoverTrigger>
         <SectionIconButton
+          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -3286,7 +3317,7 @@ function FillProperties({
         <div className="space-y-1.5">
           {isTextElement || colorHasVisibleAlpha(fillValue) ? (
             /* Figma row: [swatch+hex trigger (flex-1)] [eye] [remove] */
-            <div className="flex items-center gap-1.5">
+            <div className="group flex items-center gap-1.5">
               <div className="min-w-0 flex-1">
                 <ColorInput
                   label=""
@@ -3306,6 +3337,7 @@ function FillProperties({
                 />
               </div>
               <SectionIconButton
+                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={
                   fillValue === "transparent"
                     ? t("editPanel.labels.showLayer")
@@ -3325,6 +3357,7 @@ function FillProperties({
                 )}
               </SectionIconButton>
               <SectionIconButton
+                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={t("editPanel.labels.removeLayer")}
                 onClick={() => {
                   if (isTextElement) {
@@ -3376,7 +3409,7 @@ function FillProperties({
                   /* Figma row: [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
                   <div
                     key={`${layer}-${index}`}
-                    className="flex items-center gap-1.5"
+                    className="group flex items-center gap-1.5"
                   >
                     <Popover>
                       <PopoverTrigger asChild>
@@ -3404,6 +3437,7 @@ function FillProperties({
                       >
                         <FigmaColorPicker
                           value={gradient?.stops[0]?.color ?? "#000000"}
+                          onPaintValueChange={replaceLayer}
                           onChange={(nextColor) => {
                             if (!gradient) return;
                             const firstStop = gradient.stops[0];
@@ -3438,6 +3472,7 @@ function FillProperties({
                       </PopoverContent>
                     </Popover>
                     <SectionIconButton
+                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={
                         opacity <= 0
                           ? t("editPanel.labels.showLayer")
@@ -3463,6 +3498,7 @@ function FillProperties({
                       )}
                     </SectionIconButton>
                     <SectionIconButton
+                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={t("editPanel.labels.removeLayer")}
                       onClick={removeLayer}
                     >
@@ -3793,7 +3829,7 @@ function EffectsProperties({
       {blurValue > 0 ? (
         /* Figma effect row for layer blur: flat row matching shadow rows */
         <Popover>
-          <div className="flex items-center gap-1.5">
+          <div className="group flex items-center gap-1.5">
             <PopoverTrigger asChild>
               <button
                 type="button"
@@ -3808,6 +3844,7 @@ function EffectsProperties({
               </button>
             </PopoverTrigger>
             <SectionIconButton
+              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("filter", "none")}
               disabled={!styles.filter || styles.filter === "none"}
@@ -3842,7 +3879,7 @@ function EffectsProperties({
       {backdropBlurValue > 0 ? (
         /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
         <Popover>
-          <div className="flex items-center gap-1.5">
+          <div className="group flex items-center gap-1.5">
             <PopoverTrigger asChild>
               <button
                 type="button"
@@ -3857,6 +3894,7 @@ function EffectsProperties({
               </button>
             </PopoverTrigger>
             <SectionIconButton
+              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("backdropFilter", "none")}
               disabled={
