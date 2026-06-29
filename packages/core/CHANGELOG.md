@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.80.4
+
+### Patch Changes
+
+- fa56720: Fix video playback failing in workspace dev mode. When a browser requested video bytes (range/streaming requests), the dev server was stripping the app base path prefix before Nitro's media handler could run, causing Vite to return an error page instead of the video.
+
 ## 0.80.3
 
 ### Patch Changes
