@@ -891,6 +891,13 @@ export interface ProductionAgentOptions {
    *  timeout. When reached, the client receives an internal auto-continuation
    *  signal instead of a user-facing warning. */
   runSoftTimeoutMs?: number;
+  /**
+   * Opt this app into durable Netlify background-function agent-chat runs. This
+   * is a runtime opt-in layered on top of the hosted-runtime + A2A_SECRET gates;
+   * single-template Netlify deploys must also enable the deploy-time
+   * `AGENT_CHAT_DURABLE_BACKGROUND` flag so the background function is emitted.
+   */
+  durableBackgroundRuns?: boolean;
   /** Called when a run starts, with the send function for emitting events and the threadId */
   onRunStart?: (
     send: (event: AgentChatEvent) => void,
@@ -3994,7 +4001,10 @@ export function createProductionAgentHandler(
     // The foreground POST decides whether to dispatch into a background
     // function. The background worker itself never re-dispatches.
     const dispatchToBackground =
-      !isBackgroundWorker && isAgentChatDurableBackgroundEnabled();
+      !isBackgroundWorker &&
+      isAgentChatDurableBackgroundEnabled({
+        appOptIn: options.durableBackgroundRuns === true,
+      });
     const requestBrowserTabId = normalizeBrowserTabId(browserTabId);
     const requestChatScope = normalizeChatScope(scope);
     const requestRunCtx = ensureRequestRunContext();

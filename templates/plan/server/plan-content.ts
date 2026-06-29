@@ -1502,7 +1502,7 @@ export function createPlanDesignContent(
       data: {
         markdown: [
           `## Objective\n${input.brief}`,
-          "## Design Review\nUse the Design tab as the full-fidelity source of truth. It should contain detailed, on-brand HTML/CSS screens on the Figma-style canvas, with editable `data-design-id` targets for focused style changes. Use the Prototype tab only when interaction, flow, or state needs to be felt before implementation.",
+          "## Design Review\nUse the Design tab as the full-fidelity source of truth. It should contain detailed, on-brand HTML/CSS screens on the editable design canvas, with editable `data-design-id` targets for focused style changes. Use the Prototype tab only when interaction, flow, or state needs to be felt before implementation.",
           sourceLines.length
             ? `## Style Sources\n${sourceLines.join("\n")}`
             : "## Style Sources\nNo external brand kit was provided; infer the smallest useful design system from the inspected codebase and document the assumptions here.",

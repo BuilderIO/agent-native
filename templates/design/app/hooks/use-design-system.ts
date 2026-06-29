@@ -33,7 +33,10 @@ export function useDesignSystem(designSystemId?: string | null) {
   }>("get-design-system", designSystemId ? { id: designSystemId } : undefined);
 
   if (!designSystemId || !data?.data) {
-    return { designSystem: DEFAULT_DESIGN_SYSTEM, isLoading: false };
+    return {
+      designSystem: DEFAULT_DESIGN_SYSTEM,
+      isLoading: !!designSystemId && isLoading,
+    };
   }
 
   try {

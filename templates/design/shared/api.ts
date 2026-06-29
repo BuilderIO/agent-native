@@ -81,6 +81,8 @@ export interface TweakDefinition {
   step?: number;
   defaultValue: string | number | boolean;
   cssVar?: string;
+  /** CSS unit to append when resolving a numeric slider value, e.g. "px" or "rem". When omitted, "px" is inferred for vars whose name contains "radius" and no unit is added for others. */
+  unit?: string;
 }
 
 // --- Question Flow ---

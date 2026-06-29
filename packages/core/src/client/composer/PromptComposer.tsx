@@ -30,7 +30,12 @@ import {
 
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import { AssistantUiStaleIndexErrorBoundary } from "../assistant-ui-recovery.js";
+import { BuilderSetupCard } from "../chat/run-recovery.js";
 import { TooltipProvider } from "../components/ui/tooltip.js";
+import {
+  fetchAgentEngineConfiguredState,
+  useAgentEngineConfigured,
+} from "../use-agent-engine-configured.js";
 import { useChatModels, type EngineModelGroup } from "../use-chat-models.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
@@ -57,6 +62,7 @@ import type {
 } from "./types.js";
 
 const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
+const SUBMIT_ENGINE_STATUS_TIMEOUT_MS = 1000;
 
 /**
  * Files the user attached via the "+" button in PromptComposer. The host owns
@@ -498,6 +504,41 @@ function PromptComposerInner({
   const handleEffortChange = showModelSelector
     ? (onEffortChange ?? models.onEffortChange)
     : undefined;
+  const agentEngineConfigured = useAgentEngineConfigured(
+    resolvedModelStatusChecksEnabled,
+  );
+  const missingApiKey = agentEngineConfigured.missing;
+  const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
+  const bounceMissingKeySetup = useCallback(() => {
+    setMissingKeyBouncePulse((pulse) => pulse + 1);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-chat:missing-api-key"));
+    }
+  }, []);
+  const handleBuilderConnected = useCallback(() => {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("agent-engine:configured-changed"));
+    }
+  }, []);
+  const ensureAgentEngineReadyForSubmit = useCallback(async () => {
+    if (!resolvedModelStatusChecksEnabled) return true;
+    const state =
+      agentEngineConfigured.state === "missing"
+        ? "missing"
+        : await fetchAgentEngineConfiguredState(
+            resolvedModelStatusChecksEnabled,
+            {
+              timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
+            },
+          );
+    if (state !== "missing") return true;
+    bounceMissingKeySetup();
+    return false;
+  }, [
+    agentEngineConfigured.state,
+    bounceMissingKeySetup,
+    resolvedModelStatusChecksEnabled,
+  ]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -539,48 +580,66 @@ function PromptComposerInner({
   );
 
   return (
-    <AgentComposerFrame
-      className={cn("text-start", className)}
-      rootClassName={rootClassName}
-      style={style}
-      rootStyle={rootStyle}
-      layoutVariant={layoutVariant}
-    >
-      <PromptAttachmentStrip />
-      <TiptapComposer
-        focusRef={handleRef}
-        disabled={disabled}
-        placeholder={placeholder}
-        initialText={initialText}
-        initialTextKey={initialTextKey}
-        onSubmit={handleSubmit}
-        clearOnSubmit={!preserveDraftOnSubmit}
-        plusMenuMode={
-          plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
-        }
-        attachButton={attachButton}
-        modeControl={modeControl}
-        toolbarSlot={toolbarSlot}
-        actionButton={actionButton}
-        extraActionButton={extraActionButton}
+    <>
+      {missingApiKey ? (
+        <BuilderSetupCard
+          onConnected={handleBuilderConnected}
+          bouncePulse={missingKeyBouncePulse}
+          fullWidth
+          layout="sidebar"
+        />
+      ) : null}
+      <AgentComposerFrame
+        className={cn(
+          "text-start",
+          missingApiKey && "cursor-pointer",
+          className,
+        )}
+        rootClassName={rootClassName}
+        style={style}
+        rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        slashCommands={slashCommands}
-        slashSkills={slashSkills}
-        includeDefaultSlashCommands={includeDefaultSlashCommands}
-        includeDefaultSlashSkills={includeDefaultSlashSkills}
-        onSlashCommand={onSlashCommand}
-        voiceEnabled={voiceEnabled}
-        onTextChange={onTextChange}
-        draftScope={draftScope}
-        selectedModel={composerModel}
-        selectedEffort={composerEffort}
-        availableModels={composerModelGroups}
-        onModelChange={handleModelChange}
-        onEffortChange={handleEffortChange}
-        providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
-        onConnectProvider={onConnectProvider}
-      />
-    </AgentComposerFrame>
+        onClick={missingApiKey ? bounceMissingKeySetup : undefined}
+      >
+        <PromptAttachmentStrip />
+        <TiptapComposer
+          focusRef={handleRef}
+          disabled={disabled || missingApiKey}
+          placeholder={
+            missingApiKey ? "Connect AI above to continue..." : placeholder
+          }
+          initialText={initialText}
+          initialTextKey={initialTextKey}
+          onSubmit={handleSubmit}
+          onBeforeSubmit={ensureAgentEngineReadyForSubmit}
+          clearOnSubmit={!preserveDraftOnSubmit}
+          plusMenuMode={
+            plusMenuMode ?? (attachmentsEnabled ? "upload-only" : "hidden")
+          }
+          attachButton={attachButton}
+          modeControl={modeControl}
+          toolbarSlot={toolbarSlot}
+          actionButton={actionButton}
+          extraActionButton={extraActionButton}
+          layoutVariant={layoutVariant}
+          slashCommands={slashCommands}
+          slashSkills={slashSkills}
+          includeDefaultSlashCommands={includeDefaultSlashCommands}
+          includeDefaultSlashSkills={includeDefaultSlashSkills}
+          onSlashCommand={onSlashCommand}
+          voiceEnabled={voiceEnabled}
+          onTextChange={onTextChange}
+          draftScope={draftScope}
+          selectedModel={composerModel}
+          selectedEffort={composerEffort}
+          availableModels={composerModelGroups}
+          onModelChange={handleModelChange}
+          onEffortChange={handleEffortChange}
+          providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
+          onConnectProvider={onConnectProvider}
+        />
+      </AgentComposerFrame>
+    </>
   );
 }
 

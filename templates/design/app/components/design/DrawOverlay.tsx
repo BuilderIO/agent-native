@@ -172,56 +172,51 @@ export function DrawOverlay({ visible, onQueue, onSend }: DrawOverlayProps) {
   const queueDrawing = () => {
     if (strokes.length === 0) return;
 
-    // Convert strokes to SVG path data
-    const pathData = strokes
-      .map((s) => {
-        const d = s.points
+    // Convert each stroke into its own annotation to preserve per-stroke color/lineWidth
+    const newAnnotations: DrawAnnotation[] = strokes.map((s) => {
+      const pathData = s.points
+        .map(
+          (p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`,
+        )
+        .join(" ");
+      return {
+        id: crypto.randomUUID(),
+        type: "path",
+        pathData,
+        position: { x: 0, y: 0 },
+        color: s.color,
+        lineWidth: s.lineWidth,
+      };
+    });
+
+    for (const annotation of newAnnotations) {
+      onQueue(annotation);
+    }
+    setQueued((prev) => [...prev, ...newAnnotations]);
+    setStrokes([]);
+  };
+
+  const sendAll = () => {
+    // Queue current drawing first if any; preserve per-stroke color/lineWidth
+    let allAnnotations = [...queued];
+    if (strokes.length > 0) {
+      const strokeAnnotations: DrawAnnotation[] = strokes.map((s) => {
+        const pathData = s.points
           .map(
             (p, i) =>
               `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`,
           )
           .join(" ");
-        return d;
-      })
-      .join(" ");
-
-    const annotation: DrawAnnotation = {
-      id: crypto.randomUUID(),
-      type: "path",
-      pathData,
-      position: { x: 0, y: 0 },
-      color,
-      lineWidth,
-    };
-    onQueue(annotation);
-    setQueued((prev) => [...prev, annotation]);
-    setStrokes([]);
-  };
-
-  const sendAll = () => {
-    // Queue current drawing first if any
-    let allAnnotations = [...queued];
-    if (strokes.length > 0) {
-      const pathData = strokes
-        .map((s) => {
-          const d = s.points
-            .map(
-              (p, i) =>
-                `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`,
-            )
-            .join(" ");
-          return d;
-        })
-        .join(" ");
-
-      allAnnotations.push({
-        id: crypto.randomUUID(),
-        type: "path",
-        pathData,
-        position: { x: 0, y: 0 },
-        color,
-        lineWidth,
+        return {
+          id: crypto.randomUUID(),
+          type: "path",
+          pathData,
+          position: { x: 0, y: 0 },
+          color: s.color,
+          lineWidth: s.lineWidth,
+        };
       });
+      allAnnotations = [...allAnnotations, ...strokeAnnotations];
     }
 
     if (allAnnotations.length > 0) {

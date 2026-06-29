@@ -178,19 +178,18 @@ Extracts CSS tokens from a project's generated HTML, or clones an existing desig
 ### Source: Figma file
 
 ```bash
-pnpm action import-figma --figmaUrl "https://figma.com/design/<key>/..." \
-  --description "<extracted tokens / styles summary>"
+pnpm action index-design-system-with-builder \
+  --projectName "Acme Figma system" \
+  --codeFiles '[{"filename":"figma-summary.md","content":"<extracted tokens / styles summary>"}]'
 ```
 
-**Prefer the connected Figma MCP** when available (tools like
-`get_variable_defs`, `get_design_context`, `get_metadata`, `get_screenshot`).
-Call those on the file/selection FIRST to pull real variables (tokens), color
-and text styles, and a screenshot — this sidesteps REST/Enterprise limits and
-returns a token map directly. Then pass that summary to `import-figma` and build
-the system with `create-design-system`. Convert Figma colors (0-1 RGBA) to hex,
-effects to CSS box-shadow, and text styles to font tokens; snap spacing to a
-4/8px scale. If no Figma MCP is connected, ask the user to paste the token
-values or describe the file.
+Builder is the required extraction/indexing path for Figma-backed design
+systems. If a connected Figma MCP is available (tools like `get_variable_defs`,
+`get_design_context`, `get_metadata`, `get_screenshot`), call those on the
+file/selection first to pull real variables, color/text styles, and screenshot
+notes, then pass that summary to `index-design-system-with-builder` as an
+uploaded text context file. Do not build a local design system from the Figma
+summary unless the user explicitly asks for a manual local fallback.
 
 **When the user uploads a raw `.fig` file**, send it to Builder design-system
 indexing through the setup page upload route. Do not parse `.fig` files locally

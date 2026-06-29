@@ -17,7 +17,7 @@ interface MultiSelectChipProps {
 }
 
 /**
- * Floating chip that hovers above a multi-select selection (Figma-style).
+ * Floating chip that hovers above a multi-select selection (design-editor style).
  * Rendered via portal so it isn't constrained by the slide canvas's stacking
  * context. Reusable across the slides editor and the design template.
  */

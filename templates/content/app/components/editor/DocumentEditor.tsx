@@ -1162,6 +1162,9 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         user={currentUser}
                         editable={canEdit}
                         localFileMode={isLocalFileDocument}
+                        localFilePath={
+                          isLocalFileDocument ? document.source?.path : null
+                        }
                         onComment={
                           canEdit && !isLocalFileDocument
                             ? handleComment

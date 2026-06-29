@@ -7,12 +7,12 @@ import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description:
-    "Delete a design system. Requires admin access. Designs linked to it are unlinked.",
+    "Delete a design system. Requires owner access. Designs linked to it are unlinked.",
   schema: z.object({
     id: z.string().min(1).describe("Design system ID to delete"),
   }),
   run: async ({ id }) => {
-    await assertAccess("design-system", id, "admin");
+    await assertAccess("design-system", id, "owner");
 
     const db = getDb();
 

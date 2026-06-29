@@ -244,6 +244,49 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     expect(continuationMessages).toHaveLength(1);
   });
 
+  it("allows direct callers to use the background-function timeout regime", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubEnv("NETLIFY", "true");
+      vi.stubEnv("AGENT_RUN_SOFT_TIMEOUT_MS", "900000");
+      let seenSignal: AbortSignal | null = null;
+      const upstream = new AbortController();
+      mockRunAgentLoop.mockImplementation(async (opts) => {
+        seenSignal = opts.signal;
+        return new Promise((resolve) => {
+          opts.signal.addEventListener("abort", () =>
+            resolve({
+              inputTokens: 1,
+              outputTokens: 1,
+              cacheReadTokens: 0,
+              cacheWriteTokens: 0,
+              model: "test-model",
+            }),
+          );
+        });
+      });
+
+      const usagePromise = runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          upstream.signal,
+        ),
+        undefined,
+        { backgroundFunction: true },
+      );
+
+      await vi.advanceTimersByTimeAsync(40_000);
+      expect(seenSignal?.aborted).toBe(false);
+      upstream.abort();
+      const usage = await usagePromise;
+
+      expect(usage.inputTokens).toBe(1);
+      expect(mockRunAgentLoop).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("resumes on raw socket-hang-up errors with a network_interrupted nudge", async () => {
     let attempts = 0;
     const messages: EngineMessage[] = [

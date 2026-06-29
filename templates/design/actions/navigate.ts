@@ -21,6 +21,7 @@
  *   --inspectorTab Inspector tab for designs: design, tweaks, or extensions
  *   --fileId     Screen/file id to focus in the design editor
  *   --filename   Screen filename to focus in the design editor
+ *   --tool       Design editor tool to activate
  *   --designSystemId Design system ID (for design-systems view)
  *   --path       URL path to navigate to
  */
@@ -29,61 +30,110 @@ import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
+const designEditorToolSchema = z.enum([
+  "move",
+  "frame",
+  "rect",
+  "line",
+  "arrow",
+  "ellipse",
+  "polygon",
+  "star",
+  "text",
+  "pen",
+  "hand",
+  "comment",
+  "draw",
+  "scale",
+]);
+
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, templates, settings. Use --designId with editor/present views and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use inspectorTab=extensions to focus the in-editor extension panel.",
-  schema: z.object({
-    view: z
-      .enum([
-        "list",
-        "editor",
-        "design-systems",
-        "present",
-        "templates",
-        "examples",
-        "settings",
-      ])
-      .optional()
-      .describe("View name to navigate to"),
-    designId: z.string().optional().describe("Design ID for editor/present"),
-    editorView: z
-      .enum(["single", "overview"])
-      .optional()
-      .describe(
-        "Design editor view: overview for the infinite screens canvas, single for a focused screen",
-      ),
-    viewMode: z
-      .enum(["single", "overview"])
-      .optional()
-      .describe("Alias for editorView"),
-    inspectorTab: z
-      .enum(["design", "tweaks", "extensions"])
-      .optional()
-      .describe("Design editor inspector tab to focus"),
-    inspector: z
-      .enum(["design", "tweaks", "extensions"])
-      .optional()
-      .describe("Alias for inspectorTab"),
-    fileId: z.string().optional().describe("Design file/screen ID to focus"),
-    screenId: z.string().optional().describe("Alias for fileId"),
-    filename: z
-      .string()
-      .optional()
-      .describe("Design screen filename to focus, such as checkout.html"),
-    screen: z
-      .string()
-      .optional()
-      .describe("Screen id, filename, or name to focus"),
-    zoom: z
-      .number()
-      .optional()
-      .describe("Optional design canvas zoom percentage"),
-    designSystemId: z
-      .string()
-      .optional()
-      .describe("Design system ID for design-systems view"),
-    path: z.string().optional().describe("URL path to navigate to"),
-  }),
+    "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, templates, settings. Use --designId with editor/present views and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use inspectorTab=extensions to focus the in-editor extension panel. Use tool to activate a design editor tool.",
+  schema: z
+    .object({
+      view: z
+        .enum([
+          "list",
+          "editor",
+          "design-systems",
+          "present",
+          "templates",
+          "examples",
+          "settings",
+        ])
+        .optional()
+        .describe("View name to navigate to"),
+      designId: z.string().optional().describe("Design ID for editor/present"),
+      editorView: z
+        .enum(["single", "overview"])
+        .optional()
+        .describe(
+          "Design editor view: overview for the infinite screens canvas, single for a focused screen",
+        ),
+      viewMode: z
+        .enum(["single", "overview"])
+        .optional()
+        .describe("Alias for editorView"),
+      inspectorTab: z
+        .enum(["design", "tweaks", "extensions"])
+        .optional()
+        .describe("Design editor inspector tab to focus"),
+      inspector: z
+        .enum(["design", "tweaks", "extensions"])
+        .optional()
+        .describe("Alias for inspectorTab"),
+      fileId: z.string().optional().describe("Design file/screen ID to focus"),
+      screenId: z.string().optional().describe("Alias for fileId"),
+      filename: z
+        .string()
+        .optional()
+        .describe("Design screen filename to focus, such as checkout.html"),
+      screen: z
+        .string()
+        .optional()
+        .describe("Screen id, filename, or name to focus"),
+      zoom: z
+        .number()
+        .optional()
+        .describe("Optional design canvas zoom percentage"),
+      tool: designEditorToolSchema
+        .optional()
+        .describe("Optional design editor tool to activate"),
+      designSystemId: z
+        .string()
+        .optional()
+        .describe("Design system ID for design-systems view"),
+      path: z.string().optional().describe("URL path to navigate to"),
+    })
+    .superRefine((args, ctx) => {
+      const editorView = args.editorView ?? args.viewMode;
+      if (
+        (args.view === "editor" || args.view === "present") &&
+        !args.designId
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["designId"],
+          message: `designId is required for ${args.view} view`,
+        });
+      }
+      if (
+        args.view === "editor" &&
+        editorView === "single" &&
+        !args.fileId &&
+        !args.screenId &&
+        !args.filename &&
+        !args.screen
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["editorView"],
+          message:
+            "single editor view requires a fileId, screenId, filename, or screen",
+        });
+      }
+    }),
   http: false,
   run: async (args) => {
     if (!args.view && !args.path) {
@@ -101,6 +151,7 @@ export default defineAction({
     if (args.filename) nav.filename = args.filename;
     if (args.screen) nav.screen = args.screen;
     if (args.zoom !== undefined) nav.zoom = args.zoom;
+    if (args.tool) nav.tool = args.tool;
     if (args.designSystemId) nav.designSystemId = args.designSystemId;
     if (args.path) nav.path = args.path;
     await writeAppState("navigate", nav);
@@ -112,6 +163,6 @@ export default defineAction({
       args.fileId || args.screenId || args.filename || args.screen
         ? ` (screen: ${args.fileId ?? args.screenId ?? args.filename ?? args.screen})`
         : ""
-    }${args.designSystemId ? ` (design system: ${args.designSystemId})` : ""}`;
+    }${args.tool ? ` (${args.tool} tool)` : ""}${args.designSystemId ? ` (design system: ${args.designSystemId})` : ""}`;
   },
 });

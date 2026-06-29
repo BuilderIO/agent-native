@@ -554,6 +554,12 @@ function SliderQuestion({
   const current =
     typeof value === "number" ? value : Math.round((min + max) / 2);
 
+  useEffect(() => {
+    if (typeof value !== "number") {
+      onChange(Math.round((min + max) / 2));
+    }
+  }, []);
+
   return (
     <div className="rounded-md border border-border bg-muted/25 px-3 py-3">
       <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">

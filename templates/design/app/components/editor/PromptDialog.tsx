@@ -307,7 +307,7 @@ export default function PromptPopover({
     panel.style.left = left + "px";
     panel.style.right = "auto";
     panel.style.transform = "none";
-  });
+  }, [open, centered, anchorRef]);
 
   // Close on outside click / escape
   useEffect(() => {
@@ -410,7 +410,7 @@ export default function PromptPopover({
       if (name !== "chooseImage" && name !== "chooseAsset") return;
       const url = pickedAssetImageSource(payload);
       if (!url) {
-        toast.error("Assets did not return an image URL.");
+        toast.error(t("promptDialog.assetsNoImageUrl"));
         return;
       }
 
@@ -433,7 +433,7 @@ export default function PromptPopover({
       setAssetsPickerOpen(false);
       toast.success(t("promptDialog.assetAdded"));
     },
-    [],
+    [t],
   );
 
   const removePickedAsset = useCallback((path: string) => {

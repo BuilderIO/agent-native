@@ -8,9 +8,9 @@ functions = "templates/assets/.netlify/functions-internal"
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
 
-# Image generation calls run a full Gemini round-trip plus Sharp post-processing.
-# Each `generate-image` call is ~6-12s; A2A delegation may chain several. Match
-# slides' generous timeout so multi-image runs don't get killed mid-flight.
+# Emit the Netlify background function used by Assets' durable agent-chat opt-in.
+# The normal server timeout still protects non-agent image/video HTTP handlers.
 [functions."*"]
 timeout = 300

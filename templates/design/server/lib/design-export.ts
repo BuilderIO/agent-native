@@ -17,6 +17,12 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function extractRenderableHtml(content: string): string {
+  const bodyMatch = content.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  if (bodyMatch) return bodyMatch[1].trim();
+  return content;
+}
+
 export function safeExportBaseName(title: string | null | undefined): string {
   const safe = (title || "design")
     .replace(/[^a-zA-Z0-9_-]/g, "-")
@@ -42,7 +48,10 @@ export function buildStandaloneHtml(args: {
   const jsxFiles = files.filter((f) => f.fileType === "jsx");
   const indexHtml =
     files.find((f) => f.filename === "index.html") ?? htmlFiles[0];
-  const combinedCss = cssFiles.map((f) => f.content ?? "").join("\n\n");
+  const combinedCss = cssFiles
+    .map((f) => f.content ?? "")
+    .join("\n\n")
+    .replace(/<\/style/gi, "<\\/style");
 
   if (
     indexHtml?.content &&
@@ -53,7 +62,7 @@ export function buildStandaloneHtml(args: {
     // so multi-file designs still ship in one bundle.
     const extraBody = [...htmlFiles, ...jsxFiles]
       .filter((f) => f !== indexHtml)
-      .map((f) => f.content ?? "")
+      .map((f) => extractRenderableHtml(f.content ?? ""))
       .join("\n\n");
     if (extraBody.trim()) {
       // Inline JS / template literals can contain `</body>` strings, so favor
@@ -85,7 +94,7 @@ export function buildStandaloneHtml(args: {
   }
 
   const combinedBody = [...htmlFiles, ...jsxFiles]
-    .map((f) => f.content ?? "")
+    .map((f) => extractRenderableHtml(f.content ?? ""))
     .join("\n\n");
 
   return `<!DOCTYPE html>
@@ -128,18 +137,36 @@ function normalizeHtmlForSvg(html: string): string {
     "&amp;",
   );
 
-  if (/<html\b[^>]*\bxmlns=/i.test(withEscapedBareAmpersands)) {
-    return withEscapedBareAmpersands;
+  // Wrap <script> and <style> block content in CDATA so that JS/CSS with
+  // raw `<`, `>`, or `&&` survives the XML parse required by SVG foreignObject.
+  const withCdata = withEscapedBareAmpersands
+    .replace(
+      /(<script\b[^>]*>)([\s\S]*?)(<\/script>)/gi,
+      (_, open: string, content: string, close: string) => {
+        if (content.includes("//]]>")) return _;
+        return `${open}//<![CDATA[\n${content}\n//]]>${close}`;
+      },
+    )
+    .replace(
+      /(<style\b[^>]*>)([\s\S]*?)(<\/style>)/gi,
+      (_, open: string, content: string, close: string) => {
+        if (content.includes("]]>")) return _;
+        return `${open}<![CDATA[\n${content}\n]]>${close}`;
+      },
+    );
+
+  if (/<html\b[^>]*\bxmlns=/i.test(withCdata)) {
+    return withCdata;
   }
 
-  if (/<html\b/i.test(withEscapedBareAmpersands)) {
-    return withEscapedBareAmpersands.replace(
+  if (/<html\b/i.test(withCdata)) {
+    return withCdata.replace(
       /<html\b/i,
       '<html xmlns="http://www.w3.org/1999/xhtml"',
     );
   }
 
-  return `<html xmlns="http://www.w3.org/1999/xhtml"><body>${withEscapedBareAmpersands}</body></html>`;
+  return `<html xmlns="http://www.w3.org/1999/xhtml"><body>${withCdata}</body></html>`;
 }
 
 export function buildSvgForeignObject(args: {

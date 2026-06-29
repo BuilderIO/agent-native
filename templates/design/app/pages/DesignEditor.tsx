@@ -24,7 +24,8 @@ import {
   LiveCursorOverlay,
   useT,
   useChangeVersion,
-  useAgentChatContext,
+  setAgentChatContextItem,
+  removeAgentChatContextItem,
   useAvatarUrl,
   type CollabUser,
   type PromptComposerSubmitOptions,
@@ -88,6 +89,7 @@ import {
   IconDownload,
   IconFileExport,
   IconPlayerPlay,
+  IconDeviceFloppy,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -206,11 +208,142 @@ const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
 // Higher than the toolbar presets so overview zooming still feels like canvas
 // work; trackpad/pinch zooming past this commits to editing that screen.
 const OVERVIEW_EDIT_ZOOM_THRESHOLD = 250;
+const UNSUPPORTED_HTML2CANVAS_COLOR_RE =
+  /\b(?:color|color-mix|oklch|oklab|lab|lch)\(/i;
+const HTML2CANVAS_COLOR_PROPERTIES = [
+  "color",
+  "background-color",
+  "border-top-color",
+  "border-right-color",
+  "border-bottom-color",
+  "border-left-color",
+  "outline-color",
+  "text-decoration-color",
+  "fill",
+  "stroke",
+] as const;
+const HTML2CANVAS_SHADOW_PROPERTIES = ["box-shadow", "text-shadow"] as const;
+const HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES = [
+  "background-image",
+  "border-image-source",
+  "list-style-image",
+] as const;
+
+let html2CanvasColorContext: CanvasRenderingContext2D | null | undefined;
 
 interface FileContentSaveRequest {
   id: string;
   content: string;
   syncCollab: boolean;
+}
+
+function getHtml2CanvasColorContext(): CanvasRenderingContext2D | null {
+  if (html2CanvasColorContext !== undefined) return html2CanvasColorContext;
+  if (typeof document === "undefined") {
+    html2CanvasColorContext = null;
+    return html2CanvasColorContext;
+  }
+  html2CanvasColorContext = document.createElement("canvas").getContext("2d");
+  return html2CanvasColorContext;
+}
+
+function parseColorFunctionComponent(component: string): number {
+  const trimmed = component.trim();
+  if (trimmed.endsWith("%")) {
+    return (Number(trimmed.slice(0, -1)) / 100) * 255;
+  }
+  const value = Number(trimmed);
+  if (!Number.isFinite(value)) return 0;
+  return Math.abs(value) <= 1 ? value * 255 : value;
+}
+
+function parseColorFunctionAlpha(alpha: string | undefined): number {
+  if (!alpha) return 1;
+  const trimmed = alpha.trim();
+  if (trimmed.endsWith("%")) return Number(trimmed.slice(0, -1)) / 100;
+  const value = Number(trimmed);
+  return Number.isFinite(value) ? value : 1;
+}
+
+function parseRgbLikeColorFunction(value: string): string | null {
+  const match = value.match(/color\(\s*[\w-]+\s+([^)]+)\)/i);
+  if (!match) return null;
+  const [componentsPart, alphaPart] = match[1].split("/");
+  const channels = componentsPart.trim().split(/\s+/).slice(0, 3);
+  if (channels.length < 3) return null;
+  const [red, green, blue] = channels
+    .map(parseColorFunctionComponent)
+    .map((channel) => Math.round(Math.max(0, Math.min(255, channel))));
+  const alpha = Math.max(0, Math.min(1, parseColorFunctionAlpha(alphaPart)));
+  return alpha < 1
+    ? `rgba(${red}, ${green}, ${blue}, ${alpha})`
+    : `rgb(${red}, ${green}, ${blue})`;
+}
+
+function normalizeHtml2CanvasColor(value: string): string {
+  if (!UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) return value;
+  const context = getHtml2CanvasColorContext();
+  if (context) {
+    try {
+      context.fillStyle = "#000";
+      context.fillStyle = value;
+      const normalized = String(context.fillStyle);
+      if (normalized && !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(normalized)) {
+        return normalized;
+      }
+    } catch {
+      // Fall back to small parser below.
+    }
+  }
+  return parseRgbLikeColorFunction(value) ?? "rgb(0, 0, 0)";
+}
+
+function elementInlineStyle(
+  element: Element | undefined,
+): CSSStyleDeclaration | null {
+  if (!element) return null;
+  const style = (element as Element & { style?: CSSStyleDeclaration }).style;
+  return style && typeof style.setProperty === "function" ? style : null;
+}
+
+function sanitizeHtml2CanvasClone(
+  sourceDocument: Document,
+  clonedDocument: Document,
+) {
+  const sourceView = sourceDocument.defaultView;
+  if (!sourceView) return;
+  const sourceElements = [
+    sourceDocument.documentElement,
+    ...Array.from(sourceDocument.documentElement.querySelectorAll("*")),
+  ];
+  const clonedElements = [
+    clonedDocument.documentElement,
+    ...Array.from(clonedDocument.documentElement.querySelectorAll("*")),
+  ];
+  sourceElements.forEach((sourceElement, index) => {
+    const clonedStyle = elementInlineStyle(clonedElements[index]);
+    if (!clonedStyle) return;
+    const computed = sourceView.getComputedStyle(sourceElement);
+    for (const property of HTML2CANVAS_COLOR_PROPERTIES) {
+      const value = computed.getPropertyValue(property);
+      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
+      clonedStyle.setProperty(
+        property,
+        normalizeHtml2CanvasColor(value),
+        "important",
+      );
+    }
+    for (const property of HTML2CANVAS_SHADOW_PROPERTIES) {
+      const value = computed.getPropertyValue(property);
+      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
+      clonedStyle.setProperty(property, "none", "important");
+    }
+    for (const property of HTML2CANVAS_UNSUPPORTED_VALUE_PROPERTIES) {
+      const value = computed.getPropertyValue(property);
+      if (!value || !UNSUPPORTED_HTML2CANVAS_COLOR_RE.test(value)) continue;
+      clonedStyle.setProperty(property, "none", "important");
+    }
+  });
 }
 
 function byteLength(value: string): number {
@@ -257,6 +390,34 @@ type DesignTool =
   | "scale";
 type ShapeTool = "rect" | "line" | "arrow" | "ellipse" | "polygon" | "star";
 
+const DESIGN_EDITOR_TOOLS = new Set<DesignTool>([
+  "move",
+  "frame",
+  "rect",
+  "line",
+  "arrow",
+  "ellipse",
+  "polygon",
+  "star",
+  "text",
+  "pen",
+  "hand",
+  "comment",
+  "draw",
+  "scale",
+]);
+
+function normalizeDesignTool(value: unknown): DesignTool | null {
+  return typeof value === "string" &&
+    DESIGN_EDITOR_TOOLS.has(value as DesignTool)
+    ? (value as DesignTool)
+    : null;
+}
+
+function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
+  return tool === "draw" || tool === "comment";
+}
+
 interface DesignFile {
   id: string;
   filename: string;
@@ -273,7 +434,21 @@ interface DesignData {
   projectType: string;
   designSystemId?: string | null;
   data?: string | null;
+  accessRole?: DesignAccessRole;
   files: DesignFile[];
+}
+
+type DesignAccessRole = "owner" | "admin" | "editor" | "viewer";
+type PostAuthDesignIntent = "save" | "share";
+
+function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
+  const base = agentNativePath("/_agent-native/sign-in");
+  if (typeof window === "undefined") return base;
+
+  const returnUrl = new URL(window.location.href);
+  returnUrl.searchParams.set("intent", intent);
+  const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
+  return `${base}?return=${encodeURIComponent(ret)}`;
 }
 
 interface GeometryHistoryEntry {
@@ -424,14 +599,17 @@ function designEditorCommandFromSearchParams(
     searchParams.get("screen") ??
     searchParams.get("fileId") ??
     searchParams.get("filename");
-  const zoom = Number(searchParams.get("zoom"));
+  const rawZoom = searchParams.get("zoom");
+  const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
+  const tool = normalizeDesignTool(searchParams.get("tool"));
   if (
     editorView !== "overview" &&
     editorView !== "single" &&
     inspector !== "design" &&
     inspector !== "tweaks" &&
     inspector !== "extensions" &&
-    !screen
+    !screen &&
+    !tool
   ) {
     return null;
   }
@@ -455,6 +633,7 @@ function designEditorCommandFromSearchParams(
   } else if (editorView === "single") {
     command.zoom = FOCUSED_SCREEN_ZOOM;
   }
+  if (tool) command.tool = tool;
   return command;
 }
 
@@ -662,7 +841,7 @@ function appendCanvasPrimitiveToHtml(
     const top = Math.max(0, Math.round(geometry.y));
     const width = Math.max(1, Math.round(geometry.width));
     const height = Math.max(1, Math.round(geometry.height));
-    const nodeId = uniqueLayerId(primitive.kind);
+    const nodeId = primitive.nodeId ?? uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
 
     if (
@@ -1191,8 +1370,8 @@ function codeLayerTreeToPanelNodes(
       renamable: node.renamable,
       lockable: true,
       hideable: true,
-      locked: selfLocked,
-      hidden: selfHidden,
+      locked,
+      hidden,
       children: codeLayerTreeToPanelNodes(
         node.children,
         lockedIds,
@@ -1202,6 +1381,36 @@ function codeLayerTreeToPanelNodes(
       ),
     };
   });
+}
+
+interface EffectiveCodeLayerState {
+  lockedIds: Set<string>;
+  hiddenIds: Set<string>;
+}
+
+function collectEffectiveCodeLayerState(
+  nodes: CodeLayerTreeNode[],
+  lockedIds: Set<string>,
+  hiddenIds: Set<string>,
+  inheritedLocked: boolean,
+  inheritedHidden: boolean,
+  state: EffectiveCodeLayerState,
+): EffectiveCodeLayerState {
+  nodes.forEach((node) => {
+    const locked = inheritedLocked || lockedIds.has(node.id);
+    const hidden = inheritedHidden || hiddenIds.has(node.id);
+    if (locked) state.lockedIds.add(node.id);
+    if (hidden) state.hiddenIds.add(node.id);
+    collectEffectiveCodeLayerState(
+      node.children,
+      lockedIds,
+      hiddenIds,
+      locked,
+      hidden,
+      state,
+    );
+  });
+  return state;
 }
 
 function bridgeSourceIdForCodeLayerNode(node: CodeLayerNode): string {
@@ -1477,7 +1686,7 @@ function fullPreviewHtml(content: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${content}</body></html>`;
 }
 
-type FigmaToolbarOption = {
+type DesignToolbarOption = {
   key: string;
   label: string;
   icon: ReactNode;
@@ -1487,7 +1696,7 @@ type FigmaToolbarOption = {
   onSelect: () => void;
 };
 
-function FigmaToolbarTool({
+function DesignToolbarTool({
   active,
   label,
   icon,
@@ -1497,7 +1706,7 @@ function FigmaToolbarTool({
   active: boolean;
   label: string;
   icon: ReactNode;
-  options: FigmaToolbarOption[];
+  options: DesignToolbarOption[];
   onPrimary: () => void;
 }) {
   const hasOptionsMenu = options.length > 1;
@@ -1506,7 +1715,7 @@ function FigmaToolbarTool({
       className={cn(
         "flex h-8 items-center overflow-hidden rounded-md text-neutral-200 transition-colors",
         active
-          ? "bg-[#0d99ff] text-white"
+          ? "bg-[var(--design-editor-accent-color)] text-white"
           : "hover:bg-white/10 hover:text-white",
       )}
     >
@@ -1574,7 +1783,7 @@ function FigmaToolbarTool({
   );
 }
 
-function FigmaModeTab({
+function DesignModeTab({
   active,
   disabled,
   label,
@@ -1610,11 +1819,13 @@ function FigmaModeTab({
   );
 }
 
-function FigmaBottomToolbar({
+function DesignBottomToolbar({
   mode,
   pinMode,
   drawMode,
   activeTool,
+  isOverview,
+  hasActiveFile,
   onMove,
   onFrame,
   onShape,
@@ -1630,6 +1841,8 @@ function FigmaBottomToolbar({
   pinMode: boolean;
   drawMode: boolean;
   activeTool: DesignTool;
+  isOverview: boolean;
+  hasActiveFile: boolean;
   onMove: () => void;
   onFrame: () => void;
   onShape: (tool: ShapeTool) => void;
@@ -1670,7 +1883,7 @@ function FigmaBottomToolbar({
         return <IconSquare className={className} />;
     }
   };
-  const shapeOptions: FigmaToolbarOption[] = [
+  const shapeOptions: DesignToolbarOption[] = [
     {
       key: "rect",
       label: t("designEditor.tools.rect"),
@@ -1735,7 +1948,7 @@ function FigmaBottomToolbar({
     label: string;
     icon: ReactNode;
     onClick: () => void;
-    options: FigmaToolbarOption[];
+    options: DesignToolbarOption[];
   }> = [
     {
       key: "move",
@@ -1832,6 +2045,7 @@ function FigmaBottomToolbar({
           label: t("designEditor.modes.draw"),
           icon: <IconBrush className="size-4" />,
           active: activeTool === "draw" && mode === "annotate" && drawMode,
+          disabled: !hasActiveFile || isOverview,
           onSelect: onDraw,
         },
       ],
@@ -1849,6 +2063,7 @@ function FigmaBottomToolbar({
           icon: <IconMessage className="size-4" />,
           shortcut: "C",
           active: activeTool === "comment" && mode === "annotate" && pinMode,
+          disabled: !hasActiveFile || isOverview,
           onSelect: onCommentPin,
         },
         {
@@ -1856,6 +2071,7 @@ function FigmaBottomToolbar({
           label: t("designEditor.modes.draw"),
           icon: <IconBrush className="size-4" />,
           active: activeTool === "draw" && mode === "annotate" && drawMode,
+          disabled: !hasActiveFile || isOverview,
           onSelect: onDraw,
         },
       ],
@@ -1896,7 +2112,7 @@ function FigmaBottomToolbar({
     <div className="absolute bottom-4 left-1/2 z-[70] flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-1.5 overflow-hidden rounded-xl border border-white/10 bg-[#2c2c2c]/95 p-1.5 text-neutral-100 shadow-[0_22px_55px_-24px_rgba(0,0,0,0.9),0_0_0_1px_rgba(0,0,0,0.25)] backdrop-blur">
       <div className="flex min-w-0 items-center gap-0.5">
         {tools.map((tool) => (
-          <FigmaToolbarTool
+          <DesignToolbarTool
             key={tool.key}
             active={tool.active}
             label={tool.label}
@@ -1911,7 +2127,7 @@ function FigmaBottomToolbar({
 
       <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
         {modes.map((item) => (
-          <FigmaModeTab
+          <DesignModeTab
             key={item.key}
             active={item.active}
             label={item.label}
@@ -2002,6 +2218,10 @@ export default function DesignEditor() {
     () => new URLSearchParams(location.search),
     [location.search],
   );
+  const postAuthIntent = useMemo<PostAuthDesignIntent | null>(() => {
+    const value = searchParams.get("intent");
+    return value === "save" || value === "share" ? value : null;
+  }, [searchParams]);
   const queryClient = useQueryClient();
   const appStateVersion = useChangeVersion("app-state");
   const browserTabId = getBrowserTabId();
@@ -2027,6 +2247,10 @@ export default function DesignEditor() {
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
   const viewModeRef = useRef<"single" | "overview">("overview");
+  // Trusted parent origin captured from the first validated inbound message.
+  // Used to restrict outgoing postMessage calls that carry user data so they
+  // are never broadcast to an arbitrary embedding page.
+  const parentOriginRef = useRef<string | null>(null);
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
@@ -2063,13 +2287,12 @@ export default function DesignEditor() {
   const copiedLayerHtmlRef = useRef<string | null>(null);
   const copiedStylePropsRef = useRef<Record<string, string> | null>(null);
   const spaceHandPreviousToolRef = useRef<DesignTool | null>(null);
-  const { set: setAgentChatContextItem, remove: removeAgentChatContextItem } =
-    useAgentChatContext();
   const hasSelectedElement = Boolean(selectedElement);
 
   useEffect(() => {
     if (!isBuilderDesignEmbed) return;
-    // Announce ready to Builder
+    // Announce ready to Builder. The trusted origin is not yet known at this
+    // point so we use "*" — this message carries no user data.
     window.parent.postMessage({ type: "agentNative.appReady" }, "*");
 
     function handleDesignHostMessage(event: MessageEvent) {
@@ -2093,6 +2316,12 @@ export default function DesignEditor() {
       if (!data || typeof data.type !== "string") return;
 
       if (data.type === "design:init") {
+        // Capture the trusted parent origin on the first validated message so
+        // outgoing postMessage calls that carry user data can restrict the
+        // target instead of broadcasting to "*".
+        if (!parentOriginRef.current) {
+          parentOriginRef.current = origin;
+        }
         const { previewUrl, themeVars } = data.data ?? {};
         // Apply theme vars
         if (themeVars && typeof themeVars === "object") {
@@ -2213,7 +2442,9 @@ export default function DesignEditor() {
   const [pinMode, setPinMode] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
+  const [pngExporting, setPngExporting] = useState(false);
   const [svgExporting, setSvgExporting] = useState(false);
+  const pngExportingRef = useRef(false);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
@@ -2438,6 +2669,7 @@ export default function DesignEditor() {
   );
 
   const { session } = useSession();
+  const isSignedIn = Boolean(session?.email);
   const pendingVariantKey = useMemo(
     () =>
       pendingVariants
@@ -2492,6 +2724,12 @@ export default function DesignEditor() {
         : undefined,
     [session?.email, session?.name],
   );
+  const handleSignInToSave = useCallback(() => {
+    window.location.href = buildSignInHrefForDesignIntent("save");
+  }, []);
+  const handleSignInToShare = useCallback(() => {
+    window.location.href = buildSignInHrefForDesignIntent("share");
+  }, []);
 
   // Data fetching
   useEffect(() => {
@@ -2565,22 +2803,22 @@ export default function DesignEditor() {
   const deleteFileMutation = useActionMutation("delete-file");
   const updateDesignMutation = useActionMutation("update-design");
   const applyTweaksMutation = useActionMutation("apply-tweaks");
+  const duplicateDesignMutation = useActionMutation("duplicate-design");
   const createCodingHandoffMutation = useActionMutation(
     "export-coding-handoff",
   );
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
   const [, setPatchProof] = useState<PatchProofState | null>(null);
-  const pendingFileSaveRef = useRef<{
-    id: string;
-    content: string;
-    syncCollab: boolean;
-  } | null>(null);
+  const pendingFileSavesRef = useRef<Record<string, FileContentSaveRequest>>(
+    {},
+  );
   const fileSaveChainsRef = useRef<Record<string, Promise<void>>>({});
   const latestFileSaveForUnloadRef = useRef<
     Record<string, FileContentSaveRequest>
   >({});
-  const fileSaveTimerRef = useRef<number | null>(null);
+  const fileSaveTimersRef = useRef<Record<string, number>>({});
+  const postAuthSaveRef = useRef<string | null>(null);
 
   const saveFileContent = useCallback(
     (pending: FileContentSaveRequest) => {
@@ -2639,22 +2877,24 @@ export default function DesignEditor() {
       };
       latestFileSaveForUnloadRef.current[fileId] = pending;
       if (options.immediate) {
-        if (fileSaveTimerRef.current) {
-          window.clearTimeout(fileSaveTimerRef.current);
-          fileSaveTimerRef.current = null;
+        const timer = fileSaveTimersRef.current[fileId];
+        if (timer) {
+          window.clearTimeout(timer);
+          delete fileSaveTimersRef.current[fileId];
         }
-        pendingFileSaveRef.current = null;
+        delete pendingFileSavesRef.current[fileId];
         saveFileContent(pending);
         return;
       }
-      pendingFileSaveRef.current = pending;
-      if (fileSaveTimerRef.current) {
-        window.clearTimeout(fileSaveTimerRef.current);
+      pendingFileSavesRef.current[fileId] = pending;
+      const timer = fileSaveTimersRef.current[fileId];
+      if (timer) {
+        window.clearTimeout(timer);
       }
-      fileSaveTimerRef.current = window.setTimeout(() => {
-        const pending = pendingFileSaveRef.current;
-        pendingFileSaveRef.current = null;
-        fileSaveTimerRef.current = null;
+      fileSaveTimersRef.current[fileId] = window.setTimeout(() => {
+        const pending = pendingFileSavesRef.current[fileId];
+        delete pendingFileSavesRef.current[fileId];
+        delete fileSaveTimersRef.current[fileId];
         if (!pending) return;
         saveFileContent(pending);
       }, 400);
@@ -2663,21 +2903,26 @@ export default function DesignEditor() {
   );
 
   useEffect(() => {
-    const handlePageHide = () => {
-      if (pendingFileSaveRef.current) {
-        latestFileSaveForUnloadRef.current[pendingFileSaveRef.current.id] =
-          pendingFileSaveRef.current;
+    const sendPendingKeepaliveSaves = () => {
+      for (const pending of Object.values(pendingFileSavesRef.current)) {
+        latestFileSaveForUnloadRef.current[pending.id] = pending;
       }
       Object.values(latestFileSaveForUnloadRef.current).forEach(
         sendFileContentSaveKeepalive,
       );
     };
+    const handlePageHide = () => {
+      sendPendingKeepaliveSaves();
+    };
     window.addEventListener("pagehide", handlePageHide);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
-      if (fileSaveTimerRef.current) {
-        window.clearTimeout(fileSaveTimerRef.current);
+      sendPendingKeepaliveSaves();
+      for (const timer of Object.values(fileSaveTimersRef.current)) {
+        window.clearTimeout(timer);
       }
+      fileSaveTimersRef.current = {};
+      pendingFileSavesRef.current = {};
     };
   }, []);
 
@@ -2733,11 +2978,54 @@ export default function DesignEditor() {
   }, []);
 
   const design = isDesignData(designResult) ? designResult : null;
+  const designAccessRole = design?.accessRole;
+  const canShareDesign =
+    designAccessRole === "owner" || designAccessRole === "admin";
+  const canEditDesign = canShareDesign || designAccessRole === "editor";
+  const shouldOpenShare = postAuthIntent === "share" && canShareDesign;
+  const editorShareUrl = useMemo(() => {
+    if (!id || typeof window === "undefined") return undefined;
+    return `${window.location.origin}/design/${encodeURIComponent(id)}`;
+  }, [id]);
   const {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
   } = useDesignSystems();
+
+  useEffect(() => {
+    if (!id || !design || !isSignedIn || !postAuthIntent) return;
+
+    const shouldDuplicate =
+      postAuthIntent === "share" ? !canShareDesign : !canEditDesign;
+    if (!shouldDuplicate) return;
+
+    const key = `${postAuthIntent}:${id}`;
+    if (postAuthSaveRef.current === key) return;
+    postAuthSaveRef.current = key;
+
+    duplicateDesignMutation
+      .mutateAsync({ id, title: design.title } as any)
+      .then((result: any) => {
+        if (!result?.id) throw new Error("Missing copied design id");
+        const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
+        navigate(`/design/${result.id}${nextSearch}`, { replace: true });
+      })
+      .catch(() => {
+        postAuthSaveRef.current = null;
+        toast.error(t("designEditor.toasts.saveCopyError"));
+      });
+  }, [
+    canEditDesign,
+    canShareDesign,
+    design,
+    duplicateDesignMutation,
+    id,
+    isSignedIn,
+    navigate,
+    postAuthIntent,
+    t,
+  ]);
 
   const resolvePromptDesignSystemId = useCallback(
     () =>
@@ -2841,6 +3129,12 @@ export default function DesignEditor() {
     () => parseDesignDataJson(design?.data),
     [design?.data],
   );
+  // Keep a ref in sync so debounced timer callbacks can read the freshest
+  // designDataJson without closing over a stale snapshot from render time.
+  const designDataJsonRef = useRef(designDataJson);
+  useEffect(() => {
+    designDataJsonRef.current = designDataJson;
+  }, [designDataJson]);
   const canvasFrameGeometryById = useMemo(
     () => getCanvasFrameGeometry(designDataJson),
     [designDataJson],
@@ -2853,8 +3147,11 @@ export default function DesignEditor() {
       }
       frameGeometrySaveTimerRef.current = window.setTimeout(() => {
         frameGeometrySaveTimerRef.current = null;
+        // Read the freshest designDataJson from the ref so any concurrent
+        // server writes (e.g. apply-tweaks) that arrived during the 500 ms
+        // debounce window are not overwritten with stale closure data.
         const nextData = {
-          ...designDataJson,
+          ...designDataJsonRef.current,
           canvasFrames: geometryById,
         };
         updateDesignMutation.mutate(
@@ -2872,7 +3169,7 @@ export default function DesignEditor() {
         );
       }, 500);
     },
-    [designDataJson, id, queryClient, updateDesignMutation],
+    [id, queryClient, updateDesignMutation],
   );
 
   const writeFrameGeometrySnapshot = useCallback(
@@ -2884,7 +3181,7 @@ export default function DesignEditor() {
       }
       const snapshot = cloneCanvasFrameGeometry(geometryById);
       const nextData = {
-        ...designDataJson,
+        ...designDataJsonRef.current,
         canvasFrames: snapshot,
       };
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
@@ -2905,7 +3202,7 @@ export default function DesignEditor() {
         },
       );
     },
-    [designDataJson, id, queryClient, updateDesignMutation],
+    [id, queryClient, updateDesignMutation],
   );
 
   const handleGeometryCommit = useCallback(
@@ -3027,10 +3324,6 @@ export default function DesignEditor() {
   ]);
 
   useEffect(() => {
-    return () => clearPendingGeneration(id);
-  }, [id]);
-
-  useEffect(() => {
     return () => {
       if (frameGeometrySaveTimerRef.current !== null) {
         window.clearTimeout(frameGeometrySaveTimerRef.current);
@@ -3081,6 +3374,27 @@ export default function DesignEditor() {
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
 
+      const commandTool = normalizeDesignTool(command.tool);
+      const effectiveCommandTool =
+        editorView === "overview" &&
+        commandTool &&
+        isSingleScreenAnnotationTool(commandTool)
+          ? "move"
+          : commandTool;
+      const applyCommandTool = (fallback: DesignTool) => {
+        const nextTool = effectiveCommandTool ?? fallback;
+        setActiveTool(nextTool);
+        if (isSingleScreenAnnotationTool(nextTool)) {
+          setMode("annotate");
+          setDrawMode(true);
+          setPinMode(nextTool === "comment");
+          return;
+        }
+        setMode("edit");
+        setDrawMode(false);
+        setPinMode(false);
+      };
+
       if (targetFile) {
         setActiveFileId(targetFile.id);
       }
@@ -3091,19 +3405,13 @@ export default function DesignEditor() {
 
       if (editorView === "overview") {
         viewModeRef.current = "overview";
-        setDrawMode(false);
-        setPinMode(false);
-        setMode("edit");
         setSelectedElement(null);
-        setActiveTool("move");
+        applyCommandTool("move");
         setViewMode("overview");
       } else if (editorView === "single") {
         viewModeRef.current = "single";
-        setDrawMode(false);
-        setPinMode(false);
-        setMode("edit");
         setSelectedElement(null);
-        setActiveTool("move");
+        applyCommandTool("move");
         if (
           typeof command.zoom !== "number" ||
           !Number.isFinite(command.zoom)
@@ -3111,6 +3419,8 @@ export default function DesignEditor() {
           setZoom((currentZoom) => Math.max(currentZoom, FOCUSED_SCREEN_ZOOM));
         }
         setViewMode("single");
+      } else if (effectiveCommandTool) {
+        applyCommandTool("move");
       }
 
       return true;
@@ -3308,7 +3618,7 @@ export default function DesignEditor() {
   // Collaborative editing for the active file
   const { ydoc, awareness, isSynced, activeUsers, agentActive } =
     useCollaborativeDoc({
-      docId: activeFileId,
+      docId: isSignedIn ? activeFileId : null,
       requestSource: TAB_ID,
       user: currentUser,
     });
@@ -3973,7 +4283,7 @@ export default function DesignEditor() {
         });
       }
 
-      return true;
+      return primitive.nodeId ?? true;
     },
     [
       activeContent,
@@ -4284,15 +4594,7 @@ export default function DesignEditor() {
       context: contextLines.join("\n"),
       openSidebar: false,
     });
-  }, [
-    activeFile,
-    design?.title,
-    id,
-    removeAgentChatContextItem,
-    selectedCodeLayerNode,
-    selectedElement,
-    setAgentChatContextItem,
-  ]);
+  }, [activeFile, design?.title, id, selectedCodeLayerNode, selectedElement]);
 
   const designExtensionContext = useMemo<DesignExtensionSlotContext>(
     () => ({
@@ -5078,6 +5380,15 @@ export default function DesignEditor() {
         if (!replacePreviewContent(next)) {
           setContentRenderRevision((revision) => revision + 1);
         }
+        // Clear stale selection if the undo removed the selected element.
+        setSelectedElement((prev) => {
+          if (!prev) return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
+        });
       }
       redoOrderRef.current = [
         ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -5134,6 +5445,15 @@ export default function DesignEditor() {
         if (!replacePreviewContent(next)) {
           setContentRenderRevision((revision) => revision + 1);
         }
+        // Clear stale selection if the redo removed the selected element.
+        setSelectedElement((prev) => {
+          if (!prev) return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
+        });
       }
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -5268,6 +5588,7 @@ export default function DesignEditor() {
       }
 
       if (activeFile && viewMode === "overview") {
+        viewModeRef.current = "single";
         setViewMode("single");
       }
       setMode(next);
@@ -5493,6 +5814,20 @@ export default function DesignEditor() {
       ].join("\n");
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
+      const startedAt = Date.now();
+      patchPendingGeneration(id, {
+        prompt: promptState.prompt,
+        files: promptState.files,
+        title: design.title,
+        designSystemId: promptState.designSystemId,
+        model: promptState.model,
+        engine: promptState.engine,
+        effort: promptState.effort,
+        attempt,
+        startedAt,
+      });
+      setHasPendingGeneration(true);
+      setRetryablePrompt(null);
       const runTabId = agentSubmit(
         `Generate design for "${design.title}": ${promptState.prompt}`,
         context,
@@ -5514,10 +5849,8 @@ export default function DesignEditor() {
         effort: promptState.effort,
         attempt,
         runTabId,
-        startedAt: Date.now(),
+        startedAt,
       });
-      setHasPendingGeneration(true);
-      setRetryablePrompt(null);
     },
     [
       id,
@@ -5670,6 +6003,7 @@ export default function DesignEditor() {
 
   const handleDownloadPng = useCallback(
     async (settings?: Partial<ExportSettingsValue>) => {
+      if (pngExportingRef.current) return;
       const iframe = document.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
       );
@@ -5678,6 +6012,8 @@ export default function DesignEditor() {
         toast.error(t("designEditor.toasts.openScreenPng"));
         return;
       }
+      pngExportingRef.current = true;
+      setPngExporting(true);
       try {
         const html2canvas = (await import("html2canvas")).default;
         const width = Math.max(
@@ -5703,32 +6039,42 @@ export default function DesignEditor() {
             ),
           ),
           useCORS: true,
+          foreignObjectRendering: true,
           backgroundColor: null,
+          onclone: (clonedDocument) =>
+            sanitizeHtml2CanvasClone(doc, clonedDocument),
         });
-        canvas.toBlob((blob) => {
-          try {
-            if (!blob) {
-              toast.error(t("designEditor.toasts.pngCreateError"));
-              return;
+        await new Promise<void>((resolve) => {
+          canvas.toBlob((blob) => {
+            try {
+              if (!blob) {
+                toast.error(t("designEditor.toasts.pngCreateError"));
+                return;
+              }
+              triggerBlobDownload(
+                blob,
+                fallbackExportName("png", settings?.suffix),
+              );
+              toast.success(t("designEditor.toasts.pngDownloaded"));
+            } catch (callbackError) {
+              // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
+              // either of which can throw inside this async callback — outside
+              // the outer try/catch. Surface the failure instead of silently
+              // dropping it.
+              console.error(
+                "PNG export failed during download:",
+                callbackError,
+              );
+              toast.error(
+                callbackError instanceof Error
+                  ? callbackError.message
+                  : t("designEditor.toasts.pngSaveError"),
+              );
+            } finally {
+              resolve();
             }
-            triggerBlobDownload(
-              blob,
-              fallbackExportName("png", settings?.suffix),
-            );
-            toast.success(t("designEditor.toasts.pngDownloaded"));
-          } catch (callbackError) {
-            // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
-            // either of which can throw inside this async callback — outside
-            // the outer try/catch. Surface the failure instead of silently
-            // dropping it.
-            console.error("PNG export failed during download:", callbackError);
-            toast.error(
-              callbackError instanceof Error
-                ? callbackError.message
-                : t("designEditor.toasts.pngSaveError"),
-            );
-          }
-        }, "image/png");
+          }, "image/png");
+        });
       } catch (error) {
         console.error("PNG export failed:", error);
         toast.error(
@@ -5736,6 +6082,9 @@ export default function DesignEditor() {
             ? error.message
             : t("designEditor.toasts.pngExportError"),
         );
+      } finally {
+        pngExportingRef.current = false;
+        setPngExporting(false);
       }
     },
     [fallbackExportName, t, triggerBlobDownload],
@@ -5846,12 +6195,14 @@ ${serializedHtml}
   );
 
   const handleInspectorExport = useCallback(
-    (settings: ExportSettingsValue) => {
-      if (settings.format === "svg") {
-        void handleDownloadSvg(settings);
-        return;
+    (settingsList: ExportSettingsValue[]) => {
+      for (const settings of settingsList) {
+        if (settings.format === "svg") {
+          void handleDownloadSvg(settings);
+        } else {
+          void handleDownloadPng(settings);
+        }
       }
-      void handleDownloadPng(settings);
     },
     [handleDownloadPng, handleDownloadSvg],
   );
@@ -5926,6 +6277,27 @@ ${serializedHtml}
     });
     return owners;
   }, [codeLayerModelsByFile]);
+  const effectiveCodeLayerState = useMemo(() => {
+    const state: EffectiveCodeLayerState = {
+      lockedIds: new Set(),
+      hiddenIds: new Set(),
+    };
+    codeLayerModelsByFile.forEach((model) => {
+      const fileLocked = lockedLayerIds.has(model.fileId);
+      const fileHidden = hiddenLayerIds.has(model.fileId);
+      if (fileLocked) state.lockedIds.add(model.fileId);
+      if (fileHidden) state.hiddenIds.add(model.fileId);
+      collectEffectiveCodeLayerState(
+        model.tree,
+        lockedLayerIds,
+        hiddenLayerIds,
+        fileLocked,
+        fileHidden,
+        state,
+      );
+    });
+    return state;
+  }, [codeLayerModelsByFile, hiddenLayerIds, lockedLayerIds]);
   useEffect(() => {
     const fileIds = new Set(files.map((file) => file.id));
     const allCodeLayerNodes = codeLayerModelsByFile.flatMap(
@@ -6106,11 +6478,14 @@ ${serializedHtml}
     ];
     const activeFileBlocked =
       activeFile?.id &&
-      (lockedLayerIds.has(activeFile.id) || hiddenLayerIds.has(activeFile.id));
+      (effectiveCodeLayerState.lockedIds.has(activeFile.id) ||
+        effectiveCodeLayerState.hiddenIds.has(activeFile.id));
     const selectionBlocked =
       Boolean(activeFileBlocked) ||
       selectedPathIds.some(
-        (layerId) => lockedLayerIds.has(layerId) || hiddenLayerIds.has(layerId),
+        (layerId) =>
+          effectiveCodeLayerState.lockedIds.has(layerId) ||
+          effectiveCodeLayerState.hiddenIds.has(layerId),
       );
     if (!selectionBlocked) return;
     setSelectedElement(null);
@@ -6121,8 +6496,7 @@ ${serializedHtml}
     activeCodeLayerTree,
     activeFile?.id,
     codeLayerOwnerByNodeId,
-    hiddenLayerIds,
-    lockedLayerIds,
+    effectiveCodeLayerState,
     selectedElementLayerId,
   ]);
 
@@ -6191,19 +6565,44 @@ ${serializedHtml}
     activeFile?.id ??
     "";
   const activeLayerLocked = Boolean(
-    activeLayerId && lockedLayerIds.has(activeLayerId),
+    activeLayerId && effectiveCodeLayerState.lockedIds.has(activeLayerId),
   );
   const activeLayerHidden = Boolean(
-    activeLayerId && hiddenLayerIds.has(activeLayerId),
+    activeLayerId && effectiveCodeLayerState.hiddenIds.has(activeLayerId),
+  );
+
+  const canMoveLayer = useCallback(
+    (intent: LayersPanelMoveIntent) => {
+      const targetOwner = codeLayerOwnerByNodeId.get(intent.targetId);
+      if (
+        !targetOwner ||
+        effectiveCodeLayerState.lockedIds.has(intent.targetId) ||
+        effectiveCodeLayerState.hiddenIds.has(intent.targetId)
+      ) {
+        return false;
+      }
+      return intent.draggedIds.some((draggedId) => {
+        const draggedOwner = codeLayerOwnerByNodeId.get(draggedId);
+        return (
+          draggedId !== intent.targetId &&
+          !!draggedOwner &&
+          draggedOwner.fileId === targetOwner.fileId &&
+          !effectiveCodeLayerState.lockedIds.has(draggedId) &&
+          !effectiveCodeLayerState.hiddenIds.has(draggedId)
+        );
+      });
+    },
+    [codeLayerOwnerByNodeId, effectiveCodeLayerState],
   );
 
   const handleLayerMove = useCallback(
     (intent: LayersPanelMoveIntent) => {
+      if (!canMoveLayer(intent)) return;
       const targetOwner = codeLayerOwnerByNodeId.get(intent.targetId);
       if (!targetOwner) return;
       if (
-        lockedLayerIds.has(intent.targetId) ||
-        hiddenLayerIds.has(intent.targetId)
+        effectiveCodeLayerState.lockedIds.has(intent.targetId) ||
+        effectiveCodeLayerState.hiddenIds.has(intent.targetId)
       ) {
         return;
       }
@@ -6221,8 +6620,8 @@ ${serializedHtml}
           draggedId === intent.targetId ||
           !draggedOwner ||
           draggedOwner.fileId !== targetOwner.fileId ||
-          lockedLayerIds.has(draggedId) ||
-          hiddenLayerIds.has(draggedId)
+          effectiveCodeLayerState.lockedIds.has(draggedId) ||
+          effectiveCodeLayerState.hiddenIds.has(draggedId)
         ) {
           continue;
         }
@@ -6250,10 +6649,10 @@ ${serializedHtml}
       activeContent,
       activeFile?.id,
       applyFileContentUpdate,
+      canMoveLayer,
       codeLayerOwnerByNodeId,
       files,
-      hiddenLayerIds,
-      lockedLayerIds,
+      effectiveCodeLayerState,
       t,
     ],
   );
@@ -6366,12 +6765,18 @@ ${serializedHtml}
 
   const handleToggleLayerLocked = useCallback(
     (layerId: string, locked: boolean) => {
-      setLockedLayerIds((current) => {
-        const next = new Set(current);
-        if (locked) next.add(layerId);
-        else next.delete(layerId);
-        return next;
-      });
+      const applyLockedState = () => {
+        setLockedLayerIds((current) => {
+          const next = new Set(current);
+          if (locked) next.add(layerId);
+          else next.delete(layerId);
+          return next;
+        });
+      };
+      if (files.some((file) => file.id === layerId)) {
+        applyLockedState();
+        return;
+      }
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
       if (!owner || !node) return;
@@ -6387,11 +6792,11 @@ ${serializedHtml}
         "data-agent-native-locked",
         locked ? "true" : null,
       );
-      if (nextContent && nextContent !== sourceContent) {
-        applyFileContentUpdate(owner.fileId, nextContent, {
-          refreshPreview: false,
-        });
-      }
+      if (!nextContent || nextContent === sourceContent) return;
+      applyFileContentUpdate(owner.fileId, nextContent, {
+        refreshPreview: false,
+      });
+      applyLockedState();
     },
     [
       activeContent,
@@ -6404,12 +6809,18 @@ ${serializedHtml}
 
   const handleToggleLayerHidden = useCallback(
     (layerId: string, hidden: boolean) => {
-      setHiddenLayerIds((current) => {
-        const next = new Set(current);
-        if (hidden) next.add(layerId);
-        else next.delete(layerId);
-        return next;
-      });
+      const applyHiddenState = () => {
+        setHiddenLayerIds((current) => {
+          const next = new Set(current);
+          if (hidden) next.add(layerId);
+          else next.delete(layerId);
+          return next;
+        });
+      };
+      if (files.some((file) => file.id === layerId)) {
+        applyHiddenState();
+        return;
+      }
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
       if (!owner || !node) return;
@@ -6425,11 +6836,11 @@ ${serializedHtml}
         "data-agent-native-hidden",
         hidden ? "true" : null,
       );
-      if (nextContent && nextContent !== sourceContent) {
-        applyFileContentUpdate(owner.fileId, nextContent, {
-          refreshPreview: false,
-        });
-      }
+      if (!nextContent || nextContent === sourceContent) return;
+      applyFileContentUpdate(owner.fileId, nextContent, {
+        refreshPreview: false,
+      });
+      applyHiddenState();
     },
     [
       activeContent,
@@ -6454,10 +6865,14 @@ ${serializedHtml}
 
   const zoomLabel = `${Math.round(zoom)}%`;
 
-  if (!id) {
-    navigate("/");
-    return null;
-  }
+  // Hooks must not be called conditionally; keep navigate as an effect so the
+  // render phase stays pure. This branch is unreachable in practice because the
+  // design.$id.tsx route always supplies an id param.
+  useEffect(() => {
+    if (!id) navigate("/");
+  }, [id, navigate]);
+
+  if (!id) return null;
 
   if (designLoading || (!design && pendingGenerationActive)) {
     return <DesignEditorSkeleton embedded={embedded} />;
@@ -6573,7 +6988,7 @@ ${serializedHtml}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => void handleDownloadPng()}
-              disabled={!activeFile}
+              disabled={!activeFile || pngExporting}
             >
               <IconPhoto className="mr-2 h-4 w-4" />
               {t("designEditor.downloadPng")}
@@ -6744,6 +7159,42 @@ ${serializedHtml}
     </DropdownMenu>
   );
 
+  const signedOutPersistenceActions = (
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSignInToSave}
+            className="h-8 max-w-[13rem] cursor-pointer gap-1.5 truncate rounded-md bg-[var(--design-editor-panel-raised-bg)] px-2 text-xs shadow-none"
+            aria-label={t("designEditor.signUpToSaveDescription")}
+          >
+            <IconDeviceFloppy className="size-4 shrink-0" />
+            <span className="truncate">{t("designEditor.signUpToSave")}</span>
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {t("designEditor.signUpToSaveDescription")}
+        </TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={handleSignInToShare}
+            className="h-8 cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
+          >
+            <span>{t("designEditor.share")}</span>
+            <IconArrowUpRight className="size-4 shrink-0" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>{t("designEditor.signUpToShare")}</TooltipContent>
+      </Tooltip>
+    </>
+  );
+
   const rightSidebarActions = (
     <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
       <div className="flex min-h-8 items-center justify-between gap-2">
@@ -6771,15 +7222,23 @@ ${serializedHtml}
             <TooltipContent>{t("designEditor.designPreview")}</TooltipContent>
           </Tooltip>
 
-          <ShareButton
-            resourceType="design"
-            resourceId={id}
-            resourceTitle={design.title}
-            hideTriggerIcon
-            triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
-          />
+          {isSignedIn ? (
+            <ShareButton
+              resourceType="design"
+              resourceId={id}
+              resourceTitle={design.title}
+              hideTriggerIcon
+              defaultOpen={shouldOpenShare}
+              shareUrl={editorShareUrl}
+              shareUrlLabel={t("designEditor.shareEditorLink")}
+              shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
+              triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
+            />
+          ) : (
+            signedOutPersistenceActions
+          )}
 
-          <AgentToggleButton />
+          {isSignedIn && <AgentToggleButton />}
         </div>
       </div>
     </div>
@@ -6802,7 +7261,10 @@ ${serializedHtml}
               size="icon"
               className="size-8 cursor-pointer"
               onClick={() => {
-                window.parent.postMessage({ type: "design:close" }, "*");
+                window.parent.postMessage(
+                  { type: "design:close" },
+                  parentOriginRef.current ?? window.location.origin,
+                );
               }}
             >
               <IconX className="size-4" />
@@ -6856,7 +7318,7 @@ ${serializedHtml}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => void handleDownloadPng()}
-                    disabled={!activeFile}
+                    disabled={!activeFile || pngExporting}
                   >
                     <IconPhoto className="mr-2 h-4 w-4" />
                     {t("designEditor.downloadPng")}
@@ -7125,7 +7587,7 @@ ${serializedHtml}
               </>
             )}
 
-            {!embedded && (
+            {!embedded && isSignedIn && (
               <PresenceBar
                 activeUsers={activeUsers}
                 agentActive={agentActive}
@@ -7135,17 +7597,25 @@ ${serializedHtml}
               />
             )}
 
-            {!embedded && (
+            {!embedded && isSignedIn ? (
               <ShareButton
                 resourceType="design"
                 resourceId={id}
                 resourceTitle={design.title}
                 hideTriggerIcon
+                defaultOpen={shouldOpenShare}
+                shareUrl={editorShareUrl}
+                shareUrlLabel={t("designEditor.shareEditorLink")}
+                shareUrlDescription={t(
+                  "designEditor.shareEditorLinkDescription",
+                )}
                 triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
               />
-            )}
+            ) : !embedded ? (
+              signedOutPersistenceActions
+            ) : null}
 
-            {!embedded && <AgentToggleButton />}
+            {!embedded && isSignedIn && <AgentToggleButton />}
           </div>
         </div>
       </header>
@@ -7198,6 +7668,7 @@ ${serializedHtml}
                 onHoverLayer={handleLayerHover}
                 onLeaveLayer={handleLayerLeave}
                 onMoveLayer={handleLayerMove}
+                canMoveLayer={canMoveLayer}
               />
             </div>
             <div
@@ -7282,11 +7753,13 @@ ${serializedHtml}
         )}
 
         {!embedded && activeFile && !pendingVariants && !questionFlowActive && (
-          <FigmaBottomToolbar
+          <DesignBottomToolbar
             mode={mode}
             pinMode={pinMode}
             drawMode={drawMode}
             activeTool={activeTool}
+            isOverview={viewMode === "overview"}
+            hasActiveFile={Boolean(activeFile)}
             onMove={handleMoveTool}
             onFrame={handleFrameTool}
             onShape={handleShapeTool}
@@ -7622,7 +8095,7 @@ ${serializedHtml}
                   onStyleChange={handleStyleChange}
                   onStylesChange={handleStylesChange}
                   onExport={handleInspectorExport}
-                  exporting={svgExporting}
+                  exporting={pngExporting || svgExporting}
                 />
               </div>
             ) : (
@@ -7648,7 +8121,7 @@ ${serializedHtml}
                 type: "agentNative.submitChat",
                 data: { message: prompt, submit: true },
               },
-              "*",
+              parentOriginRef.current ?? window.location.origin,
             );
             handlePromptOpenChange(false);
             return;
@@ -7667,6 +8140,17 @@ ${serializedHtml}
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
+          const startedAt = Date.now();
+          patchPendingGeneration(id, {
+            prompt,
+            files,
+            title: design.title,
+            designSystemId,
+            ...options,
+            attempt: 1,
+            startedAt,
+          });
+          setHasPendingGeneration(true);
           const runTabId = agentSubmit(
             `Prepare design questions for "${design.title}": ${prompt}`,
             context,
@@ -7681,9 +8165,8 @@ ${serializedHtml}
             ...options,
             runTabId,
             attempt: 1,
-            startedAt: Date.now(),
+            startedAt,
           });
-          setHasPendingGeneration(true);
           handlePromptOpenChange(false);
         }}
         loading={generating}

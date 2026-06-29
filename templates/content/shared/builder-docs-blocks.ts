@@ -49,6 +49,8 @@ export interface BuilderTabbedContentData extends BuilderRawRefData {
 export interface BuilderSymbolData extends BuilderRawRefData {
   entry?: string;
   model?: string;
+  source?: string;
+  dynamic?: boolean;
   data?: Record<string, unknown>;
 }
 
@@ -104,6 +106,8 @@ export const builderSymbolSchema = z.object({
   ...rawRefSchema,
   entry: z.string().trim().max(240).optional(),
   model: z.string().trim().max(120).optional(),
+  source: z.string().trim().max(2_000).optional(),
+  dynamic: z.boolean().optional(),
   data: z.record(z.string(), z.unknown()).optional(),
 }) as unknown as z.ZodType<BuilderSymbolData>;
 
@@ -203,6 +207,8 @@ export const builderSymbolMdx: BlockMdxConfig<BuilderSymbolData> = {
     ...rawRefAttrs(data),
     entry: data.entry,
     model: data.model,
+    source: data.source,
+    dynamic: data.dynamic,
     data: data.data,
   }),
   fromAttrs: (attrs) => ({
@@ -211,6 +217,8 @@ export const builderSymbolMdx: BlockMdxConfig<BuilderSymbolData> = {
     componentName: attrs.string("componentName"),
     entry: attrs.string("entry"),
     model: attrs.string("model"),
+    source: attrs.string("source"),
+    dynamic: attrs.bool("dynamic"),
     data: attrs.object<Record<string, unknown>>("data"),
   }),
 };

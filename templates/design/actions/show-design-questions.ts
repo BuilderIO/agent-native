@@ -4,6 +4,8 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import "../server/db/index.js"; // ensure registerShareableResource runs
+
 function designDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",

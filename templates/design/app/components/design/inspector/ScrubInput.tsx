@@ -78,7 +78,7 @@ export function ScrubInput({
   const dragRef = useRef({
     pointerId: -1,
     startX: 0,
-    startValue: value,
+    prevX: 0,
     hasDragged: false,
   });
 
@@ -112,7 +112,7 @@ export function ScrubInput({
       event.preventDefault();
       const direction = event.key === "ArrowUp" ? 1 : -1;
       // getScrubStepFromEvent handles shiftKey (×10) and altKey (÷10).
-      // Cmd (metaKey) mirrors Shift for ×10 — Figma convention on macOS.
+      // Cmd (metaKey) mirrors Shift for ×10 — editor convention on macOS.
       const baseStep = getScrubStepFromEvent(event, step);
       const cmdMultiplier = event.metaKey && !event.shiftKey ? 10 : 1;
       setNextValue(value + direction * baseStep * cmdMultiplier, {
@@ -143,7 +143,7 @@ export function ScrubInput({
     dragRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
-      startValue: value,
+      prevX: event.clientX,
       hasDragged: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -152,12 +152,16 @@ export function ScrubInput({
 
   const handlePointerMove = (event: PointerEvent<HTMLLabelElement>) => {
     if (!dragging || dragRef.current.pointerId !== event.pointerId) return;
-    const delta = event.clientX - dragRef.current.startX;
-    if (delta === 0) return;
+    const incr = event.clientX - dragRef.current.prevX;
+    if (incr === 0) return;
+    dragRef.current.prevX = event.clientX;
     dragRef.current.hasDragged = true;
+    // Use incremental deltas from the last move so that clamped/rounded values
+    // committed by onChange are respected. A total-delta approach would create
+    // a dead zone equal to the amount dragged past the clamp boundary.
     const next =
-      dragRef.current.startValue +
-      delta *
+      value +
+      incr *
         getScrubStepFromEvent(
           { altKey: event.altKey, shiftKey: event.shiftKey },
           step,
@@ -171,7 +175,7 @@ export function ScrubInput({
     const wasDrag = dragRef.current.hasDragged;
     setDragging(false);
     // If the pointer was released without dragging (a plain click), focus the
-    // input so the user can type immediately — mirrors Figma's label click
+    // input so the user can type immediately — mirrors the design editor's label click
     // behaviour (the event.preventDefault() in handlePointerDown blocks the
     // native label→input focus transfer).
     if (!wasDrag && !disabled) {
@@ -227,7 +231,7 @@ export function ScrubInput({
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={handleKeyDown}
         className={cn(
-          // Compact Figma-style: h-6, 11px tabular text, ring-1 with no offset.
+          // Compact design-editor: h-6, 11px tabular text, ring-1 with no offset.
           "h-6 text-[11px] tabular-nums",
           "focus-visible:ring-1 focus-visible:ring-offset-0",
           inputClassName,

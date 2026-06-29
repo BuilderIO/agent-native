@@ -17,6 +17,7 @@ interface SaveStatusIndicatorProps {
 }
 
 export function SaveStatusIndicator({
+  saving,
   offline,
   className,
 }: SaveStatusIndicatorProps) {
@@ -42,6 +43,20 @@ export function SaveStatusIndicator({
           {t("visualEditor.changesSaveWhenReconnected")}
         </TooltipContent>
       </Tooltip>
+    );
+  }
+
+  if (saving) {
+    return (
+      <span
+        data-save-status="saving"
+        className={cn(
+          "animate-pulse text-[11px] text-muted-foreground",
+          className,
+        )}
+      >
+        {t("visualEditor.saving")}
+      </span>
     );
   }
 

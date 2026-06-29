@@ -32,7 +32,7 @@ import {
  *    swaps the top surface (viewer <-> canvas board) and back.
  *  - The standalone popout (?prototype=1): viewer only, no tabs, no document
  *    header, "Open full plan" control, navigation still works.
- *  - COMMENTS on the prototype: a UI-dropped Figma-dot pin persists with the
+ *  - COMMENTS on the prototype: a UI-dropped comment pin persists with the
  *    real reviewer identity; an API-dropped prototype pin keeps its prototype
  *    anchor, survives reload, and routes to the agent (actionableThreads) vs a
  *    human (humanReviewThreads) per resolutionTarget — the "send to agent" path.

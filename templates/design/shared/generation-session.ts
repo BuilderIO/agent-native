@@ -18,6 +18,7 @@ export type DesignGenerationFrameRole = "screen" | "variant";
 
 export interface DesignGenerationFrame {
   frameId: string;
+  filename?: string;
   agentId: string;
   agentName: string;
   agentColor: string;

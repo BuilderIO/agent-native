@@ -1191,8 +1191,18 @@ const AssistantChatInner = forwardRef<
       setComposerContextItems((previous) => {
         const next = updater(previous);
         composerContextItemsRef.current = next;
-        publishComposerContextItems(next);
         return next;
+      });
+      // Publish outside the setState updater. `publishComposerContextItems`
+      // mutates the module-level context store and synchronously dispatches a
+      // window event, which would re-enter React (notifying
+      // `useSyncExternalStore` subscribers like `useAgentChatContext`) while the
+      // updater runs during the render phase. React 19 then throws "Cannot
+      // update a component while rendering a different component". Queueing a
+      // microtask runs the publish after the commit; it reads the freshly
+      // updated `composerContextItemsRef`, not React state.
+      queueMicrotask(() => {
+        publishComposerContextItems(composerContextItemsRef.current);
       });
     },
     [publishComposerContextItems],

@@ -37,3 +37,10 @@ data/.sessions.json
 learnings.md
 
 .vercel/
+
+# Playwright E2E
+/test-results/
+/playwright-report/
+/e2e/.auth/
+data/e2e.db
+data/e2e.db-*

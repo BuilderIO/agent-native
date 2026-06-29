@@ -2,6 +2,7 @@ import {
   AgentSidebar,
   isEmbedAuthActive,
   getBrowserTabId,
+  useSession,
   useT,
 } from "@agent-native/core/client";
 import { IconMenu2 } from "@tabler/icons-react";
@@ -44,9 +45,11 @@ const BARE_PREFIXES = ["/present/"];
 const EDITOR_PREFIXES = ["/design/", "/extensions"];
 
 export function Layout({ children }: LayoutProps) {
-  useNavigationState();
   const location = useLocation();
   const t = useT();
+  const { session } = useSession();
+  const hasSession = Boolean(session?.email);
+  useNavigationState(hasSession);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const openMobileSidebar = useCallback(() => setMobileSidebarOpen(true), []);
 
@@ -78,7 +81,7 @@ export function Layout({ children }: LayoutProps) {
   const showMobileTopBar = !isDesignEditor;
   const embedded = isEmbedAuthActive();
 
-  if (embedded) {
+  if (embedded || (isDesignEditor && !hasSession)) {
     return (
       <HeaderActionsProvider>
         <MobileSidebarContext.Provider value={null}>

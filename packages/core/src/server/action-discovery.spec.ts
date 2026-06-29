@@ -92,6 +92,22 @@ describe("action discovery", () => {
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
 
+  it("preserves per-tool timeout and result limits", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "slow-provider": {
+        default: {
+          tool: { description: "Slow provider", parameters: {} },
+          timeoutMs: 120_000,
+          maxResultChars: 10_000,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["slow-provider"].timeoutMs).toBe(120_000);
+    expect(registry["slow-provider"].maxResultChars).toBe(10_000);
+  });
+
   it("preserves agentTool:false so discovery keeps it hidden from the agent", () => {
     const registry = loadActionsFromStaticRegistry({
       "ui-sync": {

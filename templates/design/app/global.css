@@ -188,6 +188,10 @@
   --agent-native-raised-shadow-right: 1px 0 0 var(--design-shell-divider);
 }
 
+.agent-layout-shell .agent-sidebar-main-surface::before {
+  box-shadow: none;
+}
+
 .dark .agent-layout-shell,
 .dark .agent-sidebar-shell,
 .dark.agent-layout-shell,
