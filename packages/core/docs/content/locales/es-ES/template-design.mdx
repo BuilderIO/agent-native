@@ -375,6 +375,14 @@ por URL. Los flujos numerados como `localhost:1234/onboarding/1`,
 `/onboarding/2` y `/onboarding/3` se mantienen como pantallas separadas y
 ordenadas en modo de vista general.
 
+La ruta de entrada `/visual-edit` puede cargar antes de que el visitante inicie
+sesión, y los enlaces públicos `/design/:id` pueden renderizar diseños públicos
+de solo lectura sin sesión. Persistir el diseño de pantallas, generar pantallas
+nuevas o compartir sigue creando datos de Design vinculados a una cuenta: los
+usuarios sin sesión pasan por `/_agent-native/sign-in?return=...`; después,
+Design guarda o copia el proyecto en esa cuenta antes de abrir el diálogo de
+compartir.
+
 Para nombres de capa estables, agrega `data-agent-native-layer-name` a los
 elementos importantes. Design lo usa antes de los respaldos semánticos/de texto
 y puede persistir cambios de nombre editando ese atributo. HTML inline admite

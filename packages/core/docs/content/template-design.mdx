@@ -374,6 +374,13 @@ place each requested path or URL as its own URL-backed iframe screen. Numbered
 flows such as `localhost:1234/onboarding/1`, `/onboarding/2`, and
 `/onboarding/3` stay as separate ordered screens in overview mode.
 
+The `/visual-edit` entry route can load before the viewer signs in, and public
+`/design/:id` links can render read-only public designs without a session.
+Persisting the screen layout, generating new screens, or sharing still creates
+account-backed Design data: signed-out users go through
+`/_agent-native/sign-in?return=...`, then Design saves or copies the project
+into that account before opening the share dialog.
+
 For stable layer names, add `data-agent-native-layer-name` to meaningful
 elements. Design uses it before semantic/text fallbacks and can persist layer
 renames by editing that attribute. Inline HTML supports local code-layer edits

@@ -29,7 +29,7 @@ test("editor renders the toolbar and the design iframe content", async ({
       page.getByRole("button", { name: tool, exact: true }),
     ).toBeVisible();
   }
-  // Frame-locator reaches inside the sandboxed iframe (contentDocument would be null).
+  // Frame-locator reaches inside the sandboxed iframe and stays stable around overlays.
   await expect(designFrame(page).getByText("E2E Hero Heading")).toBeVisible();
   const nodeCount = await designFrame(page)
     .locator("h1, h2, p, button")

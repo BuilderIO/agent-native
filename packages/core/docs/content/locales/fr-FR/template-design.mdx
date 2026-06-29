@@ -375,6 +375,14 @@ URL. Les flows numérotés comme `localhost:1234/onboarding/1`,
 `/onboarding/2` et `/onboarding/3` restent des écrans séparés et ordonnés en
 mode overview.
 
+La route d'entrée `/visual-edit` peut se charger avant la connexion du visiteur,
+et les liens publics `/design/:id` peuvent afficher des designs publics en
+lecture seule sans session. Persister la disposition des écrans, générer de
+nouveaux écrans ou partager crée toujours des données Design liées à un compte :
+les utilisateurs non connectés passent par `/_agent-native/sign-in?return=...`,
+puis Design enregistre ou copie le projet dans ce compte avant d'ouvrir la
+boîte de dialogue de partage.
+
 Pour des noms de couche stables, ajoutez `data-agent-native-layer-name` aux
 éléments importants. Design l'utilise avant les replis sémantiques/textuels et
 peut persister les renommages en modifiant cet attribut. Le HTML inline prend en

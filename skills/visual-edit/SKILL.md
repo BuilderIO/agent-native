@@ -30,6 +30,17 @@ iframe-backed screens on the infinite canvas.
   `localhost:1234/onboarding/1` means
   `http://localhost:1234/onboarding/1`.
 
+## Account And Sharing Model
+
+- The `/visual-edit` entry route can open before the viewer signs in. Public
+  `/design/:id` editor links can also render read-only public designs without a
+  session.
+- Do not attempt anonymous write actions. Bridge registration, design creation,
+  screen placement, generation, saving, and sharing are account-backed. If a
+  signed-out visitor wants to save or share, send them through the framework
+  sign-in return flow, then save or copy the design into that account before
+  opening the share dialog.
+
 ## Required Local Bridge
 
 From the target app repo, make sure its dev server is running, then run:

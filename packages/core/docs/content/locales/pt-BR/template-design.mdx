@@ -374,6 +374,13 @@ para posicionar cada path ou URL solicitado como sua própria tela iframe basead
 em URL. Fluxos numerados como `localhost:1234/onboarding/1`, `/onboarding/2` e
 `/onboarding/3` permanecem como telas separadas e ordenadas no modo overview.
 
+A rota de entrada `/visual-edit` pode carregar antes de o visitante entrar, e
+links públicos `/design/:id` podem renderizar designs públicos somente leitura
+sem sessão. Persistir o layout das telas, gerar novas telas ou compartilhar
+ainda cria dados do Design vinculados a uma conta: usuários desconectados passam
+por `/_agent-native/sign-in?return=...`; depois, o Design salva ou copia o
+projeto para essa conta antes de abrir o diálogo de compartilhamento.
+
 Para nomes de camada estáveis, adicione `data-agent-native-layer-name` a
 elementos importantes. O Design usa isso antes de fallbacks semânticos/de texto
 e pode persistir renomeações editando esse atributo. HTML inline aceita edições
