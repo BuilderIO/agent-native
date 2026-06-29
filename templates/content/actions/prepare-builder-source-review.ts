@@ -274,6 +274,8 @@ async function upsertExecutionGate(args: {
   source: ContentDatabaseSource;
   changeSet: ContentDatabaseSourceChangeSet;
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: PrepareBuilderSourceReviewRequest["publicationTransition"];
+  confirmUnpublish?: boolean;
   ownerEmail: string;
   now: string;
 }) {
@@ -281,6 +283,8 @@ async function upsertExecutionGate(args: {
     source: args.source,
     changeSet: args.changeSet,
     pushModeConfirmation: args.pushModeConfirmation,
+    publicationTransition: args.publicationTransition,
+    confirmUnpublish: args.confirmUnpublish,
   });
   const db = getDb();
   const [existing] = await db
@@ -372,6 +376,14 @@ export default defineAction({
       .enum(["autosave", "draft", "publish"])
       .optional()
       .describe("Explicit push mode confirmation for the planned write"),
+    publicationTransition: z
+      .enum(["publish", "unpublish"])
+      .optional()
+      .describe("Explicit publication transition to validate at write time"),
+    confirmUnpublish: z
+      .boolean()
+      .optional()
+      .describe("Required explicit confirmation for unpublish transitions"),
   }),
   run: async (
     args: PrepareBuilderSourceReviewRequest,
@@ -428,6 +440,8 @@ export default defineAction({
         source: approvedSnapshot,
         changeSet,
         pushModeConfirmation: args.pushModeConfirmation,
+        publicationTransition: args.publicationTransition,
+        confirmUnpublish: args.confirmUnpublish,
         ownerEmail: database.ownerEmail,
         now,
       });
@@ -438,11 +452,16 @@ export default defineAction({
       .set({ updatedAt: now })
       .where(eq(schema.contentDatabaseSources.id, snapshot.id));
 
+    const reviewedSnapshot = await getContentDatabaseSourceSnapshotForWrite(
+      database,
+      args.sourceId,
+    );
+    if (!reviewedSnapshot) throw new Error("Builder source disappeared.");
     // Build the review payload from the TARGET source snapshot, not
-    // response.source (which is always the primary). For a non-primary
-    // sourceId the review rows/effects/live-write flags must reflect the
-    // source actually being reviewed.
-    const reviewedChangeSets = approvedSnapshot.changeSets.filter((changeSet) =>
+    // response.source (which is always the primary). Re-read after the gate
+    // upsert so newly validated/blocked/stale execution rows are visible to
+    // the returned review payload.
+    const reviewedChangeSets = reviewedSnapshot.changeSets.filter((changeSet) =>
       approvedIds.includes(changeSet.id),
     );
     const response = await getContentDatabaseResponse(database.id);
@@ -450,7 +469,7 @@ export default defineAction({
     return {
       ...response,
       review: buildBuilderSourceReviewPayload({
-        source: approvedSnapshot,
+        source: reviewedSnapshot,
         changeSets: reviewedChangeSets,
       }),
     };

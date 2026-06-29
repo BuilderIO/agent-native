@@ -824,6 +824,9 @@ export interface ValidateBuilderSourceExecutionRequest {
   sourceId?: string;
   changeSetId: string;
   idempotencyKey?: string;
+  pushModeConfirmation?: ContentDatabaseSourcePushMode;
+  publicationTransition?: BuilderCmsPublicationTransitionIntent;
+  confirmUnpublish?: boolean;
 }
 
 export interface ExecuteBuilderSourceExecutionRequest {

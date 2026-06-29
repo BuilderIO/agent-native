@@ -45,6 +45,18 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional execution idempotency key to validate"),
+    pushModeConfirmation: z
+      .enum(["autosave", "draft", "publish"])
+      .optional()
+      .describe("Explicit push mode confirmation for the validated write"),
+    publicationTransition: z
+      .enum(["publish", "unpublish"])
+      .optional()
+      .describe("Explicit publication transition to validate at write time"),
+    confirmUnpublish: z
+      .boolean()
+      .optional()
+      .describe("Required explicit confirmation for unpublish transitions"),
   }),
   run: async (
     args: ValidateBuilderSourceExecutionRequest,
@@ -71,7 +83,10 @@ export default defineAction({
     const plan = buildBuilderCmsExecutionPlan({
       source,
       changeSet,
-      pushModeConfirmation: changeSet.pushMode ?? undefined,
+      pushModeConfirmation:
+        args.pushModeConfirmation ?? changeSet.pushMode ?? undefined,
+      publicationTransition: args.publicationTransition,
+      confirmUnpublish: args.confirmUnpublish,
     });
     const expectedKey = builderCmsExecutionIdempotencyKey({
       sourceId: source.id,

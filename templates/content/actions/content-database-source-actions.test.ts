@@ -281,10 +281,14 @@ describe("content database source actions", () => {
       prepareReview.schema.parse({
         documentId: "database-page",
         pushModeConfirmation: "autosave",
+        publicationTransition: "unpublish",
+        confirmUnpublish: true,
       }),
     ).toEqual({
       documentId: "database-page",
       pushModeConfirmation: "autosave",
+      publicationTransition: "unpublish",
+      confirmUnpublish: true,
     });
   });
 
@@ -294,11 +298,13 @@ describe("content database source actions", () => {
         documentId: "database-page",
         changeSetId: "change-set",
         idempotencyKey: "builder-cms:source:change:autosave",
+        publicationTransition: "publish",
       }),
     ).toEqual({
       documentId: "database-page",
       changeSetId: "change-set",
       idempotencyKey: "builder-cms:source:change:autosave",
+      publicationTransition: "publish",
     });
   });
 
