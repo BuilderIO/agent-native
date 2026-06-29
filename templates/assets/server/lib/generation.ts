@@ -411,8 +411,9 @@ function shouldFallbackToManualImageProvider(err: unknown): boolean {
 async function generateWithManualImageProviderForSingleShot(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
+  const output = await generateWithManualImageProvider(input);
   await input.onManualFallbackStart?.();
-  return generateWithManualImageProvider(input);
+  return output;
 }
 
 export async function generateWithManagedImageProviderOnce(

@@ -413,7 +413,7 @@ describe("generateWithManagedImageProvider", () => {
     expect(requestIdempotencyKeys(fetchMock)).toEqual(["run-single-shot"]);
   });
 
-  it("uses manual fallback for resumable single-shot image runs after recording the fallback", async () => {
+  it("uses manual fallback for resumable single-shot image runs and records it after output", async () => {
     resolveBuilderCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
@@ -424,7 +424,9 @@ describe("generateWithManagedImageProvider", () => {
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
+    const events: string[] = [];
     const fetchMock = vi.fn(async () => {
+      events.push("manual-output");
       return new Response(
         JSON.stringify({
           data: [{ b64_json: Buffer.from([9, 8, 7]).toString("base64") }],
@@ -432,7 +434,9 @@ describe("generateWithManagedImageProvider", () => {
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     });
-    const onManualFallbackStart = vi.fn(async () => undefined);
+    const onManualFallbackStart = vi.fn(async () => {
+      events.push("fallback-recorded");
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
@@ -451,6 +455,7 @@ describe("generateWithManagedImageProvider", () => {
       }),
     );
     expect(onManualFallbackStart).toHaveBeenCalledTimes(1);
+    expect(events).toEqual(["manual-output", "fallback-recorded"]);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.openai.com/v1/images/generations",
       expect.objectContaining({
