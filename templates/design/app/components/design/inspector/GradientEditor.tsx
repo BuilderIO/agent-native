@@ -167,10 +167,12 @@ export function parseGradientCss(
     }
   } else if (fn === "radial") {
     kind =
-      /ellipse\s+closest-side/i.test(first) || fallbackKind === "diamond"
+      /ellipse\s+closest-side/i.test(first) ||
+      /closest-corner/i.test(first) ||
+      fallbackKind === "diamond"
         ? "diamond"
         : "radial";
-    if (/circle|ellipse|at\s/i.test(first)) stopStart = 1;
+    if (/circle|ellipse|at\s|closest-/i.test(first)) stopStart = 1;
   } else if (fn === "conic") {
     kind = "angular";
     const angleMatch = first.match(ANGLE_RE);

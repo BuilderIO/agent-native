@@ -2285,6 +2285,9 @@ export default function DesignEditor() {
   const [hasCanvasClipboard, setHasCanvasClipboard] = useState(false);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
   const copiedLayerHtmlRef = useRef<string | null>(null);
+  // Cascade offset for repeated keyboard pastes so successive clones don't stack
+  // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
+  const pasteCascadeRef = useRef(0);
   const copiedStylePropsRef = useRef<Record<string, string> | null>(null);
   const spaceHandPreviousToolRef = useRef<DesignTool | null>(null);
   const hasSelectedElement = Boolean(selectedElement);
@@ -4699,6 +4702,16 @@ export default function DesignEditor() {
         ([, value]) => value !== undefined,
       );
       if (entries.length === 0) return;
+      // Base every patch off the freshest known content, not the closed-over
+      // render value. Handlers that fire several onStyleChange calls in one
+      // synchronous user action (e.g. fixed-size text → width+height+whiteSpace,
+      // constraints center → both axes, linked padding → 4 sides) would
+      // otherwise each read the same pre-render `activeContent` and clobber one
+      // another, so only the last property survived in the saved HTML. Since we
+      // advance lastLocalContentRef.current to resolvedNextContent below, the
+      // next synchronous call reads the previous call's result and the patches
+      // compose. Falls back to activeContent when the ref is unset (file switch).
+      const baseContent = lastLocalContentRef.current ?? activeContent;
       const [firstProperty, firstValue] = entries[0];
       const capability =
         selectedElement?.editCapabilities?.find((item) =>
@@ -4725,7 +4738,7 @@ export default function DesignEditor() {
             : entries
                 .map(([property, value]) => `${property}: ${value}`)
                 .join("; "),
-        previousContent: activeContent,
+        previousContent: baseContent,
         capability: capability?.kind ?? "deterministic-style-edit",
         confidence: capability?.confidence ?? 0.92,
         status: "runtime",
@@ -4738,10 +4751,10 @@ export default function DesignEditor() {
         });
       }
 
-      const nextContent = applyInlineStylesToHtml(activeContent, selector, {
+      const nextContent = applyInlineStylesToHtml(baseContent, selector, {
         ...Object.fromEntries(entries),
       });
-      const projection = buildCodeLayerProjection(activeContent);
+      const projection = buildCodeLayerProjection(baseContent);
       const targetNode = resolveCodeLayerNodeFromBridge(
         projection,
         selector,
@@ -4769,7 +4782,7 @@ export default function DesignEditor() {
           }
           return { content: patch.content, failed: null };
         },
-        { content: activeContent, failed: null },
+        { content: baseContent, failed: null },
       );
       const resolvedNextContent = stylePatch.failed
         ? nextContent
@@ -5140,6 +5153,7 @@ export default function DesignEditor() {
     const html = getElementOuterHtml(activeContent, selectedElement.selector);
     if (!html) return;
     copiedLayerHtmlRef.current = html;
+    pasteCascadeRef.current = 0;
     setHasCanvasClipboard(true);
     try {
       await navigator.clipboard.writeText(html);
@@ -5152,12 +5166,21 @@ export default function DesignEditor() {
   const handlePasteSelection = useCallback(
     (position?: { x: number; y: number }) => {
       if (!activeFile || !copiedLayerHtmlRef.current) return;
+      // Explicit positions (e.g. "Paste here" at the cursor) are honored as-is.
+      // Keyboard pastes cascade by 16px each so repeats don't stack exactly.
+      const targetPosition =
+        position ??
+        (() => {
+          const offset = pasteCascadeRef.current * 16;
+          return { x: 120 + offset, y: 120 + offset };
+        })();
       const nextContent = cloneHtmlLayerAtPosition(
         activeContent,
         copiedLayerHtmlRef.current,
-        position ?? { x: 120, y: 120 },
+        targetPosition,
       );
       if (!nextContent) return;
+      if (!position) pasteCascadeRef.current += 1;
       applyLocalContentUpdate(nextContent);
       toast.success(t("designEditor.toasts.pasted"));
     },
@@ -5189,6 +5212,41 @@ export default function DesignEditor() {
   ]);
 
   const handleDeleteSelection = useCallback(() => {
+    // Multi-select delete: when several DOM/code layers are selected in the
+    // panel, remove all of them — not just the single focused element. Compose
+    // the removals against the running content (re-projecting each pass) so
+    // nested selections resolve correctly and earlier removals aren't clobbered.
+    const candidateIds = selectedLayerIdsState.filter(
+      (layerId) =>
+        layerId &&
+        !layerId.startsWith("__") &&
+        !files.some((file) => file.id === layerId),
+    );
+    if (candidateIds.length > 1) {
+      let content = activeContent;
+      const removedSelectors: string[] = [];
+      for (const layerId of candidateIds) {
+        const projection = buildCodeLayerProjection(content);
+        const node =
+          projection.nodes.find((candidate) => candidate.id === layerId) ??
+          resolveCodeLayerNodeFromBridge(projection, layerId, layerId);
+        if (!node) continue;
+        const next = removeCodeLayerNodeFromHtml(content, node);
+        if (!next) continue;
+        const selector = preferredCodeLayerSelector(node);
+        if (selector) removedSelectors.push(selector);
+        content = next;
+      }
+      if (content !== activeContent) {
+        removedSelectors.forEach((selector) => deleteRuntimeElement(selector));
+        applyLocalContentUpdate(content, { refreshPreview: false });
+        setSelectedElement(null);
+        setSelectedLayerIdsState([]);
+        return;
+      }
+      // Nothing resolved (stale ids) — fall through to the single path.
+    }
+
     if (!selectedElement?.selector) return;
     const projection = buildCodeLayerProjection(activeContent);
     const targetNode = resolveCodeLayerNodeFromBridge(
@@ -5210,8 +5268,19 @@ export default function DesignEditor() {
     activeContent,
     applyLocalContentUpdate,
     deleteRuntimeElement,
+    files,
     selectedElement,
+    selectedLayerIdsState,
   ]);
+
+  const handleCutSelection = useCallback(async () => {
+    if (!selectedElement?.selector) return;
+    // Copy first (populates the internal clipboard ref even if the async
+    // navigator.clipboard write is blocked — handleCopySelection swallows that
+    // error) then remove the element so a subsequent paste can re-insert it.
+    await handleCopySelection();
+    handleDeleteSelection();
+  }, [handleCopySelection, handleDeleteSelection, selectedElement]);
 
   const handleDeleteOverviewSelection = useCallback(
     (selectedIds: string[]) => {
@@ -5752,6 +5821,7 @@ export default function DesignEditor() {
     onCommentTool: handlePinToolToggle,
     onScaleTool: handleScaleTool,
     onCopy: handleCopySelection,
+    onCut: handleCutSelection,
     onPaste: () => handlePasteSelection(),
     onPasteOver: () => handlePasteSelection(),
     onCopyProps: handleCopyProps,
@@ -7786,7 +7856,7 @@ ${serializedHtml}
             canSelectAll={files.length > 0}
             canZoomToFit={Boolean(activeFile)}
             canZoomToSelection={Boolean(activeFile)}
-            canCopy={Boolean(activeFile)}
+            canCopy={Boolean(selectedElement?.selector)}
             canPaste={hasCanvasClipboard && Boolean(activeFile)}
             canPasteOver={hasCanvasClipboard && Boolean(activeFile)}
             canDuplicate={Boolean(activeFile)}
@@ -7799,7 +7869,7 @@ ${serializedHtml}
             canToggleHidden={Boolean(activeLayerId)}
             canCopyProps={Boolean(selectedElement)}
             canPasteProps={hasPropsClipboard && Boolean(selectedElement)}
-            canCopyAsCode={Boolean(activeFile)}
+            canCopyAsCode={Boolean(selectedElement?.selector)}
             hiddenActions={["group", "ungroup", "rename"]}
             getCanvasPoint={getContextCanvasPoint}
             onPasteHere={(details) =>

@@ -1679,6 +1679,11 @@ export function MultiScreenCanvas({
       if (e.button !== 0 || e.shiftKey) return;
       e.preventDefault();
       e.stopPropagation();
+      // Frame mousedowns stop propagation, so they never reach handleMouseDown.
+      // Clear stale suppression here too so a prior gesture can't swallow this
+      // frame's selecting click. This gesture re-arms suppression on mouse-up
+      // only if it actually moves.
+      suppressNextPick.current = false;
 
       const currentSelectedIds = selectedIdsRef.current;
       const targetIds = currentSelectedIds.includes(id)
@@ -2161,6 +2166,10 @@ export function MultiScreenCanvas({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // Clear any stale pick-suppression left over from a prior resize/rotate/move
+      // gesture that never received its trailing frame click — otherwise it would
+      // silently swallow this unrelated interaction.
+      suppressNextPick.current = false;
       const target = e.target as HTMLElement;
       const onFrame = !!target.closest("[data-frame-shell]");
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);

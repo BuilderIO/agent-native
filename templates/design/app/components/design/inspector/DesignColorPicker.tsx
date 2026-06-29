@@ -889,7 +889,17 @@ export function DesignColorPicker({
     setPicking(true);
     try {
       const result = await new EyeDropperCtor().open();
-      if (result.sRGBHex) onChange(result.sRGBHex);
+      if (result.sRGBHex) {
+        if (activeGradient) {
+          // In gradient mode, route to the selected stop (preserving its alpha)
+          // like every other color edit — don't replace the whole gradient with
+          // a solid hex.
+          const parsed = parseCssColor(result.sRGBHex);
+          if (parsed) emitStopColor({ ...parsed, a: fieldColor.a });
+        } else {
+          onChange(result.sRGBHex);
+        }
+      }
     } catch {
       // Browser cancels are expected; keep the current color.
     } finally {
@@ -1845,8 +1855,14 @@ export function inferPaintType(
     if (
       lower.startsWith("radial-gradient") ||
       lower.startsWith("repeating-radial-gradient")
-    )
+    ) {
+      // Diamond fills serialize as a radial gradient (either "closest-corner"
+      // from EditPanel or "ellipse closest-side" from GradientEditor). Recognize
+      // both so a diamond doesn't silently become a plain radial on reselect.
+      if (/closest-corner/.test(lower) || /ellipse\s+closest-side/.test(lower))
+        return "diamond";
       return "radial";
+    }
     if (
       lower.startsWith("conic-gradient") ||
       lower.startsWith("repeating-conic-gradient")

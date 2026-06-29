@@ -58,10 +58,16 @@ export function formatScrubValue(
   options: Pick<ScrubExpressionOptions, "precision" | "unit"> = {},
 ): string {
   const normalized = normalizeScrubNumber(value, options);
-  const numeric =
-    Number.isFinite(options.precision) && options.precision! >= 0
-      ? normalized.toFixed(options.precision).replace(/\.?0+$/, "")
-      : String(normalized);
+  let numeric: string;
+  if (Number.isFinite(options.precision) && options.precision! >= 0) {
+    const fixed = normalized.toFixed(options.precision);
+    // Only strip trailing zeros when there's a fractional part. Stripping a bare
+    // integer (precision 0, e.g. "100") would mangle it to "1" because the regex
+    // eats the integer's own trailing zeros.
+    numeric = fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
+  } else {
+    numeric = String(normalized);
+  }
   return `${numeric}${options.unit ?? ""}`;
 }
 

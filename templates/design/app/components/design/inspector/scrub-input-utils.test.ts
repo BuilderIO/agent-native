@@ -43,6 +43,13 @@ describe("scrub input expression parsing", () => {
     expect(formatScrubValue(12.125, { precision: 2 })).toBe("12.13");
   });
 
+  it("does not strip trailing zeros from integers at precision 0", () => {
+    expect(formatScrubValue(100, { precision: 0 })).toBe("100");
+    expect(formatScrubValue(50, { precision: 0, unit: "px" })).toBe("50px");
+    expect(formatScrubValue(10.0, { precision: 1 })).toBe("10");
+    expect(formatScrubValue(12.5, { precision: 2 })).toBe("12.5");
+  });
+
   it("applies keyboard and pointer step modifiers", () => {
     expect(getScrubStepFromEvent({ shiftKey: true, altKey: false }, 2)).toBe(
       20,

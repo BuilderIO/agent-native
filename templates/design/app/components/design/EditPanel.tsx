@@ -137,10 +137,23 @@ interface EditPanelProps {
  * valid CSS length. Lets users type "32" and get the expected "32px" when
  * the field is committed.
  */
-function normalizeLengthValue(raw: string, defaultUnit: string): string {
+function normalizeLengthValue(raw: string, defaultUnit: string): string | null {
   const trimmed = raw.trim();
-  if (!trimmed) return "";
+  // Empty / invalid input returns null so the caller reverts the field instead
+  // of committing an empty or garbage CSS value (e.g. fontSize:"" or
+  // flexBasis:"abc") to the element's inline style.
+  if (!trimmed) return null;
   if (/^-?\d+(\.\d+)?$/.test(trimmed)) return `${trimmed}${defaultUnit}`;
+  // Validate free-form CSS so junk text never reaches the style. Fall back to
+  // accepting the value when CSS.supports is unavailable (SSR/tests) to keep
+  // prior behavior in non-DOM environments.
+  if (typeof CSS !== "undefined" && typeof CSS.supports === "function") {
+    const ok =
+      CSS.supports("width", trimmed) ||
+      CSS.supports("font-size", trimmed) ||
+      CSS.supports("flex-basis", trimmed);
+    return ok ? trimmed : null;
+  }
   return trimmed;
 }
 
@@ -180,6 +193,11 @@ function PropInput({
       return;
     }
     const next = normalizeLengthValue(draft, defaultUnit);
+    if (next === null) {
+      // Invalid or empty — revert the field to the last committed value.
+      setDraft(value);
+      return;
+    }
     if (next !== draft) setDraft(next);
     if (next !== value) onChange(next);
   };
@@ -745,7 +763,11 @@ function gradientTypeFromCss(
   layer: string,
 ): DesignGradientType {
   if (functionName.toLowerCase() === "conic") return "angular";
-  if (/closest-corner/i.test(layer)) return "diamond";
+  // Recognize both diamond serializations — EditPanel's "closest-corner" and
+  // GradientEditor's "ellipse closest-side" — so a diamond authored in either
+  // place round-trips as diamond instead of flipping to radial.
+  if (/closest-corner/i.test(layer) || /ellipse\s+closest-side/i.test(layer))
+    return "diamond";
   if (functionName.toLowerCase() === "radial") return "radial";
   return "linear";
 }
@@ -1170,9 +1192,39 @@ function resolveLineHeight(
   return Number.isFinite(numeric) && numeric > 0 ? numeric : 1.2;
 }
 
+// Matches a 2D rotate()/rotateZ() with any CSS angle unit (not rotateX/Y/3d).
+const ROTATE_FN_PATTERN =
+  /rotate[Zz]?\(\s*([+-]?[\d.]+(?:e[+-]?\d+)?)(deg|rad|turn|grad)?\s*\)/i;
+
 function parseRotationValue(transform: string | undefined): number {
-  const match = transform?.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/);
-  return match ? Number(match[1]) : 0;
+  if (!transform || transform === "none") return 0;
+  const match = transform.match(ROTATE_FN_PATTERN);
+  if (match) {
+    const value = Number(match[1]);
+    if (Number.isFinite(value)) {
+      const unit = (match[2] || "deg").toLowerCase();
+      const deg =
+        unit === "rad"
+          ? value * (180 / Math.PI)
+          : unit === "turn"
+            ? value * 360
+            : unit === "grad"
+              ? value * 0.9
+              : value;
+      return Math.round(deg * 10) / 10;
+    }
+  }
+  // Fallback for rotate3d()/matrix()/skew composites: read the 2D rotation
+  // component off the resolved matrix so the panel doesn't report 0.
+  if (typeof DOMMatrixReadOnly !== "undefined") {
+    try {
+      const m = new DOMMatrixReadOnly(transform);
+      return Math.round(((Math.atan2(m.b, m.a) * 180) / Math.PI) * 10) / 10;
+    } catch {
+      // Unparseable transform — fall through to 0.
+    }
+  }
+  return 0;
 }
 
 /**
@@ -1191,8 +1243,10 @@ function parseScaleValue(value: string | undefined): [number, number] {
 function mergeRotationValue(transform: string | undefined, degrees: number) {
   const nextRotate = `rotate(${Math.round(degrees * 10) / 10}deg)`;
   if (!transform || transform === "none") return nextRotate;
-  if (/rotate\((-?\d+(?:\.\d+)?)deg\)/.test(transform)) {
-    return transform.replace(/rotate\((-?\d+(?:\.\d+)?)deg\)/, nextRotate);
+  // Replace an existing rotate()/rotateZ() in ANY unit so we don't append a
+  // second rotate() (which would compound, e.g. "rotate(0.5turn) rotate(30deg)").
+  if (ROTATE_FN_PATTERN.test(transform)) {
+    return transform.replace(ROTATE_FN_PATTERN, nextRotate);
   }
   return `${transform} ${nextRotate}`;
 }
@@ -2025,10 +2079,10 @@ function StrokeLayerControl({
     const nextPrefix = next === "outside" ? "outline" : "border";
     onStyleChange(`${nextPrefix}Color`, color);
     onStyleChange(`${nextPrefix}Width`, width || "1px");
-    onStyleChange(
-      `${nextPrefix}Style`,
-      styleValue === "none" ? "solid" : styleValue,
-    );
+    // Preserve the original border-style so a hidden stroke (style:none, kept
+    // visible as a row because width>0) stays hidden when its position moves
+    // between inside/outside. Only default to solid when there's no style at all.
+    onStyleChange(`${nextPrefix}Style`, styleValue || "solid");
     onRemove();
   };
 
@@ -2149,7 +2203,12 @@ function parseShadowLayer(layer: string, index: number): ShadowLayer {
   const tokens = splitCssTokens(layer);
   const inset = tokens.includes("inset");
   const colorToken =
-    tokens.find((token) => parseCssColor(token) || token === "transparent") ||
+    tokens.find((token) => parseCssColor(token) || token === "transparent") ??
+    // Preserve a color we don't parse into RGBA (currentColor, var(--x), or any
+    // unrecognized keyword): the color is the non-inset token that doesn't look
+    // like a numeric length. Without this, tweaking x/y/blur would reset it to
+    // the hardcoded default below.
+    tokens.find((token) => token !== "inset" && !/^[-+]?[\d.]/.test(token)) ??
     "rgba(0, 0, 0, 0.25)";
   const numericTokens = tokens
     .filter((token) => token !== "inset" && token !== colorToken)
@@ -3408,6 +3467,12 @@ function FillProperties({
   const [hiddenFillStash, setHiddenFillStash] = useState<
     Record<string, string>
   >({});
+  // Same non-destructive idea for background gradient/image layers: stash the
+  // exact layer string on hide so per-stop opacity survives a hide→show toggle
+  // instead of being flattened to all-0 then all-100.
+  const [hiddenLayerStash, setHiddenLayerStash] = useState<
+    Record<string, string>
+  >({});
   const stashKey = `${elementIdentityKey(element)}:${fillProperty}`;
   const isHidden = fillValue === "transparent" || fillValue === "";
   const handleFillVisibilityToggle = () => {
@@ -3664,16 +3729,50 @@ function FillProperties({
                       }
                       onClick={() => {
                         if (!gradient) return;
-                        replaceLayer(
-                          buildGradientLayer(
-                            gradient.type,
-                            gradient.stops.map((stop) => ({
-                              ...stop,
-                              opacity: opacity <= 0 ? 100 : 0,
-                            })),
-                            gradient.prefix,
-                          ),
-                        );
+                        const layerStashKey = `${elementIdentityKey(
+                          element,
+                        )}:layer:${index}`;
+                        if (opacity <= 0) {
+                          // Show: restore the exact pre-hide layer if stashed,
+                          // otherwise fall back to forcing every stop opaque.
+                          const stashed = hiddenLayerStash[layerStashKey];
+                          if (stashed !== undefined) {
+                            replaceLayer(stashed);
+                            setHiddenLayerStash((prev) => {
+                              const next = { ...prev };
+                              delete next[layerStashKey];
+                              return next;
+                            });
+                          } else {
+                            replaceLayer(
+                              buildGradientLayer(
+                                gradient.type,
+                                gradient.stops.map((stop) => ({
+                                  ...stop,
+                                  opacity: 100,
+                                })),
+                                gradient.prefix,
+                              ),
+                            );
+                          }
+                        } else {
+                          // Hide: stash the current layer (with its real per-stop
+                          // opacities) before zeroing every stop's alpha.
+                          setHiddenLayerStash((prev) => ({
+                            ...prev,
+                            [layerStashKey]: layer,
+                          }));
+                          replaceLayer(
+                            buildGradientLayer(
+                              gradient.type,
+                              gradient.stops.map((stop) => ({
+                                ...stop,
+                                opacity: 0,
+                              })),
+                              gradient.prefix,
+                            ),
+                          );
+                        }
                       }}
                     >
                       {opacity <= 0 ? (

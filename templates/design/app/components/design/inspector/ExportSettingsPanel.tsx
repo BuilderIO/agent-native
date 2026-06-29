@@ -57,6 +57,11 @@ const DEFAULT_LABELS: ExportSettingsPanelLabels = {
 
 const DEFAULT_FORMATS: ExportFormat[] = ["png", "jpg", "svg", "pdf", "webp"];
 
+// Export scale bounds — must match the clamp in DesignEditor's PNG/SVG export
+// handlers so the panel never promises a range the exporter won't render.
+const MIN_EXPORT_SCALE = 0.1;
+const MAX_EXPORT_SCALE = 4;
+
 /** Preset scale options shown in the scale dropdown — matches the design editor's presets */
 const SCALE_PRESETS: { label: string; value: ExportScale }[] = [
   { label: "0.5x", value: "0.5" },
@@ -297,13 +302,20 @@ function ExportRow({
           type="number"
           value={row.scale}
           disabled={isDisabled}
-          min={0.01}
-          max={100}
+          // Bounds match the exporter's real clamp ([0.1, 4]); see
+          // DesignEditor handleDownload* . Previously the field accepted up to
+          // 100x but the exporter silently clamped to 4x with no feedback.
+          min={MIN_EXPORT_SCALE}
+          max={MAX_EXPORT_SCALE}
           step={0.5}
           onChange={(e) => {
             const parsed = parseFloat(e.target.value);
             if (!Number.isNaN(parsed) && parsed > 0) {
-              onPatchRow(row.id, { scale: parsed });
+              const clamped = Math.min(
+                MAX_EXPORT_SCALE,
+                Math.max(MIN_EXPORT_SCALE, parsed),
+              );
+              onPatchRow(row.id, { scale: clamped });
             }
           }}
           onBlur={() => {
