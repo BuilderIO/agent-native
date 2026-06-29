@@ -35,6 +35,7 @@ import {
 import type { TweakDefinition } from "@shared/api";
 import {
   parseCanvasFrameGeometryById,
+  type CanvasFrameGeometry,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import {
@@ -2602,6 +2603,102 @@ function cloneCanvasFrameGeometry(
   );
 }
 
+function viewportSizeFromFrameGeometry(
+  geometry: CanvasFrameGeometry | undefined,
+) {
+  if (
+    typeof geometry?.width !== "number" ||
+    !Number.isFinite(geometry.width) ||
+    typeof geometry.height !== "number" ||
+    !Number.isFinite(geometry.height)
+  ) {
+    return null;
+  }
+  return {
+    width: Math.max(1, Math.round(geometry.width)),
+    height: Math.max(1, Math.round(geometry.height)),
+  };
+}
+
+function viewportChangedFrameIds(
+  before: CanvasFrameGeometryById,
+  after: CanvasFrameGeometryById,
+) {
+  const ids = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...ids].filter((frameId) => {
+    const beforeSize = viewportSizeFromFrameGeometry(before[frameId]);
+    const afterSize = viewportSizeFromFrameGeometry(after[frameId]);
+    if (!beforeSize || !afterSize) return false;
+    return (
+      beforeSize.width !== afterSize.width ||
+      beforeSize.height !== afterSize.height
+    );
+  });
+}
+
+function withSyncedScreenMetadataViewports(
+  data: Record<string, unknown>,
+  geometryById: CanvasFrameGeometryById,
+  frameIds: string[],
+): Record<string, unknown> {
+  const uniqueFrameIds = [...new Set(frameIds)];
+  if (uniqueFrameIds.length === 0) return data;
+
+  const previousMetadata = getDesignDataRecord(data, "screenMetadata");
+  const nextMetadata = { ...previousMetadata };
+  let metadataChanged = false;
+
+  for (const frameId of uniqueFrameIds) {
+    const viewport = viewportSizeFromFrameGeometry(geometryById[frameId]);
+    if (!viewport) continue;
+    const previousEntry = getDesignDataRecord(previousMetadata, frameId);
+    if (
+      previousEntry.width === viewport.width &&
+      previousEntry.height === viewport.height
+    ) {
+      continue;
+    }
+    nextMetadata[frameId] = {
+      ...previousEntry,
+      width: viewport.width,
+      height: viewport.height,
+    };
+    metadataChanged = true;
+  }
+
+  if (!metadataChanged) return data;
+
+  const nextData: Record<string, unknown> = {
+    ...data,
+    screenMetadata: nextMetadata,
+  };
+  const previousLocalhostScreens = getDesignDataRecord(
+    data,
+    "localhostScreens",
+  );
+  let localhostScreensChanged = false;
+  const nextLocalhostScreens = { ...previousLocalhostScreens };
+  for (const frameId of uniqueFrameIds) {
+    const previousEntry = getDesignDataRecord(
+      previousLocalhostScreens,
+      frameId,
+    );
+    if (Object.keys(previousEntry).length === 0) continue;
+    const viewport = viewportSizeFromFrameGeometry(geometryById[frameId]);
+    if (!viewport) continue;
+    nextLocalhostScreens[frameId] = {
+      ...previousEntry,
+      width: viewport.width,
+      height: viewport.height,
+    };
+    localhostScreensChanged = true;
+  }
+  if (localhostScreensChanged) {
+    nextData.localhostScreens = nextLocalhostScreens;
+  }
+  return nextData;
+}
+
 export default function DesignEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
@@ -3623,17 +3720,27 @@ export default function DesignEditor() {
   );
 
   const writeFrameGeometrySnapshot = useCallback(
-    (geometryById: CanvasFrameGeometryById) => {
+    (
+      geometryById: CanvasFrameGeometryById,
+      options?: { syncViewportFrameIds?: string[] },
+    ) => {
       if (!id || !canEditDesignRef.current) return;
       if (frameGeometrySaveTimerRef.current !== null) {
         window.clearTimeout(frameGeometrySaveTimerRef.current);
         frameGeometrySaveTimerRef.current = null;
       }
       const snapshot = cloneCanvasFrameGeometry(geometryById);
-      const nextData = {
+      const baseData = {
         ...designDataJsonRef.current,
         canvasFrames: snapshot,
       };
+      const nextData = options?.syncViewportFrameIds?.length
+        ? withSyncedScreenMetadataViewports(
+            baseData,
+            snapshot,
+            options.syncViewportFrameIds,
+          )
+        : baseData;
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
         if (!old || typeof old !== "object") return old;
         return { ...old, data: JSON.stringify(nextData) };
@@ -3675,9 +3782,18 @@ export default function DesignEditor() {
         "geometry",
       ];
       redoOrderRef.current = [];
+      const resizedFrameIds = viewportChangedFrameIds(
+        beforeSnapshot,
+        afterSnapshot,
+      );
+      if (resizedFrameIds.length > 0) {
+        writeFrameGeometrySnapshot(afterSnapshot, {
+          syncViewportFrameIds: resizedFrameIds,
+        });
+      }
       syncUndoRedoState();
     },
-    [syncUndoRedoState],
+    [syncUndoRedoState, writeFrameGeometrySnapshot],
   );
 
   generationOutputReadyRef.current = files.length > 0;
@@ -6187,7 +6303,12 @@ export default function DesignEditor() {
         ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "geometry",
       ];
-      writeFrameGeometrySnapshot(entry.before);
+      writeFrameGeometrySnapshot(entry.before, {
+        syncViewportFrameIds: viewportChangedFrameIds(
+          entry.after,
+          entry.before,
+        ),
+      });
       return true;
     };
 
@@ -6254,7 +6375,12 @@ export default function DesignEditor() {
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
         "geometry",
       ];
-      writeFrameGeometrySnapshot(entry.after);
+      writeFrameGeometrySnapshot(entry.after, {
+        syncViewportFrameIds: viewportChangedFrameIds(
+          entry.before,
+          entry.after,
+        ),
+      });
       return true;
     };
 
@@ -9153,24 +9279,26 @@ ${serializedHtml}
                           zoom={100}
                           deviceFrame="none"
                           embeddedFrame={{
-                            viewportWidth: Math.max(1, Math.round(geometry.width)),
+                            viewportWidth: Math.max(
+                              1,
+                              Math.round(geometry.width),
+                            ),
                             viewportHeight: Math.max(
                               1,
                               Math.round(geometry.height),
                             ),
-                            displayWidth: Math.max(1, Math.round(geometry.width)),
+                            displayWidth: Math.max(
+                              1,
+                              Math.round(geometry.width),
+                            ),
                             displayHeight: Math.max(
                               1,
                               Math.round(geometry.height),
                             ),
                             fluid: true,
                           }}
-                          editorChromeScaleX={
-                            overviewCanvasZoom / 100
-                          }
-                          editorChromeScaleY={
-                            overviewCanvasZoom / 100
-                          }
+                          editorChromeScaleX={overviewCanvasZoom / 100}
+                          editorChromeScaleY={overviewCanvasZoom / 100}
                           editMode={mode === "edit"}
                           interactMode={false}
                           readOnly={!canEditDesign}

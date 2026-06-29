@@ -81,6 +81,36 @@ function homeScreenCard(page: Page): Locator {
   return screenShell(page).locator("[data-screen-card]");
 }
 
+async function screenCardLayoutSize(shell: Locator): Promise<{
+  width: number;
+  height: number;
+}> {
+  return shell.locator("[data-screen-card]").evaluate((element) => ({
+    width: (element as HTMLElement).clientWidth,
+    height: (element as HTMLElement).clientHeight,
+  }));
+}
+
+async function screenIframeViewportSize(shell: Locator): Promise<{
+  width: number;
+  height: number;
+}> {
+  const iframe = shell.locator("iframe[data-design-preview-iframe]").first();
+  await expect(iframe).toBeVisible();
+  return iframe.evaluate((element) => ({
+    width: (element as HTMLIFrameElement).clientWidth,
+    height: (element as HTMLIFrameElement).clientHeight,
+  }));
+}
+
+function expectCloseToFrameSize(
+  viewport: { width: number; height: number },
+  frame: { width: number; height: number },
+) {
+  expect(Math.abs(viewport.width - frame.width)).toBeLessThanOrEqual(1);
+  expect(Math.abs(viewport.height - frame.height)).toBeLessThanOrEqual(1);
+}
+
 test("toolbar modes toggle the editor mode buttons", async ({ page }) => {
   await expect(toolButton(page, "Edit")).toHaveAttribute(
     "aria-pressed",
@@ -233,6 +263,8 @@ test("dragging the Home screen shell moves and resizes it", async ({
   if (!moved) throw new Error("no moved shell box");
   expect(moved.x).toBeGreaterThan(before.x + 20);
   expect(moved.y).toBeGreaterThan(before.y + 10);
+  const movedViewport = await screenIframeViewportSize(shell);
+  expectCloseToFrameSize(movedViewport, await screenCardLayoutSize(shell));
 
   const resizeHandle = page.locator('[data-resize-handle="se"]').last();
   const handleBox = await resizeHandle.boundingBox();
@@ -254,6 +286,10 @@ test("dragging the Home screen shell moves and resizes it", async ({
   if (!resized) throw new Error("no resized shell box");
   expect(resized.width).toBeGreaterThan(moved.width + 20);
   expect(resized.height).toBeGreaterThan(moved.height + 12);
+  const resizedViewport = await screenIframeViewportSize(shell);
+  expect(resizedViewport.width).toBeGreaterThan(movedViewport.width + 20);
+  expect(resizedViewport.height).toBeGreaterThan(movedViewport.height + 12);
+  expectCloseToFrameSize(resizedViewport, await screenCardLayoutSize(shell));
 
   await dragBetween(
     page,
