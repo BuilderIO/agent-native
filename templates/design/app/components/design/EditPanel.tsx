@@ -4,6 +4,7 @@ import {
   alphaToOpacity,
   parseCssColor,
   rgbaToCss,
+  rgbaToHex,
   withColorOpacity,
 } from "@shared/color-utils";
 import {
@@ -11,8 +12,13 @@ import {
   IconAlignJustified,
   IconAlignLeft,
   IconAlignRight,
+  IconArrowAutofitHeight,
+  IconArrowAutofitWidth,
+  IconBackground,
+  IconBlur,
   IconBorderStyle,
   IconBrush,
+  IconChevronDown,
   IconCode,
   IconComponents,
   IconDroplet,
@@ -39,6 +45,8 @@ import {
   IconPalette,
   IconPhoto,
   IconPlus,
+  IconShadow,
+  IconSquare,
   IconTypography,
   IconUnlink,
   IconVector,
@@ -46,6 +54,12 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -847,7 +861,7 @@ function PanelSection({
             {title}
           </h3>
         </button>
-        {actions ? (
+        {actions && !collapsed ? (
           <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
         ) : null}
       </div>
@@ -1540,9 +1554,27 @@ function SelectionHeader({ element }: { element: ElementInfo | null }) {
 
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-      <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
+      {/* M3 · Node-type label + rename/type dropdown affordance (▾) */}
+      <button
+        type="button"
+        className="flex min-w-0 items-center gap-1.5 bg-transparent text-left text-[13px] font-semibold text-foreground"
+      >
         <TypeIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">{title}</span>
+        <IconChevronDown className="size-2.5 shrink-0 text-muted-foreground" />
+      </button>
+      {/* M3 · Right-aligned quick actions: create-component + dev inspect (</>) */}
+      <div className="flex shrink-0 items-center gap-0.5">
+        <SectionIconButton
+          label={"Create component" /* i18n-ignore Figma inspector action */}
+        >
+          <IconComponents className="size-3.5" />
+        </SectionIconButton>
+        <SectionIconButton
+          label={"Inspect code" /* i18n-ignore Figma inspector action */}
+        >
+          <IconCode className="size-3.5" />
+        </SectionIconButton>
       </div>
     </div>
   );
@@ -2233,8 +2265,97 @@ function TypographyProperties({
   }));
   const textAlign = styles.textAlign || "left";
 
+  // M1 · Text resizing mode (auto-width / auto-height / fixed). Figma's text
+  // nodes always expose this segment. Infer the current mode from the live CSS:
+  // auto-width hugs both axes (width:auto + no wrapping), auto-height hugs the
+  // height only (fixed width, content wraps), fixed pins both width and height.
+  const widthIsAuto =
+    !styles.width || styles.width === "auto" || styles.width === "max-content";
+  const heightIsAuto = !styles.height || styles.height === "auto";
+  const noWrap = styles.whiteSpace === "nowrap";
+  const resizeMode: "auto-width" | "auto-height" | "fixed" =
+    widthIsAuto && noWrap
+      ? "auto-width"
+      : !heightIsAuto && !widthIsAuto
+        ? "fixed"
+        : "auto-height";
+  const currentWidth = styles.width && !widthIsAuto ? styles.width : "200px";
+  const currentHeight = styles.height && !heightIsAuto ? styles.height : "48px";
+  const setResizeMode = (mode: "auto-width" | "auto-height" | "fixed") => {
+    if (mode === "auto-width") {
+      onStyleChange("width", "auto");
+      onStyleChange("height", "auto");
+      onStyleChange("whiteSpace", "nowrap");
+    } else if (mode === "auto-height") {
+      onStyleChange("width", currentWidth);
+      onStyleChange("height", "auto");
+      onStyleChange("whiteSpace", "normal");
+    } else {
+      onStyleChange("width", currentWidth);
+      onStyleChange("height", currentHeight);
+      onStyleChange("whiteSpace", "normal");
+    }
+  };
+
+  // M2 · Vertical text alignment (top / middle / bottom). For auto-layout text
+  // containers (display:flex) Figma maps this to `justifyContent`; for normal
+  // text we fall back to `verticalAlign`, which is what an inline/grid text box
+  // honors. Read whichever the element currently expresses.
+  const display = (styles.display || "").toLowerCase();
+  const isFlexText = display.includes("flex");
+  const verticalAlign = isFlexText
+    ? styles.justifyContent === "center"
+      ? "middle"
+      : styles.justifyContent === "flex-end"
+        ? "bottom"
+        : "top"
+    : styles.verticalAlign === "middle"
+      ? "middle"
+      : styles.verticalAlign === "bottom"
+        ? "bottom"
+        : "top";
+  const setVerticalAlign = (mode: "top" | "middle" | "bottom") => {
+    if (isFlexText) {
+      onStyleChange(
+        "justifyContent",
+        mode === "middle"
+          ? "center"
+          : mode === "bottom"
+            ? "flex-end"
+            : "flex-start",
+      );
+    } else {
+      onStyleChange("verticalAlign", mode);
+    }
+  };
+
   return (
     <PanelSection title={t("editPanel.sections.typography")}>
+      {/* Row 0: text resizing (auto-width / auto-height / fixed) */}
+      <InspectorSegment>
+        <InspectorIconButton
+          label={"Auto width" /* i18n-ignore Figma text-resize mode */}
+          active={resizeMode === "auto-width"}
+          onClick={() => setResizeMode("auto-width")}
+        >
+          <IconArrowAutofitWidth className="size-3.5" />
+        </InspectorIconButton>
+        <InspectorIconButton
+          label={"Auto height" /* i18n-ignore Figma text-resize mode */}
+          active={resizeMode === "auto-height"}
+          onClick={() => setResizeMode("auto-height")}
+        >
+          <IconArrowAutofitHeight className="size-3.5" />
+        </InspectorIconButton>
+        <InspectorIconButton
+          label={"Fixed size" /* i18n-ignore Figma text-resize mode */}
+          active={resizeMode === "fixed"}
+          onClick={() => setResizeMode("fixed")}
+        >
+          <IconSquare className="size-3.5" />
+        </InspectorIconButton>
+      </InspectorSegment>
+
       {/* Row 1: font family full-width */}
       <Select
         value={styles.fontFamily || "sans-serif"}
@@ -2327,37 +2448,62 @@ function TypographyProperties({
         />
       </div>
 
-      {/* Row 4: text alignment */}
-      <InspectorSegment>
-        <InspectorIconButton
-          label={t("editPanel.textAligns.left")}
-          active={textAlign === "left" || textAlign === "start"}
-          onClick={() => onStyleChange("textAlign", "left")}
-        >
-          <IconAlignLeft className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={t("editPanel.textAligns.center")}
-          active={textAlign === "center"}
-          onClick={() => onStyleChange("textAlign", "center")}
-        >
-          <IconAlignCenter className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={t("editPanel.textAligns.right")}
-          active={textAlign === "right" || textAlign === "end"}
-          onClick={() => onStyleChange("textAlign", "right")}
-        >
-          <IconAlignRight className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={t("editPanel.textAligns.justify")}
-          active={textAlign === "justify"}
-          onClick={() => onStyleChange("textAlign", "justify")}
-        >
-          <IconAlignJustified className="size-3.5" />
-        </InspectorIconButton>
-      </InspectorSegment>
+      {/* Row 4: horizontal + vertical text alignment */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <InspectorSegment>
+          <InspectorIconButton
+            label={t("editPanel.textAligns.left")}
+            active={textAlign === "left" || textAlign === "start"}
+            onClick={() => onStyleChange("textAlign", "left")}
+          >
+            <IconAlignLeft className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={t("editPanel.textAligns.center")}
+            active={textAlign === "center"}
+            onClick={() => onStyleChange("textAlign", "center")}
+          >
+            <IconAlignCenter className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={t("editPanel.textAligns.right")}
+            active={textAlign === "right" || textAlign === "end"}
+            onClick={() => onStyleChange("textAlign", "right")}
+          >
+            <IconAlignRight className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={t("editPanel.textAligns.justify")}
+            active={textAlign === "justify"}
+            onClick={() => onStyleChange("textAlign", "justify")}
+          >
+            <IconAlignJustified className="size-3.5" />
+          </InspectorIconButton>
+        </InspectorSegment>
+        <InspectorSegment>
+          <InspectorIconButton
+            label={"Align top" /* i18n-ignore Figma vertical text align */}
+            active={verticalAlign === "top"}
+            onClick={() => setVerticalAlign("top")}
+          >
+            <IconLayoutAlignTop className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={"Align middle" /* i18n-ignore Figma vertical text align */}
+            active={verticalAlign === "middle"}
+            onClick={() => setVerticalAlign("middle")}
+          >
+            <IconLayoutAlignMiddle className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={"Align bottom" /* i18n-ignore Figma vertical text align */}
+            active={verticalAlign === "bottom"}
+            onClick={() => setVerticalAlign("bottom")}
+          >
+            <IconLayoutAlignBottom className="size-3.5" />
+          </InspectorIconButton>
+        </InspectorSegment>
+      </div>
     </PanelSection>
   );
 }
@@ -3559,28 +3705,65 @@ function EffectsProperties({
   const t = useT();
   const styles = element.computedStyles;
   const blurValue = readBlurFilter(styles.filter);
+  // M5 · Background (backdrop) blur is a distinct Figma effect type, backed by
+  // CSS `backdrop-filter: blur()` (vs layer blur's `filter: blur()`).
+  const backdropBlurValue = readBlurFilter(
+    styles.backdropFilter || styles.webkitBackdropFilter,
+  );
   const shadowLayers = parseShadowLayers(styles.boxShadow);
   const setShadowLayers = (layers: ShadowLayer[]) => {
     const boxShadow = serializeShadowLayers(layers);
     if (onStylesChange) onStylesChange({ boxShadow });
     else onStyleChange("boxShadow", boxShadow);
   };
+  const addDropShadow = () =>
+    setShadowLayers([
+      ...shadowLayers,
+      defaultDropShadowLayer(shadowLayers.length),
+    ]);
+  const addLayerBlur = () => onStyleChange("filter", "blur(4px)");
+  const addBackgroundBlur = () => onStyleChange("backdropFilter", "blur(8px)");
 
   return (
     <PanelSection
       title={t("editPanel.sections.effects")}
       actions={
-        <SectionIconButton
-          label={t("editPanel.labels.addLayer")}
-          onClick={() =>
-            setShadowLayers([
-              ...shadowLayers,
-              defaultDropShadowLayer(shadowLayers.length),
-            ])
-          }
-        >
-          <IconPlus className="size-3.5" />
-        </SectionIconButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              aria-label={t("editPanel.labels.addLayer")}
+            >
+              <IconPlus className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuItem
+              className="gap-2 text-[11px]"
+              onSelect={addDropShadow}
+            >
+              <IconShadow className="size-3.5" />
+              {t("editPanel.labels.dropShadow")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-2 text-[11px]"
+              onSelect={addLayerBlur}
+            >
+              <IconBlur className="size-3.5" />
+              {t("editPanel.labels.layerBlur")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-2 text-[11px]"
+              onSelect={addBackgroundBlur}
+            >
+              <IconBackground className="size-3.5" />
+              {"Background blur" /* i18n-ignore Figma effect type */}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       }
     >
       {shadowLayers.length ? (
@@ -3656,6 +3839,57 @@ function EffectsProperties({
           </PopoverContent>
         </Popover>
       ) : null}
+      {backdropBlurValue > 0 ? (
+        /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
+        <Popover>
+          <div className="flex items-center gap-1.5">
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                  {"Background blur" /* i18n-ignore Figma effect type */}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {Math.round(backdropBlurValue)}px
+                </span>
+              </button>
+            </PopoverTrigger>
+            <SectionIconButton
+              label={t("editPanel.labels.removeLayer")}
+              onClick={() => onStyleChange("backdropFilter", "none")}
+              disabled={
+                !styles.backdropFilter || styles.backdropFilter === "none"
+              }
+            >
+              <IconMinus className="size-3.5" />
+            </SectionIconButton>
+          </div>
+          <PopoverContent
+            side="left"
+            align="start"
+            sideOffset={8}
+            className="w-56 p-3"
+          >
+            <ScrubInput
+              label={t("editPanel.labels.blur")}
+              value={backdropBlurValue}
+              onChange={(value) =>
+                onStyleChange(
+                  "backdropFilter",
+                  `blur(${Math.max(0, Math.round(value))}px)`,
+                )
+              }
+              unit="px"
+              min={0}
+              precision={1}
+              labelClassName="w-16"
+              inputClassName="h-6"
+            />
+          </PopoverContent>
+        </Popover>
+      ) : null}
     </PanelSection>
   );
 }
@@ -3689,6 +3923,13 @@ function selectionColorValues(element: ElementInfo): SelectionColorValue[] {
     });
 }
 
+/** Uppercase 6-char hex (no #) for a CSS color, matching Figma's row readout. */
+function selectionDisplayHex(value: string): string {
+  const parsed = parseCssColor(value);
+  if (!parsed) return value.replace(/^#/, "").toUpperCase();
+  return rgbaToHex(parsed).replace(/^#/, "").toUpperCase();
+}
+
 function SelectionColorsProperties({
   element,
   onStyleChange,
@@ -3696,49 +3937,77 @@ function SelectionColorsProperties({
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
 }) {
+  // M6 · Figma's Selection colors collapses to a single "Show selection colors"
+  // affordance, expanding to one editable [swatch · hex · opacity] row per
+  // unique color — matching the Fill row grammar instead of a swatch strip.
+  const [expanded, setExpanded] = useState(false);
   const colors = selectionColorValues(element);
-  const overflowCount = Math.max(0, colors.length - 3);
   if (!colors.length) return null;
 
   return (
     <PanelSection
       title={"Selection colors" /* i18n-ignore Figma inspector label */}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        {colors.slice(0, 3).map((color, index) => (
-          <Popover key={`${color.value}-${index}`}>
-            <Tooltip>
-              <TooltipTrigger asChild>
+      {expanded ? (
+        <div className="space-y-1.5">
+          {colors.map((color, index) => {
+            const parsed = parseCssColor(color.value);
+            const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
+            return (
+              <Popover key={`${color.value}-${index}`}>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="size-5 rounded-sm border border-[var(--design-editor-control-border)] transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-                    style={swatchStyle(color.value)}
+                    className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
                     aria-label={color.value}
-                  />
+                  >
+                    <span
+                      className="size-4 shrink-0 rounded-[3px] border border-border/60"
+                      style={swatchStyle(color.value)}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
+                      {selectionDisplayHex(color.value)}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {opacity}%
+                    </span>
+                  </button>
                 </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{color.value}</TooltipContent>
-            </Tooltip>
-            <PopoverContent
-              side="left"
-              align="start"
-              sideOffset={8}
-              className="w-80 p-0"
-            >
-              <FigmaColorPicker
-                value={cssColorOrFallback(color.value, "#000000")}
-                onChange={(value) => onStyleChange(color.property, value)}
-              />
-            </PopoverContent>
-          </Popover>
-        ))}
-        {overflowCount > 0 ? (
-          <span className="pl-0.5 text-[11px] font-medium text-muted-foreground">
-            +{overflowCount}
+                <PopoverContent
+                  side="left"
+                  align="start"
+                  sideOffset={8}
+                  className="w-80 p-0"
+                >
+                  <FigmaColorPicker
+                    value={cssColorOrFallback(color.value, "#000000")}
+                    onChange={(value) => onStyleChange(color.property, value)}
+                  />
+                </PopoverContent>
+              </Popover>
+            );
+          })}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
+          onClick={() => setExpanded(true)}
+        >
+          <span className="truncate">
+            {"Show selection colors" /* i18n-ignore Figma inspector label */}
           </span>
-        ) : null}
-      </div>
+          <div className="flex shrink-0 items-center -space-x-1">
+            {colors.slice(0, 3).map((color, index) => (
+              <span
+                key={`${color.value}-${index}`}
+                className="size-3.5 rounded-sm border border-[var(--design-editor-panel-bg)]"
+                style={swatchStyle(color.value)}
+              />
+            ))}
+          </div>
+        </button>
+      )}
     </PanelSection>
   );
 }
