@@ -143,11 +143,18 @@ function toggleVPin(
 interface PinBoxProps {
   value: ConstraintsValue;
   disabled: boolean;
+  labels: Pick<ConstraintsWidgetLabels, "left" | "right" | "top" | "bottom">;
   onToggleH: (side: "left" | "right") => void;
   onToggleV: (side: "top" | "bottom") => void;
 }
 
-function PinBox({ value, disabled, onToggleH, onToggleV }: PinBoxProps) {
+function PinBox({
+  value,
+  disabled,
+  labels,
+  onToggleH,
+  onToggleV,
+}: PinBoxProps) {
   const leftOn = hPinActive("left", value.horizontal);
   const rightOn = hPinActive("right", value.horizontal);
   const topOn = vPinActive("top", value.vertical);
@@ -299,7 +306,7 @@ function PinBox({ value, disabled, onToggleH, onToggleV }: PinBoxProps) {
             className="cursor-pointer"
             onClick={() => onToggleH("left")}
             role="button"
-            aria-label="Toggle left pin"
+            aria-label={labels.left}
           />
           {/* right pin hit area */}
           <rect
@@ -311,7 +318,7 @@ function PinBox({ value, disabled, onToggleH, onToggleV }: PinBoxProps) {
             className="cursor-pointer"
             onClick={() => onToggleH("right")}
             role="button"
-            aria-label="Toggle right pin"
+            aria-label={labels.right}
           />
           {/* top pin hit area */}
           <rect
@@ -323,7 +330,7 @@ function PinBox({ value, disabled, onToggleH, onToggleV }: PinBoxProps) {
             className="cursor-pointer"
             onClick={() => onToggleV("top")}
             role="button"
-            aria-label="Toggle top pin"
+            aria-label={labels.top}
           />
           {/* bottom pin hit area */}
           <rect
@@ -335,7 +342,7 @@ function PinBox({ value, disabled, onToggleH, onToggleV }: PinBoxProps) {
             className="cursor-pointer"
             onClick={() => onToggleV("bottom")}
             role="button"
-            aria-label="Toggle bottom pin"
+            aria-label={labels.bottom}
           />
         </>
       )}
@@ -375,6 +382,7 @@ export function ConstraintsWidget({
         <PinBox
           value={value}
           disabled={disabled}
+          labels={copy}
           onToggleH={handleToggleH}
           onToggleV={handleToggleV}
         />

@@ -578,6 +578,37 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  @supports ((background-clip: text) or (-webkit-background-clip: text)) {
+    .agent-thinking-indicator__text {
+      color: transparent;
+      background: linear-gradient(
+        90deg,
+        hsl(var(--muted-foreground) / 0.7) 0%,
+        hsl(var(--muted-foreground) / 0.7) 36%,
+        hsl(var(--foreground) / 0.95) 50%,
+        hsl(var(--muted-foreground) / 0.78) 64%,
+        hsl(var(--muted-foreground) / 0.7) 100%
+      );
+      background-size: 14rem 100%;
+      background-position: 0 0;
+      background-repeat: repeat;
+      background-clip: text;
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      animation: agent-thinking-shine 2.6s linear infinite;
+    }
+  }
+
+  @keyframes agent-thinking-shine {
+    0% {
+      background-position: 0 0;
+    }
+
+    100% {
+      background-position: 14rem 0;
+    }
+  }
+
   @supports (view-transition-name: agent-native-chat) {
     .agent-native-chat-view-transition {
       contain: layout;

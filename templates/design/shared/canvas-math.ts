@@ -41,6 +41,45 @@ export interface FrameBounds {
   centerY: number;
 }
 
+export interface AssignedCanvasRegion extends FrameGeometry {
+  index: number;
+  row: number;
+  column: number;
+}
+
+export interface AssignRegionsOptions {
+  origin?: CanvasPoint;
+  regionSize?: CanvasSize;
+  gap?: number;
+  columns?: number;
+  maxColumns?: number;
+}
+
+export interface CanvasSnapOptions {
+  thresholdScreenPx?: number;
+  zoom: number;
+  bypass?: boolean;
+}
+
+export interface ResizeFrameOptions {
+  preserveAspectRatio?: boolean;
+  resizeFromCenter?: boolean;
+  minWidth?: number;
+  minHeight?: number;
+}
+
+export interface ResizeGroupResult {
+  bounds: FrameGeometry;
+  frames: FrameEntry[];
+}
+
+export interface DraftGeometryOptions {
+  minWidth?: number;
+  minHeight?: number;
+  defaultWidth?: number;
+  defaultHeight?: number;
+}
+
 export interface AlignmentGuide {
   orientation: "vertical" | "horizontal";
   position: number;
@@ -133,6 +172,10 @@ export const DEFAULT_ROTATION_SNAP_DEGREES = 15;
 export const DEFAULT_PIXEL_GRID_MIN_ZOOM = 800;
 export const MIN_CANVAS_FRAME_WIDTH = 120;
 export const MIN_CANVAS_FRAME_HEIGHT = 120;
+export const DEFAULT_ASSIGNED_REGION_WIDTH = 1440;
+export const DEFAULT_ASSIGNED_REGION_HEIGHT = 1024;
+export const DEFAULT_ASSIGNED_REGION_GAP = 320;
+export const DEFAULT_ASSIGNED_REGION_MAX_COLUMNS = 3;
 
 export function screenToCanvasPoint(
   point: CanvasPoint,
@@ -275,6 +318,52 @@ export function getFrameGroupBounds(
   });
 }
 
+export function assignRegions(
+  count: number,
+  options: AssignRegionsOptions = {},
+): AssignedCanvasRegion[] {
+  if (!Number.isFinite(count) || count <= 0) return [];
+
+  const total = Math.floor(count);
+  const origin = options.origin ?? { x: 0, y: 0 };
+  const width = getPositiveFiniteNumber(
+    options.regionSize?.width,
+    DEFAULT_ASSIGNED_REGION_WIDTH,
+  );
+  const height = getPositiveFiniteNumber(
+    options.regionSize?.height,
+    DEFAULT_ASSIGNED_REGION_HEIGHT,
+  );
+  const gap = Math.max(
+    0,
+    getFiniteNumber(options.gap, DEFAULT_ASSIGNED_REGION_GAP),
+  );
+  const maxColumns = getWholeNumberAtLeast(
+    options.maxColumns,
+    DEFAULT_ASSIGNED_REGION_MAX_COLUMNS,
+    1,
+  );
+  const requestedColumns =
+    options.columns == null
+      ? maxColumns
+      : getWholeNumberAtLeast(options.columns, maxColumns, 1);
+  const columns = Math.min(total, requestedColumns);
+
+  return Array.from({ length: total }, (_, index) => {
+    const row = Math.floor(index / columns);
+    const column = index % columns;
+    return {
+      index,
+      row,
+      column,
+      x: origin.x + column * (width + gap),
+      y: origin.y + row * (height + gap),
+      width,
+      height,
+    };
+  });
+}
+
 export function getCameraForBounds(
   bounds: FrameBounds | FrameGeometry | null,
   viewport: CanvasSize,
@@ -349,11 +438,55 @@ export function getNudgeDelta(
   };
 }
 
+export function getDraftGeometryFromPoints(
+  start: CanvasPoint,
+  end: CanvasPoint,
+  {
+    minWidth = 1,
+    minHeight = 1,
+    defaultWidth,
+    defaultHeight,
+  }: DraftGeometryOptions = {},
+): FrameGeometry {
+  const rawWidth = Math.abs(end.x - start.x);
+  const rawHeight = Math.abs(end.y - start.y);
+  const width = Math.max(rawWidth || defaultWidth || 0, minWidth);
+  const height = Math.max(rawHeight || defaultHeight || 0, minHeight);
+  const drawingLeft = end.x < start.x;
+  const drawingUp = end.y < start.y;
+
+  return {
+    x: drawingLeft ? start.x - width : start.x,
+    y: drawingUp ? start.y - height : start.y,
+    width,
+    height,
+  };
+}
+
+export function appendPolylinePoint(
+  points: readonly CanvasPoint[],
+  nextPoint: CanvasPoint,
+  minDistance = 4,
+): CanvasPoint[] {
+  const previous = points[points.length - 1];
+  if (!previous) return [nextPoint];
+  if (
+    Math.hypot(nextPoint.x - previous.x, nextPoint.y - previous.y) < minDistance
+  ) {
+    return [...points];
+  }
+  return [...points, nextPoint];
+}
+
 export function computeMoveSnap(
   moving: FrameEntry[],
   stationary: FrameEntry[],
-  options: { thresholdScreenPx?: number; zoom: number },
+  options: CanvasSnapOptions,
 ) {
+  if (options.bypass) {
+    return { dx: 0, dy: 0, guides: [] as AlignmentGuide[] };
+  }
+
   let bestX: SnapCandidate | null = null;
   let bestY: SnapCandidate | null = null;
   const threshold = getCanvasSnapThreshold(options);
@@ -398,29 +531,119 @@ export function resizeFrameFromDelta(
   handle: ResizeHandle,
   dx: number,
   dy: number,
+  options: ResizeFrameOptions = {},
 ) {
-  let next = { ...origin };
-  if (handleAffectsWest(handle)) {
-    next = { ...next, x: origin.x + dx, width: origin.width - dx };
+  const ratio = origin.width / Math.max(1, origin.height);
+  const affectsHorizontal =
+    handleAffectsWest(handle) || handleAffectsEast(handle);
+  const affectsVertical =
+    handleAffectsNorth(handle) || handleAffectsSouth(handle);
+  const horizontalDelta = handleAffectsWest(handle) ? -dx : dx;
+  const verticalDelta = handleAffectsNorth(handle) ? -dy : dy;
+  let width = affectsHorizontal
+    ? origin.width + horizontalDelta * (options.resizeFromCenter ? 2 : 1)
+    : origin.width;
+  let height = affectsVertical
+    ? origin.height + verticalDelta * (options.resizeFromCenter ? 2 : 1)
+    : origin.height;
+
+  if (options.preserveAspectRatio) {
+    if (affectsHorizontal && affectsVertical) {
+      const widthChange = Math.abs(width - origin.width);
+      const heightChange = Math.abs(height - origin.height);
+      if (widthChange >= heightChange) {
+        height = width / ratio;
+      } else {
+        width = height * ratio;
+      }
+    } else if (affectsHorizontal) {
+      height = width / ratio;
+    } else if (affectsVertical) {
+      width = height * ratio;
+    }
   }
-  if (handleAffectsEast(handle)) {
-    next = { ...next, width: origin.width + dx };
-  }
-  if (handleAffectsNorth(handle)) {
-    next = { ...next, y: origin.y + dy, height: origin.height - dy };
-  }
-  if (handleAffectsSouth(handle)) {
-    next = { ...next, height: origin.height + dy };
-  }
-  return clampFrameSize(next, handle);
+
+  width = Math.max(options.minWidth ?? MIN_CANVAS_FRAME_WIDTH, width);
+  height = Math.max(options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT, height);
+
+  return {
+    ...origin,
+    x: getResizedAxisStart(
+      origin.x,
+      origin.width,
+      width,
+      handleAffectsWest(handle),
+      handleAffectsEast(handle),
+      options.resizeFromCenter ||
+        (!affectsHorizontal && width !== origin.width),
+    ),
+    y: getResizedAxisStart(
+      origin.y,
+      origin.height,
+      height,
+      handleAffectsNorth(handle),
+      handleAffectsSouth(handle),
+      options.resizeFromCenter ||
+        (!affectsVertical && height !== origin.height),
+    ),
+    width,
+    height,
+  };
+}
+
+export function resizeFrameGroupFromDelta(
+  frames: FrameEntry[],
+  originBounds: FrameBounds | FrameGeometry,
+  handle: ResizeHandle,
+  dx: number,
+  dy: number,
+  options: ResizeFrameOptions = {},
+): ResizeGroupResult {
+  const originGeometry = getBoundsGeometry(originBounds);
+  const minimums = getGroupMinimumBounds(frames, originGeometry, options);
+  const bounds = resizeFrameFromDelta(originGeometry, handle, dx, dy, {
+    ...options,
+    minWidth: minimums.width,
+    minHeight: minimums.height,
+  });
+
+  return {
+    bounds,
+    frames: resizeFrameGroupToBounds(frames, originGeometry, bounds),
+  };
+}
+
+export function resizeFrameGroupToBounds(
+  frames: FrameEntry[],
+  originBounds: FrameBounds | FrameGeometry,
+  nextBounds: FrameBounds | FrameGeometry,
+): FrameEntry[] {
+  const originGeometry = getBoundsGeometry(originBounds);
+  const nextGeometry = getBoundsGeometry(nextBounds);
+  const scaleX = nextGeometry.width / Math.max(1, originGeometry.width);
+  const scaleY = nextGeometry.height / Math.max(1, originGeometry.height);
+
+  return frames.map((frame) => ({
+    id: frame.id,
+    geometry: {
+      x: nextGeometry.x + (frame.geometry.x - originGeometry.x) * scaleX,
+      y: nextGeometry.y + (frame.geometry.y - originGeometry.y) * scaleY,
+      width: frame.geometry.width * scaleX,
+      height: frame.geometry.height * scaleY,
+    },
+  }));
 }
 
 export function computeResizeSnap(
   frame: FrameGeometry,
   stationary: FrameEntry[],
   handle: ResizeHandle,
-  options: { thresholdScreenPx?: number; zoom: number },
+  options: CanvasSnapOptions,
 ) {
+  if (options.bypass) {
+    return { frame, guides: [] as AlignmentGuide[] };
+  }
+
   let nextFrame = frame;
   const guides: AlignmentGuide[] = [];
   const threshold = getCanvasSnapThreshold(options);
@@ -464,6 +687,50 @@ export function computeResizeSnap(
   }
 
   return { frame: nextFrame, guides };
+}
+
+function getResizedAxisStart(
+  originStart: number,
+  originSize: number,
+  nextSize: number,
+  affectsStart: boolean,
+  affectsEnd: boolean,
+  fromCenter: boolean,
+) {
+  if (fromCenter && (affectsStart || affectsEnd)) {
+    return originStart - (nextSize - originSize) / 2;
+  }
+  if (fromCenter) return originStart + (originSize - nextSize) / 2;
+  if (affectsStart) return originStart + originSize - nextSize;
+  return originStart;
+}
+
+function getGroupMinimumBounds(
+  frames: FrameEntry[],
+  originBounds: FrameGeometry,
+  options: ResizeFrameOptions,
+): CanvasSize {
+  const minimumFrameWidth = options.minWidth ?? MIN_CANVAS_FRAME_WIDTH;
+  const minimumFrameHeight = options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT;
+  const minimumWidth = frames.reduce(
+    (best, frame) =>
+      Math.max(
+        best,
+        originBounds.width *
+          (minimumFrameWidth / Math.max(1, frame.geometry.width)),
+      ),
+    minimumFrameWidth,
+  );
+  const minimumHeight = frames.reduce(
+    (best, frame) =>
+      Math.max(
+        best,
+        originBounds.height *
+          (minimumFrameHeight / Math.max(1, frame.geometry.height)),
+      ),
+    minimumFrameHeight,
+  );
+  return { width: minimumWidth, height: minimumHeight };
 }
 
 function getCanvasSnapThreshold({
@@ -757,6 +1024,29 @@ function getNudgeVector(key: ArrowNudgeKey): CanvasPoint {
 
 function getCameraScale(zoom: number): number {
   return Math.max(0.01, zoom / 100);
+}
+
+function getFiniteNumber(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function getPositiveFiniteNumber(
+  value: number | undefined,
+  fallback: number,
+): number {
+  const next = getFiniteNumber(value, fallback);
+  return next > 0 ? next : fallback;
+}
+
+function getWholeNumberAtLeast(
+  value: number | undefined,
+  fallback: number,
+  minimum: number,
+): number {
+  return Math.max(
+    minimum,
+    Math.floor(getPositiveFiniteNumber(value, fallback)),
+  );
 }
 
 function radiansToDegrees(radians: number): number {

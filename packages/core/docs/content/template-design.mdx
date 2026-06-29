@@ -348,6 +348,51 @@ The agent always knows what you have open. The current design, the open file, th
 
 Because a design is just standalone HTML/JSX files, the agent edits the same source the iframe renders and every export comes from — there is no separate "AI mockup" format to translate. A linked design system supplies tokens and `custom_instructions` the agent honors on every generation pass. Select text or a region in the preview and hit Cmd+I to focus the agent on exactly that part.
 
+### Editor model
+
+Design is overview-first for multi-screen work. After generation or broad
+updates, the editor opens the screen overview: an infinite canvas where each
+screen is a static frame you can select, move, resize, drop, or duplicate.
+Use a frame's full-view button when one screen needs focused scrolling or
+prototype interaction.
+
+Single-screen mode is for scrolling, interacting with prototype behavior, and
+editing the DOM/code layers inside one rendered file. The layers panel reflects
+that split: screens are top-level frames, with nested DOM/code layers for the
+active screen.
+
+For stable layer names, add `data-agent-native-layer-name` to meaningful
+elements. Design uses it before semantic/text fallbacks and can persist layer
+renames by editing that attribute. Inline HTML supports local code-layer edits
+for text, classes, styles, attributes, source order, and small structural
+changes; visual code-layer edits are HTML-only today. Localhost source mode can
+register and resolve local route artboards, but local file reads/writes remain a
+bridge contract until explicit permission controls are hardened.
+
+### Design editor extensions
+
+The editor includes an **Extensions** inspector tab after **Tweaks**. It works
+like a Design-specific plugin lane: users can click **+ Extension** to ask the
+agent to build an extension, or install an extension that declares the
+`design.editor.inspector` slot.
+
+Design extensions render inline beside the artboard through the standard
+extension sandbox. The host passes `window.slotContext` and
+`window.onSlotContext(...)` updates with the current `designId`, active file,
+screen list, selected screen ids, selected element metadata, view mode, zoom,
+active tool, and tweak values. That lets an extension show information about
+the current selection, offer style controls, or build compact workflows around
+the open design.
+
+For deterministic work, extensions can call app actions through the extension
+bridge. For AI-driven changes, have the extension call
+`agentNative.chat.send(...)` with the selected element selector/source id and
+requested change. The agent should call `view-screen` first, then use
+`apply-visual-edit` for element style, class, text, or move changes, or
+`update-design` / `generate-design` with `canvasFrames` for artboard placement
+changes. See [Extensions](/docs/extensions#what-an-extension-can-do) for the
+sandbox, persistent state, and bridge APIs.
+
 ### Customizing it
 
 Design is a complete, cloneable template. Some practical extension ideas:

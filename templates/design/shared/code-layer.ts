@@ -1,3 +1,5 @@
+import type { DesignSourceType } from "./source-mode";
+
 export type CodeLayerSourceKind =
   | "design-file"
   | "inline-html"
@@ -6,11 +8,16 @@ export type CodeLayerSourceKind =
 
 export interface CodeLayerSource {
   kind: CodeLayerSourceKind;
+  sourceType?: DesignSourceType;
   designId?: string;
   fileId?: string;
   filename?: string;
   path?: string;
   url?: string;
+  connectionId?: string;
+  routeId?: string;
+  artboardId?: string;
+  bridgeUrl?: string;
   revision?: string;
 }
 
@@ -28,12 +35,105 @@ export interface CodeLayerSourceSpan {
 export type VisualStyleProperty =
   | "width"
   | "height"
+  | "min-width"
+  | "max-width"
+  | "min-height"
+  | "max-height"
+  | "left"
+  | "top"
+  | "right"
+  | "bottom"
+  | "inset"
+  | "position"
+  | "display"
   | "color"
   | "background"
   | "background-color"
+  | "background-image"
+  | "background-blend-mode"
+  | "fill"
+  | "fill-opacity"
+  | "opacity"
+  | "mix-blend-mode"
+  | "font-size"
+  | "font-weight"
+  | "font-family"
+  | "font-style"
+  | "letter-spacing"
+  | "line-height"
+  | "text-align"
+  | "text-decoration"
+  | "text-transform"
+  | "white-space"
+  | "overflow"
+  | "overflow-x"
+  | "overflow-y"
+  | "text-overflow"
+  | "border"
+  | "border-width"
+  | "border-style"
+  | "border-color"
+  | "border-radius"
+  | "border-top-left-radius"
+  | "border-top-right-radius"
+  | "border-bottom-left-radius"
+  | "border-bottom-right-radius"
+  | "stroke"
+  | "stroke-width"
+  | "stroke-opacity"
+  | "stroke-dasharray"
+  | "stroke-linecap"
+  | "stroke-linejoin"
+  | "outline"
+  | "outline-width"
+  | "outline-style"
+  | "outline-color"
+  | "outline-offset"
+  | "box-shadow"
+  | "text-shadow"
+  | "filter"
+  | "backdrop-filter"
+  | "transform"
+  | "transform-origin"
+  | "rotate"
+  | "scale"
+  | "translate"
   | "padding"
+  | "padding-top"
+  | "padding-right"
+  | "padding-bottom"
+  | "padding-left"
+  | "margin"
+  | "margin-top"
+  | "margin-right"
+  | "margin-bottom"
+  | "margin-left"
   | "gap"
-  | "display";
+  | "row-gap"
+  | "column-gap"
+  | "flex"
+  | "flex-direction"
+  | "flex-wrap"
+  | "flex-grow"
+  | "flex-shrink"
+  | "flex-basis"
+  | "order"
+  | "align-self"
+  | "align-items"
+  | "align-content"
+  | "justify-content"
+  | "justify-items"
+  | "justify-self"
+  | "grid-column"
+  | "grid-row"
+  | "grid-template-columns"
+  | "grid-template-rows"
+  | "grid-auto-flow"
+  | "grid-auto-columns"
+  | "grid-auto-rows"
+  | "box-sizing"
+  | "aspect-ratio"
+  | "z-index";
 
 export interface StyleToken {
   property: VisualStyleProperty;
@@ -80,11 +180,20 @@ export type EditCapability =
       operations: Array<"setTextContent">;
       confidence: number;
       reason?: string;
+    }
+  | {
+      kind: "structure";
+      operations: Array<"moveNode">;
+      confidence: number;
+      reason?: string;
     };
 
 export interface CodeLayerNode {
   id: string;
   tag: string;
+  layerName: string;
+  layerNameSource: "attribute" | "semantic" | "text" | "selector" | "tag";
+  layerNameAttribute?: string;
   selector: string;
   selectors: string[];
   path: string;
@@ -116,6 +225,27 @@ export interface CodeLayerProjection {
   rootNodeIds: string[];
   nodes: CodeLayerNode[];
   diagnostics: ProjectionDiagnostic[];
+}
+
+export type CodeLayerTreeNodeType =
+  | "frame"
+  | "group"
+  | "component"
+  | "shape"
+  | "text"
+  | "image"
+  | "element";
+
+export interface CodeLayerTreeNode {
+  id: string;
+  name: string;
+  type: CodeLayerTreeNodeType;
+  tag: string;
+  selector: string;
+  detail: string;
+  badge?: string;
+  renamable: boolean;
+  children: CodeLayerTreeNode[];
 }
 
 export interface PreviewBridgeProjectionPayload {
@@ -173,9 +303,21 @@ export interface TextEditIntent {
   kind: "textContent";
   target: EditIntentTarget;
   value: string;
+  html?: string;
 }
 
-export type EditIntent = StyleEditIntent | ClassEditIntent | TextEditIntent;
+export interface MoveNodeEditIntent {
+  kind: "moveNode";
+  target: EditIntentTarget;
+  anchor: EditIntentTarget;
+  placement: "before" | "after" | "inside";
+}
+
+export type EditIntent =
+  | StyleEditIntent
+  | ClassEditIntent
+  | TextEditIntent
+  | MoveNodeEditIntent;
 
 export interface EditIntentResolution {
   status: "resolved" | "conflict" | "unsupported";
@@ -261,12 +403,105 @@ interface ProjectionBuild {
 const STYLE_PROPERTIES = [
   "width",
   "height",
+  "min-width",
+  "max-width",
+  "min-height",
+  "max-height",
+  "left",
+  "top",
+  "right",
+  "bottom",
+  "inset",
+  "position",
+  "display",
   "color",
   "background",
   "background-color",
+  "background-image",
+  "background-blend-mode",
+  "fill",
+  "fill-opacity",
+  "opacity",
+  "mix-blend-mode",
+  "font-size",
+  "font-weight",
+  "font-family",
+  "font-style",
+  "letter-spacing",
+  "line-height",
+  "text-align",
+  "text-decoration",
+  "text-transform",
+  "white-space",
+  "overflow",
+  "overflow-x",
+  "overflow-y",
+  "text-overflow",
+  "border",
+  "border-width",
+  "border-style",
+  "border-color",
+  "border-radius",
+  "border-top-left-radius",
+  "border-top-right-radius",
+  "border-bottom-left-radius",
+  "border-bottom-right-radius",
+  "stroke",
+  "stroke-width",
+  "stroke-opacity",
+  "stroke-dasharray",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "outline",
+  "outline-width",
+  "outline-style",
+  "outline-color",
+  "outline-offset",
+  "box-shadow",
+  "text-shadow",
+  "filter",
+  "backdrop-filter",
+  "transform",
+  "transform-origin",
+  "rotate",
+  "scale",
+  "translate",
   "padding",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
   "gap",
-  "display",
+  "row-gap",
+  "column-gap",
+  "flex",
+  "flex-direction",
+  "flex-wrap",
+  "flex-grow",
+  "flex-shrink",
+  "flex-basis",
+  "order",
+  "align-self",
+  "align-items",
+  "align-content",
+  "justify-content",
+  "justify-items",
+  "justify-self",
+  "grid-column",
+  "grid-row",
+  "grid-template-columns",
+  "grid-template-rows",
+  "grid-auto-flow",
+  "grid-auto-columns",
+  "grid-auto-rows",
+  "box-sizing",
+  "aspect-ratio",
+  "z-index",
 ] as const satisfies readonly VisualStyleProperty[];
 
 const STYLE_PROPERTY_SET = new Set<string>(STYLE_PROPERTIES);
@@ -274,6 +509,11 @@ const STYLE_PROPERTY_SET = new Set<string>(STYLE_PROPERTIES);
 const STYLE_PROPERTY_ALIASES: Record<string, VisualStyleProperty> = {
   backgroundColor: "background-color",
   bg: "background",
+  cornerRadius: "border-radius",
+  dropShadow: "box-shadow",
+  radius: "border-radius",
+  rotation: "rotate",
+  shadow: "box-shadow",
 };
 
 const VOID_TAGS = new Set([
@@ -294,6 +534,7 @@ const VOID_TAGS = new Set([
 ]);
 
 const NON_VISUAL_TAGS = new Set([
+  "head",
   "script",
   "style",
   "meta",
@@ -304,14 +545,70 @@ const NON_VISUAL_TAGS = new Set([
 ]);
 
 const DATA_SELECTOR_PRIORITY = [
+  "data-agent-native-node-id",
   "data-code-layer-id",
   "data-layer-id",
+  "data-builder-id",
+  "data-loc",
   "data-testid",
   "data-test-id",
   "data-component",
   "data-name",
   "data-screen",
 ];
+
+const STABLE_NODE_ID_ATTRIBUTES = [
+  "data-agent-native-node-id",
+  "data-code-layer-id",
+  "data-layer-id",
+  "data-builder-id",
+  "data-loc",
+] as const;
+
+const LAYER_NAME_ATTRIBUTE_PRIORITY = [
+  "data-agent-native-layer-name",
+  "data-layer-name",
+] as const;
+
+const SEMANTIC_LABEL_ATTRIBUTE_PRIORITY = [
+  "aria-label",
+  "title",
+  "data-code-layer-id",
+  "data-layer-id",
+  "data-name",
+  "data-component",
+  "data-screen",
+  "data-testid",
+  "data-test-id",
+] as const;
+
+const TEXT_LAYER_TAGS = new Set([
+  "a",
+  "button",
+  "em",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "label",
+  "li",
+  "p",
+  "span",
+  "strong",
+]);
+
+const IMAGE_LAYER_TAGS = new Set(["canvas", "figure", "img", "picture"]);
+const SHAPE_LAYER_TAGS = new Set([
+  "circle",
+  "line",
+  "path",
+  "polygon",
+  "rect",
+  "svg",
+]);
+const COMPONENT_LAYER_TAGS = new Set(["button", "input", "select", "textarea"]);
 
 function hashStable(value: string): string {
   let hash = 0x811c9dc5;
@@ -320,6 +617,17 @@ function hashStable(value: string): string {
     hash = Math.imul(hash, 0x01000193);
   }
   return (hash >>> 0).toString(36);
+}
+
+function stableAttributeValueForNode(node: CodeLayerNode): string {
+  const basis = [
+    node.id,
+    node.tag,
+    node.path,
+    node.source?.openStart ?? 0,
+    node.source?.openEnd ?? 0,
+  ].join(":");
+  return `an-${hashStable(basis)}`;
 }
 
 function collapseWhitespace(value: string): string {
@@ -333,6 +641,17 @@ function cssEscape(value: string): string {
 function cssIdent(value: string): string | null {
   if (/^-?[A-Za-z_][A-Za-z0-9_-]*$/.test(value)) return value;
   return null;
+}
+
+function unquoteHtmlAttributeValue(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 function escapeHtmlAttribute(value: string): string {
@@ -360,6 +679,22 @@ function decodeBasicHtmlEntities(value: string): string {
     .replace(/&#39;/g, "'");
 }
 
+function truncateLayerName(value: string): string {
+  const normalized = collapseWhitespace(decodeBasicHtmlEntities(value));
+  if (normalized.length <= 72) return normalized;
+  return `${normalized.slice(0, 69)}...`;
+}
+
+function prettifyIdentifier(value: string): string {
+  return collapseWhitespace(
+    value
+      .replace(/[_-]+/g, " ")
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .toLowerCase()
+      .replace(/\b\w/g, (char) => char.toUpperCase()),
+  );
+}
+
 function stripTags(value: string): string {
   return value.replace(/<[^>]*>/g, " ");
 }
@@ -377,6 +712,103 @@ function attributeValue(element: ParsedElement, name: string): string | null {
   if (typeof value === "string") return value;
   if (value === true) return "";
   return null;
+}
+
+function explicitLayerNameFor(element: ParsedElement): {
+  name: string;
+  source: CodeLayerNode["layerNameSource"];
+  attribute?: string;
+} | null {
+  for (const attribute of LAYER_NAME_ATTRIBUTE_PRIORITY) {
+    const value = attributeValue(element, attribute);
+    if (value) {
+      const name = truncateLayerName(value);
+      if (name) return { name, source: "attribute", attribute };
+    }
+  }
+  return null;
+}
+
+function semanticLayerNameFor(element: ParsedElement): {
+  name: string;
+  source: CodeLayerNode["layerNameSource"];
+  attribute?: string;
+} | null {
+  for (const attribute of SEMANTIC_LABEL_ATTRIBUTE_PRIORITY) {
+    const value = attributeValue(element, attribute);
+    if (value) {
+      const name =
+        attribute === "aria-label" || attribute === "title"
+          ? truncateLayerName(value)
+          : prettifyIdentifier(value);
+      if (name) return { name, source: "semantic", attribute };
+    }
+  }
+
+  const id = attributeValue(element, "id");
+  if (id) {
+    return {
+      name: prettifyIdentifier(id),
+      source: "selector",
+      attribute: "id",
+    };
+  }
+
+  const meaningfulClass = classList(element).find(
+    (token) =>
+      !/^(flex|grid|block|inline|hidden|relative|absolute|fixed|sticky)$/.test(
+        token,
+      ) &&
+      !/^(sm|md|lg|xl|2xl):/.test(token) &&
+      !/^(p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|w|h|min|max|text|bg|border|rounded|shadow|gap)-/.test(
+        token,
+      ),
+  );
+  if (meaningfulClass) {
+    return { name: prettifyIdentifier(meaningfulClass), source: "selector" };
+  }
+
+  return null;
+}
+
+function fallbackTagLayerName(tag: string): string {
+  switch (tag) {
+    case "article":
+      return "Article";
+    case "aside":
+      return "Aside";
+    case "body":
+      return "Body";
+    case "button":
+      return "Button";
+    case "div":
+      return "Frame";
+    case "footer":
+      return "Footer";
+    case "form":
+      return "Form";
+    case "header":
+      return "Header";
+    case "img":
+    case "picture":
+      return "Image";
+    case "main":
+      return "Main";
+    case "nav":
+      return "Navigation";
+    case "section":
+      return "Section";
+    case "svg":
+      return "Vector";
+    case "ul":
+    case "ol":
+      return "List";
+    case "li":
+      return "List item";
+    default:
+      if (TEXT_LAYER_TAGS.has(tag)) return "Text";
+      return tag.toUpperCase();
+  }
 }
 
 function attributeRecord(
@@ -518,16 +950,37 @@ function parseAttributes(rawTag: string, tagStart: number): ParsedAttribute[] {
   return attrs;
 }
 
+function findHtmlTagEnd(html: string, start: number): number {
+  let quote: '"' | "'" | null = null;
+  for (let index = start; index < html.length; index += 1) {
+    const char = html[index];
+    if (quote) {
+      if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
+    if (char === ">") return index + 1;
+  }
+  return html.length;
+}
+
 function parseHtmlElements(html: string): ParsedElement[] {
   const elements: ParsedElement[] = [];
   const stack: number[] = [];
   const sameTypeCounts = new Map<string, number>();
   const tagRe =
-    /<!--[\s\S]*?-->|<![A-Za-z][^>]*>|<\/?\s*([A-Za-z][A-Za-z0-9:-]*)(?:\s[^<>]*?)?>/g;
+    /<!--[\s\S]*?-->|<![A-Za-z][^>]*>|<\/?\s*([A-Za-z][A-Za-z0-9:-]*)\b/g;
   let match: RegExpExecArray | null;
 
   while ((match = tagRe.exec(html))) {
-    const raw = match[0];
+    const raw =
+      match[0].startsWith("<!--") || match[0].startsWith("<!")
+        ? match[0]
+        : html.slice(match.index, findHtmlTagEnd(html, match.index));
+    tagRe.lastIndex = match.index + raw.length;
     const tag = match[1]?.toLowerCase();
     if (!tag || raw.startsWith("<!--") || raw.startsWith("<!")) continue;
 
@@ -603,12 +1056,12 @@ function candidateDataSelector(
 }
 
 function selectorPart(element: ParsedElement): string {
+  const dataSelector = candidateDataSelector(element);
+  if (dataSelector) return `${element.tag}${dataSelector.selector}`;
+
   const id = attributeValue(element, "id");
   const escapedId = id ? cssIdent(id) : null;
   if (escapedId) return `#${escapedId}`;
-
-  const dataSelector = candidateDataSelector(element);
-  if (dataSelector) return `${element.tag}${dataSelector.selector}`;
 
   const safeClasses = classList(element)
     .map(cssIdent)
@@ -639,12 +1092,12 @@ function primarySelector(
   element: ParsedElement,
   elements: ParsedElement[],
 ): { selector: string; confidence: number } {
+  const dataSelector = candidateDataSelector(element);
+  if (dataSelector) return dataSelector;
+
   const id = attributeValue(element, "id");
   const escapedId = id ? cssIdent(id) : null;
   if (escapedId) return { selector: `#${escapedId}`, confidence: 0.96 };
-
-  const dataSelector = candidateDataSelector(element);
-  if (dataSelector) return dataSelector;
 
   const safeClasses = classList(element)
     .map(cssIdent)
@@ -671,16 +1124,22 @@ function nodeIdFor(
     source.path ??
     source.url ??
     source.kind;
-  const id = attributeValue(element, "id");
-  if (id) return `html:${hashStable(`${sourceKey}:id:${id}`)}`;
-  const codeLayerId =
-    attributeValue(element, "data-code-layer-id") ??
-    attributeValue(element, "data-layer-id");
+  const codeLayerId = stableSourceIdForElement(element);
   if (codeLayerId) {
     return `html:${hashStable(`${sourceKey}:data:${codeLayerId}`)}`;
   }
+  const id = attributeValue(element, "id");
+  if (id) return `html:${hashStable(`${sourceKey}:id:${id}`)}`;
   const path = pathSelector(element, elements);
   return `html:${hashStable(`${sourceKey}:${path}:${element.start}`)}`;
+}
+
+function stableSourceIdForElement(element: ParsedElement): string | null {
+  for (const attribute of STABLE_NODE_ID_ATTRIBUTES) {
+    const value = attributeValue(element, attribute);
+    if (value) return value;
+  }
+  return null;
 }
 
 function styleTokensFor(element: ParsedElement): StyleToken[] {
@@ -859,6 +1318,45 @@ function textSnippetFor(html: string, element: ParsedElement): string | null {
   return text.length > 160 ? `${text.slice(0, 157)}...` : text;
 }
 
+function layerNameFor(
+  html: string,
+  element: ParsedElement,
+): {
+  name: string;
+  source: CodeLayerNode["layerNameSource"];
+  attribute?: string;
+} {
+  const explicit = explicitLayerNameFor(element);
+  if (explicit) return explicit;
+
+  const semantic = semanticLayerNameFor(element);
+  if (semantic) return semantic;
+
+  if (TEXT_LAYER_TAGS.has(element.tag)) {
+    const text = textSnippetFor(html, element);
+    if (text) return { name: truncateLayerName(text), source: "text" };
+  }
+
+  return { name: fallbackTagLayerName(element.tag), source: "tag" };
+}
+
+function treeTypeForNode(node: CodeLayerNode): CodeLayerTreeNodeType {
+  if (TEXT_LAYER_TAGS.has(node.tag)) return "text";
+  if (IMAGE_LAYER_TAGS.has(node.tag)) return "image";
+  if (SHAPE_LAYER_TAGS.has(node.tag)) return "shape";
+  if (
+    COMPONENT_LAYER_TAGS.has(node.tag) ||
+    node.classes.some((item) => /component|card|button|control/.test(item))
+  ) {
+    return "component";
+  }
+  if (node.layout.isFlexContainer || node.layout.isGridContainer) {
+    return "frame";
+  }
+  if (node.children.length > 0) return "group";
+  return "element";
+}
+
 function capabilitiesFor(element: ParsedElement): EditCapability[] {
   const capabilities: EditCapability[] = [
     {
@@ -922,6 +1420,7 @@ function buildProjection(
     const classes = classList(element);
     const style = parseStyle(attributeValue(element, "style"));
     const dataAttributes = dataAttributeRecord(element);
+    const layerName = layerNameFor(html, element);
     const selectors = Array.from(
       new Set([
         selector.selector,
@@ -935,6 +1434,9 @@ function buildProjection(
     nodes.push({
       id: nodeId,
       tag: element.tag,
+      layerName: layerName.name,
+      layerNameSource: layerName.source,
+      layerNameAttribute: layerName.attribute,
       selector: selector.selector,
       selectors,
       path,
@@ -1002,11 +1504,179 @@ export function buildCodeLayerProjection(
     .projection;
 }
 
-function selectorMatches(node: CodeLayerNode, selector: string): boolean {
-  if (node.selector === selector || node.selectors.includes(selector))
-    return true;
+export function ensureCodeLayerNodeIdsInHtml(
+  html: string,
+  options: { source?: CodeLayerSource } = {},
+): { content: string; changed: boolean; stamped: number } {
+  const projection = buildCodeLayerProjection(html, options);
+  const usedIds = new Set<string>();
+  const edits: Array<{ start: number; end: number; value: string }> = [];
+
+  const uniqueValueFor = (base: string) => {
+    let value = base;
+    let suffix = 1;
+    while (usedIds.has(value)) {
+      value = `an-${hashStable(`${base}:${suffix}`)}`;
+      suffix += 1;
+    }
+    usedIds.add(value);
+    return value;
+  };
+
+  for (const node of projection.nodes) {
+    if (
+      !node.source ||
+      node.source.openEnd <= node.source.openStart ||
+      !node.source
+    ) {
+      continue;
+    }
+    const source = node.source;
+    const existing = node.dataAttributes["data-agent-native-node-id"]?.trim();
+    const openTag = html.slice(source.openStart, source.openEnd);
+    const stableIdMatches = Array.from(
+      openTag.matchAll(
+        /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi,
+      ),
+    );
+    const hasSingleCleanStableId =
+      existing && stableIdMatches.length === 1 && !usedIds.has(existing);
+    if (hasSingleCleanStableId) {
+      usedIds.add(existing);
+      continue;
+    }
+
+    const nextValue = uniqueValueFor(
+      existing
+        ? `an-${hashStable(
+            `${existing}:${node.id}:${source.openStart}:${source.openEnd}`,
+          )}`
+        : stableAttributeValueForNode(node),
+    );
+    if (stableIdMatches.length > 0) {
+      const [firstMatch, ...duplicateMatches] = stableIdMatches;
+      if (!firstMatch || firstMatch.index === undefined) continue;
+      edits.push({
+        start: source.openStart + firstMatch.index,
+        end: source.openStart + firstMatch.index + firstMatch[0].length,
+        value: ` data-agent-native-node-id="${escapeHtmlAttribute(nextValue)}"`,
+      });
+      for (const duplicate of duplicateMatches) {
+        if (duplicate.index === undefined) continue;
+        edits.push({
+          start: source.openStart + duplicate.index,
+          end: source.openStart + duplicate.index + duplicate[0].length,
+          value: "",
+        });
+      }
+      continue;
+    }
+
+    const insertAt = source.openEnd - (openTag.endsWith("/>") ? 2 : 1);
+    if (insertAt <= 0 || insertAt > html.length) continue;
+    edits.push({
+      start: insertAt,
+      end: insertAt,
+      value: ` data-agent-native-node-id="${escapeHtmlAttribute(nextValue)}"`,
+    });
+  }
+
+  const orderedEdits = edits.sort((a, b) => b.start - a.start);
+
+  if (orderedEdits.length === 0) {
+    return { content: html, changed: false, stamped: 0 };
+  }
+
+  let content = html;
+  for (const edit of orderedEdits) {
+    content = `${content.slice(0, edit.start)}${edit.value}${content.slice(edit.end)}`;
+  }
+  return { content, changed: true, stamped: orderedEdits.length };
+}
+
+export function removeCodeLayerNodeFromHtml(
+  html: string,
+  node: CodeLayerNode,
+): string | null {
+  if (!node.source) return null;
+  if (node.tag === "html" || node.tag === "body") return null;
+  const start = node.source.start;
+  const end = node.source.end;
+  if (start < 0 || end <= start || end > html.length) return null;
+  return `${html.slice(0, start)}${html.slice(end)}`;
+}
+
+export function buildCodeLayerTree(
+  projection: CodeLayerProjection,
+): CodeLayerTreeNode[] {
+  const nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+  const treeById = new Map<string, CodeLayerTreeNode>();
+
+  for (const node of projection.nodes) {
+    treeById.set(node.id, {
+      id: node.id,
+      name: node.layerName,
+      type: treeTypeForNode(node),
+      tag: node.tag,
+      selector: node.selector,
+      detail: `<${node.tag}>`,
+      badge:
+        node.layerNameSource === "attribute" && node.layerNameAttribute
+          ? node.layerNameAttribute
+          : undefined,
+      // Safe rename persistence belongs in the caller's edit action. The
+      // preferred write target is data-agent-native-layer-name; projection is
+      // intentionally read-only and never mutates source by itself.
+      renamable: node.source != null,
+      children: [],
+    });
+  }
+
+  for (const node of projection.nodes) {
+    const parent =
+      node.parentId && nodesById.has(node.parentId)
+        ? treeById.get(node.parentId)
+        : undefined;
+    const treeNode = treeById.get(node.id);
+    if (parent && treeNode) parent.children.push(treeNode);
+  }
+
+  const roots = projection.rootNodeIds
+    .map((id) => treeById.get(id))
+    .filter((node): node is CodeLayerTreeNode => Boolean(node));
+  const rootIds = new Set(roots.map((node) => node.id));
+  for (const node of projection.nodes) {
+    if (!node.parentId && !rootIds.has(node.id)) {
+      const treeNode = treeById.get(node.id);
+      if (treeNode) roots.push(treeNode);
+    }
+  }
+  return roots;
+}
+
+function normalizeSelectorForMatch(selector: string): string {
+  return selector
+    .trim()
+    .replace(/\s*>\s*/g, " > ")
+    .replace(/\s+/g, " ");
+}
+
+function lastSelectorPart(selector: string): string {
+  const parts = normalizeSelectorForMatch(selector).split(" > ");
+  return parts[parts.length - 1] ?? selector;
+}
+
+function simpleSelectorMatches(node: CodeLayerNode, selector: string): boolean {
+  if (!selector) return false;
   if (selector.startsWith("#")) {
     return node.attributes.id === selector.slice(1);
+  }
+  const tagIdMatch = selector.match(/^([A-Za-z][A-Za-z0-9:-]*)#(.+)$/);
+  if (tagIdMatch?.[1]) {
+    return (
+      node.tag === tagIdMatch[1].toLowerCase() &&
+      node.attributes.id === tagIdMatch[2]
+    );
   }
   if (selector.startsWith(".")) {
     const required = selector
@@ -1016,11 +1686,16 @@ function selectorMatches(node: CodeLayerNode, selector: string): boolean {
     return required.every((item) => node.classes.includes(item));
   }
   const dataMatch = selector.match(
-    /^\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"([^"]*)"|'([^']*)')\]$/,
+    /^(?:([A-Za-z][A-Za-z0-9:-]*)?)?\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"([^"]*)"|'([^']*)')\]$/,
   );
-  if (dataMatch?.[1]) {
-    const expected = dataMatch[2] ?? dataMatch[3] ?? "";
-    return node.dataAttributes[dataMatch[1].toLowerCase()] === expected;
+  if (dataMatch?.[2]) {
+    const tag = dataMatch[1]?.toLowerCase();
+    const attribute = dataMatch[2].toLowerCase();
+    const expected = dataMatch[3] ?? dataMatch[4] ?? "";
+    const actual = attribute.startsWith("data-")
+      ? node.dataAttributes[attribute]
+      : node.attributes[attribute];
+    return (!tag || node.tag === tag) && actual === expected;
   }
   const tagClassMatch = selector.match(
     /^([A-Za-z][A-Za-z0-9:-]*)(\.[A-Za-z0-9_-]+)+$/,
@@ -1032,7 +1707,53 @@ function selectorMatches(node: CodeLayerNode, selector: string): boolean {
       node.tag === tag && required.every((item) => node.classes.includes(item))
     );
   }
+  const nthMatch = selector.match(
+    /^([A-Za-z][A-Za-z0-9:-]*)(?::nth-of-type\((\d+)\))$/,
+  );
+  if (nthMatch?.[1]) {
+    return (
+      node.tag === nthMatch[1].toLowerCase() &&
+      lastSelectorPart(node.path).endsWith(`:nth-of-type(${nthMatch[2]})`)
+    );
+  }
   return node.tag === selector.toLowerCase();
+}
+
+function nodeMatchesStableSourceId(
+  node: CodeLayerNode,
+  sourceId: string,
+): boolean {
+  if (!sourceId) return false;
+  if (node.id === sourceId) return true;
+  for (const attribute of STABLE_NODE_ID_ATTRIBUTES) {
+    if (node.dataAttributes[attribute] === sourceId) return true;
+  }
+  return node.attributes.id === sourceId;
+}
+
+function selectorMatches(node: CodeLayerNode, selector: string): boolean {
+  const normalizedSelector = normalizeSelectorForMatch(selector);
+  const normalizedNodeSelectors = [
+    node.selector,
+    node.path,
+    ...node.selectors,
+  ].map(normalizeSelectorForMatch);
+  if (normalizedNodeSelectors.includes(normalizedSelector)) return true;
+  if (
+    normalizedSelector.includes(" > ") &&
+    normalizedNodeSelectors.some(
+      (candidate) =>
+        candidate.endsWith(` > ${normalizedSelector}`) ||
+        normalizedSelector.endsWith(` > ${candidate}`),
+    )
+  ) {
+    return true;
+  }
+  if (simpleSelectorMatches(node, normalizedSelector)) return true;
+  const lastPart = lastSelectorPart(normalizedSelector);
+  return (
+    lastPart !== normalizedSelector && simpleSelectorMatches(node, lastPart)
+  );
 }
 
 function resolveTarget(
@@ -1040,14 +1761,24 @@ function resolveTarget(
   target: EditIntentTarget,
 ): EditIntentResolution {
   if (target.nodeId) {
-    const node = projection.nodes.find(
-      (candidate) => candidate.id === target.nodeId,
+    const matches = projection.nodes.filter((candidate) =>
+      nodeMatchesStableSourceId(candidate, target.nodeId ?? ""),
     );
-    if (node) return { status: "resolved", node };
-    return {
-      status: "conflict",
-      message: `No code layer node exists for nodeId "${target.nodeId}".`,
-    };
+    if (matches.length === 1 && matches[0]) {
+      return { status: "resolved", node: matches[0] };
+    }
+    if (matches.length > 1) {
+      return {
+        status: "conflict",
+        message: `Node id "${target.nodeId}" matched ${matches.length} code layer nodes.`,
+      };
+    }
+    if (!target.selector) {
+      return {
+        status: "conflict",
+        message: `No code layer node exists for nodeId "${target.nodeId}".`,
+      };
+    }
   }
 
   if (!target.selector) {
@@ -1237,6 +1968,23 @@ function applyClassEdit(
   };
 }
 
+function sanitizeTextEditHtml(html: string): string {
+  return html
+    .replace(
+      /<\s*(script|style|iframe|object|embed|link|meta|base)\b[\s\S]*?<\s*\/\s*\1\s*>/gi,
+      "",
+    )
+    .replace(
+      /<\s*(script|style|iframe|object|embed|link|meta|base)\b[^>]*\/?\s*>/gi,
+      "",
+    )
+    .replace(/\s+on[A-Za-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g, "")
+    .replace(
+      /\s+(href|src|xlink:href)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi,
+      "",
+    );
+}
+
 function applyTextEdit(
   html: string,
   element: ParsedElement,
@@ -1245,13 +1993,59 @@ function applyTextEdit(
   if (element.selfClosing || element.contentStart > element.contentEnd) {
     return "unsupported";
   }
-  if (element.childIndexes.length > 0) return "needsAgent";
+  if (element.childIndexes.length > 0 && intent.html === undefined) {
+    return "needsAgent";
+  }
+  const replacement =
+    intent.html !== undefined
+      ? sanitizeTextEditHtml(intent.html)
+      : escapeHtmlText(intent.value);
   return {
-    content: `${html.slice(0, element.contentStart)}${escapeHtmlText(intent.value)}${html.slice(element.contentEnd)}`,
+    content: `${html.slice(0, element.contentStart)}${replacement}${html.slice(element.contentEnd)}`,
     capability: {
       kind: "text",
       operations: ["setTextContent"],
       confidence: 0.82,
+    },
+  };
+}
+
+function applyMoveNodeEdit(
+  html: string,
+  element: ParsedElement,
+  anchor: ParsedElement,
+  intent: MoveNodeEditIntent,
+): { content: string; capability: EditCapability } | PatchResultStatus {
+  if (element.index === anchor.index) return "conflict";
+  if (anchor.start >= element.start && anchor.end <= element.end) {
+    return "conflict";
+  }
+  if (intent.placement === "inside" && anchor.selfClosing) {
+    return "unsupported";
+  }
+
+  const fragment = html.slice(element.start, element.end);
+  const withoutTarget = `${html.slice(0, element.start)}${html.slice(
+    element.end,
+  )}`;
+  const removedLength = element.end - element.start;
+  const rawInsertAt =
+    intent.placement === "before"
+      ? anchor.start
+      : intent.placement === "after"
+        ? anchor.end
+        : anchor.contentEnd;
+  const insertAt =
+    element.start < rawInsertAt ? rawInsertAt - removedLength : rawInsertAt;
+
+  if (insertAt < 0 || insertAt > withoutTarget.length) return "conflict";
+
+  return {
+    content: `${withoutTarget.slice(0, insertAt)}${fragment}${withoutTarget.slice(insertAt)}`,
+    capability: {
+      kind: "structure",
+      operations: ["moveNode"],
+      confidence: 0.78,
     },
   };
 }
@@ -1327,12 +2121,50 @@ export function applyVisualEdit(
     };
   }
 
-  const edit =
-    intent.kind === "style"
-      ? applyStyleEdit(html, element, intent)
-      : intent.kind === "class"
-        ? applyClassEdit(html, element, intent)
-        : applyTextEdit(html, element, intent);
+  let edit: { content: string; capability: EditCapability } | PatchResultStatus;
+  if (intent.kind === "style") {
+    edit = applyStyleEdit(html, element, intent);
+  } else if (intent.kind === "class") {
+    edit = applyClassEdit(html, element, intent);
+  } else if (intent.kind === "textContent") {
+    edit = applyTextEdit(html, element, intent);
+  } else {
+    const anchorResolution = resolveTarget(initial.projection, intent.anchor);
+    if (anchorResolution.status !== "resolved" || !anchorResolution.node) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          "conflict",
+          source,
+          intent,
+          false,
+          anchorResolution.message ?? "Could not resolve the move anchor.",
+          beforeNode,
+          undefined,
+          before,
+        ),
+      };
+    }
+    const anchorElement = initial.elementByNodeId.get(anchorResolution.node.id);
+    if (!anchorElement || !anchorResolution.node.source) {
+      return {
+        content: html,
+        projection: initial.projection,
+        result: patchResult(
+          "needsAgent",
+          source,
+          intent,
+          false,
+          "The move anchor does not have editable source spans.",
+          beforeNode,
+          undefined,
+          before,
+        ),
+      };
+    }
+    edit = applyMoveNodeEdit(html, element, anchorElement, intent);
+  }
 
   if (typeof edit === "string") {
     const status = edit;

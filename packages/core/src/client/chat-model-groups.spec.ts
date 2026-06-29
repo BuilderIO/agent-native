@@ -126,7 +126,7 @@ describe("buildChatModelGroups", () => {
     });
   });
 
-  it("keeps the current engine visible even when it is usually hidden", () => {
+  it("keeps the current engine visible without marking missing credentials configured", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "ai-sdk:anthropic",
       currentModel: "claude-fable-5",
@@ -145,7 +145,7 @@ describe("buildChatModelGroups", () => {
         engine: "ai-sdk:anthropic",
         label: "Claude",
         models: ["claude-fable-5", "claude-sonnet-4-6"],
-        configured: true,
+        configured: false,
       },
     ]);
   });

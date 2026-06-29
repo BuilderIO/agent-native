@@ -344,7 +344,7 @@ export function RegistryBlockNodeView(props: NodeViewProps) {
               data-plan-interactive
               aria-label={`Edit ${spec.label}`}
               onClick={() => setPanelOpen(true)}
-              className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background/85 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
+              className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
               data-visible={panelOpen || shellHovered}
             >
               <IconPencil className="size-4" />
@@ -485,7 +485,7 @@ export function LegacyJsonEditSurface({
       data-plan-interactive
       aria-label={`Edit ${block.title ?? "block"}`}
       onClick={() => onOpenChange(true)}
-      className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background/85 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
+      className="an-block-edit-trigger flex size-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 data-[visible=true]:opacity-100"
       data-visible={selected || open}
     >
       <IconPencil className="size-4" />

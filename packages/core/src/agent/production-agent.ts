@@ -67,6 +67,7 @@ import {
   registerBuiltinEngines,
   getStoredModelForEngine,
   normalizeModelForEngine,
+  isResolvedEngineUsableForRequest,
 } from "./engine/index.js";
 import { resolveMaxOutputTokensForEngine } from "./engine/output-tokens.js";
 import { PROVIDER_TO_ENV } from "./engine/provider-env-vars.js";
@@ -4206,8 +4207,11 @@ export function createProductionAgentHandler(
       `[agent-chat] resolved engine=${engine.name} model=${model} requestEngine=${requestEngine ?? "(none)"}`,
     );
 
-    // Check for API key before starting a run (only for anthropic engine)
-    if (engine.name === "anthropic" && !effectiveApiKey) {
+    if (
+      !(await isResolvedEngineUsableForRequest(engine, {
+        apiKey: effectiveApiKey,
+      }))
+    ) {
       setResponseHeader(event, "Content-Type", "text/event-stream");
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");

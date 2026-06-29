@@ -7,6 +7,7 @@ export interface ElementInfo {
   computedStyles: Record<string, string>;
   boundingRect: { x: number; y: number; width: number; height: number };
   textContent?: string;
+  htmlContent?: string;
   isFlexChild: boolean;
   isFlexContainer: boolean;
   parentDisplay?: string;

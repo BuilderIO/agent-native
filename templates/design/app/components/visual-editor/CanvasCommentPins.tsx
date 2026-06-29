@@ -41,8 +41,16 @@ export interface CanvasPin {
 interface CanvasCommentPinsProps {
   /** Whether the pin tool is active. When true, clicks drop pins. */
   active: boolean;
+  /** In queue mode, pin Send adds to the shared annotation batch. */
+  submitMode?: "direct" | "queue";
   /** Disable / exit the pin mode (called on Escape, after submit, etc.) */
   onClose: () => void;
+  /** Mirrors local pins to a parent that can submit them with other annotations. */
+  onPinsChange?: (pins: CanvasPin[]) => void;
+  /** Increment to mark queued pins as submitted by a parent action. */
+  submitQueuedSignal?: number;
+  /** Keep the click plane below a sibling draw toolbar in combined annotate mode. */
+  clickPlaneUnderToolbar?: boolean;
   /**
    * Selector for the canvas surface (e.g. `.slide-content`). Pins are anchored
    * to this element's bounding rect; clicks outside are ignored.
@@ -243,16 +251,20 @@ function PinStatusBadge({ status }: { status: PinStatusMeta }) {
         : IconBolt;
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium leading-none",
-        status.badgeClassName,
-      )}
-      title={status.detail}
-    >
-      <Icon className="size-3" />
-      {status.label}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] font-medium leading-none",
+            status.badgeClassName,
+          )}
+        >
+          <Icon className="size-3" />
+          {status.label}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{status.detail}</TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -274,7 +286,11 @@ function PinStatusBadge({ status }: { status: PinStatusMeta }) {
  */
 export function CanvasCommentPins({
   active,
+  submitMode = "direct",
   onClose,
+  onPinsChange,
+  submitQueuedSignal,
+  clickPlaneUnderToolbar = false,
   canvasSelector,
   contextId,
   contextLabel,
@@ -283,6 +299,7 @@ export function CanvasCommentPins({
   const [pins, setPins] = useState<CanvasPin[]>([]);
   const [activePinId, setActivePinId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
+  const lastSubmitQueuedSignalRef = useRef(submitQueuedSignal);
   const [canvasEl, setCanvasEl] = useState<HTMLElement | null>(null);
 
   // Reset pins when the context (slide) changes — they're scoped to one view.
@@ -391,6 +408,31 @@ export function CanvasCommentPins({
       ),
     [pins],
   );
+
+  useEffect(() => {
+    onPinsChange?.(pins);
+  }, [onPinsChange, pins]);
+
+  useEffect(() => {
+    if (
+      submitQueuedSignal === undefined ||
+      submitQueuedSignal === lastSubmitQueuedSignalRef.current
+    ) {
+      return;
+    }
+    lastSubmitQueuedSignalRef.current = submitQueuedSignal;
+    if (queuedPins.length === 0) return;
+    const submittedIds = new Set(queuedPins.map((pin) => pin.id));
+    setPins((prev) =>
+      prev.map((pin) =>
+        submittedIds.has(pin.id)
+          ? { ...pin, queued: false, submitted: true }
+          : pin,
+      ),
+    );
+    setActivePinId(null);
+  }, [queuedPins, submitQueuedSignal]);
+
   const submittedCount = pins.filter((pin) => pin.submitted).length;
   const statusCounts = useMemo(
     () =>
@@ -471,6 +513,10 @@ export function CanvasCommentPins({
       removePin(pin.id);
       return;
     }
+    if (submitMode === "queue") {
+      queuePin(pin);
+      return;
+    }
     const nextPin = { ...pin, draft: text };
     sendPinsToAgent([nextPin]);
     updatePin(pin.id, { draft: text, queued: false, submitted: true });
@@ -479,6 +525,7 @@ export function CanvasCommentPins({
 
   const submitQueuedPins = () => {
     if (queuedPins.length === 0) return;
+    if (submitMode === "queue") return;
     sendPinsToAgent(queuedPins, true);
     const submittedIds = new Set(queuedPins.map((pin) => pin.id));
     setPins((prev) =>
@@ -507,7 +554,10 @@ export function CanvasCommentPins({
       {active && (
         <div
           data-pin-click-overlay
-          className="fixed z-[54] cursor-crosshair"
+          className={cn(
+            "fixed cursor-crosshair",
+            clickPlaneUnderToolbar ? "z-[20]" : "z-[54]",
+          )}
           style={{
             left: rect.left,
             top: rect.top,
@@ -561,15 +611,21 @@ export function CanvasCommentPins({
                 })}
               </p>
             </div>
-            <Button
-              size="sm"
-              className="h-7 gap-1 px-2 text-[10px]"
-              onClick={submitQueuedPins}
-              disabled={queuedPins.length === 0}
-            >
-              <IconBolt className="size-3" />
-              {t("visualEditor.batchApply")}
-            </Button>
+            {submitMode === "direct" ? (
+              <Button
+                size="sm"
+                className="h-7 gap-1 px-2 text-[10px]"
+                onClick={submitQueuedPins}
+                disabled={queuedPins.length === 0}
+              >
+                <IconBolt className="size-3" />
+                {t("visualEditor.batchApply")}
+              </Button>
+            ) : (
+              <span className="rounded-md bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
+                {t("visualEditor.queued")}
+              </span>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-1 text-[10px]">
             <span className="rounded-md bg-muted/45 px-2 py-1 text-muted-foreground">
@@ -733,15 +789,17 @@ export function CanvasCommentPins({
                     >
                       {t("visualEditor.queue")}
                     </Button>
-                    <Button
-                      size="sm"
-                      className="h-6 gap-1 px-2 text-[10px] cursor-pointer"
-                      onClick={() => submitPin(pin)}
-                      disabled={!(pin.draft || "").trim()}
-                    >
-                      <IconSend className="w-3 h-3" />
-                      {t("visualEditor.send")}
-                    </Button>
+                    {submitMode === "direct" && (
+                      <Button
+                        size="sm"
+                        className="h-6 gap-1 px-2 text-[10px] cursor-pointer"
+                        onClick={() => submitPin(pin)}
+                        disabled={!(pin.draft || "").trim()}
+                      >
+                        <IconSend className="w-3 h-3" />
+                        {t("visualEditor.send")}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>

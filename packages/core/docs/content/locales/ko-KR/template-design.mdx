@@ -348,6 +348,50 @@ UI의 경로는 `templates/design/app/routes/` 아래에 있습니다: `_index.t
 
 디자인은 독립형 HTML/JSX 파일이므로 에이전트는 iframe이 렌더링하고 모든 내보내기가 시작되는 동일한 소스를 편집합니다. 번역할 별도의 "AI 모형" 형식은 없습니다. 연결된 디자인 시스템은 에이전트가 모든 세대 패스에서 존중하는 토큰과 `custom_instructions`를 제공합니다. 미리보기에서 텍스트나 영역을 선택하고 Cmd+I를 눌러 상담사가 정확히 해당 부분에 집중하도록 합니다.
 
+### 편집기 모델
+
+Design은 여러 화면 작업에서 overview를 우선합니다. 생성 또는 넓은 업데이트
+후 편집기는 screen overview를 엽니다. 이곳은 각 화면이 선택, 이동, 크기 조정,
+드롭, 복제 가능한 정적 frame으로 배치되는 infinite canvas입니다. frame을 두
+번 클릭하면 단일 화면에 집중합니다.
+
+Single-screen mode는 스크롤, prototype behavior와의 상호작용, 하나의 렌더링된
+파일 안의 DOM/code layers 편집에 사용합니다. Layers panel도 같은 구조를
+반영합니다. screens는 top-level frames이고, active screen 아래에 nested
+DOM/code layers가 표시됩니다.
+
+안정적인 layer name을 위해 의미 있는 요소에 `data-agent-native-layer-name`을
+추가하세요. Design은 semantic/text fallback보다 이것을 먼저 사용하며, 해당
+attribute를 편집해 layer rename을 persist할 수 있습니다. Inline HTML은 text,
+classes, styles, attributes, source order, 작은 structural changes에 대한 local
+code-layer edits를 지원합니다. visual code-layer edits는 현재 HTML-only입니다.
+Localhost source mode는 local route artboards를 register/resolve할 수 있지만,
+local file reads/writes는 explicit permission controls가 harden될 때까지 bridge
+contract로 남아 있습니다.
+
+### Design 편집기 확장
+
+편집기에는 **Tweaks** 뒤에 **Extensions** 검사기 탭이 있습니다. Design 전용
+플러그인 레인처럼 작동합니다. 사용자는 **+ Extension**을 클릭해 에이전트에게
+확장을 만들게 하거나 `design.editor.inspector` 슬롯을 선언한 확장을 설치할
+수 있습니다.
+
+Design 확장은 표준 확장 sandbox를 통해 artboard 옆에 inline으로 렌더링됩니다.
+호스트는 현재 `designId`, 활성 파일, 화면 목록, 선택된 화면 id, 선택된 요소
+메타데이터, 보기 모드, zoom, 활성 도구, tweak 값을 `window.slotContext`와
+`window.onSlotContext(...)` 업데이트로 전달합니다. 이를 통해 확장은 현재
+selection 정보를 표시하고, 스타일 컨트롤을 제공하거나, 열린 디자인 주변의
+작은 워크플로를 만들 수 있습니다.
+
+결정적인 작업의 경우 확장은 extension bridge를 통해 app actions를 호출할 수
+있습니다. AI 기반 변경의 경우 선택된 요소 selector/source id와 요청한 변경을
+담아 `agentNative.chat.send(...)`를 호출하게 하세요. 에이전트는 먼저
+`view-screen`을 호출한 다음 요소 style, class, text, move 변경에는
+`apply-visual-edit`를, artboard placement 변경에는 `canvasFrames`와 함께
+`update-design` / `generate-design`를 사용해야 합니다. sandbox, persistent
+state, bridge APIs는 [Extensions](/docs/extensions#what-an-extension-can-do)를
+참조하세요.
+
 ### 맞춤 설정
 
 디자인은 완전하고 복제 가능한 템플릿입니다. 실용적인 확장 아이디어:

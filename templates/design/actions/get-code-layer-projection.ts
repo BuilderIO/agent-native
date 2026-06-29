@@ -7,8 +7,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import {
   buildCodeLayerProjection,
+  buildCodeLayerTree,
   type CodeLayerSource,
 } from "../shared/code-layer.js";
+import { normalizeDesignSourceType } from "../shared/source-mode.js";
 
 type ProjectionActionSource = CodeLayerSource & { html?: string };
 
@@ -27,11 +29,16 @@ const sourceSchema = z.preprocess(
     kind: z
       .enum(["design-file", "inline-html", "local-file", "remote-url"])
       .default("design-file"),
+    sourceType: z.enum(["inline", "localhost", "fusion"]).optional(),
     designId: z.string().optional(),
     fileId: z.string().optional(),
     filename: z.string().optional().default("index.html"),
     path: z.string().optional(),
     url: z.string().optional(),
+    connectionId: z.string().optional(),
+    routeId: z.string().optional(),
+    artboardId: z.string().optional(),
+    bridgeUrl: z.string().optional(),
     revision: z.string().optional(),
     html: z.string().optional(),
   }),
@@ -104,6 +111,7 @@ async function resolveDesignFileSource(
     html: await liveContent(file.id, file.content ?? ""),
     source: {
       kind: "design-file",
+      sourceType: "inline",
       designId: file.designId,
       fileId: file.id,
       filename: file.filename,
@@ -130,26 +138,41 @@ export default defineAction({
       const html = actionSource.html ?? "";
       const projectionSource: CodeLayerSource = {
         kind: "inline-html",
+        sourceType: "inline",
         filename: actionSource.filename,
         revision: actionSource.revision,
       };
+      const projection = buildCodeLayerProjection(html, {
+        source: projectionSource,
+      });
       return {
-        projection: buildCodeLayerProjection(html, {
-          source: projectionSource,
-        }),
+        projection,
+        layers: buildCodeLayerTree(projection),
       };
     }
 
     if (actionSource.kind !== "design-file") {
       const projectionSource: CodeLayerSource = {
         kind: actionSource.kind,
+        sourceType:
+          actionSource.sourceType ??
+          normalizeDesignSourceType(actionSource.kind) ??
+          undefined,
         path: actionSource.path,
         url: actionSource.url,
+        connectionId: actionSource.connectionId,
+        routeId: actionSource.routeId,
+        artboardId: actionSource.artboardId,
+        bridgeUrl: actionSource.bridgeUrl,
         filename: actionSource.filename,
         revision: actionSource.revision,
       };
+      const projection = buildCodeLayerProjection("", {
+        source: projectionSource,
+      });
       return {
-        projection: buildCodeLayerProjection("", { source: projectionSource }),
+        projection,
+        layers: buildCodeLayerTree(projection),
         unsupported: true,
         message:
           "Only inline-html and SQL design-file sources are supported by this action today.",
@@ -157,10 +180,12 @@ export default defineAction({
     }
 
     const resolved = await resolveDesignFileSource(actionSource);
+    const projection = buildCodeLayerProjection(resolved.html, {
+      source: resolved.source,
+    });
     return {
-      projection: buildCodeLayerProjection(resolved.html, {
-        source: resolved.source,
-      }),
+      projection,
+      layers: buildCodeLayerTree(projection),
     };
   },
 });

@@ -506,6 +506,8 @@ export interface TiptapComposerProps {
     attachments?: ReadonlyArray<unknown>,
     options?: TiptapComposerSubmitOptions,
   ) => void;
+  /** Return false to stop a submit before it enters the chat runtime. */
+  onBeforeSubmit?: () => boolean | Promise<boolean>;
   /**
    * Clear the editor after an onSubmit handler runs. Standalone workflows that
    * may fail outside the composer can keep the draft visible for quick edits.
@@ -1225,6 +1227,7 @@ export function TiptapComposer({
   initialText,
   initialTextKey,
   onSubmit,
+  onBeforeSubmit,
   clearOnSubmit = true,
   onTextChange,
   actionButton,
@@ -1261,6 +1264,7 @@ export function TiptapComposer({
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
+  const submitInFlightRef = useRef(false);
   const [editorHasText, setEditorHasText] = useState(false);
   const [slotReferences, setSlotReferences] = useState<
     AgentComposerReference[]
@@ -1594,7 +1598,7 @@ export function TiptapComposer({
         const submitIntent = getComposerSubmitIntentForEnterKey(event, isMac);
         if (submitIntent) {
           event.preventDefault();
-          submitComposer(submitIntent);
+          void submitComposer(submitIntent);
           return true;
         }
 
@@ -2062,9 +2066,10 @@ export function TiptapComposer({
   }, [composerRuntime, execMode, extractComposerPayload]);
 
   const submitComposer = useCallback(
-    (intent: ComposerSubmitIntent = "immediate") => {
+    async (intent: ComposerSubmitIntent = "immediate") => {
       const ed = editor;
       if (!ed) return;
+      if (submitInFlightRef.current) return;
 
       const { text, references } = syncComposerState();
       const attachments = composerRuntime.getState().attachments;
@@ -2099,6 +2104,38 @@ export function TiptapComposer({
           closePopover();
           onSlashCommandRef.current?.(matched.name);
           return;
+        }
+      }
+
+      // Builder iframe delegation: when this app is mounted inside the
+      // Builder.io webview and the user typed a "build me an app/agent"
+      // prompt, hand it up to the parent Builder chat instead of sending
+      // it to this app's domain agent. Builder is the code-writing agent;
+      // the local agent (dispatch, mail, etc.) cannot scaffold workspace
+      // apps from inside its own iframe.
+      if (
+        !composerMode &&
+        interceptBuildRequestsForBuilder &&
+        tryDelegateBuildRequestToBuilder(trimmed)
+      ) {
+        cancelActiveVoice();
+        ed.commands.clearContent();
+        setEditorHasText(false);
+        setSlotReferences([]);
+        try {
+          localStorage.removeItem(draftKey);
+        } catch {}
+        closePopover();
+        return;
+      }
+
+      if (onBeforeSubmit) {
+        submitInFlightRef.current = true;
+        try {
+          const shouldSubmit = await onBeforeSubmit();
+          if (!shouldSubmit) return;
+        } finally {
+          submitInFlightRef.current = false;
         }
       }
 
@@ -2145,27 +2182,6 @@ export function TiptapComposer({
         return;
       }
 
-      // Builder iframe delegation: when this app is mounted inside the
-      // Builder.io webview and the user typed a "build me an app/agent"
-      // prompt, hand it up to the parent Builder chat instead of sending
-      // it to this app's domain agent. Builder is the code-writing agent;
-      // the local agent (dispatch, mail, etc.) cannot scaffold workspace
-      // apps from inside its own iframe.
-      if (
-        interceptBuildRequestsForBuilder &&
-        tryDelegateBuildRequestToBuilder(trimmed)
-      ) {
-        cancelActiveVoice();
-        ed.commands.clearContent();
-        setEditorHasText(false);
-        setSlotReferences([]);
-        try {
-          localStorage.removeItem(draftKey);
-        } catch {}
-        closePopover();
-        return;
-      }
-
       if (onSubmit) {
         onSubmit(text, references, attachments, { intent });
         // Clear any pending attachments now that the host has them.
@@ -2190,9 +2206,11 @@ export function TiptapComposer({
       closePopover,
       composerMode,
       composerRuntime,
+      draftKey,
       editor,
       interceptBuildRequestsForBuilder,
       clearOnSubmit,
+      onBeforeSubmit,
       onSubmit,
       syncComposerState,
       voice,
@@ -2529,7 +2547,7 @@ export function TiptapComposer({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => submitComposer("immediate")}
+                  onClick={() => void submitComposer("immediate")}
                   disabled={!canSend}
                   data-agent-composer-slot="send-button"
                   className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"

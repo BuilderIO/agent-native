@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
+  buildCodeLayerTree,
+  ensureCodeLayerNodeIdsInHtml,
+  removeCodeLayerNodeFromHtml,
   type EditIntent,
 } from "./code-layer";
 
@@ -26,6 +29,8 @@ describe("code-layer projection", () => {
     );
     expect(hero).toBeTruthy();
     expect(hero?.selector).toBe('[data-code-layer-id="hero"]');
+    expect(hero?.layerName).toBe("Hero");
+    expect(hero?.layerNameSource).toBe("semantic");
     expect(hero?.tag).toBe("section");
     expect(hero?.classes).toEqual(["p-6", "bg-white"]);
     expect(hero?.style.width).toBe("320px");
@@ -44,6 +49,60 @@ describe("code-layer projection", () => {
       "class",
       "text",
     ]);
+  });
+
+  it("uses explicit DOM layer-name attributes before readable fallbacks", () => {
+    const html = `
+      <main data-layer-name="Fallback main">
+        <section data-agent-native-layer-name="Marketing hero" data-layer-name="Hero">
+          <h1>Launch faster</h1>
+          <button aria-label="Primary CTA">Start</button>
+        </section>
+      </main>
+    `;
+
+    const projection = buildCodeLayerProjection(html);
+    const section = projection.nodes.find((node) => node.tag === "section");
+    const button = projection.nodes.find((node) => node.tag === "button");
+
+    expect(section?.layerName).toBe("Marketing hero");
+    expect(section?.layerNameSource).toBe("attribute");
+    expect(section?.layerNameAttribute).toBe("data-agent-native-layer-name");
+    expect(button?.layerName).toBe("Primary CTA");
+    expect(button?.layerNameSource).toBe("semantic");
+  });
+
+  it("builds a Figma-like DOM layer tree from projection parentage", () => {
+    const html = `
+      <main data-agent-native-layer-name="Page">
+        <section data-layer-name="Hero">
+          <h1>Launch faster</h1>
+        </section>
+      </main>
+    `;
+
+    const tree = buildCodeLayerTree(buildCodeLayerProjection(html));
+
+    expect(tree).toHaveLength(1);
+    expect(tree[0]).toEqual(
+      expect.objectContaining({
+        name: "Page",
+        detail: "<main>",
+        type: "group",
+      }),
+    );
+    expect(tree[0]?.children[0]).toEqual(
+      expect.objectContaining({
+        name: "Hero",
+        detail: "<section>",
+      }),
+    );
+    expect(tree[0]?.children[0]?.children[0]).toEqual(
+      expect.objectContaining({
+        name: "Launch faster",
+        type: "text",
+      }),
+    );
   });
 });
 
@@ -69,6 +128,62 @@ describe("applyVisualEdit", () => {
       color: "red",
       background: "#fff",
     });
+  });
+
+  it("applies inspector style properties through the deterministic path", () => {
+    let html = `<section data-layer-name="Card" style="width: 240px">Hello</section>`;
+    const edits = [
+      { property: "fontSize", cssProperty: "font-size", value: "24px" },
+      { property: "borderRadius", cssProperty: "border-radius", value: "12px" },
+      { property: "opacity", cssProperty: "opacity", value: "0.64" },
+      {
+        property: "boxShadow",
+        cssProperty: "box-shadow",
+        value: "0 8px 24px rgba(0, 0, 0, 0.16)",
+      },
+      {
+        property: "borderColor",
+        cssProperty: "border-color",
+        value: "#334155",
+      },
+      { property: "borderWidth", cssProperty: "border-width", value: "2px" },
+      { property: "borderStyle", cssProperty: "border-style", value: "solid" },
+      { property: "overflow", cssProperty: "overflow", value: "hidden" },
+      { property: "flexWrap", cssProperty: "flex-wrap", value: "wrap" },
+      { property: "rotate", cssProperty: "rotate", value: "15deg" },
+      { property: "scale", cssProperty: "scale", value: "-1 1" },
+      { property: "left", cssProperty: "left", value: "32px" },
+    ] as const;
+
+    for (const { property, cssProperty, value } of edits) {
+      const patch = applyVisualEdit(html, {
+        kind: "style",
+        target: { selector: '[data-layer-name="Card"]' },
+        property,
+        value,
+      });
+
+      expect(patch.result.status).toBe("applied");
+      expect(patch.result.changed).toBe(true);
+      expect(patch.result.capability).toEqual(
+        expect.objectContaining({ kind: "style", properties: [cssProperty] }),
+      );
+      expect(patch.result.after?.style[cssProperty]).toBe(value);
+      html = patch.content;
+    }
+
+    expect(html).toContain("font-size: 24px");
+    expect(html).toContain("border-radius: 12px");
+    expect(html).toContain("opacity: 0.64");
+    expect(html).toContain("box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16)");
+    expect(html).toContain("border-color: #334155");
+    expect(html).toContain("border-width: 2px");
+    expect(html).toContain("border-style: solid");
+    expect(html).toContain("overflow: hidden");
+    expect(html).toContain("flex-wrap: wrap");
+    expect(html).toContain("rotate: 15deg");
+    expect(html).toContain("scale: -1 1");
+    expect(html).toContain("left: 32px");
   });
 
   it("applies class edits without duplicating class tokens", () => {
@@ -100,6 +215,184 @@ describe("applyVisualEdit", () => {
       `<div><button data-testid="cta">Start &lt;free&gt;</button></div>`,
     );
     expect(patch.result.after?.textSnippet).toBe("Start <free>");
+  });
+
+  it("preserves safe inline markup for text edits that target styled runs", () => {
+    const html = `<p data-code-layer-id="headline">Build <span style="color: red">fast</span></p>`;
+    const patch = applyVisualEdit(html, {
+      kind: "textContent",
+      target: { selector: '[data-code-layer-id="headline"]' },
+      value: "Build faster",
+      html: `Build <span style="color: red">faster</span>`,
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toContain(
+      `Build <span style="color: red">faster</span>`,
+    );
+  });
+
+  it("stamps stable node ids and removes nodes by source span", () => {
+    const html = `<main><section><button>Buy</button></section></main>`;
+    const stamped = ensureCodeLayerNodeIdsInHtml(html);
+
+    expect(stamped.changed).toBe(true);
+    expect(stamped.content).toContain("data-agent-native-node-id");
+
+    const projection = buildCodeLayerProjection(stamped.content);
+    const button = projection.nodes.find((node) => node.tag === "button");
+    expect(button).toBeTruthy();
+
+    const removed = removeCodeLayerNodeFromHtml(stamped.content, button!);
+    expect(removed).not.toContain("<button");
+    expect(removed).toContain("<section");
+  });
+
+  it("repairs duplicate stable node ids and uses them before duplicate HTML ids", () => {
+    const html = `<main><section id="card" data-agent-native-node-id="dup"><button id="cta" data-agent-native-node-id="dup">A</button></section><section id="card" data-agent-native-node-id="dup"><button id="cta" data-agent-native-node-id="dup">B</button></section></main>`;
+    const stamped = ensureCodeLayerNodeIdsInHtml(html, {
+      source: { kind: "inline-html", filename: "index.html" },
+    });
+
+    expect(stamped.changed).toBe(true);
+    const ids = Array.from(
+      stamped.content.matchAll(/data-agent-native-node-id="([^"]+)"/g),
+      (match) => match[1],
+    );
+    expect(new Set(ids).size).toBe(ids.length);
+
+    const projection = buildCodeLayerProjection(stamped.content, {
+      source: { kind: "inline-html", filename: "index.html" },
+    });
+    const sectionIds = projection.nodes
+      .filter((node) => node.tag === "section")
+      .map((node) => node.id);
+    const buttonIds = projection.nodes
+      .filter((node) => node.tag === "button")
+      .map((node) => node.id);
+
+    expect(new Set(sectionIds).size).toBe(2);
+    expect(new Set(buttonIds).size).toBe(2);
+    expect(
+      projection.nodes
+        .filter((node) => node.tag === "button")
+        .every((node) =>
+          node.selector.startsWith('[data-agent-native-node-id="'),
+        ),
+    ).toBe(true);
+  });
+
+  it("removes duplicate stable node id attributes from the same open tag", () => {
+    const html = `<main><button data-agent-native-node-id="cta" data-agent-native-node-id="cta-copy">Buy</button></main>`;
+    const stamped = ensureCodeLayerNodeIdsInHtml(html);
+
+    expect(stamped.changed).toBe(true);
+    const buttonOpenTag = stamped.content.match(/<button[^>]+>/)?.[0] ?? "";
+    expect(
+      buttonOpenTag.match(/data-agent-native-node-id=/g) ?? [],
+    ).toHaveLength(1);
+  });
+
+  it("resolves deterministic edits from raw bridge source ids", () => {
+    const html = `<main><button data-agent-native-node-id="cta-node">Buy</button></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { nodeId: "cta-node" },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<main><button data-agent-native-node-id="cta-node" style="color: #111">Buy</button></main>`,
+    );
+  });
+
+  it("reorders and reparents nodes with deterministic moveNode edits", () => {
+    const html = `<main><div id="a">A</div><div id="b">B</div><section id="c"></section></main>`;
+    const reordered = applyVisualEdit(html, {
+      kind: "moveNode",
+      target: { selector: "#b" },
+      anchor: { selector: "#a" },
+      placement: "before",
+    });
+
+    expect(reordered.result.status).toBe("applied");
+    expect(reordered.content).toBe(
+      `<main><div id="b">B</div><div id="a">A</div><section id="c"></section></main>`,
+    );
+
+    const reparented = applyVisualEdit(reordered.content, {
+      kind: "moveNode",
+      target: { selector: "#b" },
+      anchor: { selector: "#c" },
+      placement: "inside",
+    });
+
+    expect(reparented.result.status).toBe("applied");
+    expect(reparented.content).toBe(
+      `<main><div id="a">A</div><section id="c"><div id="b">B</div></section></main>`,
+    );
+  });
+
+  it("moves nodes from raw bridge source ids instead of fragile selectors", () => {
+    const html = `<main><div data-agent-native-node-id="a">A</div><div data-agent-native-node-id="b">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "moveNode",
+      target: { nodeId: "b" },
+      anchor: { nodeId: "a" },
+      placement: "before",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<main><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="a">A</div></main>`,
+    );
+  });
+
+  it("keeps valid HTML when moving nodes with greater-than characters in attributes", () => {
+    const html = `<main><div data-agent-native-node-id="a" data-label="1 > 0">A</div><div data-agent-native-node-id="b">B</div></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "moveNode",
+      target: { nodeId: "a" },
+      anchor: { nodeId: "b" },
+      placement: "after",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<main><div data-agent-native-node-id="b">B</div><div data-agent-native-node-id="a" data-label="1 > 0">A</div></main>`,
+    );
+  });
+
+  it("moves nodes by bridge-style DOM selector paths across parents", () => {
+    const html = `<main class="shell"><section data-layer-name="Hero"><button>First</button><button class="secondary">Second</button></section><aside data-layer-name="Drop"></aside></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "moveNode",
+      target: {
+        selector: `section[data-layer-name="Hero"] > button.secondary:nth-of-type(2)`,
+      },
+      anchor: { selector: `aside[data-layer-name="Drop"]` },
+      placement: "inside",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<main class="shell"><section data-layer-name="Hero"><button>First</button></section><aside data-layer-name="Drop"><button class="secondary">Second</button></aside></main>`,
+    );
+  });
+
+  it("rejects moving a node into itself or its descendant", () => {
+    const html = `<main id="parent"><section id="child"><p>Text</p></section></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "moveNode",
+      target: { selector: "#parent" },
+      anchor: { selector: "#child" },
+      placement: "inside",
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.content).toBe(html);
   });
 
   it("returns needsAgent when a text edit would replace nested markup", () => {

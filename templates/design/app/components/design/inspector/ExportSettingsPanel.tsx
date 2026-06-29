@@ -73,7 +73,7 @@ export function ExportSettingsPanel({
         </span>
         <button
           type="button"
-          aria-label="Add export setting"
+          aria-label={copy.export}
           disabled={isDisabled}
           className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           onClick={() => {
@@ -139,7 +139,7 @@ export function ExportSettingsPanel({
         {/* Remove row button — matches Figma's × on each export entry */}
         <button
           type="button"
-          aria-label="Remove export setting"
+          aria-label={copy.export}
           disabled={isDisabled}
           className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           onClick={() => {

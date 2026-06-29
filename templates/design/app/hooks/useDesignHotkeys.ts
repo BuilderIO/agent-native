@@ -262,7 +262,6 @@ function handleDesignHotkey(
     return run(props.onPaste);
   }
   if (primary && key === "d") return run(props.onDuplicate);
-  if (primary && key === "r") return run(props.onRename);
   if (primary && key === "g") {
     return event.shiftKey ? run(props.onUngroup) : run(props.onGroup);
   }

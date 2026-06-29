@@ -650,7 +650,7 @@ function ExpandableDiagramBody({
                   onClick={() => toggleWireframeStyle()}
                   aria-label={styleLabel}
                   aria-pressed={sketchy}
-                  className="an-diagram-style-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+                  className="an-diagram-style-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
                 >
                   {sketchy ? (
                     <IconScribble className="size-4" />
@@ -669,7 +669,7 @@ function ExpandableDiagramBody({
                 data-plan-interactive
                 onClick={() => setExpanded(true)}
                 aria-label={copy.expandDiagram}
-                className="an-diagram-expand-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background/90 text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
+                className="an-diagram-expand-trigger flex size-7 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/diagram:opacity-100"
               >
                 <IconArrowsMaximize className="size-4" />
               </button>

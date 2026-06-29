@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assignRegions,
   canvasToScreenPoint,
   computeMoveSnap,
   computeResizeSnap,
+  DEFAULT_ASSIGNED_REGION_GAP,
   getAngleFromCenter,
   getCameraForBounds,
   getFrameGroupBounds,
@@ -13,6 +15,7 @@ import {
   getRotateFrameMetadata,
   getRulerTicks,
   resizeFrameFromDelta,
+  resizeFrameGroupFromDelta,
   screenToCanvasPoint,
   shouldShowPixelGrid,
   snapAngleToIncrement,
@@ -103,6 +106,72 @@ describe("canvas snap and resize math", () => {
       expect.objectContaining({ orientation: "vertical", position: 200 }),
     ]);
   });
+
+  it("can bypass move and resize snapping", () => {
+    const target = [
+      { id: "target", geometry: { x: 200, y: 0, width: 100, height: 100 } },
+    ];
+
+    expect(
+      computeMoveSnap(
+        [{ id: "moving", geometry: { x: 98, y: 0, width: 100, height: 100 } }],
+        target,
+        { thresholdScreenPx: 6, zoom: 100, bypass: true },
+      ),
+    ).toEqual({ dx: 0, dy: 0, guides: [] });
+
+    expect(
+      computeResizeSnap({ x: 0, y: 0, width: 198, height: 100 }, target, "e", {
+        thresholdScreenPx: 6,
+        zoom: 100,
+        bypass: true,
+      }),
+    ).toEqual({
+      frame: { x: 0, y: 0, width: 198, height: 100 },
+      guides: [],
+    });
+  });
+
+  it("preserves aspect ratio and resizes from center with modifiers", () => {
+    expect(
+      resizeFrameFromDelta(
+        { x: 100, y: 100, width: 320, height: 160 },
+        "se",
+        80,
+        10,
+        { preserveAspectRatio: true },
+      ),
+    ).toEqual({ x: 100, y: 100, width: 400, height: 200 });
+
+    expect(
+      resizeFrameFromDelta(
+        { x: 100, y: 100, width: 320, height: 160 },
+        "e",
+        40,
+        0,
+        { resizeFromCenter: true },
+      ),
+    ).toEqual({ x: 60, y: 100, width: 400, height: 160 });
+  });
+
+  it("scales selected frames together when resizing group bounds", () => {
+    const result = resizeFrameGroupFromDelta(
+      [
+        { id: "a", geometry: { x: 0, y: 0, width: 200, height: 120 } },
+        { id: "b", geometry: { x: 300, y: 120, width: 120, height: 120 } },
+      ],
+      { x: 0, y: 0, width: 420, height: 240 },
+      "se",
+      420,
+      240,
+    );
+
+    expect(result.bounds).toEqual({ x: 0, y: 0, width: 840, height: 480 });
+    expect(result.frames).toEqual([
+      { id: "a", geometry: { x: 0, y: 0, width: 400, height: 240 } },
+      { id: "b", geometry: { x: 600, y: 240, width: 240, height: 240 } },
+    ]);
+  });
 });
 
 describe("canvas rotation math", () => {
@@ -176,6 +245,47 @@ describe("canvas group bounds and camera math", () => {
       ),
     ).toEqual({ x: -190, y: -90, zoom: 200 });
   });
+
+  it.each([1, 2, 3, 5, 8])(
+    "assigns %i non-overlapping agent canvas regions",
+    (count) => {
+      const regions = assignRegions(count);
+
+      expect(regions).toHaveLength(count);
+      expect(assignRegions(count)).toEqual(regions);
+
+      for (const [index, region] of regions.entries()) {
+        expect(region.index).toBe(index);
+        expect(region.width).toBeGreaterThan(0);
+        expect(region.height).toBeGreaterThan(0);
+
+        if (index === 0) continue;
+
+        const previous = regions[index - 1]!;
+        if (region.row === previous.row) {
+          expect(region.x).toBeGreaterThan(previous.x);
+        } else {
+          expect(region.y).toBeGreaterThan(previous.y);
+          expect(region.x).toBe(regions[0]!.x);
+        }
+      }
+
+      for (let a = 0; a < regions.length; a += 1) {
+        for (let b = a + 1; b < regions.length; b += 1) {
+          expectRegionsDoNotOverlap(regions[a]!, regions[b]!);
+          expectRegionsHaveGenerousGap(regions[a]!, regions[b]!);
+        }
+      }
+    },
+  );
+
+  it("keeps earlier agent canvas regions stable as sessions grow", () => {
+    const eightRegions = assignRegions(8);
+
+    for (const count of [1, 2, 3, 5]) {
+      expect(assignRegions(count)).toEqual(eightRegions.slice(0, count));
+    }
+  });
 });
 
 describe("canvas ruler and pixel grid math", () => {
@@ -242,3 +352,50 @@ describe("canvas nudge math", () => {
     });
   });
 });
+
+type TestRegion = ReturnType<typeof assignRegions>[number];
+
+function expectRegionsDoNotOverlap(a: TestRegion, b: TestRegion) {
+  expect(
+    a.x + a.width <= b.x ||
+      b.x + b.width <= a.x ||
+      a.y + a.height <= b.y ||
+      b.y + b.height <= a.y,
+  ).toBe(true);
+}
+
+function expectRegionsHaveGenerousGap(a: TestRegion, b: TestRegion) {
+  const verticalOverlap = rangesOverlap(
+    a.y,
+    a.y + a.height,
+    b.y,
+    b.y + b.height,
+  );
+  const horizontalOverlap = rangesOverlap(
+    a.x,
+    a.x + a.width,
+    b.x,
+    b.x + b.width,
+  );
+
+  if (verticalOverlap) {
+    const horizontalGap =
+      Math.max(a.x, b.x) - Math.min(a.x + a.width, b.x + b.width);
+    expect(horizontalGap).toBeGreaterThanOrEqual(DEFAULT_ASSIGNED_REGION_GAP);
+  }
+
+  if (horizontalOverlap) {
+    const verticalGap =
+      Math.max(a.y, b.y) - Math.min(a.y + a.height, b.y + b.height);
+    expect(verticalGap).toBeGreaterThanOrEqual(DEFAULT_ASSIGNED_REGION_GAP);
+  }
+}
+
+function rangesOverlap(
+  firstStart: number,
+  firstEnd: number,
+  secondStart: number,
+  secondEnd: number,
+) {
+  return firstStart < secondEnd && secondStart < firstEnd;
+}

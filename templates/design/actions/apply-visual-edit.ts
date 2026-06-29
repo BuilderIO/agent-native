@@ -60,7 +60,7 @@ const intentSchema = z.preprocess(
       property: z
         .string()
         .describe(
-          "CSS property to set. Deterministic edits currently allow width, height, color, background, background-color, padding, gap, and display.",
+          "CSS property to set. Deterministic edits cover the visual editor's common layout, typography, fill, stroke, effect, transform, and spacing properties.",
         ),
       value: z.string().describe("CSS value to write into the inline style."),
     }),
@@ -77,6 +77,18 @@ const intentSchema = z.preprocess(
       kind: z.literal("textContent"),
       target: targetSchema,
       value: z.string().describe("Text content for a leaf HTML element."),
+      html: z
+        .string()
+        .optional()
+        .describe(
+          "Optional sanitized inner HTML for preserving styled inline text runs.",
+        ),
+    }),
+    z.object({
+      kind: z.literal("moveNode"),
+      target: targetSchema,
+      anchor: targetSchema,
+      placement: z.enum(["before", "after", "inside"]),
     }),
   ]),
 );

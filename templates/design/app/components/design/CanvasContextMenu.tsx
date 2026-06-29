@@ -20,7 +20,15 @@ import {
   IconZoomScan,
   type Icon,
 } from "@tabler/icons-react";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useImperativeHandle,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import {
   ContextMenu,
@@ -64,6 +72,11 @@ export interface CanvasContextMenuPoint {
   clientY: number;
   canvasX?: number;
   canvasY?: number;
+}
+
+export interface CanvasContextMenuHandle {
+  openAt: (point: CanvasContextMenuPoint) => void;
+  close: () => void;
 }
 
 export interface CanvasContextMenuActionDetails {
@@ -243,63 +256,81 @@ type ActionCallbackMap = Partial<
   Record<CanvasContextMenuAction, CanvasContextMenuActionHandler>
 >;
 
-export function CanvasContextMenu({
-  children,
-  disabled,
-  className,
-  contentClassName,
-  selectedCount = 0,
-  hasClipboard = false,
-  hasPropsClipboard = false,
-  isLocked = false,
-  isHidden = false,
-  canPasteHere = hasClipboard,
-  canSelectAll = true,
-  canZoomToFit = true,
-  canZoomToSelection = selectedCount > 0,
-  canCopy = selectedCount > 0,
-  canPaste = hasClipboard,
-  canPasteOver = hasClipboard && selectedCount > 0,
-  canDuplicate = selectedCount > 0,
-  canDelete = selectedCount > 0,
-  canReorder = selectedCount > 0,
-  canGroup = selectedCount > 1,
-  canUngroup = false,
-  canRename = selectedCount === 1,
-  canToggleLocked = selectedCount > 0,
-  canToggleHidden = selectedCount > 0,
-  canCopyProps = selectedCount > 0,
-  canPasteProps = hasPropsClipboard && selectedCount > 0,
-  canCopyAsCode = selectedCount > 0,
-  hiddenActions = [],
-  disabledActions = [],
-  labels: labelsProp,
-  shortcuts: shortcutsProp,
-  getCanvasPoint,
-  onOpenChange,
-  onAction,
-  onPasteHere,
-  onSelectAll,
-  onZoomToFit,
-  onZoomToSelection,
-  onCopy,
-  onPaste,
-  onPasteOver,
-  onDuplicate,
-  onDelete,
-  onBringForward,
-  onBringToFront,
-  onSendBackward,
-  onSendToBack,
-  onGroup,
-  onUngroup,
-  onRename,
-  onToggleLocked,
-  onToggleHidden,
-  onCopyProps,
-  onPasteProps,
-  onCopyAsCode,
-}: CanvasContextMenuProps) {
+const MENU_CONTENT_CLASS =
+  "w-60 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-1 text-[11px] text-foreground shadow-[0_8px_28px_rgba(0,0,0,0.18)] outline-none animate-none data-[state=open]:animate-none data-[state=closed]:animate-none data-[side=bottom]:slide-in-from-top-0 data-[side=left]:slide-in-from-right-0 data-[side=right]:slide-in-from-left-0 data-[side=top]:slide-in-from-bottom-0";
+const MENU_ITEM_CLASS =
+  "h-6 gap-2 rounded-[3px] px-1.5 py-0 text-[11px] leading-none focus:bg-[var(--design-editor-selection-color)] focus:text-foreground data-[disabled]:opacity-40";
+const MENU_ICON_CLASS = "mr-0 size-3.5 shrink-0 text-muted-foreground";
+const MENU_SUB_TRIGGER_CLASS =
+  "h-6 rounded-[3px] px-1.5 py-0 text-[11px] leading-none focus:bg-[var(--design-editor-selection-color)] focus:text-foreground data-[state=open]:bg-[var(--design-editor-selection-color)] data-[state=open]:text-foreground [&>svg:last-child]:size-3.5 [&>svg:last-child]:text-muted-foreground";
+const MENU_SEPARATOR_CLASS =
+  "-mx-1 my-1 bg-[var(--design-editor-control-border)]";
+const MENU_SHORTCUT_CLASS =
+  "ml-auto pl-6 text-[10px] tracking-normal text-muted-foreground";
+
+export const CanvasContextMenu = forwardRef<
+  CanvasContextMenuHandle,
+  CanvasContextMenuProps
+>(function CanvasContextMenu(
+  {
+    children,
+    disabled,
+    className,
+    contentClassName,
+    selectedCount = 0,
+    hasClipboard = false,
+    hasPropsClipboard = false,
+    isLocked = false,
+    isHidden = false,
+    canPasteHere = hasClipboard,
+    canSelectAll = true,
+    canZoomToFit = true,
+    canZoomToSelection = selectedCount > 0,
+    canCopy = selectedCount > 0,
+    canPaste = hasClipboard,
+    canPasteOver = hasClipboard && selectedCount > 0,
+    canDuplicate = selectedCount > 0,
+    canDelete = selectedCount > 0,
+    canReorder = selectedCount > 0,
+    canGroup = selectedCount > 1,
+    canUngroup = false,
+    canRename = selectedCount === 1,
+    canToggleLocked = selectedCount > 0,
+    canToggleHidden = selectedCount > 0,
+    canCopyProps = selectedCount > 0,
+    canPasteProps = hasPropsClipboard && selectedCount > 0,
+    canCopyAsCode = selectedCount > 0,
+    hiddenActions = [],
+    disabledActions = [],
+    labels: labelsProp,
+    shortcuts: shortcutsProp,
+    getCanvasPoint,
+    onOpenChange,
+    onAction,
+    onPasteHere,
+    onSelectAll,
+    onZoomToFit,
+    onZoomToSelection,
+    onCopy,
+    onPaste,
+    onPasteOver,
+    onDuplicate,
+    onDelete,
+    onBringForward,
+    onBringToFront,
+    onSendBackward,
+    onSendToBack,
+    onGroup,
+    onUngroup,
+    onRename,
+    onToggleLocked,
+    onToggleHidden,
+    onCopyProps,
+    onPasteProps,
+    onCopyAsCode,
+  },
+  ref,
+) {
   const labels = useMemo(
     () => ({ ...DEFAULT_LABELS, ...labelsProp }),
     [labelsProp],
@@ -317,6 +348,34 @@ export function CanvasContextMenu({
     [disabledActions],
   );
   const [point, setPoint] = useState<CanvasContextMenuPoint | null>(null);
+  const [open, setOpen] = useState(false);
+  const [manualPoint, setManualPoint] = useState<CanvasContextMenuPoint | null>(
+    null,
+  );
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (!nextOpen) setManualPoint(null);
+      onOpenChange?.(nextOpen);
+    },
+    [onOpenChange],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      openAt(nextPoint) {
+        setPoint(nextPoint);
+        setManualPoint(nextPoint);
+        setOpen(true);
+      },
+      close() {
+        handleOpenChange(false);
+      },
+    }),
+    [handleOpenChange],
+  );
 
   const callbacks = useMemo<ActionCallbackMap>(
     () => ({
@@ -398,8 +457,18 @@ export function CanvasContextMenu({
     return <>{children}</>;
   }
 
+  const manualContentStyle = manualPoint
+    ? ({
+        position: "fixed",
+        left: manualPoint.clientX,
+        top: manualPoint.clientY,
+        transform: "none",
+        zIndex: 250,
+      } satisfies CSSProperties)
+    : undefined;
+
   return (
-    <ContextMenu onOpenChange={onOpenChange}>
+    <ContextMenu open={open} onOpenChange={handleOpenChange}>
       <ContextMenuTrigger asChild>
         <div
           className={cn("contents", className)}
@@ -419,7 +488,10 @@ export function CanvasContextMenu({
           {children}
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent className={cn("w-56", contentClassName)}>
+      <ContextMenuContent
+        className={cn(MENU_CONTENT_CLASS, contentClassName)}
+        style={manualContentStyle}
+      >
         <ContextMenuGroup>
           <CanvasMenuItem
             hidden={isHiddenAction("paste-here")}
@@ -439,7 +511,7 @@ export function CanvasContextMenu({
           />
         </ContextMenuGroup>
 
-        <ContextMenuSeparator />
+        <CanvasMenuSeparator />
 
         <ContextMenuGroup>
           <CanvasMenuItem
@@ -460,7 +532,7 @@ export function CanvasContextMenu({
           />
         </ContextMenuGroup>
 
-        <ContextMenuSeparator />
+        <CanvasMenuSeparator />
 
         <ContextMenuGroup>
           <CanvasMenuItem
@@ -497,7 +569,7 @@ export function CanvasContextMenu({
           />
         </ContextMenuGroup>
 
-        <ContextMenuSeparator />
+        <CanvasMenuSeparator />
 
         <ContextMenuGroup>
           {!isHiddenAction("bring-forward") ||
@@ -514,11 +586,12 @@ export function CanvasContextMenu({
                     canRun("send-to-back", canReorder)
                   )
                 }
+                className={MENU_SUB_TRIGGER_CLASS}
               >
-                <IconArrowUp className="mr-2 size-4" />
+                <IconArrowUp className={MENU_ICON_CLASS} />
                 {labels.order}
               </ContextMenuSubTrigger>
-              <ContextMenuSubContent className="w-52">
+              <ContextMenuSubContent className={cn(MENU_CONTENT_CLASS, "w-56")}>
                 <CanvasMenuItem
                   hidden={isHiddenAction("bring-forward")}
                   disabled={!canRun("bring-forward", canReorder)}
@@ -572,7 +645,7 @@ export function CanvasContextMenu({
           />
         </ContextMenuGroup>
 
-        <ContextMenuSeparator />
+        <CanvasMenuSeparator />
 
         <ContextMenuGroup>
           <CanvasMenuItem
@@ -599,7 +672,7 @@ export function CanvasContextMenu({
           />
         </ContextMenuGroup>
 
-        <ContextMenuSeparator />
+        <CanvasMenuSeparator />
 
         <ContextMenuGroup>
           <CanvasMenuItem
@@ -628,7 +701,7 @@ export function CanvasContextMenu({
           />
         </ContextMenuGroup>
 
-        <ContextMenuSeparator />
+        <CanvasMenuSeparator />
 
         <CanvasMenuItem
           hidden={isHiddenAction("delete")}
@@ -642,7 +715,7 @@ export function CanvasContextMenu({
       </ContextMenuContent>
     </ContextMenu>
   );
-}
+});
 
 function CanvasMenuItem({
   hidden,
@@ -667,11 +740,22 @@ function CanvasMenuItem({
     <ContextMenuItem
       disabled={disabled}
       onSelect={onSelect}
-      className={cn(destructive && "text-destructive focus:text-destructive")}
+      className={cn(
+        MENU_ITEM_CLASS,
+        destructive && "text-destructive focus:text-destructive",
+      )}
     >
-      <Icon className="mr-2 size-4" />
+      <Icon className={MENU_ICON_CLASS} />
       <span className="truncate">{label}</span>
-      {shortcut ? <ContextMenuShortcut>{shortcut}</ContextMenuShortcut> : null}
+      {shortcut ? (
+        <ContextMenuShortcut className={MENU_SHORTCUT_CLASS}>
+          {shortcut}
+        </ContextMenuShortcut>
+      ) : null}
     </ContextMenuItem>
   );
+}
+
+function CanvasMenuSeparator() {
+  return <ContextMenuSeparator className={MENU_SEPARATOR_CLASS} />;
 }

@@ -91,7 +91,7 @@ export function ShareRecordingPopover({
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
         align="end"
-        className="w-[440px] max-w-[calc(100vw-1rem)] overflow-hidden p-0"
+        className="w-[440px] max-w-[calc(100vw-1rem)] overflow-hidden border-border p-0"
       >
         <ShareRecordingContent
           recordingId={recordingId}
@@ -124,7 +124,7 @@ export function ShareRecordingDialog({
   const t = useT();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden p-0 sm:max-w-[440px]">
+      <DialogContent className="w-[calc(100vw-2rem)] overflow-hidden border-border p-0 sm:max-w-[440px]">
         <DialogTitle className="sr-only">
           {recordingTitle
             ? t("shareDialog.sharePlainTitle", { title: recordingTitle })

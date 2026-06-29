@@ -6,6 +6,7 @@ describe("AgentEngine registry", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.doUnmock("../../settings/store.js");
+    vi.doUnmock("../../server/credential-provider.js");
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
@@ -200,6 +201,46 @@ describe("AgentEngine registry", () => {
     const resolved = await resolveEngine({});
     expect(createFn).toHaveBeenCalled();
     expect(resolved).toBe(fakeAnthropicEngine);
+  });
+
+  it("checks a resolved provider engine against request credentials before a run", async () => {
+    vi.doMock("../../server/credential-provider.js", () => ({
+      canUseDeployCredentialFallbackForRequest: () => false,
+      readDeployCredentialEnv: () => undefined,
+      resolveBuilderCredentials: vi.fn(async () => ({
+        privateKey: null,
+        publicKey: null,
+      })),
+      resolveSecret: vi.fn(async () => null),
+    }));
+
+    const { registerAgentEngine, isResolvedEngineUsableForRequest } =
+      await import("./registry.js");
+
+    const engine = {
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      defaultModel: "gpt-5.5",
+      supportedModels: [],
+      capabilities: {} as any,
+      stream: vi.fn(),
+    };
+
+    registerAgentEngine({
+      name: "ai-sdk:openai",
+      label: "OpenAI",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "gpt-5.5",
+      supportedModels: ["gpt-5.5"],
+      requiredEnvVars: ["OPENAI_API_KEY"],
+      create: vi.fn() as any,
+    });
+
+    await expect(isResolvedEngineUsableForRequest(engine)).resolves.toBe(false);
+    await expect(
+      isResolvedEngineUsableForRequest(engine, { apiKey: "sk-request" }),
+    ).resolves.toBe(true);
   });
 
   describe("getStoredModelForEngine", () => {
