@@ -215,6 +215,46 @@ function proposedSourceDisplayKey(
     : fallback;
 }
 
+function builderCmsResponseRecord(
+  value: unknown,
+): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function builderCmsResponseValue(
+  value: unknown,
+  keys: string[],
+): number | string | null {
+  const record = builderCmsResponseRecord(value);
+  if (!record) return null;
+  for (const key of keys) {
+    const direct = record[key];
+    if (typeof direct === "string" && direct.trim()) return direct.trim();
+    if (typeof direct === "number" && Number.isFinite(direct)) return direct;
+  }
+  for (const key of ["entry", "result", "content", "data"]) {
+    const nested = builderCmsResponseValue(record[key], keys);
+    if (nested !== null) return nested;
+  }
+  return null;
+}
+
+function builderCmsAuthoritativeLastUpdated(
+  writeResult: BuilderCmsWriteResult,
+  fallback: string,
+) {
+  return String(
+    builderCmsResponseValue(writeResult.responseBody, [
+      "lastUpdated",
+      "lastUpdatedAt",
+      "updatedAt",
+      "last_source_updated_at",
+    ]) ?? fallback,
+  );
+}
+
 function sourceRowForChangeSet(
   source: ContentDatabaseSource,
   changeSet: ContentDatabaseSourceChangeSet,
@@ -312,6 +352,10 @@ export function builderCmsReconciledSourceRowPatch(args: {
   const entryId =
     args.writeResult.entryId ?? args.plan.payload.target.entryId ?? null;
   if (!entryId) return null;
+  const sourceUpdatedAt = builderCmsAuthoritativeLastUpdated(
+    args.writeResult,
+    args.now,
+  );
 
   return {
     sourceRowId: entryId,
@@ -327,7 +371,7 @@ export function builderCmsReconciledSourceRowPatch(args: {
     syncState: "idle",
     freshness: "fresh",
     lastSyncedAt: args.now,
-    lastSourceUpdatedAt: args.now,
+    lastSourceUpdatedAt: sourceUpdatedAt,
     updatedAt: args.now,
   };
 }
@@ -406,7 +450,7 @@ async function reconcileBuilderCmsWrite(args: {
       syncState: "idle",
       freshness: "fresh",
       lastRefreshedAt: args.now,
-      lastSourceUpdatedAt: args.now,
+      lastSourceUpdatedAt: patch.lastSourceUpdatedAt,
       lastError: null,
       updatedAt: args.now,
     })

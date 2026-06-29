@@ -169,7 +169,10 @@ import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
 import { resolveBuilderCmsWriteEffect } from "../../../../actions/_builder-cms-write-adapter.js";
-import { BuilderSourceReviewDialog } from "../database-sources/BuilderSourceReviewDialog";
+import {
+  BuilderSourceReviewDialog,
+  type BuilderReviewPublicationTransitions,
+} from "../database-sources/BuilderSourceReviewDialog";
 import { DocumentBlockFields } from "../DocumentBlockFields";
 import {
   AddProperty,
@@ -952,7 +955,9 @@ function DatabaseTable({
     updateActiveView((view) => ({ ...view, hideEmptyGroups }));
   }
 
-  async function handleBuilderReviewPush() {
+  async function handleBuilderReviewPush(
+    transitions: BuilderReviewPublicationTransitions = {},
+  ) {
     setBuilderReviewResult(null);
     setBuilderReviewCheckedAt(null);
     try {
@@ -970,11 +975,14 @@ function DatabaseTable({
         let executedResponse: ContentDatabaseResponse | null = null;
         for (const row of executableRows) {
           if (!row.execution?.idempotencyKey) continue;
+          const transition = transitions[row.changeSetId];
           executedResponse = await executeBuilderExecution.mutateAsync({
             documentId: document.id,
             changeSetId: row.changeSetId,
             idempotencyKey: row.execution.idempotencyKey,
             pushModeConfirmation: nextReview.pushMode,
+            publicationTransition: transition?.publicationTransition,
+            confirmUnpublish: transition?.confirmUnpublish,
           });
         }
         const executedSource = executedResponse?.source ?? null;
@@ -1658,7 +1666,7 @@ function DatabaseTable({
         }
         checkedAt={builderReviewCheckedAt}
         onClose={() => setBuilderReviewOpen(false)}
-        onValidate={() => void handleBuilderReviewPush()}
+        onValidate={(transitions) => void handleBuilderReviewPush(transitions)}
       />
 
       {!database.isLoading ? (

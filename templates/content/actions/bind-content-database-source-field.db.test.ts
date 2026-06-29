@@ -340,5 +340,7 @@ describe("bind-content-database-source-field (row-union)", () => {
       .from(schema.contentDatabaseSourceFields)
       .where(eq(schema.contentDatabaseSourceFields.id, f.fields.fieldACat));
     expect(field.propertyId).toBeNull();
+    expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBeUndefined();
+    expect(await tagValue(f.docs.b1, f.tagPropertyId)).toBe("Beta");
   });
 });

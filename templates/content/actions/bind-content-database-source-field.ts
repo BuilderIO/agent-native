@@ -70,6 +70,28 @@ export default defineAction({
 
     // ── Unbind ────────────────────────────────────────────────────────────
     if (args.propertyId === null) {
+      if (field.propertyId) {
+        const sourceRows = await db
+          .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+          .from(schema.contentDatabaseSourceRows)
+          .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
+        const sourceDocumentIds = sourceRows
+          .map((row) => row.documentId)
+          .filter((id): id is string => Boolean(id));
+        if (sourceDocumentIds.length > 0) {
+          await db
+            .delete(schema.documentPropertyValues)
+            .where(
+              and(
+                eq(schema.documentPropertyValues.propertyId, field.propertyId),
+                inArray(
+                  schema.documentPropertyValues.documentId,
+                  sourceDocumentIds,
+                ),
+              ),
+            );
+        }
+      }
       await db
         .update(schema.contentDatabaseSourceFields)
         .set({

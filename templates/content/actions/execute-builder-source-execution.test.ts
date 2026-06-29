@@ -1055,4 +1055,43 @@ describe("execute Builder source execution", () => {
       path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-created-1`,
     });
   });
+
+  it("stores Builder's authoritative updated timestamp after a successful write", () => {
+    const draftCreate = changeSet({ pushMode: "draft" });
+    const builderSource = source({
+      rows: [],
+      changeSets: [draftCreate],
+      metadata: {
+        pushMode: "draft",
+        allowDraftWrites: true,
+        allowedWriteModes: ["draft", "autosave"],
+      },
+    });
+    const createPlan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: draftCreate,
+      pushModeConfirmation: "draft",
+    });
+
+    const patch = builderCmsReconciledSourceRowPatch({
+      source: builderSource,
+      changeSet: draftCreate,
+      plan: createPlan,
+      writeResult: {
+        ok: true,
+        status: 200,
+        entryId: "builder-created-1",
+        responseBody: {
+          data: {
+            id: "builder-created-1",
+            lastUpdated: BUILDER_LAST_UPDATED_MS,
+          },
+        },
+      },
+      now: NOW,
+    });
+
+    expect(patch?.lastSyncedAt).toBe(NOW);
+    expect(patch?.lastSourceUpdatedAt).toBe(String(BUILDER_LAST_UPDATED_MS));
+  });
 });
