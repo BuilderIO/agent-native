@@ -2367,7 +2367,12 @@ function isHttpsRequest(event: H3Event): boolean {
 
 function isPublicPath(url: string, publicPaths: string[]): boolean {
   const p = url.split("?")[0];
-  return matchesPathList(p, publicPaths);
+  // React Router single-fetch requests the loader data for a client-side
+  // navigation at `<route>.data` (e.g. `/download.data` for `/download`). That
+  // suffixed path doesn't match a public entry like `/download`, so strip it
+  // before matching — the data request for a public route is itself public.
+  const withoutDataSuffix = p.endsWith(".data") ? p.slice(0, -5) : p;
+  return matchesPathList(withoutDataSuffix, publicPaths);
 }
 
 function matchesPathList(path: string, paths: string[]): boolean {
