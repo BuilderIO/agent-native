@@ -3398,7 +3398,12 @@ export default function DesignEditor() {
                 ? command.screen
                 : null;
       const targetFile = findDesignFileByScreenTarget(files, target);
-      if (target && !targetFile && files.length === 0) return false;
+      // A navigate command can name a screen the agent just created that the
+      // get-design query hasn't refetched yet. Treat any unresolved named target
+      // as not-yet-applied (return false) so the app-state key is preserved and
+      // re-applied on the next tick once the file loads — not just when there are
+      // zero files. Otherwise the navigate is silently consumed and dropped.
+      if (target && !targetFile) return false;
 
       const inspectorTab =
         command.inspectorTab === "design" ||
