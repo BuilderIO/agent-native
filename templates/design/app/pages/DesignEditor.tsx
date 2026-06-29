@@ -5909,7 +5909,7 @@ export default function DesignEditor() {
     onPasteOver: handlePasteOverSelection,
     onCopyProps: handleCopyProps,
     onPasteProps: handlePasteProps,
-    onCopyAsCode: () => handleCopyCodingHandoff(),
+    onCopyAsCode: handleCopySelection,
     onDuplicate: handleDuplicateSelection,
     onDelete: handleDeleteSelection,
     onRename: () => {
@@ -8016,7 +8016,7 @@ ${serializedHtml}
             }}
             onCopyProps={handleCopyProps}
             onPasteProps={handlePasteProps}
-            onCopyAsCode={handleCopyCodingHandoff}
+            onCopyAsCode={handleCopySelection}
           >
             {activeFile ? (
               <div

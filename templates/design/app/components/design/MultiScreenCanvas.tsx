@@ -3476,13 +3476,18 @@ interface BoundsRect {
 }
 
 function getInitialFrameGeometry(index: number): FrameGeometry {
-  const column = index % DEFAULT_ASSIGNED_REGION_MAX_COLUMNS;
-  const row = Math.floor(index / DEFAULT_ASSIGNED_REGION_MAX_COLUMNS);
+  // Seed default frames with the actual screen dimensions and the 3-column grid
+  // the overview centering math (which uses SCREEN_WIDTH/SCREEN_GAP) expects, so
+  // a design without persisted geometry opens centered. (The larger
+  // assigned-region grid is only for the agent's generation planning, not the
+  // editor's default placement.)
+  const column = index % 3;
+  const row = Math.floor(index / 3);
   return {
-    x: column * (DEFAULT_ASSIGNED_REGION_WIDTH + DEFAULT_ASSIGNED_REGION_GAP),
-    y: row * (DEFAULT_ASSIGNED_REGION_HEIGHT + DEFAULT_ASSIGNED_REGION_GAP),
-    width: DEFAULT_ASSIGNED_REGION_WIDTH,
-    height: DEFAULT_ASSIGNED_REGION_HEIGHT,
+    x: column * (SCREEN_WIDTH + SCREEN_GAP),
+    y: row * (SCREEN_CARD_HEIGHT + SCREEN_GAP),
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
   };
 }
 
