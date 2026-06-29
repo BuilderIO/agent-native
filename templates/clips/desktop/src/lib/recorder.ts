@@ -2078,6 +2078,11 @@ async function startNativeFullscreenRecording(
     }),
     listen("clips:recorder-resume", () => {
       if (pausedAt == null) return;
+      // Kick Whisper restart off in parallel with the resume IPC so its spin-up
+      // overlaps the round-trip and the least possible speech is missed after
+      // unpause. (The spin-up itself is unavoidable; we just start it ASAP.)
+      console.log("[clips-recorder] native resume: resuming transcription");
+      void transcriptionCapture?.resume().catch(() => {});
       invoke("native_fullscreen_recording_resume")
         .then(() => {
           if (pausedAt != null) {
@@ -2085,8 +2090,6 @@ async function startNativeFullscreenRecording(
             pausedAt = null;
           }
           emitState();
-          console.log("[clips-recorder] native resume: resuming transcription");
-          void transcriptionCapture?.resume().catch(() => {});
         })
         .catch((err) => {
           console.warn("[clips-recorder] native resume failed:", err);
