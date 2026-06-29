@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client";
+import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -868,7 +869,10 @@ export function SqlChart({
   const t = useT();
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
-  const shouldQuery = !isSection && loadData;
+  const isExtension = panel.chartType === "extension";
+  // Sections are pure layout and extensions render their own iframe — neither
+  // runs the SQL pipeline.
+  const shouldQuery = !isSection && !isExtension && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const {
     data: result,
@@ -916,6 +920,24 @@ export function SqlChart({
           </p>
         )}
       </div>
+    );
+  }
+
+  // Extension panels render a sandboxed extension iframe instead of querying a
+  // data source. The extension id lives in config.extensionId.
+  if (isExtension) {
+    const extensionId = panel.config?.extensionId;
+    if (!extensionId) {
+      return (
+        <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
+          <p className="text-sm text-muted-foreground text-center">
+            {t("sqlDashboard.extensionMissingId")}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <DashboardExtensionPanel extensionId={extensionId} panelId={panel.id} />
     );
   }
   const colors = panel.config?.colors || DEFAULT_COLORS;
@@ -1038,6 +1060,55 @@ export function SqlChart({
       stacked={panel.config?.stacked === true}
       panel={panel}
     />,
+  );
+}
+
+function DashboardExtensionPanel({
+  extensionId,
+  panelId,
+}: {
+  extensionId: string;
+  panelId: string;
+}) {
+  const t = useT();
+  // Hold the report-readiness marker until the extension iframe paints so
+  // dashboard report screenshots don't capture a blank extension panel.
+  const [ready, setReady] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+
+  // Embedding never grants access to the extension itself (same model as
+  // ExtensionSlots). A viewer with dashboard-only access who can't see the
+  // referenced extension gets a clear message instead of a blank panel.
+  if (unavailable) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
+        <p className="text-sm text-muted-foreground text-center">
+          {t("sqlDashboard.extensionUnavailable")}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="w-full"
+      data-dashboard-report-loading={ready ? undefined : "true"}
+    >
+      <EmbeddedExtension
+        extensionId={extensionId}
+        slotId={`dashboard-panel-${panelId}`}
+        className="w-full"
+        // Intentional for v1: extension panels are standalone widgets and do not
+        // receive the dashboard's filters/variables/date range as `context`.
+        initialHeight={180}
+        onReady={() => setReady(true)}
+        onUnavailable={() => {
+          // Clear the report-loading gate so report capture doesn't hang.
+          setReady(true);
+          setUnavailable(true);
+        }}
+      />
+    </div>
   );
 }
 

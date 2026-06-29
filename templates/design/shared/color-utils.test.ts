@@ -23,6 +23,19 @@ describe("color utils", () => {
     });
   });
 
+  it("parses CSS named colors and transparent", () => {
+    expect(parseCssColor("red")).toEqual({ r: 255, g: 0, b: 0, a: 1 });
+    expect(parseCssColor("RebeccaPurple")).toEqual({
+      r: 102,
+      g: 51,
+      b: 153,
+      a: 1,
+    });
+    expect(parseCssColor("navy")).toEqual({ r: 0, g: 0, b: 128, a: 1 });
+    expect(parseCssColor("transparent")).toEqual({ r: 0, g: 0, b: 0, a: 0 });
+    expect(parseCssColor("notacolor")).toBeNull();
+  });
+
   it("parses rgb, rgba, hsl, and hsla strings", () => {
     expect(parseCssColor("rgb(10, 20, 30)")).toEqual({
       r: 10,

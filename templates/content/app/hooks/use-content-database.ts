@@ -1,8 +1,10 @@
 import { useActionMutation, useActionQuery } from "@agent-native/core/client";
 import type {
+  AddContentDatabaseSourceFieldPropertyRequest,
   AddDatabaseItemRequest,
   AttachContentDatabaseSourceRequest,
   BuilderCmsModelsResponse,
+  ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
   CreateInlineDatabaseRequest,
   CreateInlineDatabaseResponse,
@@ -12,6 +14,8 @@ import type {
   ContentDatabaseSourceStatusResponse,
   CreateDatabaseRequest,
   DisconnectContentDatabaseSourceRequest,
+  ExecuteBuilderSourceBatchRequest,
+  ExecuteBuilderSourceBatchResponse,
   DuplicateDatabaseItemRequest,
   ExecuteBuilderSourceExecutionRequest,
   MoveDatabaseItemRequest,
@@ -300,6 +304,47 @@ export function useAttachContentDatabaseSource(documentId: string) {
   });
 }
 
+export function useChangeContentDatabaseSourceRole(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    ChangeContentDatabaseSourceRoleRequest
+  >("change-content-database-source-role", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseSourceFieldPropertyResponse,
+    AddContentDatabaseSourceFieldPropertyRequest
+  >("add-content-database-source-field-property", {
+    onSuccess: (data) => {
+      queryClient.setQueryData<ContentDatabaseResponse>(
+        contentDatabaseQueryKey(documentId),
+        (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
+      );
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-document-properties", { documentId }],
+      });
+    },
+  });
+}
+
 export function useBuilderCmsModels(enabled: boolean) {
   return useActionQuery<BuilderCmsModelsResponse>(
     "list-builder-cms-models",
@@ -454,6 +499,23 @@ export function useExecuteBuilderSourceExecution(documentId: string) {
     ContentDatabaseResponse,
     ExecuteBuilderSourceExecutionRequest
   >("execute-builder-source-execution", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useExecuteBuilderSourceBatch(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ExecuteBuilderSourceBatchResponse,
+    ExecuteBuilderSourceBatchRequest
+  >("execute-builder-source-batch", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),

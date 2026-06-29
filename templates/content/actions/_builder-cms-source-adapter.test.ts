@@ -66,12 +66,15 @@ describe("Builder CMS source adapter", () => {
     );
   });
 
-  it("records Builder metadata with natural key and autosave push mode", () => {
+  it("records Builder metadata with natural key and read-only write mode", () => {
     expect(builderCmsSourceMetadata("blog_article")).toMatchObject({
       primaryKey: "id",
       titleField: "data.title",
       naturalKeyField: "/blog/[slug]",
-      pushMode: "autosave",
+      pushMode: "none",
+      writeMode: "read_only",
+      allowPublicationTransitions: false,
+      allowedWriteModes: [],
       label: "builder.cms.blog_article",
     });
   });
@@ -203,6 +206,36 @@ describe("Builder CMS source adapter", () => {
         "data.description": "A useful field",
         lastUpdated: "2026-06-08T12:00:00.000Z",
       },
+    });
+  });
+
+  it("uses numeric Builder lastUpdated as the row source baseline", () => {
+    const lastUpdated = 1782328870774;
+    const entry = normalizeBuilderCmsApiEntry(
+      {
+        id: "entry-numeric-last-updated",
+        lastUpdated,
+        data: {
+          title: "Numeric timestamp entry",
+          url: "/blog/numeric-timestamp-entry",
+        },
+      },
+      "blog_article",
+    );
+
+    if (!entry) throw new Error("Expected Builder entry to normalize.");
+    expect(entry.updatedAt).toBe(String(lastUpdated));
+    expect(entry.sourceValues.lastUpdated).toBe(String(lastUpdated));
+    expect(
+      builderCmsSourceRowIdentity({
+        item: item("Local title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T12:30:00.000Z",
+        entry,
+      }),
+    ).toMatchObject({
+      sourceRowId: "entry-numeric-last-updated",
+      lastSourceUpdatedAt: String(lastUpdated),
     });
   });
 

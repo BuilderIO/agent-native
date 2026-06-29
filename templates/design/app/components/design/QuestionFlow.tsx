@@ -52,12 +52,22 @@ export function QuestionFlow({
     setAnswers((prev) => ({ ...prev, [id]: value }));
   }, []);
 
+  const isAnswered = (q: GuidedQuestion) => {
+    const v = answers[q.id];
+    if (q.type === "freeform" && typeof v === "string")
+      return v.trim().length > 0;
+    return hasGuidedAnswer(v);
+  };
+  const answeredCount = guidedQuestions.filter(isAnswered).length;
   const requiredQuestions = guidedQuestions.filter(
     (question) => question.required,
   );
-  const allRequiredAnswered = requiredQuestions.every((question) =>
-    hasGuidedAnswer(answers[question.id]),
-  );
+  const requiredAnswered = requiredQuestions.filter(isAnswered).length;
+  const allRequiredAnswered = requiredAnswered === requiredQuestions.length;
+  const progress =
+    guidedQuestions.length === 0
+      ? 0
+      : Math.round((answeredCount / guidedQuestions.length) * 100);
 
   return (
     <div className="flex h-full w-full justify-center overflow-y-auto bg-transparent px-6 py-10 text-foreground sm:px-10 lg:px-14">
@@ -423,11 +433,9 @@ function SliderQuestion({
   const current =
     typeof value === "number" ? value : Math.round((min + max) / 2);
 
-  useEffect(() => {
-    if (typeof value !== "number") {
-      onChange(Math.round((min + max) / 2));
-    }
-  }, []);
+  // Do not auto-fill on mount: a required slider must be explicitly moved by
+  // the user before it counts as answered. `current` already provides a
+  // display-only midpoint fallback for the rendered slider position.
 
   return (
     <div className="max-w-xl px-1 py-2">

@@ -15,7 +15,8 @@ export type ChartType =
   | "pie"
   | "section"
   | "heatmap"
-  | "callout";
+  | "callout"
+  | "extension";
 
 export type FilterType =
   | "date"
@@ -79,6 +80,11 @@ export interface SqlPanelConfig {
   sortable?: boolean;
   columns?: TableColumnConfig[];
   limit?: number;
+  /**
+   * Extension panels only (`chartType: "extension"`): id of the extension to
+   * render inline as a sandboxed iframe instead of running the SQL pipeline.
+   */
+  extensionId?: string;
 }
 
 export interface SqlPanel {

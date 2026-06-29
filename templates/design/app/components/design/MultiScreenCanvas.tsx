@@ -1,5 +1,9 @@
 import { useT } from "@agent-native/core/client";
 import {
+  DEFAULT_ASSIGNED_REGION_GAP,
+  DEFAULT_ASSIGNED_REGION_HEIGHT,
+  DEFAULT_ASSIGNED_REGION_MAX_COLUMNS,
+  DEFAULT_ASSIGNED_REGION_WIDTH,
   DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
   appendPolylinePoint,
   computeMoveSnap,
@@ -160,6 +164,7 @@ interface MultiScreenCanvasProps {
   onScreenSelectionChange?: (ids: string[]) => void;
   selectAllRequest?: number;
   clearSelectionRequest?: number;
+  onSelectionChange?: (selectedIds: string[]) => void;
 }
 
 /**
@@ -447,6 +452,7 @@ export function MultiScreenCanvas({
   onScreenSelectionChange,
   selectAllRequest,
   clearSelectionRequest,
+  onSelectionChange,
 }: MultiScreenCanvasProps) {
   const t = useT();
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -594,8 +600,14 @@ export function MultiScreenCanvas({
     frameGeometryRef.current = frameGeometry;
   }, [frameGeometry]);
 
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  useEffect(() => {
+    onSelectionChangeRef.current = onSelectionChange;
+  }, [onSelectionChange]);
+
   useEffect(() => {
     selectedIdsRef.current = selectedIds;
+    onSelectionChangeRef.current?.(selectedIds);
   }, [selectedIds]);
 
   useEffect(() => {
@@ -815,17 +827,20 @@ export function MultiScreenCanvas({
     (point: Point) =>
       getCurrentFrameEntries()
         .map((entry, index) => ({ ...entry, index }))
-        .filter((entry) =>
-          rectContainsPoint(
-            {
-              left: entry.geometry.x,
-              top: entry.geometry.y,
-              right: entry.geometry.x + entry.geometry.width,
-              bottom: entry.geometry.y + entry.geometry.height,
-            },
+        .filter((entry) => {
+          const bounds = {
+            left: entry.geometry.x,
+            top: entry.geometry.y,
+            right: entry.geometry.x + entry.geometry.width,
+            bottom: entry.geometry.y + entry.geometry.height,
+          };
+          const local = rotatePointAroundCenter(
             point,
-          ),
-        )
+            getFrameCenter(entry.geometry),
+            entry.geometry.rotation ?? 0,
+          );
+          return rectContainsPoint(bounds, local);
+        })
         .sort(
           (a, b) =>
             (b.geometry.z ?? 0) - (a.geometry.z ?? 0) || b.index - a.index,
@@ -1015,12 +1030,22 @@ export function MultiScreenCanvas({
 
         const hitIds = getCurrentFrameEntries()
           .filter((entry) =>
-            rectIntersects(rect, getSelectableBounds(entry.geometry)),
+            rotatedRectIntersects(
+              rect,
+              getSelectableBounds(entry.geometry),
+              getFrameCenter(entry.geometry),
+              entry.geometry.rotation ?? 0,
+            ),
           )
           .map((entry) => entry.id);
         const hitDraftIds = getCurrentDraftEntries()
           .filter((entry) =>
-            rectIntersects(rect, getSelectableBounds(entry.geometry)),
+            rotatedRectIntersects(
+              rect,
+              getSelectableBounds(entry.geometry),
+              getFrameCenter(entry.geometry),
+              entry.geometry.rotation ?? 0,
+            ),
           )
           .map((entry) => entry.id);
         updateSelectedIds(() =>
@@ -1066,17 +1091,21 @@ export function MultiScreenCanvas({
       if (preferred) return preferred;
 
       return entries
-        .filter(({ geometry }) =>
-          rectContainsPoint(
-            {
-              left: geometry.x,
-              top: geometry.y,
-              right: geometry.x + geometry.width,
-              bottom: geometry.y + geometry.height,
-            },
-            getFrameCenter(draft.geometry),
-          ),
-        )
+        .filter(({ geometry }) => {
+          const bounds = {
+            left: geometry.x,
+            top: geometry.y,
+            right: geometry.x + geometry.width,
+            bottom: geometry.y + geometry.height,
+          };
+          const draftCenter = getFrameCenter(draft.geometry);
+          const local = rotatePointAroundCenter(
+            draftCenter,
+            getFrameCenter(geometry),
+            geometry.rotation ?? 0,
+          );
+          return rectContainsPoint(bounds, local);
+        })
         .sort((a, b) => (b.geometry.z ?? 0) - (a.geometry.z ?? 0))[0];
     },
     [getCurrentFrameEntries],
@@ -1604,16 +1633,6 @@ export function MultiScreenCanvas({
             );
             const lastNodeId = persisted[persisted.length - 1]?.nodeId;
             if (lastNodeId) updateSelectedIds(() => [lastNodeId]);
-          } else {
-            // No draft landed in a frame — restore each moved draft to its
-            // original position so the move is atomic (commit or revert).
-            updateDraftPrimitives((current) =>
-              current.map((draft) => {
-                if (!state.targetIds.includes(draft.id)) return draft;
-                const origin = state.originDrafts[draft.id];
-                return origin ?? draft;
-              }),
-            );
           }
         }
         finishDrag();
@@ -1784,6 +1803,11 @@ export function MultiScreenCanvas({
       if (e.button !== 0 || e.shiftKey) return;
       e.preventDefault();
       e.stopPropagation();
+      // Frame mousedowns stop propagation, so they never reach handleMouseDown.
+      // Clear stale suppression here too so a prior gesture can't swallow this
+      // frame's selecting click. This gesture re-arms suppression on mouse-up
+      // only if it actually moves.
+      suppressNextPick.current = false;
 
       const currentSelectedIds = selectedIdsRef.current;
       const targetIds = currentSelectedIds.includes(id)
@@ -2290,6 +2314,10 @@ export function MultiScreenCanvas({
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
+      // Clear any stale pick-suppression left over from a prior resize/rotate/move
+      // gesture that never received its trailing frame click — otherwise it would
+      // silently swallow this unrelated interaction.
+      suppressNextPick.current = false;
       const target = e.target as HTMLElement;
       const onFrame = !!target.closest("[data-frame-shell]");
       const tool = normalizeCanvasTool(activeTool ?? localActiveTool);
@@ -3413,6 +3441,10 @@ function Screen({
         onMouseDown={(e) => {
           if (e.button !== 0) return;
           if (penActive || creationToolActive) return;
+          if (e.altKey) {
+            onStartDuplicateGesture(screen, display, e);
+            return;
+          }
           if (e.shiftKey) {
             e.stopPropagation();
             return;
@@ -3860,6 +3892,11 @@ function getInitialFrameGeometry(
   index: number,
   metadata?: Pick<ResolvedScreenMetadata, "width" | "height">,
 ): FrameGeometry {
+  // Seed default frames with the actual screen dimensions and the 3-column grid
+  // the overview centering math (which uses SCREEN_WIDTH/SCREEN_GAP) expects, so
+  // a design without persisted geometry opens centered. (The larger
+  // assigned-region grid is only for the agent's generation planning, not the
+  // editor's default placement.)
   const column = index % 3;
   const row = Math.floor(index / 3);
   const height = getOverviewFrameHeight(SCREEN_WIDTH, metadata);
@@ -3987,6 +4024,84 @@ function rectContainsPoint(bounds: BoundsRect, point: Point) {
     point.y >= bounds.top &&
     point.y <= bounds.bottom
   );
+}
+
+/** Rotate `point` into the local (unrotated) space of a frame whose center is
+ *  `center` and whose CSS transform is `rotate(degrees deg)`. Passing the
+ *  inverse rotation maps world-space coordinates into the frame's local space
+ *  so unrotated bounds tests remain correct. */
+function rotatePointAroundCenter(
+  point: Point,
+  center: Point,
+  degrees: number,
+): Point {
+  if (!degrees) return point;
+  const rad = (-degrees * Math.PI) / 180; // inverse rotation
+  const dx = point.x - center.x;
+  const dy = point.y - center.y;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  return {
+    x: center.x + dx * cos - dy * sin,
+    y: center.y + dx * sin + dy * cos,
+  };
+}
+
+/** Test whether a marquee rect (in canvas space) intersects an OBB described by
+ *  `bounds` (unrotated AABB) that has been rotated `degrees` around `center`.
+ *  We map the four marquee corners into the frame's local space and check
+ *  whether any corner is inside the bounds; we also check the reverse (any
+ *  frame corner inside the marquee) to handle the case where the marquee is
+ *  entirely contained within the rotated frame. */
+function rotatedRectIntersects(
+  rect: MarqueeRect,
+  bounds: BoundsRect,
+  center: Point,
+  degrees: number,
+): boolean {
+  if (!degrees) {
+    return rectIntersects(rect, bounds);
+  }
+  // Four corners of the marquee rect in canvas space.
+  const marqueeCorners: Point[] = [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y },
+    { x: rect.x + rect.width, y: rect.y + rect.height },
+    { x: rect.x, y: rect.y + rect.height },
+  ];
+  // Test: any marquee corner inside the unrotated frame bounds?
+  for (const corner of marqueeCorners) {
+    const local = rotatePointAroundCenter(corner, center, degrees);
+    if (rectContainsPoint(bounds, local)) return true;
+  }
+  // Four corners of the unrotated frame in canvas space (rotate them outward).
+  const frameCorners: Point[] = [
+    { x: bounds.left, y: bounds.top },
+    { x: bounds.right, y: bounds.top },
+    { x: bounds.right, y: bounds.bottom },
+    { x: bounds.left, y: bounds.bottom },
+  ];
+  const rad = (degrees * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const marqueeRight = rect.x + rect.width;
+  const marqueeBottom = rect.y + rect.height;
+  // Test: any rotated frame corner inside the marquee rect?
+  for (const fc of frameCorners) {
+    const dx = fc.x - center.x;
+    const dy = fc.y - center.y;
+    const wx = center.x + dx * cos - dy * sin;
+    const wy = center.y + dx * sin + dy * cos;
+    if (
+      wx >= rect.x &&
+      wx <= marqueeRight &&
+      wy >= rect.y &&
+      wy <= marqueeBottom
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function sameFrameGeometry(a: FrameGeometry, b: FrameGeometry) {

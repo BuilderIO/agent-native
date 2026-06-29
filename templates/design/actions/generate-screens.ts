@@ -66,10 +66,11 @@ const requestedScreenSchema = z
 
 export default defineAction({
   description:
-    "Start a visible multi-agent generation session on the Design canvas. " +
+    "Start a multi-screen generation session on the Design canvas. " +
     "Use this before generating multiple screens or variations in parallel: it " +
-    "assigns non-overlapping canvas regions, publishes named agent/frame " +
-    "status to application state, and returns per-frame generation instructions. " +
+    "assigns non-overlapping canvas regions and returns per-frame generation " +
+    "instructions including canvasFrame placements. The session state is " +
+    "agent-facing planning state consumed by generate-design and view-screen. " +
     "After this action, fan out calls to generate-design for each returned " +
     "frame, passing the returned canvasFrame values to generate-design so " +
     "screens appear in the infinite overview canvas.",
@@ -208,6 +209,7 @@ export default defineAction({
       prompt,
       contextRefs,
       frames,
+      startedAt: new Date().toISOString(),
     };
 
     await writeAppState(

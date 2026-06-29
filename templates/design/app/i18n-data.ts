@@ -424,6 +424,7 @@ const enUS = {
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
+      duplicateElementFailed: "Could not duplicate that element",
       saveCopyError: "Could not save a copy of this design",
     },
   },
@@ -8113,6 +8114,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "属性已粘贴",
         primitiveInsertFailed: "无法将该图层添加到画面",
         layerMoveFailed: "无法移动该图层",
+        duplicateElementFailed: "无法复制该元素",
       },
     },
     editPanel: {
@@ -8175,6 +8177,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propiedades pegadas",
         primitiveInsertFailed: "No se pudo añadir esa capa a la pantalla",
         layerMoveFailed: "No se pudo mover esa capa",
+        duplicateElementFailed: "No se pudo duplicar ese elemento",
       },
     },
     editPanel: {
@@ -8237,6 +8240,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriétés collées",
         primitiveInsertFailed: "Impossible d’ajouter ce calque à l’écran",
         layerMoveFailed: "Impossible de déplacer ce calque",
+        duplicateElementFailed: "Impossible de dupliquer cet élément",
       },
     },
     editPanel: {
@@ -8300,6 +8304,7 @@ const designCanvasFeatureOverrides = {
         primitiveInsertFailed:
           "Diese Ebene konnte nicht zur Ansicht hinzugefügt werden",
         layerMoveFailed: "Diese Ebene konnte nicht verschoben werden",
+        duplicateElementFailed: "Dieses Element konnte nicht dupliziert werden",
       },
     },
     editPanel: {
@@ -8362,6 +8367,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "プロパティを貼り付けました",
         primitiveInsertFailed: "そのレイヤーを画面に追加できませんでした",
         layerMoveFailed: "そのレイヤーを移動できませんでした",
+        duplicateElementFailed: "その要素を複製できませんでした",
       },
     },
     editPanel: {
@@ -8424,6 +8430,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "속성이 붙여넣어짐",
         primitiveInsertFailed: "해당 레이어를 화면에 추가할 수 없습니다",
         layerMoveFailed: "해당 레이어를 이동할 수 없습니다",
+        duplicateElementFailed: "해당 요소를 복제할 수 없습니다",
       },
     },
     editPanel: {
@@ -8486,6 +8493,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "Propriedades coladas",
         primitiveInsertFailed: "Não foi possível adicionar essa camada à tela",
         layerMoveFailed: "Não foi possível mover essa camada",
+        duplicateElementFailed: "Não foi possível duplicar esse elemento",
       },
     },
     editPanel: {
@@ -8548,6 +8556,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "गुण चिपकाए गए",
         primitiveInsertFailed: "उस परत को स्क्रीन में नहीं जोड़ा जा सका",
         layerMoveFailed: "उस परत को स्थानांतरित नहीं किया जा सका",
+        duplicateElementFailed: "उस तत्व की प्रतिलिपि नहीं बनाई जा सकी",
       },
     },
     editPanel: {
@@ -8610,6 +8619,7 @@ const designCanvasFeatureOverrides = {
         propsPasted: "تم لصق الخصائص",
         primitiveInsertFailed: "تعذرت إضافة تلك الطبقة إلى الشاشة",
         layerMoveFailed: "تعذر نقل تلك الطبقة",
+        duplicateElementFailed: "تعذّر تكرار هذا العنصر",
       },
     },
     editPanel: {

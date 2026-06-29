@@ -64,12 +64,13 @@ export function formatScrubValue(
     if (options.unit) {
       // For fields with units (px, %, °, etc.) collapse all trailing zeros
       // including the decimal point: "12.30px" → "12.3px", "10.00px" → "10px".
-      numeric = fixed.replace(/\.?0+$/, "");
+      // Leave integer strings alone; otherwise precision 0 turns "100" into "1".
+      numeric = fixed.includes(".") ? fixed.replace(/\.?0+$/, "") : fixed;
     } else {
       // For unitless fields (e.g. line-height), preserve at least one decimal
       // digit so values like "2.0" stay "2.0" rather than collapsing to "2".
       // Only strip redundant trailing zeros beyond the first decimal digit.
-      numeric = fixed.replace(/(?<=\.\d)0+$/, "");
+      numeric = fixed.includes(".") ? fixed.replace(/(?<=\.\d)0+$/, "") : fixed;
     }
   } else {
     numeric = String(normalized);

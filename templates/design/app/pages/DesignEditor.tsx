@@ -238,7 +238,11 @@ export function getSelectedScreenIdsForEditorState(args: {
 }) {
   const { activeFileId, overviewSelectedScreenIds, viewMode } = args;
   if (viewMode === "overview") {
-    return overviewSelectedScreenIds;
+    return overviewSelectedScreenIds.length
+      ? overviewSelectedScreenIds
+      : activeFileId
+        ? [activeFileId]
+        : [];
   }
   return activeFileId ? [activeFileId] : [];
 }
@@ -911,6 +915,20 @@ function uniqueLayerId(prefix: string): string {
     : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+/**
+ * Re-stamp every `data-agent-native-node-id` in duplicated screen content with a
+ * fresh unique id. Without this, a duplicated screen carries the SAME node ids as
+ * its source, which collapses the cross-file layer-owner map (selecting a layer
+ * in one screen resolves to the other) and can produce a malformed aggregate
+ * projection.
+ */
+function reassignDuplicatedNodeIds(content: string): string {
+  return content.replace(
+    /data-agent-native-node-id="[^"]*"/g,
+    () => `data-agent-native-node-id="${uniqueLayerId("copy")}"`,
+  );
+}
+
 function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
@@ -1572,12 +1590,29 @@ function codeLayerTreeToPanelNodes(
   hiddenIds: Set<string>,
   inheritedLocked = false,
   inheritedHidden = false,
+  // Ancestor-path ids guarding against a cyclic projection (e.g. duplicate or
+  // empty node ids like "an-" that make a node its own descendant) recursing
+  // forever and crashing the whole editor with a stack overflow.
+  ancestors: Set<string> = new Set(),
 ): LayersPanelNode[] {
   return nodes.map((node) => {
     const selfLocked = lockedIds.has(node.id);
     const selfHidden = hiddenIds.has(node.id);
     const locked = inheritedLocked || selfLocked;
     const hidden = inheritedHidden || selfHidden;
+    let children: LayersPanelNode[] = [];
+    if (!ancestors.has(node.id)) {
+      ancestors.add(node.id);
+      children = codeLayerTreeToPanelNodes(
+        node.children,
+        lockedIds,
+        hiddenIds,
+        locked,
+        hidden,
+        ancestors,
+      );
+      ancestors.delete(node.id);
+    }
     return {
       id: node.id,
       name: resolvedLayerName(node),
@@ -1591,13 +1626,7 @@ function codeLayerTreeToPanelNodes(
       hideable: true,
       locked,
       hidden,
-      children: codeLayerTreeToPanelNodes(
-        node.children,
-        lockedIds,
-        hiddenIds,
-        locked,
-        hidden,
-      ),
+      children,
     };
   });
 }
@@ -1614,12 +1643,20 @@ function collectEffectiveCodeLayerState(
   inheritedLocked: boolean,
   inheritedHidden: boolean,
   state: EffectiveCodeLayerState,
+  // Ids on the current ancestor path — guards against a malformed/cyclic
+  // projection (e.g. a node that appears as its own descendant from duplicate
+  // node ids) recursing forever and crashing the whole editor with a stack
+  // overflow. A true cycle is skipped; duplicate ids in disjoint subtrees are
+  // still visited.
+  ancestors: Set<string> = new Set(),
 ): EffectiveCodeLayerState {
   nodes.forEach((node) => {
+    if (ancestors.has(node.id)) return;
     const locked = inheritedLocked || lockedIds.has(node.id);
     const hidden = inheritedHidden || hiddenIds.has(node.id);
     if (locked) state.lockedIds.add(node.id);
     if (hidden) state.hiddenIds.add(node.id);
+    ancestors.add(node.id);
     collectEffectiveCodeLayerState(
       node.children,
       lockedIds,
@@ -1627,7 +1664,9 @@ function collectEffectiveCodeLayerState(
       locked,
       hidden,
       state,
+      ancestors,
     );
+    ancestors.delete(node.id);
   });
   return state;
 }
@@ -2530,6 +2569,9 @@ export default function DesignEditor() {
   const [hasCanvasClipboard, setHasCanvasClipboard] = useState(false);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
   const copiedLayerHtmlRef = useRef<string | null>(null);
+  // Cascade offset for repeated keyboard pastes so successive clones don't stack
+  // pixel-perfectly on top of each other. Reset on each fresh copy/cut.
+  const pasteCascadeRef = useRef(0);
   const copiedStylePropsRef = useRef<Record<string, string> | null>(null);
   const spaceHandPreviousToolRef = useRef<DesignTool | null>(null);
   const hasSelectedElement = Boolean(selectedElement);
@@ -3728,7 +3770,12 @@ export default function DesignEditor() {
                 ? command.screen
                 : null;
       const targetFile = findDesignFileByScreenTarget(files, target);
-      if (target && !targetFile && files.length === 0) return false;
+      // A navigate command can name a screen the agent just created that the
+      // get-design query hasn't refetched yet. Treat any unresolved named target
+      // as not-yet-applied (return false) so the app-state key is preserved and
+      // re-applied on the next tick once the file loads — not just when there are
+      // zero files. Otherwise the navigate is silently consumed and dropped.
+      if (target && !targetFile) return false;
 
       const inspectorTab =
         command.inspectorTab === "design" ||
@@ -3845,7 +3892,7 @@ export default function DesignEditor() {
         {
           designId: id,
           filename,
-          content: source.content,
+          content: reassignDuplicatedNodeIds(source.content),
           fileType: normalizedDesignFileType(source.fileType),
         } as any,
         {
@@ -4533,7 +4580,6 @@ export default function DesignEditor() {
       setCollabContent(nextContent);
       lastLocalContentRef.current = nextContent;
       if (id) {
-        const optimisticUpdatedAt = new Date().toISOString();
         queryClient.setQueryData(
           ["action", "get-design", { id }],
           (old: any) => {
@@ -4544,11 +4590,12 @@ export default function DesignEditor() {
               ...old,
               files: old.files.map((file: DesignFile) =>
                 file.id === activeFile.id
-                  ? {
-                      ...file,
-                      content: nextContent,
-                      updatedAt: optimisticUpdatedAt,
-                    }
+                  ? // Update content optimistically but keep the file's prior
+                    // (server-clock) updatedAt. Seeding the reconcile watermark
+                    // from a client-clock timestamp can, under clock skew, make a
+                    // later server-authored agent edit look "older" and get
+                    // dropped by the watermark gate (agent edit silently lost).
+                    { ...file, content: nextContent }
                   : file,
               ),
             };
@@ -4858,8 +4905,8 @@ export default function DesignEditor() {
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
     ) => {
-      if (!canEditDesign) return;
-      if (!design) return;
+      if (!canEditDesign || !design || generating || pendingGenerationActive)
+        return;
       const trimmed = prompt.trim();
       if (!trimmed) return;
       const fileContext = formatUploadedFileContext(files);
@@ -4903,8 +4950,10 @@ export default function DesignEditor() {
       activeFile,
       canEditDesign,
       design,
+      generating,
       handleTweakPromptOpenChange,
       id,
+      pendingGenerationActive,
       tweakSelections,
       tweaks,
     ],
@@ -4980,6 +5029,7 @@ export default function DesignEditor() {
     mode,
     activeTool,
     activeInspectorTab,
+    overviewSelectedScreenIds,
     viewMode,
     zoom,
   ]);
@@ -5051,6 +5101,7 @@ export default function DesignEditor() {
       files,
       id,
       mode,
+      overviewSelectedScreenIds,
       selectedElement,
       selectedScreenIds,
       tweakSelections,
@@ -5136,6 +5187,16 @@ export default function DesignEditor() {
         ([, value]) => value !== undefined,
       );
       if (entries.length === 0) return;
+      // Base every patch off the freshest known content, not the closed-over
+      // render value. Handlers that fire several onStyleChange calls in one
+      // synchronous user action (e.g. fixed-size text → width+height+whiteSpace,
+      // constraints center → both axes, linked padding → 4 sides) would
+      // otherwise each read the same pre-render `activeContent` and clobber one
+      // another, so only the last property survived in the saved HTML. Since we
+      // advance lastLocalContentRef.current to resolvedNextContent below, the
+      // next synchronous call reads the previous call's result and the patches
+      // compose. Falls back to activeContent when the ref is unset (file switch).
+      const baseContent = lastLocalContentRef.current ?? activeContent;
       const [firstProperty, firstValue] = entries[0];
       const capability =
         selectedElement?.editCapabilities?.find((item) =>
@@ -5162,7 +5223,7 @@ export default function DesignEditor() {
             : entries
                 .map(([property, value]) => `${property}: ${value}`)
                 .join("; "),
-        previousContent: activeContent,
+        previousContent: baseContent,
         capability: capability?.kind ?? "deterministic-style-edit",
         confidence: capability?.confidence ?? 0.92,
         status: "runtime",
@@ -5175,10 +5236,10 @@ export default function DesignEditor() {
         });
       }
 
-      const nextContent = applyInlineStylesToHtml(activeContent, selector, {
+      const nextContent = applyInlineStylesToHtml(baseContent, selector, {
         ...Object.fromEntries(entries),
       });
-      const projection = buildCodeLayerProjection(activeContent);
+      const projection = buildCodeLayerProjection(baseContent);
       const targetNode = resolveCodeLayerNodeFromBridge(
         projection,
         selector,
@@ -5206,7 +5267,7 @@ export default function DesignEditor() {
           }
           return { content: patch.content, failed: null };
         },
-        { content: activeContent, failed: null },
+        { content: baseContent, failed: null },
       );
       const resolvedNextContent = stylePatch.failed
         ? nextContent
@@ -5585,6 +5646,7 @@ export default function DesignEditor() {
     const html = getElementOuterHtml(activeContent, selectedElement.selector);
     if (!html) return;
     copiedLayerHtmlRef.current = html;
+    pasteCascadeRef.current = 0;
     setHasCanvasClipboard(true);
     try {
       await navigator.clipboard.writeText(html);
@@ -5597,43 +5659,72 @@ export default function DesignEditor() {
   const handlePasteSelection = useCallback(
     (position?: { x: number; y: number }) => {
       if (!activeFile || !canEditDesign || !copiedLayerHtmlRef.current) return;
-      // When no explicit canvas point is provided (plain Cmd+V), paste near the
-      // element's original position so the copy lands in the same design area.
-      // Figma-style: offset the source position by +10px rather than placing at
-      // a fixed coordinate that may be outside visible frame content.
-      const pastePosition =
+      // Explicit positions (e.g. "Paste here" at the cursor) are honored as-is.
+      // Keyboard pastes land near the source layer and cascade so repeats don't
+      // stack exactly.
+      const targetPosition =
         position ??
         (() => {
           const src = extractLayerPosition(copiedLayerHtmlRef.current!);
-          return src ? { x: src.x + 10, y: src.y + 10 } : { x: 10, y: 10 };
+          const offset = pasteCascadeRef.current * 16;
+          return src
+            ? { x: src.x + 10 + offset, y: src.y + 10 + offset }
+            : { x: 120 + offset, y: 120 + offset };
         })();
       const nextContent = cloneHtmlLayerAtPosition(
         activeContent,
         copiedLayerHtmlRef.current,
-        pastePosition,
+        targetPosition,
       );
       if (!nextContent) return;
+      if (!position) pasteCascadeRef.current += 1;
       applyLocalContentUpdate(nextContent);
       toast.success(t("designEditor.toasts.pasted"), { duration: 3000 });
     },
     [activeContent, activeFile, applyLocalContentUpdate, canEditDesign, t],
   );
 
+  const handlePasteOverSelection = useCallback(() => {
+    if (!activeFile || !copiedLayerHtmlRef.current) return;
+    if (selectedElement?.boundingRect) {
+      const { x, y } = selectedElement.boundingRect;
+      const nextContent = cloneHtmlLayerAtPosition(
+        activeContent,
+        copiedLayerHtmlRef.current,
+        { x, y },
+      );
+      if (!nextContent) return;
+      applyLocalContentUpdate(nextContent);
+      toast.success(t("designEditor.toasts.pasted"));
+    } else {
+      handlePasteSelection();
+    }
+  }, [
+    activeContent,
+    activeFile,
+    applyLocalContentUpdate,
+    handlePasteSelection,
+    selectedElement,
+    t,
+  ]);
+
   const handleDuplicateSelection = useCallback(() => {
     if (!canEditDesign) return;
     if (selectedElement?.selector) {
       const html = getElementOuterHtml(activeContent, selectedElement.selector);
-      if (html) {
-        const rect = selectedElement.boundingRect;
-        const nextContent = cloneHtmlLayerAtPosition(activeContent, html, {
-          x: rect.x + 16,
-          y: rect.y + 16,
-        });
-        if (nextContent) {
-          applyLocalContentUpdate(nextContent);
-          return;
-        }
+      const rect = selectedElement.boundingRect;
+      const nextContent = html
+        ? cloneHtmlLayerAtPosition(activeContent, html, {
+            x: rect.x + 16,
+            y: rect.y + 16,
+          })
+        : null;
+      if (nextContent) {
+        applyLocalContentUpdate(nextContent);
+      } else {
+        toast.error(t("designEditor.toasts.duplicateElementFailed"));
       }
+      return;
     }
     if (activeFile) handleDuplicateScreen(activeFile.id);
   }, [
@@ -5647,6 +5738,41 @@ export default function DesignEditor() {
 
   const handleDeleteSelection = useCallback(() => {
     if (!canEditDesign) return;
+    // Multi-select delete: when several DOM/code layers are selected in the
+    // panel, remove all of them — not just the single focused element. Compose
+    // the removals against the running content (re-projecting each pass) so
+    // nested selections resolve correctly and earlier removals aren't clobbered.
+    const candidateIds = selectedLayerIdsState.filter(
+      (layerId) =>
+        layerId &&
+        !layerId.startsWith("__") &&
+        !files.some((file) => file.id === layerId),
+    );
+    if (candidateIds.length > 1) {
+      let content = activeContent;
+      const removedSelectors: string[] = [];
+      for (const layerId of candidateIds) {
+        const projection = buildCodeLayerProjection(content);
+        const node =
+          projection.nodes.find((candidate) => candidate.id === layerId) ??
+          resolveCodeLayerNodeFromBridge(projection, layerId, layerId);
+        if (!node) continue;
+        const next = removeCodeLayerNodeFromHtml(content, node);
+        if (!next) continue;
+        const selector = preferredCodeLayerSelector(node);
+        if (selector) removedSelectors.push(selector);
+        content = next;
+      }
+      if (content !== activeContent) {
+        removedSelectors.forEach((selector) => deleteRuntimeElement(selector));
+        applyLocalContentUpdate(content, { refreshPreview: false });
+        setSelectedElement(null);
+        setSelectedLayerIdsState([]);
+        return;
+      }
+      // Nothing resolved (stale ids) — fall through to the single path.
+    }
+
     if (!selectedElement?.selector) return;
     const projection = buildCodeLayerProjection(activeContent);
     const targetNode = resolveCodeLayerNodeFromBridge(
@@ -5669,8 +5795,19 @@ export default function DesignEditor() {
     applyLocalContentUpdate,
     canEditDesign,
     deleteRuntimeElement,
+    files,
     selectedElement,
+    selectedLayerIdsState,
   ]);
+
+  const handleCutSelection = useCallback(async () => {
+    if (!selectedElement?.selector) return;
+    // Copy first (populates the internal clipboard ref even if the async
+    // navigator.clipboard write is blocked — handleCopySelection swallows that
+    // error) then remove the element so a subsequent paste can re-insert it.
+    await handleCopySelection();
+    handleDeleteSelection();
+  }, [handleCopySelection, handleDeleteSelection, selectedElement]);
 
   const handleDeleteOverviewSelection = useCallback(
     (selectedIds: string[]) => {
@@ -6357,7 +6494,8 @@ export default function DesignEditor() {
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
     onPaste: canEditDesign ? () => handlePasteSelection() : undefined,
-    onPasteOver: canEditDesign ? () => handlePasteSelection() : undefined,
+    onCut: canEditDesign ? handleCutSelection : undefined,
+    onPasteOver: canEditDesign ? handlePasteOverSelection : undefined,
     onCopyProps: canEditDesign ? handleCopyProps : undefined,
     onPasteProps: canEditDesign ? handlePasteProps : undefined,
     onCopyAsCode: handleCopySelection,
@@ -7796,6 +7934,27 @@ ${serializedHtml}
 
   const getContextCanvasPoint = useCallback(
     ({ clientX, clientY }: { clientX: number; clientY: number }) => {
+      // In single-screen mode the iframe is inside a scale(zoom/100) wrapper
+      // that also centers the content. Using the iframe's own
+      // getBoundingClientRect() already incorporates centering/pan because the
+      // rect is measured in screen space after the CSS transform. Dividing by
+      // the zoom factor converts from post-scale screen-pixels back to the
+      // document coordinate space written into left/top by cloneHtmlLayerAtPosition.
+      if (viewMode === "single") {
+        const iframe = canvasContainerRef.current?.querySelector<HTMLElement>(
+          "[data-design-preview-iframe]",
+        );
+        if (iframe) {
+          const iframeRect = iframe.getBoundingClientRect();
+          const factor = zoom / 100;
+          return {
+            x: Math.max(0, (clientX - iframeRect.left) / factor),
+            y: Math.max(0, (clientY - iframeRect.top) / factor),
+          };
+        }
+      }
+      // Overview mode: fall back to container-relative coords (overview uses its
+      // own coordinate mapping for paste; this value is a best-effort fallback).
       const rect = canvasContainerRef.current?.getBoundingClientRect();
       if (!rect) return { x: 120, y: 120 };
       return {
@@ -7803,7 +7962,7 @@ ${serializedHtml}
         y: Math.max(0, clientY - rect.top),
       };
     },
-    [],
+    [zoom, viewMode],
   );
 
   const zoomLabel = `${Math.round(zoom)}%`;
@@ -8689,7 +8848,7 @@ ${serializedHtml}
             canZoomToSelection={Boolean(
               selectedElement || selectedScreenIds.length > 0,
             )}
-            canCopy={Boolean(activeFile)}
+            canCopy={Boolean(selectedElement?.selector)}
             canPaste={
               canEditDesign && hasCanvasClipboard && Boolean(activeFile)
             }
@@ -8710,7 +8869,7 @@ ${serializedHtml}
             canPasteProps={
               canEditDesign && hasPropsClipboard && Boolean(selectedElement)
             }
-            canCopyAsCode={Boolean(activeFile)}
+            canCopyAsCode={Boolean(selectedElement?.selector)}
             hiddenActions={["group", "ungroup", "rename"]}
             getCanvasPoint={getContextCanvasPoint}
             onPasteHere={(details) =>
@@ -8726,7 +8885,7 @@ ${serializedHtml}
             onZoomToSelection={() => setZoom(150)}
             onCopy={handleCopySelection}
             onPaste={() => handlePasteSelection()}
-            onPasteOver={() => handlePasteSelection()}
+            onPasteOver={handlePasteOverSelection}
             onDuplicate={handleDuplicateSelection}
             onDelete={handleDeleteSelection}
             onBringForward={() => changeSelectedZIndex("forward")}
@@ -8793,6 +8952,7 @@ ${serializedHtml}
                     onPrimitiveCreated={handlePrimitiveCreated}
                     onCreateScreenFrame={handleCreateScreenFrame}
                     onDeleteSelection={handleDeleteOverviewSelection}
+                    onSelectionChange={setOverviewSelectedScreenIds}
                     onPick={(id) => {
                       pendingOverviewScreenSelectionRef.current = null;
                       setSelectedElement(null);
@@ -9132,6 +9292,7 @@ ${serializedHtml}
         title={t("designEditor.tweaksPromptTitle")}
         placeholder={t("designEditor.tweaksPlaceholder")}
         onSubmit={handleTweakPromptSubmit}
+        loading={generating || pendingGenerationActive}
         anchorRef={tweakPromptAnchorRef}
       />
     </div>

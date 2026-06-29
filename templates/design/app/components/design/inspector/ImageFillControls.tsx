@@ -34,6 +34,16 @@ const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
 
 // ─── CSS serialization ─────────────────────────────────────────────────────────
 
+/**
+ * Escape a URL for embedding inside a double-quoted CSS url("...") token.
+ * Only `"` and `\` are CSS-significant inside a double-quoted string; newlines
+ * must also be stripped. Everything else (parens, commas, single-quotes, etc.)
+ * is safe inside double quotes, so we leave it alone to keep the URL intact.
+ */
+function escapeForQuotedUrl(url: string): string {
+  return url.replace(/\\/g, "\\\\").replace(/"/g, "%22").replace(/\r?\n/g, "");
+}
+
 const CHECKER_A = "#d4d4d4";
 const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
 const FIT_MARKER_RE =
@@ -55,7 +65,7 @@ function imageFitMarker(fit: ImageFitMode): string {
 export function imageFillToCss(value: ImageFillValue): string {
   const url = value.url.trim();
   if (!url) return "transparent";
-  const safeUrl = url.replace(/["')]/g, encodeURIComponent);
+  const safeUrl = escapeForQuotedUrl(url);
   const image = `url("${safeUrl}")`;
   switch (value.fit) {
     case "fit":
@@ -123,13 +133,17 @@ export function imageFillToBackgroundStyles(
   }
 }
 
-const URL_RE = /url\((['"]?)([^'")]+)\1\)/i;
+// Matches url() in three forms:
+//   group 1 — double-quoted:  url("...anything...")
+//   group 2 — single-quoted:  url('...anything...')
+//   group 3 — unquoted:       url(...no-parens-or-quotes...)
+const URL_RE = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]*?))\s*\)/i;
 
 /** Extract the URL + fit mode from a CSS background value, if present. */
 export function parseImageFillCss(value: string): ImageFillValue | null {
   const match = value.match(URL_RE);
   if (!match) return null;
-  const url = match[2];
+  const url = (match[1] ?? match[2] ?? match[3] ?? "").trim();
   const marker = value.match(FIT_MARKER_RE)?.[1] as ImageFitMode | undefined;
   if (marker) return { url, fit: marker };
   // Heuristic fallback when no marker comment is present (e.g. CSS pasted from
@@ -194,7 +208,7 @@ export function ImageFillControls({
         className="relative h-24 w-full overflow-hidden rounded-md border border-border/60"
         style={{
           backgroundImage: value.url
-            ? `url("${value.url.trim().replace(/["')]/g, encodeURIComponent)}")`
+            ? `url("${escapeForQuotedUrl(value.url.trim())}")`
             : CHECKERBOARD_IMAGE,
           backgroundSize: value.url
             ? value.fit === "fit"

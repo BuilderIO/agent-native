@@ -506,6 +506,63 @@ describe("applyVisualEdit", () => {
     );
   });
 
+  it("resolves a drifted positional selector via the unique class match", () => {
+    // The runtime DOM had `div.target` as the 2nd child after reordering, but
+    // in the stored source it is the 3rd child, so strict `:nth-of-type(2)` no
+    // longer matches. Resolution should fall back to the unique class match.
+    const html = `<section class="list"><div class="row">A</div><div class="row">B</div><div class="target">C</div></section>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: { selector: `section.list > div.target:nth-of-type(2)` },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<section class="list"><div class="row">A</div><div class="row">B</div><div class="target" style="color: #111">C</div></section>`,
+    );
+  });
+
+  it("keeps strict positional resolution when the DOM order is intact", () => {
+    // Regression guard: when the positional selector is still valid, the strict
+    // pass must win and edit exactly the addressed node, not loosen to the
+    // whole set of same-tag siblings.
+    const html = `<div>One</div><div>Two</div><div>Three</div><div>Four</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(2)`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<div>One</div><div style="color: #111">Two</div><div>Three</div><div>Four</div>`,
+    );
+  });
+
+  it("reports an actionable conflict when a drifted positional selector is ambiguous", () => {
+    // No source div carries the runtime position, and dropping the position
+    // leaves several identical candidates. Surface a clear, actionable conflict
+    // instead of silently editing the wrong node.
+    const html = `<div>One</div><div>Two</div><div>Three</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(9)`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("conflict");
+    expect(patch.result.message).toContain("after ignoring positional");
+    expect(patch.content).toBe(html);
+  });
+
   it("does not collapse full bridge selector paths to ambiguous leaf selectors", () => {
     const html = `<main><section data-layer-name="First"><button class="secondary">First</button></section><section data-layer-name="Second"><button class="secondary">Second</button></section></main>`;
     const patch = applyVisualEdit(html, {

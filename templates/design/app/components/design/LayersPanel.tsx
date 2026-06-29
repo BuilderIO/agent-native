@@ -176,7 +176,23 @@ interface FlatLayerRow {
   depth: number;
   ancestorIds: string[];
   hasChildren: boolean;
+  canAcceptChildren: boolean;
 }
+
+// Node types that can contain children even when currently empty.
+// Leaf / void types (text, image, shape, rectangle) are excluded so we don't
+// offer an "inside" drop zone on genuinely non-container elements.
+const CONTAINER_TYPES = new Set<LayersPanelNodeType | undefined>([
+  "file",
+  "screen",
+  "frame",
+  "group",
+  "section",
+  "component",
+  "instance",
+  "code",
+  "element",
+]);
 
 const SECTION_CODE_ID = "__design_layers_code__";
 const SECTION_ELEMENT_ID = "__design_layers_elements__";
@@ -185,6 +201,14 @@ const SECTION_ELEMENT_ID = "__design_layers_elements__";
 // per spec; the source row stores the drag payload here on dragstart instead.
 let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
 let activeDropIntent: LayersPanelMoveIntent | null = null;
+
+const ROW_BASE_INDENT = 4;
+const ROW_INDENT_STEP = 28;
+const ROW_MAX_INDENT = 96;
+
+function rowIndent(depth: number): number {
+  return Math.min(ROW_BASE_INDENT + depth * ROW_INDENT_STEP, ROW_MAX_INDENT);
+}
 
 function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
@@ -324,8 +348,16 @@ function flattenRows(
   nodes.forEach((node, index) => {
     const children = node.children ?? [];
     const hasChildren = children.length > 0;
+    const canAcceptChildren = CONTAINER_TYPES.has(node.type);
     const rowKey = `${parentKey}/${node.id}:${index}`;
-    rows.push({ node, rowKey, depth, ancestorIds, hasChildren });
+    rows.push({
+      node,
+      rowKey,
+      depth,
+      ancestorIds,
+      hasChildren,
+      canAcceptChildren,
+    });
     if (hasChildren && (forceExpanded || expandedIds.has(node.id))) {
       flattenRows(
         children,
@@ -514,9 +546,20 @@ export function LayersPanel({
       const currentSelectedIdSet = new Set(currentSelectedIds);
       let nextIds: string[];
       if (options.range && lastSelectionAnchorRef.current) {
-        const from = selectableVisibleIds.indexOf(
-          lastSelectionAnchorRef.current,
-        );
+        let anchor = lastSelectionAnchorRef.current;
+        if (selectableVisibleIds.indexOf(anchor) < 0) {
+          // Stale anchor (deleted / filtered / collapsed out of view): pivot from
+          // the last selected layer that is still visible & selectable, matching
+          // Figma's behavior instead of dropping the range to a single select.
+          const fallback = [...selectedIds]
+            .reverse()
+            .find((sid) => selectableVisibleIds.includes(sid));
+          if (fallback) {
+            anchor = fallback;
+            lastSelectionAnchorRef.current = fallback;
+          }
+        }
+        const from = selectableVisibleIds.indexOf(anchor);
         const to = selectableVisibleIds.indexOf(id);
         if (from >= 0 && to >= 0) {
           const [start, end] = from < to ? [from, to] : [to, from];
@@ -862,7 +905,7 @@ function LayerRow({
   selectedIds: readonly string[];
   visibleRows: FlatLayerRow[];
 }) {
-  const { node, depth, hasChildren } = row;
+  const { node, depth, hasChildren, canAcceptChildren } = row;
   const selectable = node.selectable !== false;
   const lockable = node.lockable !== false && Boolean(onToggleLocked);
   const hideable = node.hideable !== false && Boolean(onToggleHidden);
@@ -1152,10 +1195,7 @@ function LayerRow({
                 "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
               node.hidden && "text-muted-foreground",
             )}
-            style={{
-              paddingLeft:
-                LAYER_ROW_BASE_INDENT + depth * LAYER_ROW_DEPTH_INDENT,
-            }}
+            style={{ paddingLeft: rowIndent(depth) }}
           >
             {hasChildren ? (
               <Button

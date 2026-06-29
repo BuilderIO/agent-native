@@ -1807,6 +1807,16 @@ function isDocumentRootSelectorPart(selectorPart: string): boolean {
   return tag === "html" || tag === "body";
 }
 
+// Removes positional `:nth-of-type(n)` suffixes from a selector. Runtime
+// bridge selectors fall back to `:nth-of-type` for elements without a durable
+// id, and that position is computed against the live (possibly Alpine-mutated)
+// DOM. When the stored source order differs, the positional index no longer
+// lines up. Dropping the suffix lets resolution fall back to the element's
+// stable signal (tag, classes, attributes, ancestor path).
+function stripPositionalNthOfType(selector: string): string {
+  return selector.replace(/:nth-of-type\(\d+\)/g, "");
+}
+
 function lastSelectorPart(selector: string): string {
   const parts = normalizeSelectorForMatch(selector).split(" > ");
   return parts[parts.length - 1] ?? selector;
@@ -2038,26 +2048,52 @@ function resolveTarget(
     };
   }
 
-  const matches = projection.nodes.filter((node) =>
-    selectorMatches(
-      node,
-      target.selector ?? "",
-      elementByNodeId.get(node.id),
-      elementByIndex,
-    ),
-  );
+  const selectorValue = target.selector ?? "";
+  const matchesForSelector = (value: string): CodeLayerNode[] =>
+    projection.nodes.filter((node) =>
+      selectorMatches(
+        node,
+        value,
+        elementByNodeId.get(node.id),
+        elementByIndex,
+      ),
+    );
+
+  const matches = matchesForSelector(selectorValue);
   if (matches.length === 1 && matches[0]) {
     return { status: "resolved", node: matches[0] };
   }
   if (matches.length > 1) {
     return {
       status: "conflict",
-      message: `Selector "${target.selector}" matched ${matches.length} code layer nodes.`,
+      message: `Selector "${selectorValue}" matched ${matches.length} code layer nodes.`,
     };
   }
+
+  // Strict matching found nothing. Runtime selectors anchor unstamped elements
+  // with positional `:nth-of-type(n)` parts, which drift when the live DOM
+  // order differs from the stored source (reordered or runtime-inserted nodes).
+  // Retry once with the positional suffixes dropped so an element that is still
+  // unique by its tag/classes/attributes resolves instead of surfacing a hard
+  // "did not match" error. Genuinely ambiguous results stay a conflict rather
+  // than silently editing the wrong node.
+  const positionTolerantSelector = stripPositionalNthOfType(selectorValue);
+  if (positionTolerantSelector && positionTolerantSelector !== selectorValue) {
+    const tolerantMatches = matchesForSelector(positionTolerantSelector);
+    if (tolerantMatches.length === 1 && tolerantMatches[0]) {
+      return { status: "resolved", node: tolerantMatches[0] };
+    }
+    if (tolerantMatches.length > 1) {
+      return {
+        status: "conflict",
+        message: `Selector "${selectorValue}" matched ${tolerantMatches.length} code layer nodes after ignoring positional :nth-of-type (the element may have been reordered or added at runtime). Re-select the element to refresh its id.`,
+      };
+    }
+  }
+
   return {
     status: "conflict",
-    message: `Selector "${target.selector}" did not match a code layer node.`,
+    message: `Selector "${selectorValue}" did not match a code layer node.`,
   };
 }
 

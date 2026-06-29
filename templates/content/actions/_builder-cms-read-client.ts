@@ -19,6 +19,13 @@ export interface BuilderCmsReadResult {
   message: string | null;
 }
 
+export interface BuilderCmsEntryLiveState {
+  exists: boolean;
+  published: "published" | "draft" | string | null;
+  lastUpdated: number | string | null;
+  id: string | null;
+}
+
 type FetchLike = typeof fetch;
 
 type BuilderMcpContentPart = {
@@ -50,6 +57,80 @@ function entryArrayFromResponse(value: unknown) {
   if (!value || typeof value !== "object") return [];
   const record = value as Record<string, unknown>;
   return Array.isArray(record.results) ? record.results : [];
+}
+
+function stringFromUnknown(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function stringOrNumberFromUnknown(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return stringFromUnknown(value);
+}
+
+function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
+  if (Array.isArray(value)) {
+    return value.length > 0
+      ? liveStateFromBuilderEntry(value[0])
+      : {
+          exists: false,
+          published: null,
+          lastUpdated: null,
+          id: null,
+        };
+  }
+  if (!value || typeof value !== "object") {
+    return {
+      exists: false,
+      published: null,
+      lastUpdated: null,
+      id: null,
+    };
+  }
+
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.results)) {
+    return liveStateFromBuilderEntry(record.results);
+  }
+  if (Object.keys(record).length === 0) {
+    return {
+      exists: false,
+      published: null,
+      lastUpdated: null,
+      id: null,
+    };
+  }
+
+  const data =
+    record.data &&
+    typeof record.data === "object" &&
+    !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : {};
+  const id =
+    stringFromUnknown(record.id) ??
+    stringFromUnknown(record["@id"]) ??
+    stringFromUnknown(record.uuid);
+  if (!id) {
+    return {
+      exists: false,
+      published: null,
+      lastUpdated: null,
+      id: null,
+    };
+  }
+
+  return {
+    exists: true,
+    published:
+      stringFromUnknown(record.published) ?? stringFromUnknown(data.published),
+    lastUpdated:
+      stringOrNumberFromUnknown(record.lastUpdated) ??
+      stringOrNumberFromUnknown(record.updatedDate) ??
+      stringOrNumberFromUnknown(record.updatedAt) ??
+      stringOrNumberFromUnknown(data.updatedAt),
+    id,
+  };
 }
 
 function readLimit(limit: number | undefined) {
@@ -504,6 +585,50 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     fetchedAt,
     message: null,
   };
+}
+
+export async function readBuilderCmsEntryLiveState(args: {
+  model: string;
+  entryId: string;
+  fetchImpl?: FetchLike;
+}): Promise<BuilderCmsEntryLiveState> {
+  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (!publicKey) {
+    throw new Error(
+      "Builder CMS live entry read skipped because BUILDER_PUBLIC_KEY is not configured.",
+    );
+  }
+
+  const url = new URL(
+    `/api/v3/content/${encodeURIComponent(args.model)}/${encodeURIComponent(
+      args.entryId,
+    )}`,
+    builderContentApiHost(),
+  );
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("includeUnpublished", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
+
+  const response = await fetchBuilderContentPage({
+    fetchImpl: args.fetchImpl ?? fetch,
+    url,
+  });
+  if (response.status === 404) {
+    return {
+      exists: false,
+      published: null,
+      lastUpdated: null,
+      id: null,
+    };
+  }
+  if (!response.ok) {
+    throw new Error(
+      `Builder CMS live entry read failed with HTTP ${response.status}.`,
+    );
+  }
+
+  const json = (await response.json()) as unknown;
+  return liveStateFromBuilderEntry(json);
 }
 
 export async function listBuilderCmsModels(

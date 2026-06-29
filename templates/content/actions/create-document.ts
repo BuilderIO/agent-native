@@ -28,6 +28,13 @@ function nanoid(size = 12): string {
   return id;
 }
 
+function assertCanWriteAppState() {
+  if (getRequestUserEmail() || process.env.AGENT_USER_EMAIL) return;
+  throw new Error(
+    "Application state access requires an authenticated request context or AGENT_USER_EMAIL env var",
+  );
+}
+
 export default defineAction({
   description: "Create a new document.",
   schema: z.object({
@@ -53,6 +60,7 @@ export default defineAction({
   },
   run: async (args) => {
     if (await isContentLocalFileMode()) {
+      assertCanWriteAppState();
       const doc = await createLocalFileDocument(args);
       await writeAppState("refresh-signal", { ts: Date.now() });
       return {

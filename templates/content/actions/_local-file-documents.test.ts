@@ -173,6 +173,16 @@ describe("content local file documents", () => {
     ]).toEqual(expect.arrayContaining([expect.stringContaining("Second")]));
   });
 
+  it("keeps blank docs profile creates formatter-clean", async () => {
+    const root = setupLocalContentRepo({ profile: "docs/no-bookkeeping" });
+
+    const doc = await createLocalFileDocument({ title: "" });
+
+    expect(readFile(root, doc.source?.path ?? "")).toBe(
+      '---\ntitle: "Untitled"\n---\n',
+    );
+  });
+
   it("fails loudly instead of pretending local file moves succeeded", async () => {
     const root = setupLocalContentRepo();
     writeFile(root, "docs/guide.mdx", "# Guide");

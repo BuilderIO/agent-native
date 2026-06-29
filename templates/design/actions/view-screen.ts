@@ -164,7 +164,21 @@ export default defineAction({
         "Questions are visible to the user as a full-canvas overlay. Wait for their answers (they'll come back as a chat message) before generating.";
     }
     if (generationSession) {
+      const GENERATION_SESSION_TTL_MS = 10 * 60 * 1000; // 10 minutes
+      const startedAt =
+        typeof (generationSession as { startedAt?: unknown }).startedAt ===
+        "string"
+          ? new Date(
+              (generationSession as { startedAt: string }).startedAt,
+            ).getTime()
+          : 0;
+      const isStale =
+        startedAt > 0 && Date.now() - startedAt > GENERATION_SESSION_TTL_MS;
       screen.generationSession = generationSession;
+      if (isStale) {
+        screen.generationSessionNote =
+          "This generation session may be stale or abandoned (started more than 10 minutes ago). Verify saved screens via the design file list rather than assuming generation is still in progress.";
+      }
     }
 
     if (Object.keys(screen).length === 0) {

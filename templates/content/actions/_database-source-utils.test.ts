@@ -201,6 +201,232 @@ describe("database source helpers", () => {
     });
   });
 
+  it("detects a changed mapped property field on an existing row (not just title)", () => {
+    const [changeSet] = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+          sourceValuesJson: JSON.stringify({ "data.body": "old body" }),
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Same title"]]),
+      storedChangeSets: [],
+      localValuesByDocument: new Map([
+        ["doc-1", new Map([["prop-body", "new body"]])],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-body",
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          sourceFieldLabel: "Body",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(changeSet).toMatchObject({
+      direction: "outbound",
+      fieldChanges: [
+        {
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          currentValue: "old body",
+          proposedValue: "new body",
+        },
+      ],
+    });
+  });
+
+  it("does NOT diff a mapped field whose local value matches the source baseline", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+          sourceValuesJson: JSON.stringify({ "data.body": "same body" }),
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Same title"]]),
+      storedChangeSets: [],
+      localValuesByDocument: new Map([
+        ["doc-1", new Map([["prop-body", "same body"]])],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-body",
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          sourceFieldLabel: "Body",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+    expect(pending).toHaveLength(0);
+  });
+
+  it("creates a create_draft change-set for a new local row not linked to Builder", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-linked",
+          documentId: "doc-linked",
+          sourceDisplayKey: "Linked entry",
+        },
+      ],
+      documentTitleById: new Map([
+        ["doc-linked", "Linked entry"],
+        ["doc-new", "Brand New Article"],
+      ]),
+      storedChangeSets: [],
+      databaseItems: [
+        { databaseItemId: "item-linked", documentId: "doc-linked" },
+        { databaseItemId: "item-new", documentId: "doc-new" },
+      ],
+      localValuesByDocument: new Map([
+        ["doc-new", new Map([["prop-body", "Hello body"]])],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-body",
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          sourceFieldLabel: "Body",
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    const create = pending.find((cs) => cs.documentId === "doc-new");
+    expect(create).toMatchObject({
+      direction: "outbound",
+      state: "pending_push",
+      databaseItemId: "item-new",
+      summary: 'Pending new Builder entry "Brand New Article".',
+      fieldChanges: [
+        {
+          localFieldKey: "title",
+          sourceFieldKey: "data.title",
+          currentValue: null,
+          proposedValue: "Brand New Article",
+        },
+        {
+          localFieldKey: "prop-body",
+          sourceFieldKey: "data.body",
+          currentValue: null,
+          proposedValue: "Hello body",
+        },
+      ],
+    });
+    // The already-linked row with no title change yields nothing.
+    expect(
+      pending.find((cs) => cs.documentId === "doc-linked"),
+    ).toBeUndefined();
+  });
+
+  it("does not create rows owned by another source (row-union scoping)", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [],
+      documentTitleById: new Map([
+        ["doc-mine", "My new row"],
+        ["doc-other", "Belongs to another collection"],
+      ]),
+      storedChangeSets: [],
+      databaseItems: [
+        { databaseItemId: "item-mine", documentId: "doc-mine" },
+        { databaseItemId: "item-other", documentId: "doc-other" },
+      ],
+      // doc-other is owned by a different source — it must not become a create
+      // candidate for this one, even though it isn't in this source's rowRows.
+      otherSourceDocumentIds: new Set(["doc-other"]),
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending.find((cs) => cs.documentId === "doc-mine")).toBeDefined();
+    expect(pending.find((cs) => cs.documentId === "doc-other")).toBeUndefined();
+  });
+
+  it("a non-primary source adopts a row tagged for it via the Source property", () => {
+    // A new, unlinked row tagged for "source-zz" must create against zz even
+    // though zz is not the primary (allowUnsourcedCreates: false).
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms", id: "source-zz" },
+      rowRows: [],
+      documentTitleById: new Map([
+        ["doc-zz", "New resource"],
+        ["doc-blog", "New blog row"],
+      ]),
+      storedChangeSets: [],
+      databaseItems: [
+        { databaseItemId: "item-zz", documentId: "doc-zz" },
+        { databaseItemId: "item-blog", documentId: "doc-blog" },
+      ],
+      allowUnsourcedCreates: false,
+      taggedSourceByDocumentId: new Map([
+        ["doc-zz", "source-zz"],
+        ["doc-blog", "source-blog"],
+      ]),
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    // zz adopts its own tagged row; the row tagged for another collection is
+    // left alone even though this is the non-primary source.
+    expect(pending.find((cs) => cs.documentId === "doc-zz")).toBeDefined();
+    expect(pending.find((cs) => cs.documentId === "doc-blog")).toBeUndefined();
+  });
+
+  it("only the primary adopts unsourced rows as creates (allowUnsourcedCreates)", () => {
+    const args = {
+      source: { sourceType: "builder-cms" },
+      rowRows: [],
+      documentTitleById: new Map([["doc-local", "Unsourced local row"]]),
+      storedChangeSets: [],
+      databaseItems: [
+        { databaseItemId: "item-local", documentId: "doc-local" },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0];
+
+    // A non-primary source leaves an unsourced "Local" row alone.
+    expect(
+      buildBuilderLocalOutboundChangeSets({
+        ...args,
+        allowUnsourcedCreates: false,
+      }),
+    ).toHaveLength(0);
+    // The primary (default) adopts it as a create_draft.
+    expect(
+      buildBuilderLocalOutboundChangeSets({
+        ...args,
+        allowUnsourcedCreates: true,
+      }).find((cs) => cs.documentId === "doc-local"),
+    ).toBeDefined();
+  });
+
+  it("skips creates for titleless rows or rows that already have a stored change", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [],
+      documentTitleById: new Map([["doc-titled", "Has Title"]]),
+      storedChangeSets: [
+        {
+          direction: "outbound",
+          state: "pending_push",
+          documentId: "doc-titled",
+        },
+      ],
+      databaseItems: [
+        { databaseItemId: "item-empty", documentId: "doc-empty" },
+        { databaseItemId: "item-titled", documentId: "doc-titled" },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+    expect(pending).toHaveLength(0);
+  });
+
   it("does not synthesize live Builder push diffs for legacy fixture rows", () => {
     const pending = buildBuilderLocalOutboundChangeSets({
       source: {

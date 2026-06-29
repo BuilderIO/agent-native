@@ -1114,13 +1114,6 @@ export function SizingField({
 }: SizingFieldProps) {
   const labels = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labelOverrides };
   const isWidth = sizingAxis === "horizontal";
-  // Local pending state for a newly-opened constraint editor. Holds the kind
-  // and seed value so the sub-row is visible before the user has confirmed a
-  // value. We only commit to onMinMaxChange when the user types or scrubs.
-  const [pending, setPending] = useState<{
-    kind: "min" | "max";
-    seed: number;
-  } | null>(null);
 
   const minValue = minMax?.min ?? null;
   const maxValue = minMax?.max ?? null;
@@ -1143,12 +1136,11 @@ export function SizingField({
   const isEditableFixed = value === "fixed" && onSizeChange != null;
 
   const openEditor = (kind: "min" | "max") => {
-    // Compute a sensible seed but do NOT write it to the parent yet — only
-    // show the pending sub-row. The value is committed when the user first
-    // scrubs/types in the ConstraintSubRow.
+    // Commit immediately so the shown row always reflects real state and
+    // persists across selection changes, remounts, and parent re-renders.
     const seed = Math.max(0, Math.round(resolvedSize ?? 0));
     const seedValue = kind === "min" ? seed : seed || 1;
-    setPending({ kind, seed: seedValue });
+    onMinMaxChange?.(sizingAxis, kind, seedValue);
   };
 
   // Shared dropdown content (mode picker menu).
@@ -1333,19 +1325,6 @@ export function SizingField({
             onMinMaxChange?.(sizingAxis, "min", null);
           }}
         />
-      ) : pending?.kind === "min" ? (
-        // Pending (uncommitted) min row — shown before the user confirms a value.
-        <ConstraintSubRow
-          label={minLabel}
-          value={pending.seed}
-          disabled={disabled}
-          removeLabel={labels.removeConstraint}
-          onChange={(next) => {
-            setPending(null);
-            onMinMaxChange?.(sizingAxis, "min", next);
-          }}
-          onRemove={() => setPending(null)}
-        />
       ) : null}
       {hasMax ? (
         <ConstraintSubRow
@@ -1357,19 +1336,6 @@ export function SizingField({
           onRemove={() => {
             onMinMaxChange?.(sizingAxis, "max", null);
           }}
-        />
-      ) : pending?.kind === "max" ? (
-        // Pending (uncommitted) max row — shown before the user confirms a value.
-        <ConstraintSubRow
-          label={maxLabel}
-          value={pending.seed}
-          disabled={disabled}
-          removeLabel={labels.removeConstraint}
-          onChange={(next) => {
-            setPending(null);
-            onMinMaxChange?.(sizingAxis, "max", next);
-          }}
-          onRemove={() => setPending(null)}
         />
       ) : null}
     </div>
