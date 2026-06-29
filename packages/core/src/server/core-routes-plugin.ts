@@ -14,7 +14,10 @@ import { readMultipartFormData } from "h3";
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import { registerBuiltinEngines } from "../agent/engine/builtin.js";
-import { PROVIDER_ENV_META } from "../agent/engine/provider-env-vars.js";
+import {
+  OPENAI_BASE_URL_ENV_VAR,
+  PROVIDER_ENV_META,
+} from "../agent/engine/provider-env-vars.js";
 import {
   isAgentEngineSettingConfigured,
   getAgentEngineEntry,
@@ -123,6 +126,7 @@ import {
 import type { EnvKeyConfig } from "./create-server.js";
 import {
   canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
   resolveSecret,
 } from "./credential-provider.js";
 import { createEmbedStartRouteHandler } from "./embed-route.js";
@@ -162,6 +166,39 @@ import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
 export const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 export const FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/events`;
 export const LEGACY_FRAMEWORK_EVENTS_ROUTE = `${FRAMEWORK_ROUTE_PREFIX}/poll-events`;
+
+export function getFrameworkEnvKeys(): EnvKeyConfig[] {
+  return [
+    { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
+    {
+      key: "AGENT_ENGINE_PREFER_BYO_KEY",
+      label:
+        "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
+    },
+    {
+      key: "RESEND_API_KEY",
+      label: "Resend API key",
+      helpText:
+        "Enables transactional email, including password resets, invitations, share notifications, and dashboard reports.",
+    },
+    {
+      key: "SENDGRID_API_KEY",
+      label: "SendGrid API key",
+      helpText:
+        "Enables transactional email, including password resets, invitations, share notifications, and dashboard reports.",
+    },
+    {
+      key: "EMAIL_FROM",
+      label: "Email from address",
+      helpText:
+        "Sender address for transactional email. Required when using SendGrid.",
+    },
+    ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
+      key: envVar,
+      label,
+    })),
+  ];
+}
 
 /** Result of the `/_agent-native/health` liveness + DB-warmup probe. */
 export interface DbHealthProbeResult {
@@ -2195,18 +2232,7 @@ export function createCoreRoutesPlugin(
       );
 
       // Env key management — framework keys are always included
-      const frameworkEnvKeys: EnvKeyConfig[] = [
-        { key: "ENABLE_BUILDER", label: "Enable Builder.io features" },
-        {
-          key: "AGENT_ENGINE_PREFER_BYO_KEY",
-          label:
-            "Prefer BYO LLM key over Builder gateway (default: false — gateway wins)",
-        },
-        ...Object.values(PROVIDER_ENV_META).map(({ envVar, label }) => ({
-          key: envVar,
-          label,
-        })),
-      ];
+      const frameworkEnvKeys = getFrameworkEnvKeys();
       {
         const envKeys = [...frameworkEnvKeys, ...(options.envKeys ?? [])];
         const allowedEnvKeyNames = envKeys.map(({ key }) => key);
@@ -2311,6 +2337,20 @@ export function createCoreRoutesPlugin(
                 /* org module not present in this template */
               }
             }
+            const openAiBaseUrlConfigured = await runWithRequestContext(
+              { userEmail, orgId },
+              async () => {
+                try {
+                  if (await resolveSecret(OPENAI_BASE_URL_ENV_VAR)) return true;
+                } catch {
+                  /* fall through to deployment env when allowed */
+                }
+                return (
+                  canUseDeployCredentialFallbackForRequest() &&
+                  !!readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR)
+                );
+              },
+            );
             const stored = (await getSetting("agent-engine")) as {
               engine?: string;
               model?: string;
@@ -2323,6 +2363,7 @@ export function createCoreRoutesPlugin(
                 engine,
                 model: stored?.model ?? entry?.defaultModel ?? DEFAULT_MODEL,
                 source: "settings" as const,
+                openAiBaseUrlConfigured,
               };
             }
             const envEntry = process.env.AGENT_ENGINE
@@ -2338,7 +2379,7 @@ export function createCoreRoutesPlugin(
                   ),
               );
               if (!envUsable) {
-                return { configured: false };
+                return { configured: false, openAiBaseUrlConfigured };
               }
               return {
                 configured: true,
@@ -2346,6 +2387,7 @@ export function createCoreRoutesPlugin(
                 model: envEntry.defaultModel ?? DEFAULT_MODEL,
                 source: "env" as const,
                 envVar: "AGENT_ENGINE",
+                openAiBaseUrlConfigured,
               };
             }
             // Per-user app_secrets — a user who connected Builder (or pasted
@@ -2363,6 +2405,7 @@ export function createCoreRoutesPlugin(
                 model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
                 source: "app_secrets" as const,
                 envVar: detectedFromUser.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
               };
             }
             if (stored && typeof stored.engine === "string") {
@@ -2379,6 +2422,7 @@ export function createCoreRoutesPlugin(
                   model: stored.model ?? entry.defaultModel ?? DEFAULT_MODEL,
                   source: "env" as const,
                   envVar: entry.requiredEnvVars[0],
+                  openAiBaseUrlConfigured,
                 };
               }
             }
@@ -2389,6 +2433,7 @@ export function createCoreRoutesPlugin(
                 model: detectedFromUser.defaultModel ?? DEFAULT_MODEL,
                 source: "app_secrets" as const,
                 envVar: detectedFromUser.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
               };
             }
             const canUseDeployEnv = await runWithRequestContext(
@@ -2403,6 +2448,7 @@ export function createCoreRoutesPlugin(
                 model: detected.defaultModel ?? DEFAULT_MODEL,
                 source: "env" as const,
                 envVar: detected.requiredEnvVars[0],
+                openAiBaseUrlConfigured,
               };
             }
           } catch {}

@@ -442,6 +442,108 @@ describe("browser analytics pageviews", () => {
     expect(options.beforeSend(eventWithAppFrame)).toBe(eventWithAppFrame);
   });
 
+  it("drops iOS WebKit scroll bridge noise from docs Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value:
+              "undefined is not an object (evaluating 'window.webkit.messageHandlers.scrollEventHandler.postMessage')",
+            stacktrace: {
+              frames: [{ filename: "/assets/analytics.js", function: "r" }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/ja-JP",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("drops source-less public docs stack overflow noise from browser Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/skills",
+      },
+    });
+
+    expect(result).toBeNull();
+
+    const eventWithAppFrame = {
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "/assets/app.js",
+                  function: "render",
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/skills",
+      },
+    };
+    expect(options.beforeSend(eventWithAppFrame)).toBe(eventWithAppFrame);
+
+    const nonDocsEvent = {
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://mail.agent-native.com/inbox",
+      },
+    };
+    expect(options.beforeSend(nonDocsEvent)).toBe(nonDocsEvent);
+  });
+
   it("drops user-aborted browser requests from Sentry", async () => {
     installBrowser();
     (window as any).__AGENT_NATIVE_CONFIG__ = {

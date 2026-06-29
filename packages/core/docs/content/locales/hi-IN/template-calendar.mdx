@@ -1,0 +1,377 @@
+---
+title: "कैलेंडर"
+description: "Google Calendar सिंक और कैलेंडली-शैली बुकिंग लिंक के साथ एक एजेंट-संचालित कैलेंडर। सादे अंग्रेजी के माध्यम से शेड्यूल करें, स्लॉट ढूंढें और उपलब्धता प्रबंधित करें।"
+---
+
+# कैलेंडर
+
+एजेंट-संचालित कैलेंडर ऐप। अपने Google Calendar को कनेक्ट करें और एजेंट आपका शेड्यूल पढ़ सकता है, मुफ्त स्लॉट ढूंढ सकता है, ईवेंट बना सकता है और कैलेंडली-शैली बुकिंग लिंक प्रबंधित कर सकता है - यह सब सादे अंग्रेजी में। यह आपके स्वामित्व वाले एक ऐप से Google Calendar + Calendly कॉम्बो को प्रतिस्थापित करता है।
+
+<WireframeBlock id="doc-block-1n9rt5m">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1.4px solid var(--wf-line)'><button>Week</button><button>Today</button><button>‹</button><button>›</button><div style='flex:1'></div><strong>3-9 मई, 2026</strong><div style='flex:1'></div><button class='primary'>नया इवेंट</button></div><div style='display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));grid-template-rows:36px repeat(5,72px);gap:7px;padding:14px;flex:1'><div></div><strong>रवि 3</strong><strong>सोम 4</strong><strong>मंगल 5</strong><strong>बुध 6</strong><strong>गुरु 7</strong><strong>शुक्र 8</strong><strong>शनि 9</strong><small class='wf-muted'>7 AM</small><div class='wf-box' style='opacity:.45'></div><div></div><div></div><div></div><div></div><div></div><div></div><small class='wf-muted'>9 AM</small><div class='wf-box'>ऑल-हैंड्स</div><div class='wf-box'>इंजीनियरिंग स्टैंडअप</div><div class='wf-box'>इंजीनियरिंग स्टैंडअप</div><div class='wf-box'>इंजीनियरिंग स्टैंडअप</div><div></div><div class='wf-box'>Planning</div><div></div><small class='wf-muted'>11 AM</small><div class='wf-box'>डिज़ाइन रिव्यू</div><div></div><div class='wf-box'>डिज़ाइन समीक्षा</div><div class='wf-box'>Roadmap</div><div class='wf-box'>शुक्रवार डेमो</div><div></div><div></div><small class='wf-muted'>1 PM</small><div></div><div class='wf-box'>1:1</div><div class='wf-box'>फ़ोकस ब्लॉक</div><div></div><div></div><div class='wf-box'>ऑल-हैंड्स</div><div></div><small class='wf-muted'>3 PM</small><div></div><div></div><div></div><div class='wf-box'>स्किप-लेवल</div><div></div><div></div><div></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+जब आप ऐप खोलते हैं, तो सक्रिय कैलेंडर दृश्य प्राथमिक सतह होता है। एजेंट को अभी भी पता है कि आप किस दिन, सप्ताह या घटना को देख रहे हैं, इसलिए आप सब कुछ बताए बिना "इस दिन एलेक्स के साथ 30 मिनट की कॉल शेड्यूल करें" कह सकते हैं।
+
+<Diagram id="doc-block-vp4fny" title={"शेड्यूलिंग अनुरोध कैसे प्रवाहित होता है"} summary={"चाहे आप कैलेंडर में क्लिक करें या एजेंट से पूछें, वही क्रियाएं Google Calendar से लाइव पढ़ेंगी और उसी दृश्य पर वापस लिखेंगी।"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      आप क्लिक करते हैं<br /><small class="diagram-muted"
+        >खींचें, टूलबार, शॉर्टकट</small
+      >
+    </div>
+    <div class="diagram-node">
+      आप एजेंट से पूछते हैं<br /><small class="diagram-muted"
+        >"find a 1-hour slot next week"</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted"
+      >list-events · check-availability · create-event</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">
+      Google Calendar<br /><small class="diagram-muted"
+        >लाइव, multi-account</small
+      >
+    </div>
+    <div class="diagram-box">
+      SQL<br /><small class="diagram-muted">बुकिंग · उपलब्धता</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box">Calendar view लाइव अपडेट होती है</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## आप इसके साथ क्या कर सकते हैं
+
+- **अपना वास्तविक Google Calendar** दिन, सप्ताह या महीने के दृश्य में देखें, एकाधिक खातों के साथ।
+- **ICS फ़ीड की सदस्यता लें** (HR समय अवकाश, कॉन्फ़्रेंस शेड्यूल, टीम कैलेंडर) - केवल पढ़ने के लिए, एक ही दृश्य में मिश्रित।
+- **समय क्षेत्र समर्थन के साथ साप्ताहिक उपलब्धता सेट करें** - मुफ्त स्लॉट ढूंढते समय एजेंट इसका उपयोग करता है।
+- **"15-मिनट का परिचय" या "30-मिनट का डेमो" जैसी चीज़ों के लिए `/book/{slug}` पर सार्वजनिक बुकिंग लिंक बनाएं**। अवधि, कस्टम फ़ील्ड और किस कॉन्फ़्रेंसिंग टूल का उपयोग करना है, कॉन्फ़िगर करें।
+- **एजेंट से शेड्यूल-संबंधित कुछ भी पूछें**: "क्या मैं गुरुवार दोपहर को खाली हूं?" "अगले सप्ताह 1 घंटे का स्लॉट ढूंढें और उस पर 'प्लानिंग विद एलेक्स' डालें।" "मेरा डेमो बुकिंग लिंक रोकें।"
+- **टीम के साथियों के साथ बुकिंग लिंक साझा करें** ताकि वे भी उन्हें प्रबंधित कर सकें।
+
+## आरंभ करना
+
+लाइव डेमो: [calendar.agent-native.com](https://calendar.agent-native.com).
+
+जब आप पहली बार ऐप खोलते हैं:
+
+1. **सेटिंग्स** पर क्लिक करें।
+2. **Google Calendar कनेक्ट करें** पर क्लिक करें और स्वीकृत करें।
+3. (वैकल्पिक) यदि आप व्यक्तिगत + कार्य को ओवरले करना चाहते हैं तो अधिक Google खाते कनेक्ट करें।
+4. मुख्य दृश्य खोलें - आपका वास्तविक कैलेंडर लोड हो जाएगा।
+
+अपना पहला बुकिंग लिंक बनाने के लिए:
+
+1. साइडबार में **बुकिंग लिंक** पर क्लिक करें।
+2. **नया बुकिंग लिंक** पर क्लिक करें, शीर्षक और अवधि निर्धारित करें।
+3. सार्वजनिक URL साझा करें - आगंतुक आपके उपलब्ध स्लॉट में से चुनें।
+
+या बस एजेंट से पूछें: "नाम फ़ील्ड के साथ 15 मिनट का परिचयात्मक बुकिंग लिंक बनाएं।"
+
+### उपयोगी संकेत
+
+- "आज मेरे कैलेंडर पर क्या है?"
+- "क्या मैं गुरुवार दोपहर को 30 मिनट के लिए खाली हूं?"
+- "अगले सप्ताह 1 घंटे का स्लॉट ढूंढें और उस पर 'प्लानिंग विद एलेक्स' डालें।"
+- "इस इवेंट को शुक्रवार दोपहर 2 बजे के लिए पुनर्निर्धारित करें।" (जब कोई ईवेंट चुना जाता है)
+- "दिन के दृश्य पर स्विच करें और अगले सोमवार पर जाएं।"
+- "नोट फ़ील्ड के साथ 15 मिनट में '15 मिनट परिचय' नामक एक बुकिंग लिंक बनाएं।"
+- "मेरे '30 मिनट डेमो' बुकिंग लिंक को रोकें।"
+- "मेरी उपलब्धता पर शुक्रवार दोपहर को ब्लॉक करें।"
+- "इस महीने 'लॉन्च' के बारे में मेरी क्या बैठकें हैं?"
+
+एजेंट किसी भी शेड्यूल प्रश्न के लिए Google Calendar से लाइव पूछताछ करेगा - यह कभी अनुमान नहीं लगाता।
+
+## डेवलपर्स के लिए
+
+इस दस्तावेज़ का शेष भाग कैलेंडर टेम्प्लेट की खोज करने वाले या उसका विस्तार करने वाले किसी भी व्यक्ति के लिए है।
+
+### त्वरित शुरुआत
+
+कैलेंडर टेम्पलेट के साथ एक नया कार्यक्षेत्र बनाएं:
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template calendar
+cd my-app
+pnpm install
+pnpm dev
+```
+
+`http://localhost:8082` (डिफ़ॉल्ट कैलेंडर डेव पोर्ट) खोलें।
+
+Google Calendar को डेव में कनेक्ट करने के लिए, सेटिंग्स दृश्य खोलें, [Google Cloud Console](https://console.cloud.google.com/) से एक `GOOGLE_CLIENT_ID` और `GOOGLE_CLIENT_SECRET` पेस्ट करें, और "कनेक्ट Google Calendar" पर क्लिक करें। OAuth रीडायरेक्ट URI डेव में `http://localhost:8082/_agent-native/google/callback` है। टोकन `oauth_tokens` SQL तालिका में संग्रहीत होते हैं और स्वचालित रूप से ताज़ा होते हैं।
+
+### मुख्य विशेषताएं
+
+**लाइव कैलेंडर दृश्य।** दिन, सप्ताह और महीने के दृश्य सीधे कनेक्टेड Google खातों से पढ़े जाते हैं, वैकल्पिक रीड-ओनली ICS फ़ीड को एक ही शेड्यूल में स्तरित किया जाता है।
+
+**उपलब्धता और फ्री-स्लॉट खोज।** साप्ताहिक उपलब्धता नियम, समयक्षेत्र समर्थन और मौजूदा ईवेंट सभी UI और एजेंट के उपयोग के समान उपलब्धता कार्रवाई को फ़ीड करते हैं।
+
+**बुकिंग लिंक।** सार्वजनिक `/book/{slug}` पेज नाम, ईमेल, कस्टम फ़ील्ड, कॉन्फ्रेंसिंग प्राथमिकताएं और रद्दीकरण/पुनर्निर्धारित टोकन एकत्र करते हैं।
+
+**साझा करने योग्य प्रबंधन।** बुकिंग लिंक डिफ़ॉल्ट रूप से निजी होते हैं, लेकिन फ्रेमवर्क शेयरिंग actions के माध्यम से टीम के साथियों के साथ साझा किए जा सकते हैं।
+
+**इनलाइन इवेंट पूर्वावलोकन।** एजेंट शीर्षक, समय, स्थान, उपस्थित लोगों और एक जंप-बैक बटन के साथ चैट में कॉम्पैक्ट इवेंट कार्ड एम्बेड कर सकता है।
+
+### एजेंट के साथ काम करना
+
+एजेंट वही देखता है जो आप देख रहे हैं। वर्तमान कैलेंडर दृश्य, चयनित तिथि और चयनित ईवेंट को प्रत्येक संदेश में `current-screen` ब्लॉक के रूप में शामिल किया गया है, ताकि आप "यह ईवेंट" या "यह दिन" कह सकें और यह सही ढंग से हल हो जाए।
+
+हुड के तहत एजेंट `list-events`, `check-availability`, `create-event`, `navigate`, और `update-availability` जैसे actions को कॉल करता है। क्योंकि घटनाएँ Google Calendar में रहती हैं, एजेंट हमेशा अनुमान लगाने के बजाय API पर सवाल उठाता है - यह पहले स्क्रिप्ट चलाए बिना खाली परिणाम नहीं लौटाएगा।
+
+### डेटा मॉडल
+
+`templates/calendar/server/db/schema.ts` में परिभाषित। केवल गैर-घटना डेटा ही स्थानीय रूप से संग्रहीत किया जाता है:
+
+- `bookings` - सार्वजनिक बुकिंग पृष्ठों से पुष्टि की गई नियुक्तियाँ। स्टोर का नाम, ईमेल, प्रारंभ, अंत, स्लग, वैकल्पिक नोट्स, कस्टम फ़ील्ड प्रतिक्रियाएं, मीटिंग लिंक, जनता के प्रबंधन के लिए एक `cancelToken` URL, और एक `confirmed` या `cancelled` स्थिति।
+- `booking_links` - कैलेंडली-शैली लिंक परिभाषाएँ। स्लग, शीर्षक, विवरण, प्राथमिक `duration`, वैकल्पिक `durations` सूची, `customFields`, `conferencing`, `color`, और एक `isActive` ध्वज। फ्रेमवर्क के `ownableColumns` का उपयोग करता है ताकि साझाकरण प्रणाली लागू हो।
+- `booking_slug_redirects` - जब किसी लिंक का नाम बदला जाता है तो पुराने स्लग याद आते हैं ताकि मौजूदा सार्वजनिक URL काम करते रहें।
+- `booking_link_shares` - बुकिंग लिंक के लिए अनुदान साझा करें।
+
+<DataModel
+  id="doc-block-12vlmo"
+  title={"Calendar डेटा मॉडल"}
+  summary={
+    "केवल गैर-इवेंट डेटा स्थानीय रूप से संग्रहीत किया जाता है - इवेंट Google Calendar में रहते हैं। बुकिंग लिंक स्वामित्व योग्य कॉलम का उपयोग करते हैं इसलिए साझाकरण प्रणाली लागू होती है।"
+  }
+  entities={[
+    {
+      id: "booking_links",
+      name: "booking_links",
+      note: "Calendly-style link definitions (ownable)",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          note: "public page at /book/{slug}",
+        },
+        {
+          name: "title",
+          type: "string",
+        },
+        {
+          name: "description",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "duration",
+          type: "int",
+          note: "primary duration in minutes",
+        },
+        {
+          name: "durations",
+          type: "json",
+          nullable: true,
+          note: "alternative durations",
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+        },
+        {
+          name: "conferencing",
+          type: "string",
+          note: "Google मिलें / ज़ूम / कस्टम",
+        },
+        {
+          name: "color",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "isActive",
+          type: "bool",
+          note: "pause without deleting",
+        },
+      ],
+    },
+    {
+      id: "bookings",
+      name: "bookings",
+      note: "सार्वजनिक बुकिंग पृष्ठों से पुष्टि की गई नियुक्तियाँ",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "slug",
+          type: "string",
+          fk: "booking_links.slug",
+        },
+        {
+          name: "name",
+          type: "string",
+        },
+        {
+          name: "email",
+          type: "string",
+        },
+        {
+          name: "start",
+          type: "datetime",
+        },
+        {
+          name: "end",
+          type: "datetime",
+        },
+        {
+          name: "notes",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "customFields",
+          type: "json",
+          nullable: true,
+          note: "custom field responses",
+        },
+        {
+          name: "meetingLink",
+          type: "string",
+          nullable: true,
+        },
+        {
+          name: "cancelToken",
+          type: "string",
+          note: "powers /booking/manage/{token}",
+        },
+        {
+          name: "status",
+          type: "enum",
+          note: "पुष्टि की गई | रद्द कर दिया गया",
+        },
+      ],
+    },
+    {
+      id: "booking_slug_redirects",
+      name: "booking_slug_redirects",
+      note: "लिंक का नाम बदलने के बाद पुराने सार्वजनिक यूआरएल को चालू रखता है",
+      fields: [
+        {
+          name: "oldSlug",
+          type: "string",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+      ],
+    },
+    {
+      id: "booking_link_shares",
+      name: "booking_link_shares",
+      note: "बुकिंग लिंक के लिए अनुदान साझा करें",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "linkId",
+          type: "id",
+          fk: "booking_links.id",
+        },
+        {
+          name: "principal",
+          type: "string",
+          note: "user or org",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "दर्शक | संपादक | व्यवस्थापक",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "booking_links",
+      to: "bookings",
+      kind: "1-n",
+      label: "has bookings",
+    },
+    {
+      from: "booking_links",
+      to: "booking_slug_redirects",
+      kind: "1-n",
+      label: "has old slugs",
+    },
+    {
+      from: "booking_links",
+      to: "booking_link_shares",
+      kind: "1-n",
+      label: "has share grants",
+    },
+  ]}
+/>
+
+उपलब्धता नियम और प्रति-उपयोगकर्ता कॉन्फ़िगरेशन सेटिंग तालिका में रहते हैं, जो `calendar-availability` द्वारा कुंजीबद्ध हैं। Google OAuth टोकन फ्रेमवर्क `oauth_tokens` तालिका में रहते हैं। अल्पकालिक UI स्थिति (वर्तमान दृश्य, दिनांक, चयनित घटना) `navigation` कुंजी के अंतर्गत `application_state` में रहती है।
+
+### इसे अनुकूलित करना
+
+ऐप का प्रत्येक भाग संपादन योग्य स्रोत है। यहां प्रारंभ करें:
+
+- `templates/calendar/actions/` - प्रत्येक एजेंट-कॉल करने योग्य ऑपरेशन। एजेंट और फ्रंटएंड दोनों के लिए नई क्षमता को उजागर करने के लिए `defineAction` के साथ एक नई फ़ाइल जोड़ें। मुख्य फ़ाइलें: `check-availability.ts`, `create-event.ts`, `list-events.ts`, `create-booking-link.ts`, `update-availability.ts`, `add-external-calendar.ts`, `navigate.ts`, `view-screen.ts`.
+- `templates/calendar/app/routes/` - UI। `_app._index.tsx` कैलेंडर है, `_app.availability.tsx` शेड्यूल एडिटर है, `_app.booking-links._index.tsx` और `_app.booking-links.$id.tsx` बुकिंग लिंक प्रबंधित करते हैं, `_app.bookings.tsx` बुकिंग सूचीबद्ध करता है, `_app.settings.tsx` सेटिंग्स है, और `book.$slug.tsx` प्लस `meet.$username.$slug.tsx` सार्वजनिक बुकिंग पृष्ठ हैं।
+- `templates/calendar/server/db/schema.ts` - Drizzle के साथ कॉलम या टेबल जोड़ें। कोड को बोली-अज्ञेयवादी रखें ताकि टेम्पलेट SQLite, Postgres, Turso, D1 और Neon पर चले।
+- `templates/calendar/AGENTS.md` - एजेंट निर्देश। जब आप एजेंट को नई क्षमताएं या परंपराएं सिखाएं तो इसे अपडेट करें।
+- `templates/calendar/.agents/skills/` - एजेंट द्वारा अनुसरण किए जाने वाले विस्तृत पैटर्न। प्रासंगिक skills: `event-management`, `availability-booking`, `real-time-sync`, `storing-data`, `delegate-to-agent`, `frontend-design`।
+- `templates/calendar/shared/api.ts` - साझा TypeScript प्रकार (`AvailabilityConfig`, `BookingLink`, `ExternalCalendar`, आदि) सर्वर और क्लाइंट दोनों द्वारा उपयोग किया जाता है।
+
+यदि आप कोई सुविधा जोड़ते हैं, तो सभी चार क्षेत्रों को अपडेट करना याद रखें: UI, कार्रवाई, कौशल या AGENTS.md प्रविष्टि, और एजेंट को देखने के लिए आवश्यक कोई भी एप्लिकेशन स्थिति। यही चीज़ एजेंट और UI को समानता में रखती है।

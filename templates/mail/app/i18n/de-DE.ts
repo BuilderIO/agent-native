@@ -1,4 +1,8 @@
 const messages = {
+  sidebar: {
+    collapseSidebar: "Seitenleiste einklappen",
+    expandSidebar: "Seitenleiste erweitern",
+  },
   mail: {
     appName: "Mail",
     pages: {

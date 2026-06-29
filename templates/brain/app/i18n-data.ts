@@ -51,6 +51,8 @@ const enUS = {
     extensions: "Extensions",
     settings: "Settings",
     openNavigation: "Open navigation",
+    expandSidebar: "Expand sidebar",
+    collapseSidebar: "Collapse sidebar",
     brainNavigation: "Brain navigation",
     brainNavigationDescription: "Navigate between Brain work surfaces.",
   },
@@ -834,6 +836,8 @@ const baseMessagesByLocale = {
       toggleTheme: "切换主题",
     },
     navigation: {
+      collapseSidebar: "折叠侧边栏",
+      expandSidebar: "展开侧边栏",
       brand: "Brain",
       ask: "提问",
       askBrain: "询问 Brain",
@@ -1037,6 +1041,8 @@ const baseMessagesByLocale = {
       toggleTheme: "Cambiar tema",
     },
     navigation: {
+      collapseSidebar: "Contraer barra lateral",
+      expandSidebar: "Expandir barra lateral",
       ask: "Preguntar",
       askBrain: "Preguntar a Brain",
       search: "Buscar",
@@ -1251,6 +1257,8 @@ const baseMessagesByLocale = {
       toggleTheme: "Changer de thème",
     },
     navigation: {
+      collapseSidebar: "Réduire la barre latérale",
+      expandSidebar: "Développer la barre latérale",
       ask: "Demander",
       askBrain: "Demander à Brain",
       search: "Rechercher",
@@ -1465,6 +1473,8 @@ const baseMessagesByLocale = {
       toggleTheme: "Theme wechseln",
     },
     navigation: {
+      collapseSidebar: "Seitenleiste einklappen",
+      expandSidebar: "Seitenleiste erweitern",
       ask: "Fragen",
       askBrain: "Brain fragen",
       search: "Suchen",
@@ -1673,6 +1683,8 @@ const baseMessagesByLocale = {
       toggleTheme: "テーマを切り替え",
     },
     navigation: {
+      collapseSidebar: "サイドバーを折りたたむ",
+      expandSidebar: "サイドバーを展開",
       ask: "質問",
       askBrain: "Brain に質問",
       search: "検索",
@@ -1881,6 +1893,8 @@ const baseMessagesByLocale = {
       toggleTheme: "테마 전환",
     },
     navigation: {
+      collapseSidebar: "사이드바 접기",
+      expandSidebar: "사이드바 펼치기",
       ask: "질문",
       askBrain: "Brain에 질문",
       search: "검색",
@@ -2088,6 +2102,8 @@ const baseMessagesByLocale = {
       toggleTheme: "Alternar tema",
     },
     navigation: {
+      collapseSidebar: "Recolher barra lateral",
+      expandSidebar: "Expandir barra lateral",
       ask: "Perguntar",
       askBrain: "Perguntar ao Brain",
       search: "Buscar",
@@ -2301,6 +2317,8 @@ const baseMessagesByLocale = {
       toggleTheme: "थीम बदलें",
     },
     navigation: {
+      collapseSidebar: "साइडबार समेटें",
+      expandSidebar: "साइडबार फैलाएं",
       ask: "पूछें",
       askBrain: "Brain से पूछें",
       search: "खोजें",
@@ -2508,6 +2526,8 @@ const baseMessagesByLocale = {
       toggleTheme: "تبديل السمة",
     },
     navigation: {
+      collapseSidebar: "طي الشريط الجانبي",
+      expandSidebar: "توسيع الشريط الجانبي",
       ask: "اسأل",
       askBrain: "اسأل Brain",
       search: "بحث",

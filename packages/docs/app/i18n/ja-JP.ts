@@ -43,6 +43,9 @@ const jaJP = {
   docs: {
     navigateAria: "ドキュメントを移動",
     onThisPage: "このページ",
+    copyMarkdown: "ドキュメントをMarkdownとしてコピー",
+    copiedMarkdown: "Markdownをコピーしました",
+    copyMarkdownError: "Markdownをコピーできませんでした",
     previous: "前へ",
     next: "次へ",
   },
@@ -536,7 +539,7 @@ const jaJP = {
       s004: "口述する",
       s005: "見える + 聞こえる",
       s006: "すべてのテンプレート",
-      s007: "Loom および Jam のオープンソース代替品",
+      s007: "Loom のオープンソース代替品",
       s008: "Clips リンクをエージェントに貼り付けると、そのモデルが生のビデオや音声を取り込むことができない場合でも、トランスクリプトを聞いたり、概要を読んだり、タイムスタンプ付きのフレームを表示したりできます。",
       s009: "試す",
       s010: "できること",

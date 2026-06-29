@@ -92,6 +92,10 @@ cd templates/content && pnpm action <name> [args]
 | `list-documents`                            | `[--format json]`                                                                                                                        | List document metadata/tree; no full bodies                                                                                             |
 | `export-content-source`                     | `[--format json]`                                                                                                                        | Export editable docs as `content/*.mdx` source files                                                                                    |
 | `import-content-source`                     | `--files <json> [--dryRun true\|false]`                                                                                                  | Import `.md`/`.mdx` source files into editable docs                                                                                     |
+| `list-builder-docs`                         | `[--model docs-content\|blog-article] [--limit <n>]`                                                                                     | List Builder docs/blog entries available for `.builder.mdx` pull                                                                        |
+| `pull-builder-doc`                          | `--model <model> --entryId <builder-entry-id> [--dryRun true\|false]`                                                                    | Pull one Builder entry into Content and return `.builder.mdx` plus `content/builder/.raw` sidecar files                                 |
+| `check-builder-doc`                         | `--files <json> [--path <file.builder.mdx>]` or `--documentId <id>`                                                                      | Validate Builder MDX round-trip, sidecar hashes, and remote conflict status before push                                                 |
+| `push-builder-doc`                          | `--files <json> [--path <file.builder.mdx>] [--dryRun true\|false]`                                                                      | Guarded Builder autosave PATCH for the safe Builder test model; never publishes                                                         |
 | `navigate`                                  | `--path <path>` or `--documentId <id>` or `--databaseId <id>`                                                                            | Open a route, document page, or database page in the UI                                                                                 |
 | `search-documents`                          | `--query <text> [--format json]`                                                                                                         | Search by title/content and return snippets                                                                                             |
 | `get-document`                              | `--id <id> [--format json]`                                                                                                              | Get a single document with content                                                                                                      |
@@ -178,6 +182,10 @@ Content has two file workflows:
   `update-document` writes the selected `.md`/`.mdx` file. The document id is
   derived from the file path, and unknown frontmatter is preserved when title,
   content, icon, or favorite state changes.
+  Repos can opt into `profile: "docs/no-bookkeeping"` to keep docs edits from
+  adding absent `updatedAt`, `icon`, or `isFavorite` frontmatter. Content-only
+  edits under that profile preserve existing frontmatter but do not create new
+  bookkeeping keys; explicit title/icon/favorite edits still persist.
 - **Local MDX components:** local file workspaces can expose React components
   from the configured `components` folder. Export PascalCase components such as
   `ImpactCounter` from `.tsx` files, then use `<ImpactCounter />` in MDX or pick
@@ -204,11 +212,17 @@ Minimal `agent-native.json`:
 ```json
 {
   "version": 1,
-  "mode": "local-files",
   "apps": {
     "content": {
+      "mode": "local-files",
+      "profile": "docs/no-bookkeeping",
       "roots": [
-        { "name": "Docs", "path": "docs", "extensions": [".md", ".mdx"] },
+        {
+          "name": "Docs",
+          "path": "docs",
+          "profile": "docs/no-bookkeeping",
+          "extensions": [".md", ".mdx"]
+        },
         { "name": "Blog", "path": "blog", "extensions": [".md", ".mdx"] },
         {
           "name": "Resources",
@@ -220,6 +234,13 @@ Minimal `agent-native.json`:
     }
   }
 }
+```
+
+Launch Content directly against a local folder or file with:
+
+```bash
+agent-native content local-files docs --profile docs/no-bookkeeping
+agent-native content local-files docs/guide.mdx --profile docs/no-bookkeeping
 ```
 
 In Local File Mode, use the normal document actions (`list-documents`,

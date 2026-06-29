@@ -37,7 +37,7 @@ import {
   IconPencil,
   IconLoader2,
 } from "@tabler/icons-react";
-import React, { useState, useEffect, useCallback, useRef, useId } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 
 import { getActiveRun } from "../active-run-state.js";
 import { agentNativePath } from "../api-path.js";
@@ -952,14 +952,6 @@ export function RunningActivityStatus({ label }: { label: string }) {
 export function ThinkingIndicator({
   label = "Thinking",
 }: { label?: string } = {}) {
-  const reactId = useId().replace(/:/g, "");
-  const maskId = `agent-thinking-mask-${reactId}`;
-  const gradientId = `agent-thinking-gradient-${reactId}`;
-  const textX = 27;
-  const textWidth = Math.max(44, Math.min(96, label.length * 6.35));
-  const ellipsisX = textX + textWidth - 0.8;
-  const viewBoxWidth = ellipsisX + 13;
-  const shimmerWidth = viewBoxWidth * 0.68;
   return (
     <div
       className="agent-thinking-indicator"
@@ -967,95 +959,7 @@ export function ThinkingIndicator({
       aria-live="polite"
       aria-label={label}
     >
-      <svg
-        className="agent-thinking-indicator__glyph"
-        viewBox={`0 0 ${viewBoxWidth} 18`}
-        style={
-          {
-            "--agent-thinking-width": `${viewBoxWidth / 16}rem`,
-          } as React.CSSProperties
-        }
-        aria-hidden="true"
-        focusable="false"
-      >
-        <defs>
-          <linearGradient id={gradientId} x1="0" x2="1" y1="0" y2="0">
-            <stop
-              className="agent-thinking-indicator__sheen-edge"
-              offset="0%"
-            />
-            <stop
-              className="agent-thinking-indicator__sheen-mid"
-              offset="50%"
-            />
-            <stop
-              className="agent-thinking-indicator__sheen-edge"
-              offset="100%"
-            />
-          </linearGradient>
-          <mask id={maskId} maskUnits="userSpaceOnUse">
-            <g fill="white">
-              <g
-                className="agent-thinking-indicator__logo"
-                transform="translate(0 2.7) scale(0.9)"
-              >
-                <path d="M5.1 14H0L3.1 8.4 7.8 0 12.5 8.4H8.2L5.1 14Z" />
-                <path d="M19.5 0H24L16.6 14H12.1L19.5 0Z" />
-              </g>
-              <text
-                x={textX}
-                y="13"
-                fontFamily='Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-                fontSize="13"
-                fontWeight="500"
-                letterSpacing="0"
-              >
-                {label}
-              </text>
-              <g
-                fontFamily='Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
-                fontSize="13"
-                fontWeight="500"
-              >
-                <text
-                  className="agent-thinking-indicator__ellipsis-dot agent-thinking-indicator__ellipsis-dot--1"
-                  x={ellipsisX}
-                  y="13"
-                >
-                  .
-                </text>
-                <text
-                  className="agent-thinking-indicator__ellipsis-dot agent-thinking-indicator__ellipsis-dot--2"
-                  x={ellipsisX + 3.7}
-                  y="13"
-                >
-                  .
-                </text>
-                <text
-                  className="agent-thinking-indicator__ellipsis-dot agent-thinking-indicator__ellipsis-dot--3"
-                  x={ellipsisX + 7.4}
-                  y="13"
-                >
-                  .
-                </text>
-              </g>
-            </g>
-          </mask>
-        </defs>
-        <g mask={`url(#${maskId})`}>
-          <rect
-            className="agent-thinking-indicator__base"
-            width={viewBoxWidth}
-            height="18"
-          />
-          <rect
-            className="agent-thinking-indicator__shimmer"
-            width={shimmerWidth}
-            height="18"
-            fill={`url(#${gradientId})`}
-          />
-        </g>
-      </svg>
+      <span className="agent-thinking-indicator__text">{label}</span>
     </div>
   );
 }

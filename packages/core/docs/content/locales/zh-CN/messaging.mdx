@@ -1,0 +1,580 @@
+---
+title: "消息传递"
+description: "通过 Slack、电子邮件、Telegram 或 WhatsApp 与您的客服人员交谈 — 相同的客服人员、相同的内存、相同的工具。"
+---
+
+# 消息传递
+
+将您的代理连接到 Slack、电子邮件、Telegram 或 WhatsApp，以便您可以通过您已使用的应用程序与其聊天。这是同一个代理——相同的内存、相同的工具、相同的线程——只是可以从更多的地方访问。
+
+> **使用调度模板？** 所有这些都已在 **设置 → 消息传送** 中为您做好准备。单击以连接每个平台 - 您无需阅读本页的其余部分，除非您正在自定义或构建自己的模板。请参阅 [Dispatch](/docs/dispatch) 或 [Dispatch template reference](/docs/template-dispatch)。
+
+## 你能做什么 {#what-you-can-do}
+
+- **向您的代理发送电子邮件**，地址如 `agent@yourcompany.com` - 它会在线程中回复，就像同事一样。
+- **在一个线程上抄送您的代理** — 当您提出要求时，它会跟着阅读并跳入。
+- **在 Slack** 上向代理发送私信，或在任何渠道中向 `@mention` 发送代理。
+- **通过手机向 Telegram 或 WhatsApp 上的客服人员发送消息**。
+- **相同的代理，相同的内存。**无论您在 Slack 上告诉什么，当您稍后通过电子邮件发送时，都会记住它。网络聊天和外部消息共享同一个线程历史记录。
+- 有关单向应用内提醒（响铃图标、webhooks），请参阅 [Notifications](/docs/notifications)。
+
+<Diagram id="doc-block-iujha0" title={"多渠道，一位代理商"} summary={"每个平台都进入相同的代理循环和相同的 SQL 线程历史记录 - 因此 Slack 私信 和电子邮件继续相同的对话。"}>
+
+```html
+<div class="msg-fanin">
+  <div class="diagram-col">
+    <div class="diagram-node">Slack</div>
+    <div class="diagram-node">Email</div>
+    <div class="diagram-node">Telegram</div>
+    <div class="diagram-node">WhatsApp</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">一个代理循环</span
+    ><small class="diagram-muted">相同记忆 · 相同工具</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    一条 SQL 线程历史<br /><small class="diagram-muted"
+      >web chat + external messages share it</small
+    >
+  </div>
+</div>
+```
+
+```css
+.msg-fanin {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.msg-fanin .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.msg-fanin .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## 设置Slack {#slack}
+
+### 您需要什么
+
+- Slack 工作区，您可以在其中安装应用程序（管理员访问权限）
+- 大约5分钟
+
+### 步骤
+
+1. 转到 **[api.slack.com/apps](https://api.slack.com/apps)** 并单击 **创建新应用程序** → **从头开始**。为其命名（例如“Agent”）并选择您的工作区。
+2. 在左侧边栏中，打开 **OAuth 和权限**。在 **机器人令牌范围** 下，添加：
+   - `chat:write` — 让代理发送消息
+   - `app_mentions:read` — 让代理看到它何时被@提及（可选）
+   - `im:history` — 让代理读取发送给它的 DM
+   - `assistant:write` — 可选；让 Slack 在助理线程中显示本机“正在思考...”状态
+   - `users:read.email` — 可选；帮助 Mail 等模板验证 Slack 发件人电子邮件的草稿队列身份
+3. 单击该页面顶部的“**安装到工作区**”。 Slack 将为您提供一个以 `xoxb-` 开头的 **机器人用户 OAuth 令牌**。复制它。
+4. 转到侧边栏中的**基本信息**并复制**签名密钥**。
+5. 打开应用的设置（或托管提供商的环境变量面板）并粘贴：
+   - `SLACK_BOT_TOKEN` — `xoxb-…` 代币
+   - `SLACK_SIGNING_SECRET` — 签名秘密
+   - `SLACK_ALLOWED_TEAM_IDS` — 推荐用于生产；允许发送事件的以逗号分隔的 Slack 工作区/团队 ID
+   - `SLACK_ALLOWED_API_APP_IDS` — 推荐用于多工作区应用程序；允许使用此签名密钥的以逗号分隔的 Slack 应用 ID
+6. 返回 Slack，打开**事件订阅**，将其打开，然后粘贴此请求 URL：
+
+   ```文本
+   https://your-app.example.com/_agent-native/integrations/slack/webhook
+   ```
+
+   然后在**订阅机器人事件**下，添加 `message.im`（对于 DM）和可选的 `app_mention`（对于频道提及）。保存。
+
+7. 向您的机器人发送 Slack 中的 DM。它应该回复。
+
+### 可选：应用程序展开
+
+Slack应用程序展开，让应用程序以更丰富的方式取代Slack的正常链接预览
+预览。 Clips 使用它来进行 Loom 风格的可播放视频预览。
+
+当您的应用需要展开时添加这些额外的机器人范围：
+
+- `links:read` — 让 Slack 在注册域名发布时通知应用
+- `links:write` — 让应用替换 Slack 的默认预览
+- `links.embed:write` — 让应用嵌入经批准的媒体/播放器 URL
+
+然后订阅 `link_shared` 活动并注册您的公共应用域
+在**应用程序展开域**下。对于仅限剪辑的可播放预览，请设置 Slack
+事件订阅请求 URL 至：
+
+```text
+https://your-clips.example.com/api/slack/unfurl
+```
+
+Slack 应用程序有一个事件 API 请求 URL。如果同一个 Slack 应用程序应该处理
+代理聊天事件和剪辑都展开，通过一个小路由 Slack 事件
+发送消息事件到`/_agent-native/integrations/slack/webhook`的调度程序
+和 `link_shared` 事件到 Clips 展开处理程序。
+
+### 提示
+
+- **频道提及** - 机器人仅在被@提及时在频道中做出响应，以避免噪音。
+- **私信** — 每个私信都被视为与代理的私人对话。
+- **相同的身份，所有渠道** — 如果 Slack 用户与您应用中的注册用户具有相同的电子邮件地址，则代理会将他们视为同一个人。
+- **生产允许列表** — 设置 `SLACK_ALLOWED_TEAM_IDS`，对于共享 Slack 应用，设置 `SLACK_ALLOWED_API_APP_IDS`，以便有效的签名密钥无法被意外的工作区重复使用。
+- **Clips 应用程序展开** — 适用于 Slack 的可安装 Agent-Native Clips 使用 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`、`SLACK_SIGNING_SECRET` 和 `/api/slack/oauth/callback`。每个连接的 Slack 工作空间都会在 `app_secrets` 中获得自己的加密机器人令牌； `SLACK_BOT_TOKEN` 只是传统的单一工作区后备方案。
+
+## 设置 Telegram {#telegram}
+
+### 您需要什么
+
+- 手机上的 Telegram 应用
+- 约3分钟
+
+### 步骤
+
+1. 打开电报和消息**[@BotFather](https://t.me/BotFather)**。
+2. 发送 `/newbot` 并按照提示为您的机器人命名。 BotFather 将回复 **HTTP API 令牌**。复制它。
+3. 在应用的环境变量中，设置：
+   - `TELEGRAM_BOT_TOKEN` — 来自 BotFather 的代币
+4. 部署后，通过 `POST`ing 将 Webhook 注册到您的应用：
+
+   ```文本
+   POST https://your-app.example.com/_agent-native/integrations/telegram/setup
+   ```
+
+   这告诉 Telegram 将消息发送到您应用的 Webhook。每次部署只需执行一次此操作。
+
+5. 在 Telegram 中找到您的机器人（搜索 BotFather 为您提供的用户名）并向其发送消息。
+
+## 设置电子邮件 {#email}
+
+电子邮件是最强大的集成 - 您的代理拥有自己的地址、线程内回复、可以在对话中抄送，并使用发件人的电子邮件作为其身份。不需要 `/link` 命令。
+
+### 您需要什么
+
+- 您控制的域（或者您可以使用免费的重新发送子域 - 见下文）
+- 具有 **Resend** 或 **SendGrid** 的帐户来处理入站 + 出站邮件
+- 大约10分钟
+
+### 步骤（重新发送 - 最简单）
+
+1. 在 **[resend.com](https://resend.com)** 注册。免费套餐足以开始使用。
+2. 选择代理电子邮件地址的外观：
+   - **最简单：**使用免费的 `<your-slug>.resend.app` 地址 - 不需要 DNS。
+   - **品牌：**在重新发送的**域名**页面中添加自定义域名（例如 `yourcompany.com`），并按照 DNS 步骤进行操作。
+3. 在重新发送中，打开 **Webhooks** → **添加端点** 并将其指向：
+
+   ```文本
+   https://your-app.example.com/_agent-native/integrations/email/webhook
+   ```
+
+   订阅 **`email.received`** 事件。重新发送将为您提供一个签名秘密 - 复制它。
+
+4. 在应用的环境变量中，设置：
+   - `EMAIL_AGENT_ADDRESS` — 代理接收邮件的地址（例如 `agent@yourcompany.com`）
+   - `RESEND_API_KEY` — 您的重新发送 API 密钥
+   - `EMAIL_INBOUND_WEBHOOK_SECRET` — 来自 Resend 的签名密钥（推荐；用于签名验证）
+
+5. 向代理的地址发送电子邮件。它会在同一个线程中回复。
+
+### 步骤（使用 SendGrid）
+
+1. 在 **[sendgrid.com](https://sendgrid.com)** 注册。
+2. 添加您的域的 MX 记录，以便入站邮件流向 SendGrid：
+   ```文本
+   MX yourcompany.com → mx.sendgrid.net（优先级 10）
+   ```
+3. 打开**设置 → 入站解析**，单击**添加主机和 URL**，并将目标设置为：
+
+   ```文本
+   https://your-app.example.com/_agent-native/integrations/email/webhook
+   ```
+
+4. 设置环境变量：
+   - `EMAIL_AGENT_ADDRESS` — 代理收到的地址
+   - `SENDGRID_API_KEY` — 您的 SendGrid API 密钥
+   - `EMAIL_INBOUND_WEBHOOK_SECRET` — 可选的 Svix 签名密钥（如果您已配置签名 webhooks）
+
+5. 向代理的地址发送电子邮件。
+
+### 提示
+
+- **抄送代理**以将其带入线程。当代理被抄送时，它将回复全部，以便整个线程都能看到响应。
+- **线程正常工作** - 代理使用标准 `Message-ID` / `In-Reply-To` / `References` 标头，因此回复会保留在任何电子邮件客户端中的正确线程中。
+- **身份是发件人的电子邮件。**如果 `alice@acme.com` 向代理发送电子邮件，则*就是*她的身份 - 没有链接或注册流程。
+- **丰富的回复** - 代理回复中的降价在电子邮件中呈现为 HTML。
+- **允许的域** — 通过在集成配置中设置 `allowedDomains` 来限制谁可以向代理发送电子邮件；来自其他域的消息将被丢弃。
+- **速率限制** — 每个发件人每小时 20 条入站消息。
+
+## 设置 WhatsApp {#whatsapp}
+
+### 您需要什么
+
+- Meta (Facebook) 开发者帐户
+- 您可以专用于机器人的电话号码
+- 大约15分钟（Meta的设置步骤最多）
+
+### 步骤
+
+1. 转到 **[Meta Developer Portal](https://developers.facebook.com/)**，点击 **创建应用**，然后选择 **商业** 类型。
+2. 将 **WhatsApp** 产品添加到您的应用并配置一个电话号码用作发件人。
+3. 从 WhatsApp 设置页面，获取：
+   - **访问令牌**（临时令牌适合测试；上线前生成永久令牌）
+   - **电话号码ID**
+4. 选择任意随机字符串用作验证令牌 - 您将在下面的两个位置输入相同的值。
+5. 在应用的环境变量中，设置：
+   - `WHATSAPP_ACCESS_TOKEN` — 您的访问令牌
+   - `WHATSAPP_PHONE_NUMBER_ID` — 电话号码 ID
+   - `WHATSAPP_VERIFY_TOKEN` — 您选择的随机字符串
+6. 返回 Meta 的 WhatsApp 配置，打开 Webhook 部分并设置：
+
+   ```文本
+   回调URL：https://your-app.example.com/_agent-native/integrations/whatsapp/webhook
+   验证令牌：与您设置为WHATSAPP_VERIFY_TOKEN的随机字符串相同
+   ```
+
+   订阅`messages`字段。
+
+7. 向机器人的电话号码发送 WhatsApp 消息。
+
+## 使用 Dispatch 作为客服人员的中央收件箱 {#dispatch}
+
+如果您正在运行多个代理本机应用（邮件、日历、分析等），建议的模式是在 **[Dispatch](/docs/dispatch)**（另请参阅 [template reference](/docs/template-dispatch)）上设置消息传递，并让它通过 [A2A](/docs/a2a-protocol) 将工作路由到您的域应用。
+
+为什么这很好：
+
+- **一名客服人员，一个收件箱。**您的所有渠道（Slack、电子邮件、Telegram、WhatsApp）都会流入 Dispatch。您只需设置集成一次。
+- **调度代表。** 询问“总结上周的注册情况” - Dispatch 调用分析代理。询问“起草给 Alice 的回复”——Dispatch 呼叫邮件代理。
+- **点击，而不是配置。** Dispatch 的 **设置 → 消息传递** 页面具有针对每个平台的连接按钮，并内置了 env-var 字段。
+
+如果您不需要协调器，任何单个模板都可以使用此页面上的环境变量直接连接消息传递。
+
+---
+
+## 对于开发者 {#for-developers}
+
+以下内容均为技术参考。如果您已完成上述设置步骤，则可以在此停止，除非您要自定义集成插件或构建自己的适配器。
+
+### 它是如何工作的 {#how-it-works}
+
+入站平台 webhooks 使用跨平台 SQL 队列模式，因此它们可以在每个无服务器主机（Netlify、Vercel、Cloudflare Workers、Fly、Render、Node）上运行，而不依赖于特定于平台的后台执行 API。
+
+1. 平台从 `POST` 变为 `/_agent-native/integrations/<platform>/webhook`。处理程序验证签名，将有效负载解析为 `IncomingMessage`，并**使用 `status='pending'` 将一行插入 `integration_pending_tasks`**。
+2. 处理程序触发“即发即弃”`POST /_agent-native/integrations/process-task` 并立即返回 `200`，位于 Slack 的 3 秒 SLA 之内。
+3. 处理器端点在**新函数执行**中运行，并具有自己的完整超时预算。它以原子方式声明任务（`pending` → `processing` 通过 `claimPendingTask`），运行代理循环，通过适配器发布回复，并标记任务 `completed`。
+4. 重复性重试作业（`startPendingTasksRetryJob`，每 60 秒）会清除卡在 `pending` > 90 秒或 `processing` > 5 分钟内的任务，并重新启动处理器。尝试次数上限为 3 次，然后标记为 `failed`。
+
+<Diagram id="doc-block-8ahb9q" title={"入站 Webhook 生命周期"} summary={"Webhook 仅验证、入队并返回 200。新的函数执行会耗尽队列并运行代理循环，并以 60 秒的重试作业作为安全网。"}>
+
+```html
+<div class="msg-flow">
+  <div class="msg-row">
+    <div class="diagram-node">
+      Platform<br /><small class="diagram-muted">Slack · 邮件 · 等</small>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>
+      <strong>/webhook</strong><br /><small class="diagram-muted"
+        >verify signature + parse</small
+      ><br /><span class="diagram-pill">INSERT 待处理任务</span>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">return 200</div>
+  </div>
+  <div class="msg-fire">
+    <span class="diagram-muted">fire-and-forget</span>
+    <span class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</span>
+  </div>
+  <div class="msg-row">
+    <div class="diagram-box" data-rough>
+      <strong>/process-task</strong><br /><small class="diagram-muted"
+        >全新执行 · 独立超时</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">claim</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">agent loop</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">adapter.sendResponse</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill ok">completed</div>
+  </div>
+  <div class="diagram-panel msg-retry" data-rough>
+    <span class="diagram-pill warn">every 60s</span>
+    <span class="diagram-muted"
+      >retry job sweeps stuck tasks (pending &gt;90s · processing &gt;5min) and
+      re-fires /process-task &mdash; capped at 3 attempts, then
+      <strong>failed</strong></span
+    >
+  </div>
+</div>
+```
+
+```css
+.msg-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.msg-flow .msg-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.msg-flow .msg-fire {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-inline-start: 12px;
+}
+.msg-flow .msg-retry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+```
+
+</Diagram>
+
+入站和出站对话位于同一 SQL 线程中，因此您可以从 Web UI 继续 Slack 私信，反之亦然。
+
+<Endpoint id="doc-block-hzfbdm" method="POST" path="/_agent-native/integrations/slack/webhook" summary={"Slack 事件 API 入站 Webhook"} auth={"HMAC-SHA256 of the raw body using `SLACK_SIGNING_SECRET`, checked against the `X-Slack-Signature` header. In production also gated by `SLACK_ALLOWED_TEAM_IDS` / `SLACK_ALLOWED_API_APP_IDS`."} params={[
+  {
+    "name": "X-Slack-Signature",
+    "in": "header",
+    "type": "string",
+    "required": true,
+    "description": "Slack request signature, verified before any processing."
+  },
+  {
+    "name": "X-Slack-Request-Timestamp",
+    "in": "header",
+    "type": "string",
+    "required": true,
+    "description": "Timestamp used in the signature base string."
+  }
+]} request={{
+  "contentType": "application/json",
+  "example": "{\n  \"type\": \"event_callback\",\n  \"team_id\": \"T0123\",\n  \"api_app_id\": \"A0123\",\n  \"event\": {\n    \"type\": \"message\",\n    \"channel_type\": \"im\",\n    \"user\": \"U0123\",\n    \"text\": \"summarize last week's signups\"\n  }\n}"
+}} responses={[
+  {
+    "status": "200",
+    "description": "Acknowledged immediately. The agent loop runs in the separate /process-task execution. The first time a Request URL is saved, Slack POSTs a `url_verification` challenge and the adapter replies with the `challenge` value automatically.",
+    "example": "{ \"ok\": true }"
+  },
+  {
+    "status": "401",
+    "description": "Signature verification failed, or the team/app id is not in the production allowlist."
+  }
+]}>
+
+Receives Slack events (DMs and channel `app_mention`s). Verifies the request signature, parses the payload into an `IncomingMessage`, inserts a `pending` row into `integration_pending_tasks`, fires the fresh-execution processor, and returns **200 immediately** — well inside Slack's 3-second SLA. The same route shape exists per platform under `/_agent-native/integrations/<platform>/webhook`.
+
+</Endpoint>
+
+#### 为什么采用这种模式（而不是平台本机快捷方式） {#why-this-pattern}
+
+无服务器函数在发送响应时冻结。任何仍在运行的东西——包括一劳永逸的 Promise、延迟的 LLM 调用或运行中的工具——都会在执行过程中被终止。保持代理循环活动的唯一方法是为其启动一个**新**函数执行，这就是自触发的 `/process-task` POST 所做的。
+
+NOT 是否使用以下任何替代方案：
+
+- **Netlify 后台功能** — 仅 Netlify，需要 `-background.ts` 文件名后缀，在所有其他主机上都会中断。
+- **Cloudflare `event.waitUntil()`** — 仅 CF Workers，不可移植。
+- **Vercel `after()` / Fluid** - 仅 Vercel，在特定运行时门控。
+- **`return` 之后的赤裸裸的即发即弃 Promise** — 当函数冻结时默默地被杀死；日志中没有错误，用户只是永远得不到回复。
+
+SQL-queue + self-webhook + retry-job 组合是唯一在每个受支持的主机上都以相同方式工作的组合。重试作业是安全网——永远不要假设在函数冻结之前初始调度已刷新。
+
+### 集成插件 {#plugin}
+
+当不存在自定义版本时，插件会自动安装。要自定义，请创建：
+
+```ts
+// server/plugins/integrations.ts
+import { createIntegrationsPlugin } from "@agent-native/core/server";
+import { scriptRegistry } from "../../agent.config";
+
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  systemPrompt: "You are a helpful assistant...",
+});
+```
+
+哪些平台处于活动状态取决于设置的环境变量。该插件为 `/_agent-native/integrations/` 下的每一个注册 webhook 路由。
+
+### Webhook URLs {#webhook-urls}
+
+```text
+/_agent-native/integrations/slack/webhook
+/_agent-native/integrations/telegram/webhook
+/_agent-native/integrations/whatsapp/webhook
+/_agent-native/integrations/email/webhook
+```
+
+Telegram 还公开了一个一次性设置端点：
+
+```text
+POST /_agent-native/integrations/telegram/setup
+```
+
+### 环境变量 {#env-vars}
+
+| 平台     | 必填                                                                         | 可选                                                  |
+| -------- | ---------------------------------------------------------------------------- | ----------------------------------------------------- |
+| Slack    | `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`                                    | `SLACK_ALLOWED_TEAM_IDS`, `SLACK_ALLOWED_API_APP_IDS` |
+| 电报     | `TELEGRAM_BOT_TOKEN`                                                         | —                                                     |
+| 电子邮件 | `EMAIL_AGENT_ADDRESS`，加上 `RESEND_API_KEY` 或 `SENDGRID_API_KEY` 之一      | `EMAIL_INBOUND_WEBHOOK_SECRET`                        |
+| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` | —                                                     |
+
+所有凭证都存在于环境变量中——不是数据库，也不是源代码。使用侧边栏设置 UI 或托管提供商的环境面板。
+
+### 线程和身份 {#threading-and-identity}
+
+每个外部对话都映射到代理本机数据库中的持久线程：
+
+- **Slack 私信** → 每个 Slack 用户一个线程。
+- **Slack 通道 @mention** → 每个通道一个线程。
+- **Telegram 聊天** → 每个 Telegram 聊天一个线程。
+- **WhatsApp 对话** → 每个 WhatsApp 号码一个线程。
+- **电子邮件** → 从 `Message-ID` / `In-Reply-To` / `References` 标头派生的线程。
+
+外部线程与源自网络的线程一起出现在网络 UI 中，并标记有其源平台。身份解析：当 Slack/电子邮件用户与注册用户（通常通过电子邮件）匹配时，他们就会链接到该帐户。
+
+### 安全 {#security}
+
+每个传入的 Webhook 在处理前都会经过签名验证：
+
+- **Slack** — 使用 `SLACK_SIGNING_SECRET` 的主体的 HMAC-SHA256，对照 `X-Slack-Signature` 标头进行检查。当您第一次在 Slack 的事件订阅面板中保存请求 URL 时，Slack 会向其发布 `url_verification` 挑战；框架的适配器会检测到这一点并自动回复 `challenge` 值，因此 URL 在 Slack 中变为绿色，而无需您进行任何额外的工作。
+- **Telegram** — 注册 webhook 时设置的秘密令牌。
+- **WhatsApp** - Meta 的验证挑战（使用 `WHATSAPP_VERIFY_TOKEN`）加上有效负载签名。
+- **Email** — 设置 `EMAIL_INBOUND_WEBHOOK_SECRET` 时的 Svix 风格签名验证（Resend 和 SendGrid 均使用此格式）。如果未设置密码，则接受 Webhook，但会记录警告。
+
+电子邮件适配器还强制执行：
+
+- **允许的域** — 集成的 `integration_configs` 行中的可选 `allowedDomains` 数组；列表之外的发件人将被删除。
+- **速率限制** — SQL 队列支持的速率限制为每个发件人每小时 20 条入站消息。
+
+### 主动发送 {#proactive-sends}
+
+代理可以通过调用 `send-platform-message` 操作（`platform` 字段为 `"slack"`、`"telegram"`、`"whatsapp"` 或 `"email"`）来主动发送消息（通知、提醒、计划摘要）。该操作位于 `packages/dispatch/src/actions/send-platform-message.ts` 的 Dispatch 包中，您可以将其复制/改编为任何模板。
+
+### 自定义适配器 {#custom-adapters}
+
+要添加新的消息传递平台，请实现 `PlatformAdapter` 接口：
+
+```ts
+import type { H3Event } from "h3";
+import type {
+  PlatformAdapter,
+  IncomingMessage,
+  OutgoingMessage,
+} from "@agent-native/core/server";
+import type { EnvKeyConfig } from "@agent-native/core/server";
+
+const myAdapter: PlatformAdapter = {
+  platform: "discord",
+  label: "Discord",
+
+  // Env keys this adapter needs (rendered in the settings UI)
+  getRequiredEnvKeys(): EnvKeyConfig[] {
+    return [
+      { key: "DISCORD_BOT_TOKEN", label: "Discord Bot Token", required: true },
+    ];
+  },
+
+  // Handle platform-specific verification challenges (e.g. Slack's
+  // url_verification). Return { handled: true, response } to short-circuit.
+  async handleVerification(event: H3Event) {
+    return { handled: false };
+  },
+
+  // Validate the webhook request signature
+  async verifyWebhook(event: H3Event): Promise<boolean> {
+    // Validate signature headers; return true if authentic
+    return true;
+  },
+
+  // Parse the webhook payload into a normalized IncomingMessage.
+  // Return null to silently ignore the event (bot messages, edits, etc.).
+  async parseIncomingMessage(event: H3Event): Promise<IncomingMessage | null> {
+    return {
+      platform: "discord",
+      externalThreadId: "channel-or-thread-id",
+      text: "the user's message",
+      senderId: "discord-user-id",
+      platformContext: { channelId: "channel-id" },
+      timestamp: Date.now(),
+    };
+  },
+
+  // Format plain agent text into a platform-appropriate OutgoingMessage.
+  // opts.threadDeepLinkUrl, when provided, is a URL back to the originating
+  // thread in the dispatch UI — render it as a button (Slack) or inline link.
+  formatAgentResponse(
+    text: string,
+    opts?: { threadDeepLinkUrl?: string },
+  ): OutgoingMessage {
+    return { text, platformContext: {} };
+  },
+
+  // Post the agent's response back to the platform
+  async sendResponse(
+    message: OutgoingMessage,
+    context: IncomingMessage,
+  ): Promise<void> {
+    // Call the platform's API, using context.platformContext for routing
+  },
+
+  // Return current connection/configuration status for the settings UI.
+  // baseUrl is the app's public URL, used for status checks that need it.
+  async getStatus(baseUrl?: string) {
+    return {
+      platform: "discord",
+      label: "Discord",
+      enabled: true,
+      configured: !!process.env.DISCORD_BOT_TOKEN,
+    };
+  },
+};
+```
+
+在您的集成插件中注册它：
+
+```ts
+export default createIntegrationsPlugin({
+  actions: scriptRegistry,
+  systemPrompt: "You are a helpful assistant...",
+  adapters: [myAdapter],
+});
+```
+
+`packages/core/src/integrations/adapters/`（`slack.ts`、`telegram.ts`、`whatsapp.ts`、`email.ts`）中的参考实现 - 电子邮件适配器是最完整的示例，包括签名验证、线程、速率限制和 HTML 渲染。
+
+### 通过 Dispatch + A2A 延续实现可靠性 {#reliability}
+
+当 [Dispatch](/docs/dispatch) 通过 [A2A](/docs/a2a-protocol#continuations) 将请求委托给另一个应用程序时，即使下游代理在执行过程中崩溃，连续恢复流程也能保证用户获得 Slack/电子邮件回复。原始 webhook 任务保留在 `processing` 中，直到延续解决或重试扫描将其标记为卡住；无论哪种方式，平台线程都会得到最终答复，而不是陷入沉默。
+
+这意味着 Dispatch 前端的多应用工作区比直接连接到消息传递的单个模板更具弹性 - 任何一个下游应用程序中的故障都会降级为正常的错误消息，而不是丢弃回复。请参阅 [A2A continuations](/docs/a2a-protocol#continuations) 了解完整的交付保证故事。
+
+### 常见陷阱 {#pitfalls}
+
+- **不要重复读取请求正文。** h3 v2 的正文流是一次性消耗的：如果在框架已经解析 `event.node.req.body` 后调用 `readBody(event)`（反之亦然），则第二次读取将无限期地挂起请求。这种情况最常出现在 Resend 和 SendGrid 中 — 两者都流式传输入站有效负载，并且悬空读取永远不会解析、平台超时，并且 Webhook 会重试，直到进行重复数据删除。如果您将框架的 Webhook 处理程序包装在自己的中间件中，请通过 `incoming` 选项传递已解析的 `IncomingMessage`，而不是让处理程序重新解析。
+- **不要在 webhook 处理程序内运行代理循环。**处理程序必须排队并返回 - 代理循环在处理器的新执行中运行。将其内联保证无服务器冻结会终止运行。此外，面向公众的网关集成（例如 Netlify 或 Vercel）强制执行严格的 HTTP 超时限制（例如 Netlify 的 10 秒请求限制）。由于代理运行和工具通常需要比此窗口更长的时间，因此尝试在 Webhook 请求中同步运行循环将导致网关终止连接，从而导致执行中止并丢弃回复。 HMAC 签名的自 Webhook `/process-task` 队列模式是安全执行完整代理循环时满足网关限制的唯一方法。
+- **不要在冷启动时依赖重复数据删除内存。**重复数据删除密钥位于 SQL `(platform, external_event_key)` 唯一索引中，而不是进程内映射中。如果替换队列，请保留 SQL 级别的重复数据删除，否则重复的 Slack 重试将触发重复的代理运行。
+- **保持 self-webhook URL 可访问。**处理器 URL 是从 `APP_URL` / `URL` / `DEPLOY_URL` / `BETTER_AUTH_URL` 构建的，回退到入站请求标头。在使用重写主机名的预览部署中，明确设置其中之一，否则调度将出现 404。
+
+### 另请参阅 {#see-also}
+
+- [Dispatch](/docs/dispatch) — 跨应用使用中央收件箱的概念概述
+- [Dispatch template reference](/docs/template-dispatch) — 推荐用于多应用工作区的中央收件箱
+- [A2A Protocol](/docs/a2a-protocol) — Dispatch 委托如何与其他代理一起工作，包括连续恢复
+- [Agent Mentions](/docs/agent-mentions) - `@` - 在网络聊天中提及代理

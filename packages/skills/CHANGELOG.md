@@ -1,5 +1,81 @@
 # @agent-native/skills
 
+## 0.2.156
+
+### Patch Changes
+
+- aa345cc: Add the Design `/visual-edit` skill and route it through the built-in skill installers so agents can open localhost routes as URL-backed Design screens.
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+- Updated dependencies [aa345cc]
+  - @agent-native/core@0.80.0
+
+## 0.2.155
+
+### Patch Changes
+
+- Updated dependencies [087be08]
+- Updated dependencies [087be08]
+- Updated dependencies [087be08]
+- Updated dependencies [087be08]
+- Updated dependencies [087be08]
+- Updated dependencies [087be08]
+- Updated dependencies [087be08]
+- Updated dependencies [087be08]
+  - @agent-native/core@0.79.27
+
+## 0.2.154
+
+### Patch Changes
+
+- Updated dependencies [27f630c]
+  - @agent-native/core@0.79.26
+
+## 0.2.153
+
+### Patch Changes
+
+- Updated dependencies [8bac54f]
+  - @agent-native/core@0.79.25
+
+## 0.2.152
+
+### Patch Changes
+
+- Updated dependencies [2c214f1]
+  - @agent-native/core@0.79.24
+
+## 0.2.151
+
+### Patch Changes
+
+- Updated dependencies [7bde747]
+  - @agent-native/core@0.79.23
+
+## 0.2.150
+
+### Patch Changes
+
+- Updated dependencies [cdf41db]
+- Updated dependencies [cdf41db]
+- Updated dependencies [cdf41db]
+- Updated dependencies [cdf41db]
+  - @agent-native/core@0.79.22
+
+## 0.2.149
+
+### Patch Changes
+
+- Updated dependencies [3acd677]
+  - @agent-native/core@0.79.21
+
 ## 0.2.148
 
 ### Patch Changes

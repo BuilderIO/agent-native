@@ -1,29 +1,144 @@
-import { useAgentRouteState, getBrowserTabId } from "@agent-native/core/client";
+import {
+  useAgentRouteState,
+  getBrowserTabId,
+  setClientAppState,
+} from "@agent-native/core/client";
 import { useParams } from "react-router";
 
 export interface NavigationState {
   view: string;
   designId?: string;
   designSystemId?: string;
+  editorView?: "single" | "overview";
+  inspectorTab?: "design" | "tweaks" | "extensions";
+  inspector?: "design" | "tweaks" | "extensions";
+  fileId?: string;
+  screenId?: string;
+  filename?: string;
+  screen?: string;
+  zoom?: number;
   path?: string;
+}
+
+export interface DesignEditorCommand {
+  designId: string;
+  editorView?: "single" | "overview";
+  viewMode?: "single" | "overview";
+  inspectorTab?: "design" | "tweaks" | "extensions";
+  inspector?: "design" | "tweaks" | "extensions";
+  fileId?: string;
+  screenId?: string;
+  filename?: string;
+  screen?: string;
+  zoom?: number;
+  tool?: string;
+  path?: string;
+  issuedAt: number;
+}
+
+const FOCUSED_SCREEN_ZOOM = 100;
+
+export function designEditorCommandKey(browserTabId?: string): string {
+  return browserTabId
+    ? `design-editor-command:${browserTabId}`
+    : "design-editor-command";
+}
+
+export function designEditorCommandKeysForTab(browserTabId?: string): string[] {
+  return [designEditorCommandKey(browserTabId)];
+}
+
+function normalizeEditorView(
+  value: unknown,
+): "single" | "overview" | undefined {
+  return value === "single" || value === "overview" ? value : undefined;
+}
+
+function normalizeInspectorTab(
+  value: unknown,
+): "design" | "tweaks" | "extensions" | undefined {
+  return value === "design" || value === "tweaks" || value === "extensions"
+    ? value
+    : undefined;
+}
+
+export function editorPathFromCommand(cmd: NavigationState): string | null {
+  if (cmd.path) return cmd.path;
+  if (cmd.view !== "editor" || !cmd.designId) return null;
+
+  const params = new URLSearchParams();
+  const editorView = normalizeEditorView(cmd.editorView);
+  if (editorView) params.set("view", editorView);
+  const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
+  if (inspectorTab) params.set("inspector", inspectorTab);
+  const screen = cmd.fileId ?? cmd.screenId ?? cmd.filename ?? cmd.screen;
+  if (screen) params.set("screen", screen);
+  if (typeof cmd.zoom === "number" && Number.isFinite(cmd.zoom)) {
+    params.set("zoom", String(cmd.zoom));
+  } else if (editorView === "single") {
+    params.set("zoom", String(FOCUSED_SCREEN_ZOOM));
+  }
+
+  const query = params.toString();
+  return `/design/${encodeURIComponent(cmd.designId)}${query ? `?${query}` : ""}`;
+}
+
+export function editorCommandFromNavigate(
+  cmd: NavigationState,
+  path: string,
+): DesignEditorCommand | null {
+  if (cmd.view !== "editor" || !cmd.designId) return null;
+  const editorView = normalizeEditorView(cmd.editorView);
+  const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
+  const command: DesignEditorCommand = {
+    designId: cmd.designId,
+    issuedAt: Date.now(),
+    path,
+  };
+  if (editorView) command.editorView = editorView;
+  if (inspectorTab) command.inspectorTab = inspectorTab;
+  if (cmd.fileId) command.fileId = cmd.fileId;
+  if (cmd.screenId) command.screenId = cmd.screenId;
+  if (cmd.filename) command.filename = cmd.filename;
+  if (cmd.screen) command.screen = cmd.screen;
+  if (typeof cmd.zoom === "number" && Number.isFinite(cmd.zoom)) {
+    command.zoom = cmd.zoom;
+  } else if (editorView === "single") {
+    command.zoom = FOCUSED_SCREEN_ZOOM;
+  }
+  return command;
 }
 
 export function useNavigationState() {
   const params = useParams();
+  const browserTabId = getBrowserTabId();
 
   useAgentRouteState<NavigationState>({
-    browserTabId: getBrowserTabId(),
+    browserTabId,
     getNavigationState: ({ pathname, search }) => {
       const state: NavigationState = { view: "list" };
+      const searchParams = new URLSearchParams(search);
 
       if (pathname.startsWith("/design/")) {
         state.view = "editor";
         state.designId = params.id;
+        const editorView = normalizeEditorView(searchParams.get("view"));
+        if (editorView) state.editorView = editorView;
+        const inspectorTab = normalizeInspectorTab(
+          searchParams.get("inspector"),
+        );
+        if (inspectorTab) state.inspectorTab = inspectorTab;
+        const screen = searchParams.get("screen");
+        if (screen) state.screen = screen;
+        const fileId = searchParams.get("fileId");
+        if (fileId) state.fileId = fileId;
+        const filename = searchParams.get("filename");
+        if (filename) state.filename = filename;
+        const zoom = Number(searchParams.get("zoom"));
+        if (Number.isFinite(zoom)) state.zoom = zoom;
       } else if (pathname.startsWith("/design-systems")) {
         state.view = "design-systems";
-        const designSystemId = new URLSearchParams(search).get(
-          "designSystemId",
-        );
+        const designSystemId = searchParams.get("designSystemId");
         if (designSystemId) state.designSystemId = designSystemId;
       } else if (pathname.startsWith("/present/")) {
         state.view = "present";
@@ -40,9 +155,8 @@ export function useNavigationState() {
       return state;
     },
     getCommandPath: (cmd) => {
-      if (cmd.path) return cmd.path;
-      if (cmd.view === "editor" && cmd.designId)
-        return `/design/${cmd.designId}`;
+      const editorPath = editorPathFromCommand(cmd);
+      if (editorPath) return editorPath;
       if (cmd.view === "design-systems") {
         return cmd.designSystemId
           ? `/design-systems?designSystemId=${encodeURIComponent(cmd.designSystemId)}`
@@ -54,6 +168,14 @@ export function useNavigationState() {
         return "/templates";
       if (cmd.view === "settings") return "/settings";
       return "/";
+    },
+    onNavigate: (cmd, path) => {
+      const command = editorCommandFromNavigate(cmd, path);
+      if (!command) return;
+      const keys = designEditorCommandKeysForTab(browserTabId);
+      for (const key of keys) {
+        setClientAppState(key, command).catch(() => {});
+      }
     },
   });
 }

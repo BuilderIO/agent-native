@@ -1,0 +1,244 @@
+---
+title: "进度"
+description: "长时间运行的代理任务的实时进度信号 - 启动、更新、完成"
+---
+
+# 进度
+
+长时间的代理任务不应隐藏在旋转器后面。 `progress_runs` 为代理提供了一种方式来宣布 _“我正在处理此问题，已完成 45%，这是当前步骤”_ — UI 将其呈现为带有百分比栏的浮动运行托盘。
+
+```ts
+import {
+  startRun,
+  updateRunProgress,
+  completeRun,
+} from "@agent-native/core/progress";
+
+const run = await startRun({
+  owner: "steve@builder.io",
+  title: "Triage 128 unread emails",
+  step: "Fetching inbox",
+});
+
+for (let i = 1; i <= total; i++) {
+  await updateRunProgress(run.id, run.owner, {
+    percent: Math.round((i / total) * 100),
+    step: `Classifying ${i}/${total}`,
+  });
+}
+
+await completeRun(run.id, run.owner, "succeeded");
+```
+
+与 [notifications](/docs/notifications) 不同的关注点：通知触发一次（_“X 发生了”_），进度是连续状态（_“X 已完成 45%”_）。这两个组合 - `completeRun` 后跟 `notify(..., severity: "info")` 告诉用户工作何时完成，即使他们没有看托盘。
+
+## 生命周期 {#lifecycle}
+
+| 状态        | 过渡                      |
+| ----------- | ------------------------- |
+| `running`   | 初始 — 由 `startRun` 设置 |
+| `succeeded` | 快乐路径终端              |
+| `failed`    | 错误终端                  |
+| `cancelled` | 用户中断                  |
+
+<Diagram id="doc-block-jtjrxw" title={"运行生命周期"} summary={"startRun 打开一个运行行； updateRunProgress 修补它； completeRun 将其移至一种终端状态并标记 completed_at。"}>
+
+```html
+<div class="diagram-run">
+  <div class="diagram-box" data-rough>startRun()</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel running" data-rough>
+    <span class="diagram-pill accent">running</span
+    ><small class="diagram-muted"
+      >updateRunProgress() &#8635; percent + step</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col terminal">
+    <span class="diagram-pill ok">succeeded</span
+    ><span class="diagram-pill warn">failed</span
+    ><span class="diagram-pill">cancelled</span
+    ><small class="diagram-muted">completeRun() &rarr; sets completed_at</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-run {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-run .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+}
+.diagram-run .terminal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.diagram-run .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+终端状态设置为 `completed_at`。 UI 托盘仅显示 `running` 行；完成的行保留在数据库中以供 `action=list` 查询。
+
+## API {#api}
+
+### `startRun(input)` {#start}
+
+创建一个运行。返回带有生成 ID 的完整 `AgentRun`。
+
+```ts
+const run = await startRun({
+  owner: "steve@builder.io",
+  title: "Ingest 1M rows",
+  step: "Opening CSV",
+  metadata: { jobId: "abc123", artifactPath: "s3://..." },
+});
+```
+
+在事件总线上发出 `run.progress.started`。
+
+### `updateRunProgress(id, owner, input)` {#update}
+
+修补正在运行的任何字段。任何省略的字段保持不变。
+
+```ts
+await updateRunProgress(run.id, run.owner, {
+  percent: 75,
+  step: "Writing to target DB",
+});
+```
+
+在事件总线上发出 `run.progress.updated`。返回更新的 `AgentRun`，如果运行不存在或不属于调用者，则返回 `null`。
+
+### `completeRun(id, owner, status, extras?)` {#complete}
+
+转换到终端状态。 `succeeded` 隐式设置 `percent=100`。
+
+```ts
+await completeRun(run.id, run.owner, "succeeded", {
+  step: "All 1M rows ingested",
+  metadata: { totalDurationMs: 98_123 },
+});
+```
+
+还发出带有终端状态的 `run.progress.updated`。
+
+### 列表 {#list}
+
+```ts
+import { listRuns, getRun, deleteRun } from "@agent-native/core/progress";
+
+const active = await listRuns("steve@builder.io", { activeOnly: true });
+const run = await getRun("run-id", "steve@builder.io");
+await deleteRun("run-id", "steve@builder.io");
+```
+
+## HTTP API {#http}
+
+通过 core-routes 插件安装在 `/_agent-native/runs/*`。 **在 HTTP 上只读** — 写入通过代理工具进行，因为代理是规范写入者。所有路由都是所有者范围内的。
+
+| 方法     | 路径                              |
+| -------- | --------------------------------- |
+| `GET`    | `/_agent-native/runs?active=true` |
+| `GET`    | `/_agent-native/runs/:id`         |
+| `DELETE` | `/_agent-native/runs/:id`         |
+
+<Endpoint id="doc-block-dp85bs" title={"列出活动运行"} method="GET" path="/_agent-native/runs" summary={"List the caller's runs. The RunsTray polls this with active=true."} auth="Session cookie (owner-scoped)" params={[
+  {
+    "name": "active",
+    "in": "query",
+    "type": "boolean",
+    "required": false,
+    "description": "When true, returns only `running` rows."
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Array of AgentRun rows owned by the caller."
+  }
+]}>
+
+Read-only and owner-scoped — every row has an `owner` column and every query filters on it, so callers only ever see their own runs. Writes (start/update/complete) go through the agent's `manage-progress` tool, not HTTP.
+
+</Endpoint>
+
+## UI组件 {#ui}
+
+```tsx
+import { RunsTray } from "@agent-native/core/client/progress";
+
+export function HeaderBar() {
+  return (
+    <header className="flex items-center gap-2">
+      {/* … */}
+      <RunsTray />
+    </header>
+  );
+}
+```
+
+内联标题小部件 - 将其安装在通知铃旁边。当跑步处于活动状态时，显示旋转图标 + 计数徽章；单击将打开一个下拉菜单，每次运行都会显示一个实时百分比栏。当没有活动运行时完全隐藏触发器。每 `pollMs` 轮询一次 `/_agent-native/runs?active=true`（默认 3 秒）。使用shadcn语义标记，适应浅色和深色主题。
+
+## 代理工具 {#agent-tool}
+
+每个模板中都会注册一个 `manage-progress` 工具。 `action`参数选择操作：
+
+| 行动       | 目的                                             |
+| ---------- | ------------------------------------------------ |
+| `start`    | 在长任务的顶部调用。返回一个 runId。             |
+| `update`   | 在任务期间定期调用 `percent` 和/或 `step`。      |
+| `complete` | 终端 — `succeeded`、`failed`、`cancelled` 之一。 |
+| `list`     | 检查最近的运行（按 `active=true` 过滤）。        |
+
+### 何时开始跑步 {#when-to-start}
+
+- 用于任何>~5秒的事情。没有上下文的旋转器感觉冻结。
+- 在自然检查点更新，而不是每次迭代。每 5-10% 就足够了。
+- **始终**使用 `action=complete` 调用 `manage-progress`，包括在错误路径中。孤立的 `running` 行比没有行更糟糕。
+- 完成后与 `notify` 配对，以便用户在没有主动观看托盘时也能看到结果。
+
+## 事件总线 {#event-bus}
+
+[event bus](/docs/automations#event-bus) 上发出两个事件：
+
+| 活动                   | 有效负载                           |
+| ---------------------- | ---------------------------------- |
+| `run.progress.started` | `{ runId, title, step? }`          |
+| `run.progress.updated` | `{ runId, percent, step, status }` |
+
+[Automations](/docs/automations) 可以订阅这些内容 - 例如，_“如果跑步时间超过 5 分钟，请通知我”_：
+
+```yaml
+---
+triggerType: event
+event: run.progress.updated
+condition: "status is failed"
+mode: agentic
+---
+通知 me that run {{runId}} has failed.
+```
+
+## 它是如何工作的 {#internals}
+
+- **所有者范围** — 每行都有一个 `owner` 列；每个查询都会对其进行过滤。用户只能看到自己的跑步。
+- **轮询集成** - 每个突变都会调用 `recordChange()`，因此使用 [`useDbSync`](/docs/client) 的模板会自动失效，无需任何额外的接线。
+- **表名称** — 该框架还有一个 `agent_runs` 表，用于内部代理聊天回合生命周期跟踪。进度原语使用 `progress_runs` 将两个关注点分开。
+- **百分比限制** — 值被限制为 `[0, 100]` 并在写入时四舍五入为整数。
+
+## 下一步是什么
+
+- [**Notifications**](/docs/notifications) — 与 `manage-progress` (`action=complete`) 配对，告诉用户工作何时完成
+- [**Automations**](/docs/automations) — 看门狗通过 `run.progress.updated` 缓慢运行
+- [**Client**](/docs/client) — `useDbSync` 用于实时缓存失效

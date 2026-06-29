@@ -45,6 +45,8 @@ const messages = {
     suggestionSlow: "放慢开场动画",
   },
   sidebar: {
+    collapseSidebar: "折叠侧边栏",
+    expandSidebar: "展开侧边栏",
     navigation: "导航",
     openNavigation: "打开导航",
   },

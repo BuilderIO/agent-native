@@ -51,6 +51,14 @@ async function deleteRecursive(
       ),
     );
   await db
+    .delete(schema.builderDocSidecars)
+    .where(
+      and(
+        eq(schema.builderDocSidecars.documentId, id),
+        eq(schema.builderDocSidecars.ownerEmail, ownerEmail),
+      ),
+    );
+  await db
     .delete(schema.documentShares)
     .where(eq(schema.documentShares.resourceId, id));
   await db.delete(schema.documents).where(eq(schema.documents.id, id));

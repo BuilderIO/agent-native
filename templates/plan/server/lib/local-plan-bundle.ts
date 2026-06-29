@@ -1,6 +1,9 @@
 import type { PlanContent } from "../../shared/plan-content.js";
 import type { PlanBundle, PlanComment, PlanKind } from "../../shared/types.js";
-import { exportPlanContentToMdxFolder } from "../plan-mdx.js";
+import {
+  exportPlanContentToMdxFolder,
+  referencedBlockIdsForPlanComments,
+} from "../plan-mdx.js";
 import { buildPlanHtml, nowIso } from "../plans.js";
 import { getLocalPlanOwnerEmail } from "./local-identity.js";
 import type { LocalPlanReadResult } from "./local-plan-files.js";
@@ -91,6 +94,7 @@ export async function buildLocalPlanBundleResult(opts: {
       brief: bundle.plan.brief,
       planId: id,
       url: local.routePath,
+      referencedBlockIds: referencedBlockIdsForPlanComments(visibleComments),
     }),
   };
 }

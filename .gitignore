@@ -5,6 +5,8 @@ dist
 docs/superpowers
 .DS_Store
 
+.idea/
+
 /*.png
 tmp/
 
@@ -90,9 +92,9 @@ wrangler.toml
 **/scratch/
 .video-bakeoff/
 
-# Regenerable plan artifacts (plan.mdx/canvas.mdx are kept; these are not)
+# Regenerable plan artifacts. Keep plans/*/.plan-state.json tracked: it carries
+# stable IDs for bare Markdown runs in repo-backed visual plan folders.
 plans/*/preview.html
-plans/*/.plan-state.json
 
 # Shell `script` command log artifacts
 db-exec

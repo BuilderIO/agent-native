@@ -431,6 +431,87 @@ const messages = {
     sharedMessaging:
       "Need one shared messaging surface for your workspace? Connect Slack or Telegram to a dispatch app and let it delegate to other agents over A2A.",
   },
+  mcpIntegrations: {
+    menuLabel: "Integrations",
+    menuDescription: "Connect MCP tools to the agent",
+    title: "Connect integrations",
+    description: "Choose a default MCP integration or add a custom server.",
+    searchPlaceholder: "Search integrations",
+    addYourOwn: "Add your own",
+    noMatches: "No integrations match that search.",
+    connected: "Connected",
+    configure: "Configure",
+    connect: "Connect",
+    backToIntegrations: "Back to integrations",
+    customTitle: "Add custom MCP server",
+    configureTitle: "Configure {{name}}",
+    presetNoAuthDescription:
+      "Preset values are filled in. Test the endpoint or connect it now.",
+    presetAuthDescription:
+      "Preset values are filled in. Add any required authorization details before connecting.",
+    customDescription:
+      "Paste a Streamable HTTP or SSE MCP endpoint and optional headers.",
+    oauthNotice:
+      "This provider usually requires an OAuth setup. Follow the provider docs, or add an Authorization header if your endpoint supports token-based access.",
+    personal: "Personal",
+    organization: "Organization",
+    orgNoOrg: "Join an organization to share MCP servers",
+    orgAdminOnly: "Only owners and admins can add org-scope servers",
+    serverName: "Server name",
+    url: "URL",
+    fieldDescription: "Description",
+    headers: "Headers",
+    serverNamePlaceholder: "Server name",
+    urlPlaceholder: "https://mcp.example.com/mcp",
+    descriptionPlaceholder: "Description (optional)",
+    headersPlaceholder: "Authorization: Bearer <token>",
+    openSetupDocs: "Open setup docs",
+    test: "Test",
+    toolsAvailable_one: "{{count}} tool available",
+    toolsAvailable_other: "{{count}} tools available",
+    failed: "Failed",
+    docsLabel: "{{name}} docs",
+    catalog: {
+      context7: {
+        description: "Fetch current library docs in agent chats.",
+        useCase:
+          "Documentation, technical reference, API docs, framework guides",
+      },
+      sentry: {
+        description: "Inspect issues, events, and debugging data.",
+        useCase: "Error monitoring, debugging, performance, crash reports",
+      },
+      notion: {
+        description: "Search pages and team knowledge.",
+        useCase: "Documentation, knowledge management, notes, content creation",
+      },
+      semgrep: {
+        description: "Scan code for security findings.",
+        useCase: "Security scanning, vulnerability detection, code analysis",
+      },
+      linear: {
+        description: "Read and write Linear issues.",
+        useCase: "Project management, issue tracking, planning, bug reports",
+      },
+      supabase: {
+        description: "Manage data, auth, and backend services.",
+        useCase: "Database, authentication, storage, edge functions",
+      },
+      neon: {
+        description: "Work with serverless Postgres projects.",
+        useCase: "Database management, serverless Postgres, data storage",
+      },
+      stripe: {
+        description: "Manage payments, subscriptions, and customers.",
+        useCase: "Payments, subscriptions, invoicing, customer management",
+      },
+    },
+    auth: {
+      none: "No auth",
+      headers: "Header",
+      oauth: "OAuth",
+    },
+  },
   observability: {
     noData: "No data available",
     noConversations: "No conversations recorded yet",

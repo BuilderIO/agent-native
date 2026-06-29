@@ -25,6 +25,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   download the original from Loom and use "Upload video".
 - Native transcript first. Cleanup and title generation can run in the
   background; do not hide a usable native transcript behind a failed cleanup.
+- Dictation cleanup, Clip title/cleanup, and meeting summaries should pass
+  bounded `voiceContext` to the shared cleanup/transcription path when active
+  app context, learned vocabulary, user notes, or AGENTS.md preferences are
+  available.
 - Cloud transcription is fallback-only for Clips recordings and should use the
   configured Builder/Gemini or Groq paths, not OpenAI.
 - AI setup must be visible and paid-account-backed: lead with Builder.io Connect
@@ -60,6 +64,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   tell the user that clearly and point them to Builder.io credits/upgrade or a
   Groq key for backup speech-to-text. Generic OpenAI or Anthropic chat keys do
   not transcribe Clips recordings.
+- Use `get-builder-credit-status` when the user asks whether Builder.io credit
+  limits are pausing backup transcription, transcript cleanup, summaries, or AI
+  title generation. Treat an exhausted status as an FYI/upgrade path, not an app
+  error.
 - Slack unfurls use `/api/slack/unfurl` for `link_shared` events and only
   return playable `chat.unfurl` video blocks for ready public clips with no
   password, no expiry hit, and no archive/trash marker. Private, org-only,

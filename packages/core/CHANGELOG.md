@@ -1,5 +1,90 @@
 # @agent-native/core
 
+## 0.80.0
+
+### Minor Changes
+
+- aa345cc: Add `agent-native design connect` foundations for localhost Design bridge manifests.
+
+### Patch Changes
+
+- aa345cc: App shells use an outline-style raised surface ring and Dispatch left navigation can collapse to an animated icon rail.
+- aa345cc: Live cursors now use Figma-style pointer markers with adjacent participant labels.
+- aa345cc: Surface missing LLM provider connections before agent chat starts a run, including Builder and AI SDK engines.
+- aa345cc: Fix Chrome visual glitchiness (blank/stale regions on scroll, pan, and zoom) in
+  plan documents and canvases by removing `backdrop-filter` (`backdrop-blur`) from
+  always-rendered per-block controls. A long plan rendered 40+ per-block edit
+  triggers, each forcing its own composited backdrop layer; Chrome re-samples every
+  backdrop snapshot on each scroll frame and its backdrop-filter invalidation drops
+  tiles, leaving regions blank until the next repaint. The tiny hover-trigger chips
+  now use an opaque background, which is visually identical but eliminates the
+  composited backdrop layers. Affects the block edit trigger, diagram/mermaid
+  expand/style triggers, and wireframe style trigger.
+- aa345cc: Allow embedded MCP App controls to target their own local agent sidebar instead of relaying every submitted prompt to the host chat.
+- aa345cc: Respect silent chat context staging across app/frame boundaries so selection context can update without opening the agent sidebar.
+- aa345cc: Polish the shared chat thinking status with capitalized text and a subtle shine animation.
+- aa345cc: Add the Design `/visual-edit` skill and route it through the built-in skill installers so agents can open localhost routes as URL-backed Design screens.
+- aa345cc: Improve voice transcription and cleanup with bounded voice context packs for active composer context, learned vocabulary, and transcript cleanup prompts.
+
+## 0.79.27
+
+### Patch Changes
+
+- 087be08: Show Gemini and other installed API-key-backed providers in the chat model picker.
+- 087be08: Add a `agent-native content local-files` launcher for local Content editing, propagate local file profiles through manifests, and support standard MDX child code fences for Diagram block authoring.
+- 087be08: Allow the framework Settings email panel to save Resend and SendGrid provider keys for transactional email and dashboard reports.
+- 087be08: Move Portuguese and Chinese locale options directly under German in locale pickers.
+- 087be08: Add a shared MCP integrations catalog dialog to the composer and Workspace create menus, with configurable default remote server presets plus custom server setup.
+- 087be08: Simplify the chat thinking indicator to plain text without the logo or animated dots.
+- 087be08: Reduce noisy browser Sentry reports from public docs visitors and harden organization member search SQL.
+- 087be08: Keep shared wireframe blocks readable in dark mode by stripping host theme utility classes and avoiding overlapping rough outlines around broad helper containers.
+
+## 0.79.26
+
+### Patch Changes
+
+- 27f630c: Fix Windows desktop (Tauri) email/password sign-in. The login endpoint now
+  returns the session token to the Windows WebView2 origin
+  (`http://tauri.localhost` / `https://tauri.localhost`), which was missing from
+  the desktop token allowlist, so sign-in no longer silently bounces back to the
+  form. Also stop reporting wrong-password failures as "Enter a valid email
+  address" — credential errors now surface as "Invalid email or password" while
+  genuine malformed-email input still gets the friendly format message.
+
+## 0.79.25
+
+### Patch Changes
+
+- 8bac54f: Expose the optional image model menu through AgentSidebar so app sidebars can show secondary generation model controls.
+
+## 0.79.24
+
+### Patch Changes
+
+- 2c214f1: Fix French docs MDX block serialization so markdown mirrors do not expose raw component tags.
+
+## 0.79.23
+
+### Patch Changes
+
+- 7bde747: Ship framework docs source as MDX and generate clean Markdown mirrors for docs pages.
+
+## 0.79.22
+
+### Patch Changes
+
+- cdf41db: Require signed-in email identity for browser session replay by default across templates and send replay timing/event-count metadata with each upload. Apps that intentionally record anonymous replay sessions can opt out with `sessionReplay.requireSignedInUser: false` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false`.
+- cdf41db: Keep diagram primitive borders visible in sketchy Plan diagrams and stop the shared feedback button from sending synthetic anonymous Agent Native emails.
+- cdf41db: Add an advanced OpenAI-compatible endpoint URL setting for custom gateways like LiteLLM.
+- cdf41db: Default shared expandable code surfaces to 30 visible lines before the reader
+  expands them.
+
+## 0.79.21
+
+### Patch Changes
+
+- 3acd677: Clarify workspace Docker Compose deployment for self-hosted VPS installs.
+
 ## 0.79.20
 
 ### Patch Changes

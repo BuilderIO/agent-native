@@ -44,6 +44,8 @@ const messages = {
     suggestionExport: "Exportar respostas para CSV",
   },
   sidebar: {
+    collapseSidebar: "Recolher barra lateral",
+    expandSidebar: "Expandir barra lateral",
     formGenerationStale:
       "A geracao do formulario esta demorando mais que o esperado. Voce pode tentar de novo.",
     untitledForm: "Formulario sem titulo",

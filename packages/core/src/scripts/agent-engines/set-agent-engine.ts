@@ -6,6 +6,7 @@ import {
   listAgentEngines,
   getAgentEngineEntry,
   isAgentEnginePackageInstalled,
+  isStoredEngineUsableForRequest,
   normalizeModelForEngine,
   registerBuiltinEngines,
 } from "../../agent/engine/index.js";
@@ -67,9 +68,13 @@ export async function run(args: Record<string, string>): Promise<string> {
     entry.supportedModels.length === 0 ||
     entry.supportedModels.includes(resolvedModel);
 
-  const missingEnvVars = entry.requiredEnvVars.filter((v) => !process.env[v]);
-  if (missingEnvVars.length > 0) {
-    return `Warning: Engine "${engineName}" requires the following environment variables which are not set: ${missingEnvVars.join(", ")}. The engine will fail at runtime without them.`;
+  const usable = await isStoredEngineUsableForRequest(
+    { engine: engineName },
+    entry,
+  );
+  if (!usable) {
+    const missingEnvVars = entry.requiredEnvVars.join(", ");
+    return `Warning: Engine "${engineName}" requires the following credentials which are not configured for this request: ${missingEnvVars}. The engine will fail at runtime without them.`;
   }
 
   await putSetting("agent-engine", {

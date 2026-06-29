@@ -19,6 +19,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
 import {
@@ -405,9 +406,9 @@ export default defineEventHandler(async (event: H3Event) => {
       try {
         const result = await finalizeRecording.run({
           id: recordingId,
-          durationMs: query.durationMs ? Number(query.durationMs) : undefined,
-          width: query.width ? Number(query.width) : undefined,
-          height: query.height ? Number(query.height) : undefined,
+          durationMs: normalizeChunkUploadNumber(query.durationMs),
+          width: normalizeChunkUploadNumber(query.width),
+          height: normalizeChunkUploadNumber(query.height),
           hasAudio:
             query.hasAudio === undefined
               ? undefined

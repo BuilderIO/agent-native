@@ -38,6 +38,7 @@ export interface DocumentSourceInfo {
   absolutePath?: string;
   rootName?: string;
   rootPath?: string;
+  profile?: string;
   hash?: string;
   contentType?: string;
   sizeBytes?: number;

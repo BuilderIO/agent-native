@@ -35,6 +35,8 @@ const enUS = {
     recentSalesDescription: "You made 265 sales this month.",
   },
   sidebar: {
+    collapseSidebar: "Collapse sidebar",
+    expandSidebar: "Expand sidebar",
     collapseDashboards: "Collapse dashboards",
     expandDashboards: "Expand dashboards",
     collapseAnalyses: "Collapse analyses",
@@ -179,6 +181,7 @@ const enUS = {
     newAnalysisPlaceholder: "Describe the question you want to investigate...",
   },
   common: {
+    docs: "Docs",
     noData: "No data",
     noDataAvailable: "No data available",
     rowsPerPage: "Rows per page:",
@@ -3405,6 +3408,8 @@ export const messagesByLocale = {
       created: "创建于 {{date}}",
     },
     sidebar: {
+      collapseSidebar: "折叠侧边栏",
+      expandSidebar: "展开侧边栏",
       collapseDashboards: "收起仪表板",
       expandDashboards: "展开仪表板",
       collapseAnalyses: "收起分析",
@@ -3579,6 +3584,8 @@ export const messagesByLocale = {
       created: "Creado el {{date}}",
     },
     sidebar: {
+      collapseSidebar: "Contraer barra lateral",
+      expandSidebar: "Expandir barra lateral",
       collapseDashboards: "Contraer paneles",
       expandDashboards: "Expandir paneles",
       collapseAnalyses: "Contraer análisis",
@@ -3761,6 +3768,8 @@ export const messagesByLocale = {
       created: "Créé le {{date}}",
     },
     sidebar: {
+      collapseSidebar: "Réduire la barre latérale",
+      expandSidebar: "Développer la barre latérale",
       collapseDashboards: "Réduire les tableaux de bord",
       expandDashboards: "Développer les tableaux de bord",
       collapseAnalyses: "Réduire les analyses",
@@ -3949,6 +3958,8 @@ export const messagesByLocale = {
       created: "Erstellt am {{date}}",
     },
     sidebar: {
+      collapseSidebar: "Seitenleiste einklappen",
+      expandSidebar: "Seitenleiste erweitern",
       collapseDashboards: "Dashboards einklappen",
       expandDashboards: "Dashboards ausklappen",
       collapseAnalyses: "Analysen einklappen",
@@ -4137,6 +4148,8 @@ export const messagesByLocale = {
       created: "{{date}} 作成",
     },
     sidebar: {
+      collapseSidebar: "サイドバーを折りたたむ",
+      expandSidebar: "サイドバーを展開",
       collapseDashboards: "ダッシュボードを折りたたむ",
       expandDashboards: "ダッシュボードを展開",
       collapseAnalyses: "分析を折りたたむ",
@@ -4321,6 +4334,8 @@ export const messagesByLocale = {
       created: "{{date}} 생성됨",
     },
     sidebar: {
+      collapseSidebar: "사이드바 접기",
+      expandSidebar: "사이드바 펼치기",
       collapseDashboards: "대시보드 접기",
       expandDashboards: "대시보드 펼치기",
       collapseAnalyses: "분석 접기",
@@ -4504,6 +4519,8 @@ export const messagesByLocale = {
       created: "Criado em {{date}}",
     },
     sidebar: {
+      collapseSidebar: "Recolher barra lateral",
+      expandSidebar: "Expandir barra lateral",
       collapseDashboards: "Recolher dashboards",
       expandDashboards: "Expandir dashboards",
       collapseAnalyses: "Recolher análises",
@@ -4692,6 +4709,8 @@ export const messagesByLocale = {
       created: "{{date}} को बनाया गया",
     },
     sidebar: {
+      collapseSidebar: "साइडबार समेटें",
+      expandSidebar: "साइडबार फैलाएं",
       collapseDashboards: "डैशबोर्ड समेटें",
       expandDashboards: "डैशबोर्ड फैलाएं",
       collapseAnalyses: "विश्लेषण समेटें",
@@ -4873,6 +4892,8 @@ export const messagesByLocale = {
       created: "تم الإنشاء في {{date}}",
     },
     sidebar: {
+      collapseSidebar: "طي الشريط الجانبي",
+      expandSidebar: "توسيع الشريط الجانبي",
       collapseDashboards: "طي لوحات المعلومات",
       expandDashboards: "توسيع لوحات المعلومات",
       collapseAnalyses: "طي التحليلات",

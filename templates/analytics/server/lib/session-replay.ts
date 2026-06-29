@@ -194,6 +194,11 @@ function replayString(value: unknown): string | null {
   return null;
 }
 
+function replayEmail(value: unknown): string | null {
+  const raw = replayString(value);
+  return raw && raw.includes("@") ? raw : null;
+}
+
 function replayInteger(value: unknown): number | null {
   if (typeof value === "number" && Number.isInteger(value)) return value;
   if (typeof value === "string" && /^-?\d+$/.test(value.trim())) {
@@ -341,6 +346,30 @@ function inferReplayEventCount(inlineData: string | null): number | null {
   return null;
 }
 
+function inferReplayEventTimes(inlineData: string | null): {
+  startedAt: string | null;
+  endedAt: string | null;
+} {
+  if (!inlineData) return { startedAt: null, endedAt: null };
+  try {
+    const parsed = JSON.parse(inlineData);
+    const events = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.events)
+        ? parsed.events
+        : [];
+    const timestamps = events
+      .map((event: unknown) => replayTimestamp(replayRecord(event).timestamp))
+      .filter((value: string | null): value is string => Boolean(value));
+    return {
+      startedAt: replayMinIso(timestamps),
+      endedAt: replayMaxIso(timestamps),
+    };
+  } catch {
+    return { startedAt: null, endedAt: null };
+  }
+}
+
 function normalizeReplayBlobRef(value: unknown): string | null {
   const ref = replayString(value);
   if (!ref) return null;
@@ -390,6 +419,16 @@ function decodeReplayBlobRef(value: string | null): StoredReplayBlobRef | null {
     return parsed;
   } catch {
     return null;
+  }
+}
+
+async function deleteReplayBlobHandleQuietly(
+  handle: PrivateBlobHandle,
+): Promise<void> {
+  try {
+    await deletePrivateBlob(handle);
+  } catch {
+    // Best-effort rollback cleanup; the original ingest error is more useful.
   }
 }
 
@@ -533,14 +572,19 @@ function normalizeReplayChunk(rawValue: unknown): NormalizedSessionReplayChunk {
   if (!checksum || checksum.length > 128) {
     throw replayError("Each replay chunk requires a valid checksum", 400);
   }
+  const inferredTimes = inferReplayEventTimes(inlineData);
 
   return {
     seq,
     checksum,
     byteLength,
     eventCount,
-    startedAt: replayTimestamp(raw.startedAt ?? raw.startTime ?? raw.start),
-    endedAt: replayTimestamp(raw.endedAt ?? raw.endTime ?? raw.end),
+    startedAt:
+      replayTimestamp(raw.startedAt ?? raw.startTime ?? raw.start) ??
+      inferredTimes.startedAt,
+    endedAt:
+      replayTimestamp(raw.endedAt ?? raw.endTime ?? raw.end) ??
+      inferredTimes.endedAt,
     storageKind,
     storageRef,
     inlineData,
@@ -721,7 +765,17 @@ export function parseSessionReplayIngestPayload(
     body.status === "completed" || body.completed === true || endedAt
       ? "completed"
       : "active";
-  const userId = replayString(body.userId ?? body.user_id);
+  const userEmail =
+    replayEmail(body.userEmail ?? body.user_email) ||
+    replayEmail(properties.userEmail ?? properties.user_email) ||
+    replayEmail(properties.email) ||
+    replayEmail(context.userEmail ?? context.user_email) ||
+    replayEmail(body.userId ?? body.user_id);
+  const userId =
+    userEmail ||
+    replayString(body.userId ?? body.user_id) ||
+    replayString(properties.userId ?? properties.user_id) ||
+    replayString(context.userId ?? context.user_id);
   const anonymousId = replayString(body.anonymousId ?? body.anonymous_id);
 
   return {
@@ -730,7 +784,7 @@ export function parseSessionReplayIngestPayload(
     sessionId,
     userId,
     anonymousId,
-    userKey: userId || anonymousId,
+    userKey: userEmail || userId || anonymousId,
     startedAt,
     endedAt,
     durationMs:
@@ -933,6 +987,21 @@ function rowToSessionRecordingSummary(
   };
 }
 
+function hasVisibleSessionRecordingIdentity(row: any): boolean {
+  return Boolean(replayEmail(row.userId) || replayEmail(row.userKey));
+}
+
+function hasPlayableSessionRecordingEvents(row: any): boolean {
+  return Number(row.chunkCount ?? 0) > 0 && Number(row.eventCount ?? 0) > 0;
+}
+
+function isVisibleSessionRecording(row: any): boolean {
+  return (
+    hasVisibleSessionRecordingIdentity(row) &&
+    hasPlayableSessionRecordingEvents(row)
+  );
+}
+
 function mergeReplayMetadata(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
@@ -951,12 +1020,47 @@ function replayRecordingChangeScope(row: {
   return { owner: row.ownerEmail };
 }
 
+async function deleteEmptyReplayRecordingPlaceholder(
+  db: any,
+  recording: { id: string; ownerEmail: string; orgId: string | null },
+): Promise<void> {
+  await db.delete(schema.sessionRecordings).where(
+    and(
+      eq(schema.sessionRecordings.id, recording.id),
+      eq(schema.sessionRecordings.ownerEmail, recording.ownerEmail),
+      recording.orgId
+        ? eq(schema.sessionRecordings.orgId, recording.orgId)
+        : isNull(schema.sessionRecordings.orgId),
+      eq(schema.sessionRecordings.chunkCount, 0),
+      eq(schema.sessionRecordings.eventCount, 0),
+      sql`not exists (
+          select 1 from ${schema.sessionReplayChunks}
+          where ${schema.sessionReplayChunks.recordingId} = ${schema.sessionRecordings.id}
+        )`,
+    ),
+  );
+}
+
 function escapeSqlLike(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
 function replayTextContains(column: unknown, query: string) {
   return sql`lower(coalesce(${column}, '')) like ${`%${escapeSqlLike(query.toLowerCase())}%`} escape '\\'`;
+}
+
+function replayVisibleIdentityCondition() {
+  return or(
+    replayTextContains(schema.sessionRecordings.userId, "@"),
+    replayTextContains(schema.sessionRecordings.userKey, "@"),
+  );
+}
+
+function replayPlayableEventsCondition() {
+  return and(
+    gte(schema.sessionRecordings.chunkCount, 1),
+    gte(schema.sessionRecordings.eventCount, 1),
+  );
 }
 
 function replayListSearchCondition(query: string | undefined) {
@@ -1006,10 +1110,11 @@ export async function recordSessionReplayChunks(
     .limit(1);
 
   if (!recording) {
+    const newRecordingId = replayId("sr");
     await db
       .insert(schema.sessionRecordings)
       .values({
-        id: replayId("sr"),
+        id: newRecordingId,
         publicKeyId: key.id,
         clientRecordingId: input.clientRecordingId,
         sessionId: input.sessionId,
@@ -1070,54 +1175,76 @@ export async function recordSessionReplayChunks(
     existingChunks.map((chunk: any) => [chunk.seq, chunk]),
   );
   const rowsToInsert: any[] = [];
+  const uploadedBlobHandles: PrivateBlobHandle[] = [];
   let duplicateChunks = 0;
+  const wasEmptyRecording =
+    Number(recording.chunkCount ?? 0) === 0 &&
+    Number(recording.eventCount ?? 0) === 0 &&
+    existingChunks.length === 0;
 
-  for (const rawChunk of input.chunks) {
-    const chunk = await storeReplayChunkBlob(rawChunk, {
-      publicKeyId: key.id,
-      recordingId: recording.id,
-      ownerEmail: key.ownerEmail,
-      orgId: key.orgId,
-    });
-    const existing = existingBySeq.get(chunk.seq);
-    if (existing) {
-      if (existing.checksum !== chunk.checksum) {
+  try {
+    for (const rawChunk of input.chunks) {
+      const existing = existingBySeq.get(rawChunk.seq);
+      if (existing) {
+        if (existing.checksum !== rawChunk.checksum) {
+          throw replayError(
+            `Replay chunk ${rawChunk.seq} was already recorded with a different checksum`,
+            409,
+          );
+        }
+        duplicateChunks += 1;
+        continue;
+      }
+      if (
+        existingChunks.length + rowsToInsert.length >=
+        MAX_REPLAY_CHUNKS_PER_RECORDING
+      ) {
         throw replayError(
-          `Replay chunk ${chunk.seq} was already recorded with a different checksum`,
-          409,
+          `Session recordings may contain at most ${MAX_REPLAY_CHUNKS_PER_RECORDING} chunks`,
+          413,
         );
       }
-      duplicateChunks += 1;
-      continue;
+      const chunk = await storeReplayChunkBlob(rawChunk, {
+        publicKeyId: key.id,
+        recordingId: recording.id,
+        ownerEmail: key.ownerEmail,
+        orgId: key.orgId,
+      });
+      if (rawChunk.storageKind !== "blob" && chunk.storageKind === "blob") {
+        const ref = decodeReplayBlobRef(chunk.storageRef);
+        if (ref) uploadedBlobHandles.push(ref.handle);
+      }
+      rowsToInsert.push({
+        id: replayId("src"),
+        recordingId: recording.id,
+        seq: chunk.seq,
+        checksum: chunk.checksum,
+        byteLength: chunk.byteLength,
+        eventCount: chunk.eventCount,
+        startedAt: chunk.startedAt,
+        endedAt: chunk.endedAt,
+        storageKind: chunk.storageKind,
+        storageRef: chunk.storageRef,
+        inlineData: chunk.inlineData,
+        ownerEmail: key.ownerEmail,
+        orgId: key.orgId,
+      });
     }
-    if (
-      existingChunks.length + rowsToInsert.length >=
-      MAX_REPLAY_CHUNKS_PER_RECORDING
-    ) {
-      throw replayError(
-        `Session recordings may contain at most ${MAX_REPLAY_CHUNKS_PER_RECORDING} chunks`,
-        413,
-      );
-    }
-    rowsToInsert.push({
-      id: replayId("src"),
-      recordingId: recording.id,
-      seq: chunk.seq,
-      checksum: chunk.checksum,
-      byteLength: chunk.byteLength,
-      eventCount: chunk.eventCount,
-      startedAt: chunk.startedAt,
-      endedAt: chunk.endedAt,
-      storageKind: chunk.storageKind,
-      storageRef: chunk.storageRef,
-      inlineData: chunk.inlineData,
-      ownerEmail: key.ownerEmail,
-      orgId: key.orgId,
-    });
-  }
 
-  if (rowsToInsert.length) {
-    await db.insert(schema.sessionReplayChunks).values(rowsToInsert);
+    if (rowsToInsert.length) {
+      await db.insert(schema.sessionReplayChunks).values(rowsToInsert);
+    }
+    uploadedBlobHandles.length = 0;
+  } catch (error) {
+    await Promise.all(uploadedBlobHandles.map(deleteReplayBlobHandleQuietly));
+    if (wasEmptyRecording) {
+      await deleteEmptyReplayRecordingPlaceholder(db, {
+        id: recording.id,
+        ownerEmail: key.ownerEmail,
+        orgId: key.orgId,
+      });
+    }
+    throw error;
   }
 
   await db.insert(schema.sessionReplayIngests).values({
@@ -1239,6 +1366,8 @@ export async function listSessionRecordings(
       userEmail: scope.userEmail,
       orgId: scope.orgId ?? undefined,
     }),
+    replayVisibleIdentityCondition(),
+    replayPlayableEventsCondition(),
   ];
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
@@ -1249,7 +1378,12 @@ export async function listSessionRecordings(
     conditions.push(eq(schema.sessionRecordings.sessionId, filters.sessionId));
   }
   if (filters.userId) {
-    conditions.push(eq(schema.sessionRecordings.userId, filters.userId));
+    conditions.push(
+      or(
+        eq(schema.sessionRecordings.userId, filters.userId),
+        eq(schema.sessionRecordings.userKey, filters.userId),
+      ),
+    );
   }
   if (filters.anonymousId) {
     conditions.push(
@@ -1300,6 +1434,9 @@ export async function getSessionReplaySummary(
     orgId: scope.orgId ?? undefined,
   });
   if (!access) throw replayError("Session recording not found", 404);
+  if (!isVisibleSessionRecording(access.resource)) {
+    throw replayError("Session recording not found", 404);
+  }
   return rowToSessionRecordingSummary(access.resource, access.role);
 }
 

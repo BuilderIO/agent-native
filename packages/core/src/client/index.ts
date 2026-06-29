@@ -35,8 +35,10 @@ export {
 } from "./agent-chat.js";
 export {
   saveAgentEngineApiKey,
+  saveAgentEngineProviderSettings,
   type AgentEngineProvider,
   type SaveAgentEngineApiKeyOptions,
+  type SaveAgentEngineProviderSettingsOptions,
 } from "./agent-engine-key.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export {
@@ -874,6 +876,8 @@ export {
   serializeSpecBlock,
   parseSpecBlock,
   createAttrReader,
+  childCodeFenceFields,
+  serializeChildCodeFenceFields,
   describeBlocksForAgent,
   renderBlockVocabularyReference,
   type BlockSpec,

@@ -46,6 +46,10 @@ export interface DrawAnnotation {
 interface DrawOverlayProps {
   /** Whether the overlay is currently visible (toggled from the toolbar) */
   visible: boolean;
+  /** When false, canvas clicks pass through to sibling tools while the toolbar stays usable. */
+  canvasInteractive?: boolean;
+  /** Extra queued annotations owned by sibling tools, such as comment pins. */
+  queuedAnnotationCount?: number;
   /** Called when the user submits the queued strokes/text to the agent */
   onSend: (
     annotations: DrawAnnotation[],
@@ -94,7 +98,13 @@ interface Stroke {
  * its parent, so the parent (a slide editor or design canvas) only needs to
  * be `position: relative`.
  */
-export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
+export function DrawOverlay({
+  visible,
+  canvasInteractive = true,
+  queuedAnnotationCount = 0,
+  onSend,
+  onClose,
+}: DrawOverlayProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -292,13 +302,19 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
   if (!visible) return null;
 
   const hasContent =
-    strokes.length > 0 || textAnnotations.length > 0 || instruction.trim();
+    strokes.length > 0 ||
+    textAnnotations.length > 0 ||
+    instruction.trim() ||
+    queuedAnnotationCount > 0;
 
   return (
     <div
       ref={containerRef}
       data-draw-overlay
-      className="absolute inset-0 z-30 pointer-events-auto"
+      className={cn(
+        "absolute inset-0 z-30",
+        canvasInteractive ? "pointer-events-auto" : "pointer-events-none",
+      )}
     >
       {/* Drawing canvas */}
       <canvas
@@ -307,6 +323,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
         className={cn(
           "absolute inset-0 h-full w-full",
           textMode ? "cursor-text" : "cursor-crosshair",
+          !canvasInteractive && "pointer-events-none",
         )}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -332,7 +349,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
       {/* Pending text input */}
       {textInput && (
         <div
-          className="absolute z-40"
+          className="pointer-events-auto absolute z-40"
           style={{ left: textInput.x, top: textInput.y }}
         >
           <Input
@@ -360,7 +377,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
       {/* Bottom toolbar */}
       <div
         data-draw-toolbar
-        className="absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
+        className="pointer-events-auto absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
       >
         {/* Color picker */}
         <div className="flex gap-1">

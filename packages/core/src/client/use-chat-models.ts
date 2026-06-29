@@ -6,14 +6,13 @@ import {
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import { agentNativePath } from "./api-path.js";
+import {
+  buildChatModelGroups,
+  type EngineModelGroup,
+} from "./chat-model-groups.js";
 import { callAction } from "./use-action.js";
 
-export interface EngineModelGroup {
-  engine: string;
-  label: string;
-  models: string[];
-  configured: boolean;
-}
+export type { EngineModelGroup } from "./chat-model-groups.js";
 
 export interface UseChatModelsResult {
   availableModels: EngineModelGroup[];
@@ -160,104 +159,13 @@ export function useChatModels({
           enginesData.current?.engine;
         const currentModel: string | undefined = enginesData.current?.model;
 
-        let groups: EngineModelGroup[];
-
-        if (builderConnected) {
-          const builderEngine = enginesData.engines.find(
-            (e: any) => e.name === "builder",
-          );
-          const builderModels: string[] = builderEngine?.supportedModels ?? [];
-          const claude = builderModels.filter((m: string) =>
-            m.startsWith("claude-"),
-          );
-          const openai = builderModels.filter((m: string) =>
-            m.startsWith("gpt-"),
-          );
-          const gemini = builderModels.filter((m: string) =>
-            m.startsWith("gemini-"),
-          );
-          const other = builderModels.filter(
-            (m: string) =>
-              !m.startsWith("claude-") &&
-              !m.startsWith("gpt-") &&
-              !m.startsWith("gemini-"),
-          );
-
-          groups = [
-            ...(claude.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "Claude",
-                    models: claude,
-                    configured: true,
-                  },
-                ]
-              : []),
-            ...(openai.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "OpenAI",
-                    models: openai,
-                    configured: true,
-                  },
-                ]
-              : []),
-            ...(gemini.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "Gemini",
-                    models: gemini,
-                    configured: true,
-                  },
-                ]
-              : []),
-            ...(other.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "More",
-                    models: other,
-                    configured: true,
-                  },
-                ]
-              : []),
-          ];
-        } else {
-          const allowedEngines = new Set([
-            "anthropic",
-            "ai-sdk:openai",
-            "ai-sdk:google",
-          ]);
-          groups = enginesData.engines
-            .filter(
-              (e: any) =>
-                allowedEngines.has(e.name) && e.packageInstalled !== false,
-            )
-            .map((e: any) => {
-              const models = [...e.supportedModels];
-              if (
-                e.name === currentEngineName &&
-                currentModel &&
-                !models.includes(currentModel)
-              ) {
-                models.unshift(currentModel);
-              }
-              return {
-                engine: e.name,
-                label: e.label,
-                models,
-                configured:
-                  e.requiredEnvVars.length === 0 ||
-                  e.requiredEnvVars.some((v: string) =>
-                    configuredKeys.has(v),
-                  ) ||
-                  e.name === currentEngineName,
-              };
-            });
-        }
+        const groups = buildChatModelGroups({
+          engines: enginesData.engines,
+          configuredKeys,
+          builderConnected,
+          currentEngineName,
+          currentModel,
+        });
         const nextDefaultModel = currentModel ?? DEFAULT_MODEL;
         setAvailableModels(groups);
         setDefaultModel(nextDefaultModel);

@@ -167,6 +167,47 @@ describe("local artifact helpers", () => {
     expect(app.extensions).toEqual(["extensions", "widgets"]);
   });
 
+  it("propagates local file profiles from app and root config", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, {
+      mode: "local-files",
+      apps: {
+        content: {
+          profile: "docs/no-bookkeeping",
+          roots: [
+            { path: "docs", extensions: [".mdx"] },
+            {
+              path: "blog",
+              profile: "content/default-bookkeeping",
+              extensions: [".mdx"],
+            },
+          ],
+        },
+      },
+    });
+    fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+    fs.mkdirSync(path.join(root, "blog"), { recursive: true });
+    fs.writeFileSync(path.join(root, "docs", "intro.mdx"), "# Intro", "utf8");
+    fs.writeFileSync(path.join(root, "blog", "launch.mdx"), "# Launch", "utf8");
+
+    const app = await getLocalArtifactApp({ appId: "content", manifestPath });
+    const files = await listLocalArtifactFiles({
+      appId: "content",
+      manifestPath,
+    });
+
+    expect(app.profile).toBe("docs/no-bookkeeping");
+    expect(app.roots.map((entry) => [entry.path, entry.profile])).toEqual([
+      ["docs", "docs/no-bookkeeping"],
+      ["blog", "content/default-bookkeeping"],
+    ]);
+    expect(files.map((entry) => [entry.path, entry.profile])).toEqual([
+      ["blog/launch.mdx", "content/default-bookkeeping"],
+      ["docs/intro.mdx", "docs/no-bookkeeping"],
+    ]);
+  });
+
   it("writes atomically and rejects stale expected hashes", async () => {
     const root = tmpDir();
     const manifestPath = path.join(root, "agent-native.json");

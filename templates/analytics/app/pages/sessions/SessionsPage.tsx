@@ -3,6 +3,7 @@ import { useActionQuery, useT } from "@agent-native/core/client";
 import {
   IconChevronDown,
   IconCode,
+  IconExternalLink,
   IconFilter,
   IconPlayerPlay,
   IconRefresh,
@@ -26,6 +27,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
+
+const SESSION_REPLAY_DOCS_URL =
+  "https://www.agent-native.com/docs/tracking#session-replay";
 
 type SessionRecordingSummary = {
   id: string;
@@ -302,22 +306,33 @@ function EmptySessionsState() {
             {t("sessions.noSessionsDescription")}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-          <Badge variant="outline">{t("sessions.emptyStepKey")}</Badge>
-          <Badge variant="outline">{t("sessions.emptyStepEnv")}</Badge>
-          <Badge variant="outline">{t("sessions.emptyStepVisit")}</Badge>
-        </div>
       </div>
-      <div className="overflow-hidden rounded-md border bg-muted/30">
-        <div className="flex items-center gap-2 border-b px-4 py-3 text-sm font-medium">
-          <IconCode className="h-4 w-4" />
-          {t("sessions.installSnippetTitle")}
+      <div className="analytics-session-snippet overflow-hidden rounded-md border bg-muted/30">
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium">
+            <IconCode className="h-4 w-4 text-muted-foreground" />
+            <span className="truncate">
+              {t("sessions.installSnippetTitle")}
+            </span>
+          </div>
+          <Button
+            asChild
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+          >
+            <a href={SESSION_REPLAY_DOCS_URL} target="_blank" rel="noreferrer">
+              {t("common.docs")}
+              <IconExternalLink className="h-3.5 w-3.5" />
+            </a>
+          </Button>
         </div>
         <CodeSurface
           code={SESSION_REPLAY_SNIPPET}
           language="typescript"
           maxLines={null}
-          className="mt-0 rounded-none border-0 bg-transparent"
+          showLanguageLabel={false}
+          className="mt-0"
         />
       </div>
     </div>
@@ -359,12 +374,19 @@ function visitorLabel(
   recording: SessionRecordingSummary,
   t: ReturnType<typeof useT>,
 ): string {
+  const email = emailLike(recording.userId) || emailLike(recording.userKey);
+  if (email) return email;
   return (
     recording.userId ||
     recording.userKey ||
     recording.anonymousId ||
     t("sessions.anonymous")
   );
+}
+
+function emailLike(value: string | null): string | null {
+  if (!value?.includes("@")) return null;
+  return value;
 }
 
 function shortId(value: string): string {

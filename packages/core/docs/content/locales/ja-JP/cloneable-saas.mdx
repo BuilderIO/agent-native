@@ -1,0 +1,191 @@
+---
+title: "テンプレート"
+description: "動作する SaaS 製品をフォークして、エージェントも含めて自分のものにします。"
+---
+
+# テンプレート
+
+独自の AI を活用した分析ツールを出荷してみませんか?メールクライアント?フォームビルダー?テンプレートを選択すると、数分で動作する SaaS が完成します。エージェント、データベース、認証、およびデプロイのパイプラインはすでに接続されています。
+
+ほとんどの「テンプレート」では、空の足場と長い TODO リストが提供されます。エージェントネイティブはそれを覆します。それぞれは **完全な SaaS グレードの製品**であり、初日からすでに実行可能で、出荷可能であり、完全にカスタマイズ、ブランド化、展開することができます。スターター キットではなく、複製可能な SaaS として考えてください。定型文を見つめるのではなく、完成品をフォークしているのです。
+
+## 利用可能なテンプレート {#catalog}
+
+それぞれが今日使用できる実際のアプリであり、独自のバージョンの起動台となります。
+
+| テンプレート                              | それは何ですか                                                                                                                          |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| [**Chat**](/docs/template-chat)           | 耐久性のあるスレッド、actions、認証、カスタム UI または独自のバックエンドへのクリーン パスを備えた最小限のチャット ファースト アプリ。  |
+| [**Mail**](/docs/template-mail)           | エージェント出身のスーパーヒューマン。受信箱、ラベル、AI トリアージ、キーボードファースト、下書き、エージェント経由の送信。             |
+| [**Calendar**](/docs/template-calendar)   | エージェントネイティブの Google Calendar。イベント、同期、公開予約リンク、エージェント主導のスケジューリング。                          |
+| [**Content**](/docs/template-content)     | MDX 用のオープンソース Obsidian。ローカル Markdown/MDX、Tiptap エディター、Notion 同期、リアルタイム マルチユーザー コラボレーション。  |
+| [**Brain**](/docs/template-brain)         | 引用された機関の記憶、承認された情報源、レビューゲート、および引用に裏付けられたクリーンな社内チャット。                                |
+| [**Assets**](/docs/template-assets)       | ブランド ライブラリ、アップロード、参照、ブランド上の画像/動画生成のためのデジタル アセット マネージャー。                              |
+| [**Slides**](/docs/template-slides)       | エージェントネイティブの Google スライド。エージェントが直接生成および編集する React ベースのデッキ。                                   |
+| [**Video**](/docs/template-videos)        | Remotion のプログラマティック モーション グラフィックスと製品デモ ビデオ。                                                              |
+| [**Analytics**](/docs/template-analytics) | エージェントネイティブの振幅/ミックスパネル。データ ソースを接続し、グラフのプロンプトを表示し、ダッシュボードに固定します。            |
+| [**Clips**](/docs/template-clips)         | 文字起こし、チャプター、AI 概要を含む非同期画面 + カメラ録画。                                                                          |
+| [**Design**](/docs/template-design)       | インタラクティブな Alpine/Tailwind 設計のためのエージェントネイティブの HTML プロトタイピング スタジオ。                                |
+| [**Forms**](/docs/template-forms)         | エージェントネイティブの Typeform。提出物を作成、共有、収集し、Slack、スプレッドシート、webhooks、または Discord にルーティングします。 |
+| [**Plan**](/docs/template-plan)           | 図、ワイヤーフレーム、注釈を使用した視覚的な計画と PR の要約。                                                                          |
+| [**Dispatch**](/docs/template-dispatch)   | ワークスペース コントロール プレーン: 共有シークレット、再利用可能な統合、Slack/テレグラム、スケジュールされたジョブ。                  |
+
+ドメイン テンプレートが不要ですか?ユーザーがすぐに会話できる基本的なアプリが必要な場合は、[Chat](/docs/template-chat) を使用するか、[Pure-Agent Apps](/docs/pure-agent-apps) で最初にアクションを開始してください。
+
+[Templates](/templates) で完全なカタログを参照するか、カタログに直接ジャンプしてください。たとえば、ワークスペース スタイルのアプリが必要な場合は、[Dispatch](/docs/template-dispatch) から始めるのが最適です。
+
+## 箱から出してすぐに手に入るもの {#what-you-get}
+
+すべてのテンプレートには、通常、構築に数か月かかるパーツが付属しています。
+
+- **機能するエージェント** — すでにアプリに組み込まれており、データに対して actions を取得することができ、見ているものについてすでにコンテキストを認識しています。仕組みについては、[Messaging the agent](/docs/messaging) を参照してください。
+- **認証** — サインイン、セッション、組織、マルチテナント分離。すでに完了しました。
+- **データベース** — すべてのテンプレートには、すぐに使用できるスキーマ、クエリ、移行が用意されています。独自の SQL データベース (Postgres、SQLite、Turso、D1) を持ち込みます - フレームワークが適応します。
+- **リアルタイム UI** — 画面はエージェントの動作と同期したままになります。チャットで [メールの下書き] をクリックすると、すぐに下書きが受信トレイに表示されます。
+- **デプロイ準備完了** — Netlify、Vercel、Cloudflare、AWS、または Node を実行するその他の場所にプッシュします。ベンダーロックインはありません。
+- **ブランディングフック** — 名前、色、ロゴ、コピーはすべて簡単に変更できます。
+
+これは理論上の主張ではありません。フレームワークの作成者は、実際の受信トレイをメール テンプレートで実行し、実際のカレンダーをカレンダー テンプレートで実行し、実際の分析を分析テンプレートで実行します。テンプレートは毎日使用するドライバー ソフトウェアです。
+
+## あなたがしていること {#what-you-do}
+
+「独自の SaaS が欲しい」から「独自の SaaS を持っている」までの道のりは短い:
+
+<Diagram id="doc-block-uhpr3b" title={"フォークしてカスタマイズする"} summary={"完成した製品を選択し、ブランド化し、平易な英語で進化させ、独自のドメインに出荷します。"}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-card">
+    <span class="diagram-pill">1</span><strong>Pick</strong
+    ><small class="diagram-muted">a complete template</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2</span><strong>Brand</strong
+    ><small class="diagram-muted">名前、色、ロゴ、コピー</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">3</span><strong>Customize</strong
+    ><small class="diagram-muted">ask the agent &#8635;</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">4</span><strong>Ship</strong
+    ><small class="diagram-muted">your own domain</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 130px;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+1. **テンプレートを選択します。** CLI ピッカーを使用するか、ドキュメントを参照して開始するテンプレートを選択します。
+2. **ブランド化します。** 名前、色、ロゴ、コピーを変更します。ほとんどのテンプレートは、これを単一の構成ファイルで公開します。
+3. **カスタマイズします。** エージェントに、必要な列の追加、受信トレイのグループ方法の変更、内部 API への接続、新しいビューの追加を依頼します。エージェントはコードを編集します。差分を確認してください。
+4. **出荷します。** デプロイ コマンドを実行します。これで、独自のドメインに独自の実稼働 SaaS ができました。
+
+ステップ 2 ～ 4 には通常、数か月ではなく数日かかります。ステップ 3 は無制限です。フォークされた SaaS は、エージェントと会話することで、簡単な英語で時間の経過とともに進化します。
+
+## これが実用的な理由 {#why}
+
+従来のコードベースのフォーク モデルは大規模になると崩壊します。すべてのユーザーが自分の受信トレイを維持するのはメンテナンスの悪夢のように思えます。フレームワークを機能させるには、次の 2 つのフレームワークの決定が必要です。
+
+1. **メンテナンスはエージェントが行います。** 列を追加したり、新しい統合を接続したりするためのコードを作成するのではなく、エージェントに依頼します。つまり、「独自のフォークされた受信箱」は機能であり、負担ではありません。
+2. **ユーザーごとのコードを使用しないユーザーごとのカスタマイズ。** Skills、メモリ、命令、接続された MCP サーバー、およびサブエージェントはすべて SQL に存在します。すべてのユーザーは独自のカスタマイズ レイヤーを取得します。共有コードベースはそれらすべてを一度にホストします。
+
+結果: 通常の SaaS 導入の経済性を維持しながら、各ユーザーに Claude コード レベルの柔軟性をもたらします。
+
+<Diagram id="doc-block-1m85zma" title={"ユーザーごとのフォークがスケーリングする理由"} summary={"フォークとカスタマイズのモデルは 2 つのアイデアによって実用的に保たれています。つまり、エージェントがメンテナンスを行い、ユーザーごとのカスタマイズはユーザーごとのコードではなく SQL で行われます。"}>
+
+```html
+<div class="diagram-why">
+  <div class="diagram-panel" data-rough>
+    <strong>共有d codebase</strong
+    ><small class="diagram-muted">1つのアプリを1回デプロイ</small>
+    <div class="diagram-pill accent">agent does the maintenance</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>SQL内のユーザー別レイヤー</strong
+    ><small class="diagram-muted"
+      >skills · メモリ · 指示 · MCP · サブエージェント</small
+    >
+    <div class="diagram-pill ok">no per-user code</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-why {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-why .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  min-width: 240px;
+  flex: 1;
+}
+.diagram-why .diagram-arrow {
+  font-size: 24px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## フォークしたくないですか? {#hosted}
+
+その必要はありません。すべてのテンプレートは、`agent-native.com` — `mail.agent-native.com`、`calendar.agent-native.com` などでホストされるアプリとしても利用できます。ホストされたバージョンを無料または有料で使用します。ホストされたバージョンが公開していないものを変更したい場合にのみフォークしてください。
+
+## スキルを使って試してみましょう {#try-with-a-skill}
+
+足場を立てる準備ができていませんか?単一のコマンドを使用して、すでに使用しているコーディング エージェントにエージェント ネイティブのスーパーパワーを追加できます。アプリは必要ありません。 [Skills Guide](/docs/skills-guide#app-backed-skills) を参照してください。
+
+## これを基に
+
+- [**Getting Started**](/docs/getting-started) — 最小限のチャット アプリまたはヘッドレス エージェントを作成します
+- [**Messaging the agent**](/docs/messaging) — ユーザー (およびあなた) が各テンプレートに同梱されているエージェントと会話する方法
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — 認証、ブランド、エージェントを共有する 1 つのワークスペースに複数のテンプレートをバンドルします
+- [**Dispatch**](/docs/template-dispatch) — ワークスペース コントロール プレーン テンプレート
+- [**Creating Templates**](/docs/creating-templates) — 独自のテンプレートを作成して公開
+
+### 開発者向け {#dev-details}
+
+現在スキャフォールディングを行っている場合、CLI コマンドは次のとおりです:
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+複数選択ピッカーが表示されます。 1 つのアプリ (スタンドアロン) または複数のアプリ (ワークスペース - アプリは認証、ブランド、エージェント構成、データベースを共有) を選択します。選択した各テンプレートは、必要なすべてのファイルとともに `apps/<name>/` にスキャフォールディングされます。テンプレート UI の代わりにアクション専用アプリの場合は、`npx @agent-native/core@latest create my-agent --headless` を使用します。
+
+`.env` (主に `ANTHROPIC_API_KEY` と `DATABASE_URL`)、`pnpm install`、`pnpm dev` を入力すると機能します。 「TODO: ログインの実装」、プレースホルダー ルートはありません。
+
+デプロイターゲット: Nitro 互換ホスト (Node、Cloudflare、Netlify、Vercel、Deno、Lambda、Bun) および Drizzle 互換 SQL データベース (SQLite、Postgres、Turso、D1、Supabase、Neon)。ワークスペースの場合、`npx @agent-native/core@latest deploy` はすべてのアプリを一度に構築し、単一のオリジンの背後で出荷します。 [Deployment](/docs/deployment) を参照してください。
+
+独自のテンプレートを作成して公開するには、[Creating Templates](/docs/creating-templates) を参照してください。

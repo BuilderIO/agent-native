@@ -1,0 +1,551 @@
+---
+title: "大腦"
+description: "由引用的機構記憶、可審查的來源程式碼攝取和可重用的工作區整合支援的幹淨的公司聊天。"
+---
+
+# 大腦
+
+大腦是幹淨的公司聊天，由引用的機構記憶支援。人們問
+簡單的英語問題；大腦透過認可的公司知識進行回答
+連結回 Slack 對話串、會議、紀錄、問題或 Webhook 捕獲
+支援答案。
+
+大腦攝取核准的 Slack 頻道、剪輯錄音、Granola Team-space
+註解、GitHub 問題/PR 以及通用指令碼/Webhook 有效負載。它儲存原始資料
+捕獲、提煉持久的事實/決策/流程，並路由敏感的或
+低可信度記憶在成為公司知識之前經過審查。
+
+產品表面有意保持簡單：**詢問**是主要聊天
+經驗，而**來源**、**評論**和**知識**是管理/支援
+用於連線資料、核准提案和檢查引用記憶的介面。
+
+<Diagram id="doc-block-1flwjg8" title={"從來源到引用的答案"} summary={"大腦將經過核准的來源攝取到原始捕獲中，擷取持久記憶，透過審查對其進行門控，然後才透過引用進行回答。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Sources</span
+    ><small class="diagram-muted"
+      >Slack · Granola · GitHub · Clips · webhooks</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    原始捕獲<br /><small class="diagram-muted">已去重、已脫敏</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Distill<br /><small class="diagram-muted">事實 · 決策 · 流程</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Review</span
+    ><small class="diagram-muted">sensitive / low-confidence queue</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Knowledge</span
+    ><small class="diagram-muted">已核准、原子化</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Ask</span
+    ><small class="diagram-muted">cited answer</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.diagram-flow .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<WireframeBlock id="doc-block-tvgymf">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>詢問公司記憶</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='搜尋'></span><strong style='flex:1'>為什麼選取按用量定價？</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>試點顯示席位數低估了自動化價值後，團隊選取了按用量定價。</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>定價 RFC</span><span class='wf-pill'>發布複盤</span><span class='wf-pill'>銷售備註</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>來源時間線</strong><div class='wf-box'>5 月 3 日 · 決策已紀錄</div><div class='wf-box'>5 月 8 日 · 已新增客戶證據</div><div class='wf-box'>5 月 12 日 · 法務說明已核准</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+當您開啟應用程式時，**詢問**位於最前面和中心位置 - 幹淨的聊天超過審核
+公司記憶。 **來源**、**評論**和**知識**與它並列
+用於連線資料、核准提案和檢查引用的管理介面
+條目。
+
+## 何時采摘
+
+當您的團隊希望代理回答諸如“我們為什麼這樣做”之類的問題時，請使用 Brain
+這個產品決策？”、“這個正在開發的功能如何工作？”或“什麼
+在這個過程中發生了變化？”包含返回來源對話、會議的連結，
+或問題。
+
+Brain 和 Dispatch 是互補的，但執行不同的工作：
+
+- **Brain 擁有公司記憶。**它攝取來源、審查原始捕獲，
+  從引用的證據中提煉出持久的事實/決策/過程、答案，以及
+  向代理公開經認可的知識。
+- **Dispatch 擁有工作區控制平面。**它集中訊息傳遞，
+  秘密、重複性作業、核准、A2A 編排和分發
+  並核准工作區範圍的資源。
+
+在多應用工作區中，Dispatch 可以透過 A2A 將問題傳送至 Brain，並且
+可以授予 Brain 共用提供者憑證。大腦仍然是專家
+核准來源攝取、審查、檢索並引用 Company Brain 答案。
+Brain 將唯讀、引用支援的檢索公開為其公開 A2A 功能
+因此 Dispatch 和同級應用程式可以詢問公司記憶問題 - A2A 代理
+卡片是公開發現中繼資料，而檢索仍然發生在 Brain 內部
+經過驗證的操作介面。
+
+## 你可以用它做什麼
+
+- **詢問引用的問題。**詢問是主要的產品表面：幹淨的聊天
+  審查了公司記憶，包括來源健康狀況、審查計數和建議
+  問題保持次要。每個答案都連結回 Slack 對話串，
+  支援它的會議、問題或捕獲。
+- **連線核准的來源。**設定手動、通用 Webhook、Clips、Slack，
+  格蘭諾拉麥片和 GitHub 來源。預設情況下，來源是組織共用的，因此公司
+  記憶對整個工作區很有用。
+- **發布前進行審核。**提出的回憶將獲得一流的審核路由
+  審閱者編輯措辭、檢查證據/來源連結並核准或
+  拒絕。高可信度、非敏感條目可立即發布；
+  公司級或敏感條目作為提案排隊。
+- **檢查引用的知識。**知識路由顯示蒸餾的、原子的
+  包含種類、主題、實體、置信度、確切證據引用的條目，以及
+  取代連結。
+- **重用工作區整合。**腦來源可以重用共用工作區
+  連線授予而不是重新輸入提供者權杖。來源頁面
+  在可重複使用的連線授權和提供者旁邊顯示大腦來源紀錄
+  準備就緒。
+- **將核准的記憶鏡像為環境脈絡。**規範核准的條目可以
+  鏡像到 `context/company-brain/...` 下的工作區資源，以便其他
+  應用程式可以將它們用作脈絡。兩個流程都在
+  資源被寫入或刪除。
+
+## 開始使用
+
+線上示範：[brain.agent-native.com](https://brain.agent-native.com)。
+
+1. **嘗試示範。** 開啟詢問並選取 **開始示範**。大腦種子很小
+   產品決策語料庫，執行信任檢查，並提出引用的問題
+   您可以在新增之前檢視答案、引用、評論和未找到的行為
+   真實的公司資料。
+2. **新增一個來源。**從單一 Slack 頻道、Granola Team-space 開始
+   提要、GitHub 儲存庫、剪輯匯出或通用指令碼 Webhook。保留
+   範圍很小，直到引用和評論品質看起來不錯。
+3. **發布前進行審閱。**使用審閱來檢查證據、編輯措辭，
+   並僅核准持久的公司記憶。
+4. **從來源頭詢問。**使用“詢問”來提出應基於的問題
+   經過認可的知識，而不是原始聊天記錄。
+
+對於公開示範，種子語料庫示範了產品決策召回，
+引文連結、取代行為、評論門控、編輯、個人內容
+排除，以及在不連線真實工作空間的情況下誠實的未發現行為。
+
+### 有用的提示
+
+- “我們對年度定價做出了什麼決定？在哪裡討論過？”
+- “尋找最新的入職流程變更並引用來源。”
+- “總結一下 GitHub 討論對於發布計畫的意義。”
+- “審查待處理的記憶提案並標記任何過於模糊而無法發布的內容。”
+- “哪些來源已過時或同步失敗？”
+
+## 對於開發者
+
+本檔案的其餘部分適用於任何分叉 Brain 範本或擴充功能它的人。
+
+### 快速入門
+
+```bash
+npx @agent-native/core@latest create my-brain --standalone --template brain
+cd my-brain
+pnpm install
+pnpm dev
+```
+
+開啟應用程式並選取**開始示範**即可檢視引用的記憶，而無需連線真實的工作區。
+
+### 資料模型
+
+Brain 有意使用 SQL 文字搜尋和代理查詢擴充功能 - 有
+無需矢量資料庫，因此範本可在 SQLite 之間保持可移植性，
+Postgres、Neon、D1、Turso 和類似主機。應用程式狀態反映
+目前路由、過濾器和所選 ID，以便代理始終了解目前
+導覽和選取。
+
+Brain 的模式位於 `templates/brain/server/db/schema.ts` 中。八張桌子：
+
+| 表                       | 它包含什麼                                                                                                      |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `brain_sources`          | 連線器設定 - 提供者、允許列出的頻道/儲存庫、同步游標、審核狀態、`ingest_token_hash`、`status`、`last_synced_at` |
+| `brain_source_shares`    | 按來源共用授予（檢視者/編輯者/管理員）                                                                          |
+| `brain_raw_captures`     | 帶有 `external_id` 重複資料刪除金鑰、`content_hash`、種類和蒸餾狀態的指令碼、通道匯出、註解和 Webhook 匯入      |
+| `brain_knowledge`        | 精煉的原子條目 - 種類（決策/事實/過程/...）、主題、實體、證據引用、置信度、`publish_tier`、取代連結             |
+| `brain_knowledge_shares` | 按知識共用授予                                                                                                  |
+| `brain_proposals`        | 待審專案 - 建議建立/更新/存檔並包含證據和審閱者註解                                                             |
+| `brain_proposal_shares`  | 每項提案的股份授予                                                                                              |
+| `brain_sync_runs`        | 同步審核記錄 - 提供者、狀態、統計資訊 JSON、錯誤、開始/結束時間戳                                               |
+| `brain_ingest_queue`     | 背景蒸餾佇列 - 操作、狀態、優先級、重試計數、`run_after`                                                        |
+
+<DataModel
+  id="doc-block-eqz7qn"
+  title={"大腦資料模型"}
+  summary={
+    "Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
+  }
+  entities={[
+    {
+      id: "sources",
+      name: "brain_sources",
+      note: "連線器設定",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "provider",
+          type: "text",
+          note: "slack / granola / github / clips / webhook",
+        },
+        {
+          name: "ingest_token_hash",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "last_synced_at",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "source_shares",
+      name: "brain_source_shares",
+      note: "viewer / editor / admin",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+      ],
+    },
+    {
+      id: "captures",
+      name: "brain_raw_captures",
+      note: "攝取的原始有效負載",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "external_id",
+          type: "text",
+          note: "dedupe key",
+        },
+        {
+          name: "content_hash",
+          type: "text",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge",
+      name: "brain_knowledge",
+      note: "蒸餾原子條目",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: "decision / fact / process",
+        },
+        {
+          name: "topic",
+          type: "text",
+        },
+        {
+          name: "entities",
+          type: "json",
+        },
+        {
+          name: "confidence",
+          type: "real",
+        },
+        {
+          name: "publish_tier",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge_shares",
+      name: "brain_knowledge_shares",
+      fields: [
+        {
+          name: "knowledge_id",
+          type: "id",
+          fk: "brain_knowledge.id",
+        },
+      ],
+    },
+    {
+      id: "proposals",
+      name: "brain_proposals",
+      note: "待審核專案",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "op",
+          type: "text",
+          note: "create / update / archive",
+        },
+      ],
+    },
+    {
+      id: "proposal_shares",
+      name: "brain_proposal_shares",
+      fields: [
+        {
+          name: "proposal_id",
+          type: "id",
+          fk: "brain_proposals.id",
+        },
+      ],
+    },
+    {
+      id: "sync_runs",
+      name: "brain_sync_runs",
+      note: "同步審核記錄",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "stats",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "ingest_queue",
+      name: "brain_ingest_queue",
+      note: "背景蒸餾佇列",
+      fields: [
+        {
+          name: "operation",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "priority",
+          type: "int",
+        },
+        {
+          name: "run_after",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "sources",
+      to: "captures",
+      kind: "1-n",
+      label: "ingested into",
+    },
+    {
+      from: "knowledge",
+      to: "captures",
+      kind: "n-n",
+      label: "evidence",
+    },
+    {
+      from: "knowledge",
+      to: "proposals",
+      kind: "1-n",
+      label: "gated by",
+    },
+    {
+      from: "sources",
+      to: "sync_runs",
+      kind: "1-n",
+      label: "audited by",
+    },
+  ]}
+/>
+
+### 金鑰actions
+
+按區域分組（`templates/brain/actions/`）：
+
+- **來源管理** — `create-source`、`update-source`、`delete-source`、`get-source`、`list-sources`、`sync-source`、`sync-due-sources`、`run-slack-pilot`、`test-slack-connection`
+- **捕獲攝取** — `import-capture`、`import-transcript`、`list-captures`、`get-capture`、`mark-capture-distilled`、`resanitize-captures`
+- **蒸餾** — `enqueue-distillation`、`enqueue-captures-distillation`、`claim-distillation`、`retry-distillation`、`list-distillation-queue`
+- **知識與複習** — `write-knowledge`、`get-knowledge`、`list-knowledge`、`set-knowledge-canonical`、`preview-canonical-resource`、`list-proposals`、`review-proposal`、`approve-proposal`、`reject-proposal`、`update-proposal`
+- **搜尋和檢索** — `ask-brain`、`search-knowledge`、`search-everything`
+- **設定** — `get-brain-settings`、`update-brain-settings`、`set-settings`、`get-settings`
+- **評估和示範** — `seed-demo-data`、`run-demo-eval`、`run-retrieval-eval`
+- **脈絡和導覽** — `view-screen`、`navigate`
+- **提供者 APIs** — `provider-api-catalog`、`provider-api-docs`、`provider-api-request`
+
+### 連線來源
+
+Brain 首先從授予的工作區連線解析提供者憑證，
+然後來自向後相容的 Brain-local 或註冊的保管庫憑證。
+Brain 來源憑證不會回退到部署層級環境變數。
+如果共用提供者已存在，請授予 Brain 存取權限，而不是複製
+在特定於大腦的設定中使用相同的秘密。
+
+**Slack.** 建立範圍為特定通道 ID 的來源。連線器
+驗證每個設定的對話，拒絕 DM 和 MPIM，並儲存游標
+狀態，以便每次同步都從上次停止的位置恢復。安全的推出流程
+每個 Slack 來源卡都可以讓您**測試**憑證和允許清單，而無需
+閱讀歷史紀錄，執行一個小上限的**安全試點**範例，**檢視捕獲**，
+並在任何內容變得可查詢之前在**審核佇列**中進行核准。授予
+機器人僅處理來源需要的範圍（憑證驗證、允許清單
+驗證、允許列出的頻道歷史紀錄和持久的永久連結）。
+
+**格蘭諾拉麥片。** 建立具有輪詢視窗和頁面大小的來源。格蘭諾拉麥片
+企業 API 金鑰公開團隊空間筆記，而不是私人筆記或資料夾。大腦
+儲存筆記摘要、文字紀錄、與會者、行事曆中繼資料和來源
+URL 作為蒸餾前的原始捕獲物。
+
+**GitHub.** 建立範圍為已核准的儲存庫的來源。連線器
+使用穩定的來源 URL 匯入有界問題和 pull request 脈絡，可以
+像 Slack 或會議脈絡一樣進行提煉。這是大腦脈絡攝取，而不是
+Analytics 風格的 GitHub 報告的替代品。
+
+**Clips 和通用 webhooks。** Brain 公開了 Clips 的簽名 Webhook 和
+`/api/_agent-native/brain/ingest` 的通用轉錄本/捕獲匯入。建立
+具有 `sourceKey` 的來源接收不記名權杖，然後傳送
+`RawCapturePayload` 與 `Authorization: Bearer <ingestToken>`。通用來源
+對通話紀錄、客戶研究、匯入使用相同的有效負載形狀
+註解，或任何其他可以生成有界捕獲的來源。
+
+<Endpoint id="doc-block-1j10n8l" title={"簽名攝取 webhook"} summary={"剪輯和通用 transcript/capture 匯入會發布帶有每個來源不記名權杖的 RawCapturePayload。"} method="POST" path="/api/_agent-native/brain/ingest" summary={"從 Clips 或通用來源匯入原始捕獲"} auth={"Bearer <ingestToken> issued per source via its sourceKey"} request={{
+  "contentType": "application/json",
+  "example": "RawCapturePayload — bounded transcript / capture body"
+}} responses={[
+  {
+    "status": "200",
+    "description": "Capture accepted and queued for distillation"
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid ingest bearer token"
+  }
+]}>
+
+</Endpoint>
+
+Slack、Granola 和 GitHub 來源可以選取進入背景 `autoSync`
+審核品質得到證實後進行投票。
+
+### 隱私和門控
+
+大腦是為公司記憶而設計的，而不是個人監視：
+
+- Slack 同步僅讀取顯式設定的通道並拒絕 DM/MPIM。
+- Granola 同步讀取 Granola 的 API 公開的團隊空間筆記，非私人
+  筆記或私人資料夾。
+- 預設情況下，原始捕獲是從清單/搜尋介面中編輯的；審稿人
+  並且蒸餾流程僅在需要時請求預覽或原始內容。
+- 來源設定可能需要在提煉的知識變得持久之前進行審查
+  公司記憶。
+- 設定控制預設發布層，公司層知識是否需要
+  核准、引用要求、電子郵件編輯和連線器錯誤
+  通知。
+
+### 自訂它
+
+大腦遵循 Agent-Native 四區域契約——透過編輯改變行為
+匹配區域，代理可以為您進行以下編輯：
+
+- `templates/brain/app/routes/` — UI 表面：提問、搜尋、知識，
+  檢視、來源、設定和團隊路由。
+- `templates/brain/actions/` — 每個代理可呼叫的操作（匯入、來源
+  管理、試點報告、提煉、提案審查、引用檢索，
+  導覽/脈絡）。使用 `defineAction` 新增新檔案以公開新的
+  能力。
+- `templates/brain/.agents/skills/` — 針對大腦的蒸餾指導
+  和檢索。當您向代理傳授新的工作流程時更新或新增技能。
+- `templates/brain/AGENTS.md` — 頂級代理指南。新增專業時更新
+  功能。
+- `templates/brain/server/db/schema.ts` — 資料模型。僅附加遷移；
+  路由、過濾器和選定的 ID 鏡像到代理的 `application_state`
+  脈絡。
+
+要求代理為您進行更改 - 它可以編輯自己的來源。請參閱
+[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+
+## 下一步是什麼
+
+- [**Dispatch**](/docs/dispatch) — 工作區控制平面
+- [**Dispatch template**](/docs/template-dispatch) — 腳手架協調應用
+- [**Workspace**](/docs/workspace) — 跨應用共用資源
+- [**A2A Protocol**](/docs/a2a-protocol) — 跨應用委托

@@ -1,0 +1,302 @@
+---
+title: "Cross-App SSO"
+description: "Sign in once across every hosted agent-native app via identity federation with Dispatch as the identity authority — opt-in per app, reversible with a single env var."
+---
+
+# Cross-App SSO
+
+Each hosted app at `*.agent-native.com` runs its own deployment with its **own separate user store**. `mail.agent-native.com` and `calendar.agent-native.com` do not share a database, a session table, or a cookie domain. So "sign in once, use every app" cannot be a shared cookie — it has to be **identity federation**, with [Dispatch](/docs/dispatch) acting as the identity authority for the workspace.
+
+This is the same trust primitive [A2A](/docs/a2a-protocol) and [External Agents](/docs/external-agents) already use — an `A2A_SECRET`-signed JWT verified at the request boundary — applied to the human sign-in path instead of agent-to-agent calls.
+
+> **Unified deploy vs. per-domain deploy.** If you host all apps at one origin (`your-agents.com/mail`, `your-agents.com/calendar`), you already get shared login via a single cookie domain — no federation needed. Cross-App SSO is only necessary when apps run on separate domains. See [Multi-App Workspaces — Unified deploy](/docs/multi-app-workspace#deployment).
+
+## What & why {#what-why}
+
+Per-app user stores mean there is no single place a browser cookie could live that every app trusts. The federation model instead names one app — **Dispatch** — as the identity authority. Any other app can delegate "who is this person?" to Dispatch, get back a short-lived signed assertion of the user's verified email, and then **link that to its own local account by email**.
+
+The linking rule is deliberately narrow and additive:
+
+- **Existing same-email user → linked.** The local account is matched by verified email and reused as-is. It is **never modified, renamed, or deleted** — the federation layer only ever reads it and mints a session for it.
+- **New email → created.** A fresh local account is created for that verified email, then a normal local session is minted.
+
+This makes the rollout safe even though it logs people out. **Logout is expected.** When an app turns this on, existing sessions end and users re-authenticate through Dispatch. But they always log back into the **same email-matched account, with all their data intact**, because identity rows are only ever _added to_ — never destroyed, renamed, or repointed.
+
+## How it works {#how-it-works}
+
+The flow is a standard authorize → signed-token → callback redirect, with email as the only thing that crosses the trust boundary.
+
+<Diagram id="doc-block-137b24q" title="Identity federation flow" summary={"Dispatch authenticates the human and returns a short-lived signed assertion of one thing — the verified email. The app links by email and mints its own local session."}>
+
+```html
+<div class="diagram-sso">
+  <div class="diagram-card" data-rough>
+    <strong>Client app</strong
+    ><small class="diagram-muted">own user store</small>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill">authorize</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>Dispatch</strong
+    ><small class="diagram-muted">identity authority</small
+    ><span class="diagram-pill accent">authenticates human</span>
+  </div>
+  <div class="diagram-step">
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <span class="diagram-pill accent">302 + signed JWT</span>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>App callback</strong
+    ><small class="diagram-muted"
+      >verify signature · scope:identity · exp &le; 2 min</small
+    ><span class="diagram-pill ok">JIT-link by email</span
+    ><span class="diagram-pill ok">mint local session</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-sso {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-sso .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 150px;
+}
+.diagram-sso .diagram-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.diagram-sso .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+1. **App → Dispatch (authorize).** The app sends the user to the identity authority:
+
+   ```
+   GET https://dispatch.agent-native.com/_agent-native/identity/authorize
+       ?app=<requesting-app>
+       &redirect_uri=<app-callback-url>
+       &state=<csrf-state>
+   ```
+
+<Endpoint id="doc-block-1wojo41" title="Identity authorize endpoint" method="GET" path="/_agent-native/identity/authorize" summary="Dispatch (identity authority) authenticates the human and redirects back with a signed identity token" auth="Dispatch session (interactive login if none)" params={[
+  {
+    "name": "app",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "The requesting app identifier."
+  },
+  {
+    "name": "redirect_uri",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "App callback URL. Validated against a strict allowlist (`*.agent-native.com` or localhost by default)."
+  },
+  {
+    "name": "state",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "CSRF state echoed back on the redirect."
+  }
+]} responses={[
+  {
+    "status": "302",
+    "description": "Redirects to `redirect_uri` carrying a short-lived `A2A_SECRET`-signed identity JWT (`scope: \"identity\"`, `exp` ≤ 2 minutes) plus the original `state`."
+  },
+  {
+    "status": "400",
+    "description": "`redirect_uri` failed allowlist validation (cross-origin, scheme-relative `//host`, or unlisted suffix)."
+  }
+]}>
+
+</Endpoint>
+
+2. **Dispatch authenticates the human.** If the user already has a Dispatch session, this is transparent. If not, Dispatch shows its own normal login (email/password, Google, etc. — see [Authentication](/docs/authentication)). Dispatch is just a regular agent-native app here; it is not running a special auth mode.
+
+3. **Dispatch → App (signed identity token).** Dispatch validates `redirect_uri` against a strict allowlist and 302-redirects back to the app's `redirect_uri` carrying a short-lived **`A2A_SECRET`-signed identity JWT**. The token's claims are intentionally minimal:
+
+   | Claim        | Meaning                                                  |
+   | ------------ | -------------------------------------------------------- |
+   | `sub`        | Stable user id at the identity authority                 |
+   | `email`      | The user's **verified** email — the only join key        |
+   | `name`       | Display name (non-authoritative, for UI only)            |
+   | `org_domain` | Workspace/org domain, when present                       |
+   | `scope`      | Always `"identity"` — this token authorizes sign-in only |
+   | `exp`        | **≤ 2 minutes** from issue                               |
+
+4. **App verifies and JIT-links by email.** The app verifies the token signature with its own `A2A_SECRET`, checks `scope: "identity"` and `exp`, then performs **just-in-time linking strictly by verified email**:
+   - If a local user with that email exists → reuse it unchanged.
+   - If not → create a local user for that email.
+
+5. **App mints a normal local session.** From here on the user has an ordinary local session in that app's own store — every existing access check, org scoping, and action guard works exactly as before. The federation only happened at the front door.
+
+### Opting in {#opt-in}
+
+An app participates **only** when this environment variable is set on its deployment:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
+```
+
+- **Set** → the app shows a **"Sign in with Agent-Native"** option that runs the flow above. Direct local login (email/password, Google) still works alongside it.
+- **Unset (default)** → **zero behavior change.** The app authenticates exactly as it did before; the federation code path is dormant. There is no schema change and nothing to migrate, so flipping the variable on or off is fully reversible at any time.
+
+## Security {#security}
+
+The whole model rests on a few deliberately small guarantees:
+
+- **Short-lived signed token.** The identity assertion is an `A2A_SECRET`-signed JWT with a **≤ 2-minute** expiry and `scope: "identity"`. It authorizes a single sign-in and cannot be replayed for long or repurposed for API/A2A access.
+- **Strict `redirect_uri` allowlist.** Dispatch only ever redirects to `*.agent-native.com` or localhost by default. Arbitrary, scheme-relative (`//host`), and cross-origin redirect targets are rejected, so the authority can't be turned into an open-redirect or token-exfiltration oracle.
+- **Email-only join from a verified token.** The _only_ thing that crosses the trust boundary is the verified email in a signed token. The app does not accept a user id, role, org membership, or any privileged state from the wire — it derives everything locally from the matched account.
+- **Additive-only identity writes.** Linking either reuses an existing same-email account untouched or inserts a new one. No update, rename, repoint, or delete of identity rows ever happens on this path.
+- **Off by default.** With `AGENT_NATIVE_IDENTITY_HUB_URL` unset the entire feature is inert.
+
+<Callout id="doc-block-18qhl3m" tone="success">
+
+**Safe to enable, safe to revert.** Identity writes are **additive only** — an existing same-email account is reused untouched, and a new email just inserts a fresh row. There is no schema change and nothing to migrate, so flipping `AGENT_NATIVE_IDENTITY_HUB_URL` on or off is fully reversible at any time, per app.
+
+</Callout>
+
+The just-in-time link is a single decision keyed entirely on the verified email:
+
+<Diagram id="doc-block-18fy48y" title="JIT-link decision" summary={"Linking is keyed on the verified email and is additive only — existing accounts are reused unchanged, new emails create a fresh local user."}>
+
+```html
+<div class="diagram-jit">
+  <div class="diagram-node" data-rough>
+    Verified email<br /><small class="diagram-muted"
+      >from signed identity JWT</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-branch">
+    <div class="diagram-box" data-rough>
+      Local user exists?<span class="diagram-pill ok"
+        >yes &rarr; reuse unchanged</span
+      ><span class="diagram-pill accent">no &rarr; create local user</span>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-box" data-rough>Mint normal local session</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-jit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-branch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jit .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-jit .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Self-hosting {#self-hosting}
+
+Any Dispatch deployment can serve as the identity hub — you are not limited to `dispatch.agent-native.com`. Set `AGENT_NATIVE_IDENTITY_HUB_URL` on each client app to point at your Dispatch instance:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
+```
+
+**Redirect allowlist.** The hub (Dispatch) validates `redirect_uri` on the authorize endpoint before issuing a token. The allowlist is configured in `templates/dispatch/server/lib/identity-sso.ts`:
+
+- **Default:** `*.agent-native.com` and localhost only (the `DEFAULT_ALLOWED_HOST_SUFFIXES` constant).
+- **Extending it:** set the `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` environment variable on the Dispatch deployment with a comma-separated list of additional host suffixes:
+
+  ```bash
+  # Allow yourcompany.com subdomains in addition to the defaults
+  IDENTITY_SSO_ALLOWED_HOST_SUFFIXES=".yourcompany.com,.staging.yourcompany.com"
+  ```
+
+  Each entry is normalized to a dot-prefixed suffix (`.yourcompany.com`), so a suffix check is both sufficient and the least footgun-prone — no per-app list to keep in sync. Entries that would match everything (empty or just `.`) are filtered out.
+
+- **Localhost** is always allowed for local development of client-side apps regardless of `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`.
+
+Without `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES`, a self-hosted Dispatch can only issue tokens to apps on `*.agent-native.com`. Set the env var on your Dispatch deployment to unlock other domains.
+
+## Canary rollout runbook {#canary-rollout}
+
+Cutover and rollback are **a single environment variable per app deployment**. Roll out one app at a time, verify, then expand. Do not set the variable on every app at once.
+
+**1. Deploy the code — no behavior change.**
+Ship the release to every app with `AGENT_NATIVE_IDENTITY_HUB_URL` **unset everywhere**. Confirm normal logins still work on a couple of apps.
+
+**2. Enable the canary on ONE app at a time.**
+Set, on one deployment only:
+
+```bash
+AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
+```
+
+Leave every other app's environment unset. Redeploy/restart so it picks up the variable.
+
+**3. Verify the canary (checklist).**
+
+- Log **out** of the app.
+- The login screen now shows **"Sign in with Agent-Native"**. Click it.
+- You are taken to **Dispatch** and complete its login (or pass straight through if already signed in there).
+- You are redirected **back to the app, logged in** — and it is the **same pre-existing account** (same email) you had before, not a new one.
+- **App data is intact** — your existing records, settings, and org scoping are exactly as they were.
+- **Existing direct logins still work** — email/password and Google sign-in continue to function alongside SSO.
+
+If any check fails, go straight to step 4 (rollback) — it is instant and data-safe.
+
+**4. Expand app-by-app.**
+Once one app is verified, repeat steps 2–3 for the next app — setting `AGENT_NATIVE_IDENTITY_HUB_URL` on one deployment at a time. Never batch-enable.
+
+**5. Rollback = unset the env var on that app's deploy.**
+To revert any app, **remove `AGENT_NATIVE_IDENTITY_HUB_URL` from that app's environment and redeploy/restart it.** The app immediately returns to its prior auth behavior. There is **no data change to undo** — identity rows were only ever added, and unsetting the variable simply makes the federation path dormant again. Each app's cutover and rollback are independent and reversible.
+
+> Rollout logs users out as each app is enabled (they re-auth via Dispatch), but they always log back into the **same email-matched account with data intact**, because identity rows are never destroyed or renamed — only added.
+
+## Related {#related}
+
+- [Authentication](/docs/authentication) — local auth modes, sessions, orgs, the `A2A_SECRET` env var.
+- [A2A Protocol](/docs/a2a-protocol) — the signed-JWT, verify-at-the-boundary trust model this reuses.
+- [External Agents](/docs/external-agents) — the same `A2A_SECRET`-signed identity pattern applied to agent connections and deep links.
+- [Dispatch](/docs/dispatch) — the workspace identity authority and routing hub.
+- [Security & Data Scoping](/docs/security) — additive-only data writes and per-account scoping.
+- [Multi-App Workspaces](/docs/multi-app-workspace) — the unified single-origin deploy that avoids cross-domain SSO entirely.

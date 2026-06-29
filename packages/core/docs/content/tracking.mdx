@@ -1,0 +1,343 @@
+---
+title: "Tracking & Analytics"
+description: "Server-side analytics with pluggable providers — PostHog, Mixpanel, Amplitude, or custom webhook"
+---
+
+# Analytics Tracking
+
+One function, multiple destinations. Call `track()` from any server-side code — actions, plugins, server routes — and the event fans out to every registered analytics provider. No SDK dependencies, no client-side scripts, no blocking. The same `track()` is also available in [browser/app code](#client) and routes to the same providers.
+
+This is _product_ analytics — your app's events flowing to PostHog/Mixpanel/Amplitude. For _agent quality_ metrics (traces, cost, evals, feedback) stored in your own database, see [Observability](/docs/observability).
+
+```ts
+import { track } from "@agent-native/core/tracking";
+
+track(
+  "order.completed",
+  { total: 49.99, items: 3 },
+  { userId: "steve@builder.io" },
+);
+```
+
+<Diagram id="doc-block-w1opwu" title="One track() call, every provider" summary="Server and client callers hit the same registry, which fans every event out to all active providers in parallel.">
+
+```html
+<div class="trk">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Server code<br /><small class="diagram-muted"
+        >actions &middot; plugins &middot; routes</small
+      >
+    </div>
+    <div class="diagram-node">
+      Browser code<br /><small class="diagram-muted"
+        >POST /_agent-native/track</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Provider registry</span
+    ><small class="diagram-muted">fan-out, fire-and-forget</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box">PostHog</div>
+    <div class="diagram-box">Mixpanel</div>
+    <div class="diagram-box">Amplitude</div>
+    <div class="diagram-box">Webhook</div>
+  </div>
+</div>
+```
+
+```css
+.trk {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.trk .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.trk .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.trk .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Built-in providers {#built-in}
+
+Set an env var and the provider auto-registers at server startup. No code changes required.
+
+| Provider  | Env vars                                                                                        |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| PostHog   | `POSTHOG_API_KEY` (required), `POSTHOG_HOST` (optional, defaults to `https://us.i.posthog.com`) |
+| Mixpanel  | `MIXPANEL_TOKEN`                                                                                |
+| Amplitude | `AMPLITUDE_API_KEY`                                                                             |
+| Webhook   | `TRACKING_WEBHOOK_URL` (required), `TRACKING_WEBHOOK_AUTH` (optional `Authorization` header)    |
+
+Multiple providers can be active simultaneously. Every event goes to all of them.
+
+## API {#api}
+
+### `track(name, properties?, meta?)` {#track}
+
+Fire an analytics event. Fans out to all registered providers.
+
+```ts
+import { track } from "@agent-native/core/tracking";
+
+track(
+  "meal.logged",
+  { mealName: "Salad", calories: 350 },
+  { userId: "steve@builder.io" },
+);
+```
+
+### `identify(userId, traits?)` {#identify}
+
+Identify a user with traits. Forwarded to providers that support it (PostHog, Mixpanel, Amplitude, webhook).
+
+```ts
+import { identify } from "@agent-native/core/tracking";
+
+identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+```
+
+Need a custom backend, the provider-registry API, or the batching/singleton internals? See [Advanced: custom providers & internals](#advanced) at the end.
+
+## Using track() in templates {#templates}
+
+Call `track()` from action handlers to record user or agent activity:
+
+```ts
+// actions/create-project.ts
+import { defineAction } from "@agent-native/core/action";
+import { track } from "@agent-native/core/tracking";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Create a new project.",
+  schema: z.object({
+    name: z.string(),
+    template: z.string().optional(),
+  }),
+  run: async ({ name, template }, ctx) => {
+    const project = await db
+      .insert(projects)
+      .values({ name, template })
+      .returning();
+
+    track("project.created", { name, template }, { userId: ctx.userEmail });
+
+    return { ok: true, projectId: project[0].id };
+  },
+});
+```
+
+Track calls are fire-and-forget — they return immediately and never block the action response.
+
+## Client-side tracking {#client}
+
+`track()` also works from browser/app code. Import the client twin from `@agent-native/core/client` and call it the same way — it POSTs the event to the framework route at `POST /_agent-native/track`, which forwards it to the **same** registered server-side providers (PostHog, Mixpanel, Amplitude, webhook). No analytics SDK ships to the browser and no provider keys are exposed client-side.
+
+<Endpoint id="doc-block-1wp4rmn" title="The client tracking route" method="POST" path="/_agent-native/track" summary="Forward a browser event to the registered server-side providers" auth="Session required + same-origin/CSRF marker (set automatically by the client helper). Not an open analytics relay." params={[
+  {
+    "name": "name",
+    "in": "body",
+    "type": "string",
+    "required": true,
+    "description": "Event name. Capped at 200 characters."
+  },
+  {
+    "name": "properties",
+    "in": "body",
+    "type": "object",
+    "description": "Event properties (~16KB cap). `source: \"client\"` and the active `org_id` are added server-side."
+  }
+]}>
+
+Identity is resolved **server-side** from the session — browser code never passes a `userId`. Fire-and-forget: never blocks the UI, never throws, swallows network errors. Oversized or malformed payloads are rejected.
+
+</Endpoint>
+
+```ts
+import { track } from "@agent-native/core/client";
+
+// e.g. inside a click handler or effect
+track("checkout.completed", { total: 49.99, items: 3 });
+```
+
+Key differences from the [server `track()`](#track):
+
+- **No identity argument.** The event is attributed server-side to the signed-in user (and the active org, as `org_id` in `properties`). Browser code never passes a `userId`.
+- **`source: "client"`** is added to every event's properties so you can tell client-originated events apart from server ones.
+- **Fire-and-forget.** It never blocks the UI, never throws, and swallows network errors.
+- **Authenticated, first-party only.** The route requires a session and a same-origin/CSRF marker (set automatically by the helper), so it can't be used as an open analytics relay. `name` is capped at 200 characters and `properties` at ~16KB; oversized or malformed payloads are rejected.
+
+This is distinct from the framework's internal browser telemetry (`trackEvent()` / automatic pageviews — see [Browser defaults](#browser-defaults) below), which powers Agent Native's own product analytics. Use `track()` for your app's own analytics events that should reach your configured providers.
+
+## Session replay {#session-replay}
+
+Agent Native apps can opt into first-party browser session replay without adding a second analytics SDK. Call `configureTracking()` once in the browser root and pass the Analytics public key plus collector endpoint:
+
+```ts
+import { configureTracking } from "@agent-native/core/client";
+
+configureTracking({
+  key: "anpk_...",
+  endpoint: "https://analytics.example.com/api/analytics/track",
+  sessionReplay: {
+    enabled: true,
+    sampleRate: 0.1,
+  },
+  getDefaultProps: (_event, props) => ({
+    ...props,
+    app: "my-app",
+    template: "my-template",
+  }),
+});
+```
+
+When `sessionReplay.enabled` is truthy, the client dynamically imports `@rrweb/record` after startup and posts replay chunks to the replay endpoint. If `endpoint` ends in `/api/analytics/track` or `/track`, the replay endpoint is derived automatically as `/api/analytics/replay`. Override it explicitly with `sessionReplay.endpoint` when the replay collector lives somewhere else.
+
+Agent Native template roots already call `configureTracking()`. Hosted template deployments can turn replay on with Vite/Netlify environment variables, while library consumers should prefer the explicit `configureTracking({ key, endpoint, sessionReplay })` form above:
+
+```bash
+VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
+VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
+VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+```
+
+The browser helper also performs a best-effort, non-blocking read of the current Agent Native auth session. Replay is signed-in-only by default: when `sessionReplay` is enabled, recording does not start unless the session resolves to a user email address. Signed-in replays include email-backed `userId`/`userEmail` plus `orgId`.
+
+Set `sessionReplay.requireSignedInUser: false` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` only for an intentional anonymous replay deployment. When auth gating is disabled, anonymous recordings remain queryable by anonymous visitor, session, app/template, hostname, and path.
+
+Session replay is sampled deterministically per browser session. A `sampleRate` of `0.1` records about 10% of eligible sessions; use `1` when the eligible population is intentionally small, such as logged-in-only dogfooding.
+
+Privacy defaults are intentionally conservative but still useful for playback:
+
+- Inputs are masked by default (`maskAllInputs: true`).
+- Page text remains visible unless an element is marked with `.an-mask` or `data-an-mask`.
+- Sensitive zones are blocked with selectors such as `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, and credit-card/password/SSN-like fields.
+- URLs are scrubbed with the same `scrubUrl()` helper used by browser analytics.
+- Replay capture is web-only and opt-in; it does not record native desktop screens.
+
+The Analytics template stores replay metadata in SQL (`session_recordings`) and stores chunks through private blob refs (`session_replay_chunks`). Browsers and agents never receive provider URLs. Playback goes through scoped server routes and the default agent tools return summaries or bounded replay events, not raw chunk table access.
+
+For local development only, Analytics can fall back to capped SQL inline chunks when private blob storage is unavailable. Production deployments should configure private or encrypted blob storage rather than relying on Postgres for replay payloads.
+
+## Advanced: custom providers & internals {#advanced}
+
+Most apps only need `track()` / `identify()` and a built-in provider. The rest of the surface — registering custom providers, the `TrackingProvider` interface, batching internals, and the framework's own browser telemetry — is below.
+
+<details>
+<summary><strong>Provider-registry API, interface, internals, and browser defaults</strong></summary>
+
+### `registerTrackingProvider(provider)` {#register}
+
+Register a custom provider for any analytics backend.
+
+```ts
+import { registerTrackingProvider } from "@agent-native/core/tracking";
+
+registerTrackingProvider({
+  name: "my-analytics",
+  track(event) {
+    // Send event to your backend
+    fetch("https://analytics.example.com/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(event),
+    }).catch(() => {});
+  },
+  identify(userId, traits) {
+    // Optional — link user identity to future events
+  },
+  flush() {
+    // Optional — called on graceful shutdown
+  },
+});
+```
+
+### `flushTracking()` {#flush}
+
+Flush all providers. Call before process exit to ensure pending events are sent.
+
+```ts
+import { flushTracking } from "@agent-native/core/tracking";
+
+await flushTracking();
+```
+
+### `unregisterTrackingProvider(name)` {#unregister}
+
+Remove a provider by name. Returns `true` if the provider was found and removed.
+
+### `listTrackingProviders()` {#list}
+
+Returns the names of all registered providers.
+
+### The TrackingProvider interface {#provider-interface}
+
+```ts
+interface TrackingProvider {
+  name: string;
+  track(event: TrackingEvent): void | Promise<void>;
+  identify?(
+    userId: string,
+    traits?: Record<string, unknown>,
+  ): void | Promise<void>;
+  flush?(): void | Promise<void>;
+}
+
+interface TrackingEvent {
+  name: string;
+  properties?: Record<string, unknown>;
+  timestamp?: string;
+  userId?: string;
+}
+```
+
+Only `name` and `track` are required. `identify` and `flush` are optional — implement them if your backend supports user identity and batched delivery.
+
+### How it works {#internals}
+
+- **Batched HTTP** — built-in providers enqueue events and flush every 10 seconds or when 50 events accumulate, whichever comes first. This minimizes outbound requests without losing data.
+- **No SDK dependencies** — all built-in providers use raw `fetch()`. No PostHog SDK, no Mixpanel SDK, no Amplitude SDK. Keeps the framework lightweight.
+- **Best-effort delivery** — provider errors are caught and logged. A failing analytics integration never crashes the caller or blocks request handling.
+- **Global singleton** — the registry uses a `Symbol.for` key on `globalThis` so multiple ESM graph instances (dev-mode Vite + Nitro, symlinks) share one provider set.
+
+### Browser defaults {#browser-defaults}
+
+This covers the framework's own internal telemetry — mostly relevant to framework contributors and advanced template authors.
+
+Template roots call `configureTracking()` once at startup. Browser events sent with `trackEvent()` automatically include app/template context plus the current LLM connection when the app can resolve it:
+
+- `llm_connection` — normalized provider label such as `builder`, `anthropic`, `openai`, `google`, or `none`
+- `llm_engine` — the engine id, for example `builder` or `ai-sdk:openai`
+- `llm_model` — the selected/default model when known
+- `llm_connection_source` — `app_secrets`, `settings`, or `env`
+- `llm_connection_configured` — whether an LLM connection is available
+
+The framework also tracks `builder connect clicked` from Connect Builder CTAs, and the server-side Builder connect routes track started/succeeded/failed lifecycle events. `configureTracking()` is called automatically by the framework; you don't need to call it in your own template code.
+
+</details>
+
+## What's next
+
+- [**Actions**](/docs/actions) — where most tracking calls originate
+- [**Server Plugins**](/docs/server) — `registerBuiltinProviders()` runs in the core-routes plugin at startup
+- [**Secrets**](/docs/security) — manage API keys for tracking providers

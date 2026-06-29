@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  isBuilderMdxSourcePath,
   isContentSourcePath,
   parseContentSourceFile,
   type ParsedContentSourceFile,
@@ -165,6 +166,17 @@ export default defineAction({
       "Import local Markdown/MDX source files into editable Content documents.",
   },
   run: async ({ files, dryRun }) => {
+    const builderPaths = Object.keys(files).filter((filePath) =>
+      isBuilderMdxSourcePath(filePath),
+    );
+    if (builderPaths.length > 0) {
+      throw new Error(
+        `Builder .builder.mdx files must use the Builder doc actions so raw sidecars and hashes are preserved: ${builderPaths.join(
+          ", ",
+        )}.`,
+      );
+    }
+
     const entries = normalizedFileEntries(files);
     if (entries.length === 0) {
       throw new Error("No .md or .mdx files were provided.");

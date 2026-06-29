@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { BlockRenderContext } from "../types.js";
+import { HTML_ROUGH_SELECTOR } from "./wireframe-kit.js";
 import type { WireframeData } from "./wireframe.config.js";
 import { WireframeBlock } from "./wireframe.js";
 
@@ -79,6 +82,57 @@ function roughScopeInnerHtml(html: string): string {
 }
 
 describe("wireframe auto-height frame", () => {
+  it("keeps broad helper containers out of the default rough.js target set", () => {
+    expect(HTML_ROUGH_SELECTOR).toContain("[data-rough]");
+    expect(HTML_ROUGH_SELECTOR).toContain("button");
+    expect(HTML_ROUGH_SELECTOR).toContain("input");
+    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-card");
+    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-box");
+    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-frame-target");
+  });
+
+  it("keeps helper container borders visible after rough.js is ready", () => {
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+    const hideRule =
+      css.match(
+        /\.plan-html-frame\[data-rough-ready\][^{]*\{[^}]*border-color:\s*transparent !important;[^}]*\}/s,
+      )?.[0] ?? "";
+
+    expect(hideRule).toContain("button");
+    expect(hideRule).toContain('[data-rough]:not([data-rough="none"])');
+    expect(hideRule).not.toContain(".wf-card");
+    expect(hideRule).not.toContain(".wf-box");
+  });
+
+  it("strips theme-breaking Tailwind color and shadow classes from wireframes", () => {
+    const html = render({
+      surface: "browser",
+      html: '<section class="bg-white text-zinc-950 shadow-xl flex gap-3 wf-card hover:bg-slate-800"><p class="text-sm text-slate-400">copy</p></section>',
+    });
+
+    expect(html).not.toContain("bg-white");
+    expect(html).not.toContain("text-zinc-950");
+    expect(html).not.toContain("shadow-xl");
+    expect(html).not.toContain("hover:bg-slate-800");
+    expect(html).not.toContain("text-slate-400");
+    expect(html).toContain("flex");
+    expect(html).toContain("gap-3");
+    expect(html).toContain("wf-card");
+    expect(html).toContain("text-sm");
+  });
+
+  it("preserves Tailwind theme classes when a design surface opts in", () => {
+    const html = render({
+      surface: "browser",
+      renderMode: "design",
+      html: '<section class="bg-white text-zinc-950 shadow-xl">Design</section>',
+    });
+
+    expect(html).toContain("bg-white");
+    expect(html).toContain("text-zinc-950");
+    expect(html).toContain("shadow-xl");
+  });
+
   it("floors the artboard with min-height and sets no fixed height (kit tree)", () => {
     const html = render({
       surface: "browser",

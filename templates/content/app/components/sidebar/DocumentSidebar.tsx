@@ -701,7 +701,7 @@ export function DocumentSidebar({
 
   if (collapsed) {
     return (
-      <div className="flex flex-col h-full w-12 border-e border-border bg-muted/30 items-center py-3 gap-1">
+      <div className="flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-muted/30 py-3 transition-[width] duration-200 ease-out">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -763,7 +763,7 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30",
+        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30 transition-[width] duration-200 ease-out",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -962,14 +962,14 @@ export function DocumentSidebar({
         </div>
       </ScrollArea>
 
-      <div className="shrink-0 border-t border-border px-3 py-2">
+      <div className="shrink-0 px-3 py-2">
         <div className="space-y-1">
           {renderLocalFilesNavButton()}
           {renderSettingsNavButton()}
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border">
+      <div className="shrink-0">
         <ExtensionSlot
           id="content.sidebar.bottom"
           context={{
@@ -985,7 +985,7 @@ export function DocumentSidebar({
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
+      <div className="shrink-0 space-y-2 px-3 py-2">
         <OrgSwitcher />
         {isCodeMode ? <DevDatabaseLink /> : null}
         <div className="flex items-center gap-1">

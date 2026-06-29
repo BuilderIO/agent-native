@@ -46,6 +46,8 @@ const messages = {
     suggestionSlow: "أبطئ حركة المقدمة",
   },
   sidebar: {
+    collapseSidebar: "طي الشريط الجانبي",
+    expandSidebar: "توسيع الشريط الجانبي",
     navigation: "التنقل",
     openNavigation: "فتح التنقل",
   },

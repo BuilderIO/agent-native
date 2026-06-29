@@ -25,6 +25,8 @@ const messages = {
     created: "建立於 {{date}}",
   },
   sidebar: {
+    collapseSidebar: "收合側邊欄",
+    expandSidebar: "展開側邊欄",
     collapseDashboards: "收起儀表板",
     expandDashboards: "展開儀表板",
     collapseAnalyses: "收起分析",
@@ -161,6 +163,7 @@ const messages = {
     untitledDashboard: "未命名儀表板",
   },
   common: {
+    docs: "檔案",
     noData: "無資料",
     noDataAvailable: "無可用資料",
     rowsPerPage: "每頁行數：",
