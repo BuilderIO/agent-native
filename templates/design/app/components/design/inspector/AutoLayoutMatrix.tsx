@@ -33,7 +33,6 @@ import {
   IconFlowVertical,
   IconFlowWrap,
   IconGap,
-  IconLayoutSettings,
   IconPaddingHorizontal,
   IconPaddingVertical,
 } from "./figma-icons";
@@ -234,7 +233,7 @@ export function AutoLayoutMatrix({
                 <IconFlowGrid className="size-3.5" />
               </FlowButton>
             </div>
-            {/* Reset button — same slot as before */}
+            {/* Reset / reverse-flow button */}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -271,7 +270,18 @@ export function AutoLayoutMatrix({
               axis="W"
               value={value.childSizing.horizontal}
               resolvedSize={value.resolvedSize?.horizontal}
-              options={availableChildSizing?.horizontal ?? SIZING_OPTIONS}
+              options={
+                availableChildSizing?.horizontal
+                  ? availableChildSizing.horizontal.includes(
+                      value.childSizing.horizontal,
+                    )
+                    ? availableChildSizing.horizontal
+                    : [
+                        ...availableChildSizing.horizontal,
+                        value.childSizing.horizontal,
+                      ]
+                  : SIZING_OPTIONS
+              }
               labels={copy}
               disabled={disabled}
               onChange={(next) => onChildSizingChange("horizontal", next)}
@@ -280,7 +290,18 @@ export function AutoLayoutMatrix({
               axis="H"
               value={value.childSizing.vertical}
               resolvedSize={value.resolvedSize?.vertical}
-              options={availableChildSizing?.vertical ?? SIZING_OPTIONS}
+              options={
+                availableChildSizing?.vertical
+                  ? availableChildSizing.vertical.includes(
+                      value.childSizing.vertical,
+                    )
+                    ? availableChildSizing.vertical
+                    : [
+                        ...availableChildSizing.vertical,
+                        value.childSizing.vertical,
+                      ]
+                  : SIZING_OPTIONS
+              }
               labels={copy}
               disabled={disabled}
               onChange={(next) => onChildSizingChange("vertical", next)}
@@ -327,50 +348,18 @@ export function AutoLayoutMatrix({
             />
           </div>
 
-          {/* Right: Gap label + input */}
+          {/* Right: Gap label + input + Fixed/Auto dropdown */}
           <div className="space-y-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">
               {copy.gap}
             </span>
-            <div className="flex items-center gap-1">
-              {/* Gap scrub input with ]·[ icon */}
-              <div className="min-w-0 flex-1">
-                <ScrubInput
-                  label={copy.gap}
-                  ariaLabel={copy.gap}
-                  value={value.gap}
-                  onChange={(next) => onGapChange(next)}
-                  icon={IconGap}
-                  unit="px"
-                  min={0}
-                  step={1}
-                  precision={1}
-                  disabled={disabled}
-                  labelClassName="w-5 shrink-0 [&>span]:hidden"
-                  inputClassName="h-6 text-[11px]"
-                />
-              </div>
-              {/* Gap options / layout settings button */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    disabled={disabled}
-                    aria-label={
-                      "Layout settings" /* i18n-ignore inspector tooltip */
-                    }
-                    className="size-6 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
-                  >
-                    <IconLayoutSettings className="size-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {"Layout settings" /* i18n-ignore inspector tooltip */}
-                </TooltipContent>
-              </Tooltip>
-            </div>
+            <GapField
+              value={value.gap}
+              onGapChange={onGapChange}
+              onDistribute={onDistribute}
+              label={copy.gap}
+              disabled={disabled}
+            />
           </div>
         </div>
 
@@ -456,7 +445,12 @@ export function AutoLayoutMatrix({
                     value.paddingLinked ? copy.unlinkPadding : copy.linkPadding
                   }
                   onClick={() => onPaddingLinkedChange(!value.paddingLinked)}
-                  className="size-6 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
+                  className={cn(
+                    "size-6 rounded-md hover:bg-[var(--design-editor-control-bg)]",
+                    value.paddingLinked
+                      ? "text-[var(--design-editor-accent-color,hsl(var(--primary)))] hover:text-[var(--design-editor-accent-color,hsl(var(--primary)))]"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
                 >
                   {value.paddingLinked ? (
                     <IconLink className="size-3.5" />
@@ -588,7 +582,7 @@ function FlowButton({
             position === "last" && "border-r-0",
             active && [
               "bg-[var(--design-editor-panel-bg)]",
-              "text-foreground",
+              "text-[var(--design-editor-accent-color,hsl(var(--primary)))]",
               "shadow-[inset_0_0_0_1px_var(--design-editor-control-border,hsl(var(--border)))]",
             ],
           )}
@@ -598,6 +592,95 @@ function FlowButton({
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/**
+ * Gap field: [icon][scrub value][▾ dropdown].
+ * The dropdown offers Fixed (numeric gap) vs Auto (space-between via onDistribute).
+ */
+function GapField({
+  value,
+  onGapChange,
+  onDistribute,
+  label,
+  disabled,
+}: {
+  value: number;
+  onGapChange: (gap: number) => void;
+  onDistribute?: (axis: DistributionAxis) => void;
+  label: string;
+  disabled: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-0.5">
+      {/* Gap scrub input with }·{ icon */}
+      <div className="min-w-0 flex-1">
+        <ScrubInput
+          label={label}
+          ariaLabel={label}
+          value={value}
+          onChange={(next) => onGapChange(next)}
+          icon={IconGap}
+          unit="px"
+          min={0}
+          step={1}
+          precision={1}
+          disabled={disabled}
+          labelClassName="w-5 shrink-0 [&>span]:hidden"
+          inputClassName="h-6 text-[11px]"
+        />
+      </div>
+      {/* Fixed / Auto dropdown — only shown when onDistribute is wired */}
+      {onDistribute != null ? (
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={"Gap mode" /* i18n-ignore inspector tooltip */}
+                  disabled={disabled}
+                  className={cn(
+                    "flex h-6 w-5 shrink-0 items-center justify-center rounded-md",
+                    "text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                    "disabled:pointer-events-none disabled:opacity-40",
+                    "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
+                  )}
+                >
+                  <ChevronDownMini />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent>
+              {"Gap mode" /* i18n-ignore inspector tooltip */}
+            </TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent
+            align="end"
+            className="min-w-[110px] text-[12px]"
+            sideOffset={4}
+          >
+            <DropdownMenuItem
+              className="text-[12px]"
+              onSelect={() => {
+                /* Fixed gap: keep current numeric value — no-op, already numeric */
+              }}
+            >
+              {"Fixed" /* i18n-ignore Figma gap mode label */}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="text-[12px]"
+              onSelect={() => {
+                onDistribute("horizontal");
+              }}
+            >
+              {"Auto" /* i18n-ignore Figma gap mode label */}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
+    </div>
   );
 }
 
@@ -638,7 +721,7 @@ function SizingField({
                 "bg-[var(--design-editor-control-bg)] text-[11px]",
                 "hover:bg-[var(--design-editor-panel-raised-bg)]",
                 "disabled:pointer-events-none disabled:opacity-40",
-                "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
               )}
             >
               {/* Axis letter */}
@@ -652,23 +735,7 @@ function SizingField({
               {/* Mode word + caret */}
               <span className="flex h-full shrink-0 items-center gap-0 border-l border-[var(--design-editor-control-border,hsl(var(--border)/0.6))] px-0.5 text-muted-foreground">
                 {labels[value]}
-                <svg
-                  viewBox="0 0 8 8"
-                  width={8}
-                  height={8}
-                  fill="currentColor"
-                  aria-hidden="true"
-                  className="opacity-60"
-                >
-                  <path
-                    d="M1.5 3 L4 5.5 L6.5 3"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
+                <ChevronDownMini />
               </span>
             </button>
           </DropdownMenuTrigger>
@@ -687,7 +754,7 @@ function SizingField({
             className={cn(
               "text-[12px]",
               opt === value &&
-                "font-medium text-[var(--design-editor-accent-color)]",
+                "font-medium text-[var(--design-editor-accent-color,hsl(var(--primary)))]",
             )}
           >
             {labels[opt]}
@@ -695,5 +762,28 @@ function SizingField({
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/** Minimal downward chevron — 8×8, matches the Figma caret weight. */
+function ChevronDownMini() {
+  return (
+    <svg
+      viewBox="0 0 8 8"
+      width={8}
+      height={8}
+      fill="currentColor"
+      aria-hidden="true"
+      className="opacity-60"
+    >
+      <path
+        d="M1.5 3 L4 5.5 L6.5 3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }

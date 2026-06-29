@@ -64,7 +64,9 @@ const DEFAULT_LABELS: ConstraintsWidgetLabels = {
 // ── pin-box geometry ────────────────────────────────────────────────────────
 // The preview box is 40×40px (size-10). Inside it sits a 16×16px inner rect
 // (representing the element) centered at (20,20). The four edge pins are thin
-// bars that can be toggled on/off; a center-cross appears for "center" mode.
+// bars that can be toggled on/off. When an axis is in "scale" mode the pins
+// on that axis render dashed. When an axis is in "center" mode a center-line
+// is drawn through the inner rect on that axis.
 //
 //  Edge pins: 6px long, 1.5px wide, placed 2px from the box edge.
 //    left  : x=2..8,  y center=20
@@ -72,7 +74,7 @@ const DEFAULT_LABELS: ConstraintsWidgetLabels = {
 //    top   : x center=20, y=2..8
 //    bottom: x center=20, y=32..38
 //
-//  Center marker: a 4px dot at (20,20) for h=center or v=center.
+//  Center marker: a line through the inner rect midpoint for h=center or v=center.
 
 const BOX = 40; // viewBox width/height (matches size-10 = 40px)
 const INNER = 16; // inner rect size
@@ -83,7 +85,7 @@ const PIN_W = 1.5;
 const MARGIN = 2; // gap between box edge and pin start
 const CENTER = BOX / 2; // 20
 
-// Returns whether a given horizontal pin should be active.
+// Returns whether a given horizontal pin should be active (solid/accent).
 function hPinActive(side: "left" | "right", h: HorizontalConstraint): boolean {
   if (side === "left") return h === "left" || h === "left-right";
   return h === "right" || h === "left-right";
@@ -94,8 +96,11 @@ function vPinActive(side: "top" | "bottom", v: VerticalConstraint): boolean {
   return v === "bottom" || v === "top-bottom";
 }
 
-// Clicking a left/right pin cycles: if that side is the only active one →
-// "left-right"; if "left-right" → single side; if neither → single side.
+// Clicking a left/right pin cycles the constraint:
+//   - if that side is the only active one → "left-right"
+//   - if "left-right" or scale/center → single side
+//   - if neither active → single side
+// Can't clear both sides; reverts to single side instead.
 function toggleHPin(
   side: "left" | "right",
   current: HorizontalConstraint,
@@ -164,9 +169,29 @@ function PinBox({
   const hScale = value.horizontal === "scale";
   const vScale = value.vertical === "scale";
 
+  // Pin rendering helpers:
+  //   active  → accent color, solid
+  //   scale   → accent color, dashed (Figma: Scale makes pins dashed)
+  //   inactive → muted/dim, solid
+  const ACCENT = "hsl(var(--primary))";
+  const MUTED = "hsl(var(--foreground) / 0.30)";
+  const SCALE_DASH = "3 2";
+
   // Hit-area size for each pin button (larger than the visual stroke for
-  // easy clicking — 8×8 centered on the pin midpoint).
-  const HIT = 8;
+  // easy clicking — 10×10 centered on the pin midpoint).
+  const HIT = 10;
+
+  // Pin color: accent when active or scale, muted otherwise.
+  const lColor = leftOn || hScale ? ACCENT : MUTED;
+  const rColor = rightOn || hScale ? ACCENT : MUTED;
+  const tColor = topOn || vScale ? ACCENT : MUTED;
+  const bColor = bottomOn || vScale ? ACCENT : MUTED;
+
+  // Dash: scale mode makes that axis's pins dashed.
+  const lDash = hScale ? SCALE_DASH : undefined;
+  const rDash = hScale ? SCALE_DASH : undefined;
+  const tDash = vScale ? SCALE_DASH : undefined;
+  const bDash = vScale ? SCALE_DASH : undefined;
 
   return (
     <svg
@@ -200,48 +225,57 @@ function PinBox({
         height={INNER}
         rx={1.5}
         fill="hsl(var(--background))"
-        stroke="hsl(var(--foreground) / 0.5)"
+        stroke="hsl(var(--foreground) / 0.40)"
         strokeWidth={1}
       />
 
-      {/* scale dashed overlay */}
-      {(hScale || vScale) && (
-        <rect
-          x={INNER_X + 1}
-          y={INNER_Y + 1}
-          width={INNER - 2}
-          height={INNER - 2}
-          rx={1}
-          fill="none"
-          stroke="hsl(var(--primary) / 0.8)"
-          strokeWidth={1}
-          strokeDasharray="2 1.5"
-        />
-      )}
-
-      {/* center cross for h-center or v-center */}
-      {(hCenter || vCenter) && (
+      {/* center lines for h-center or v-center — run from box edge to inner rect edge */}
+      {hCenter && (
         <>
-          {hCenter && (
-            <line
-              x1={INNER_X - 2}
-              y1={CENTER}
-              x2={INNER_X + INNER + 2}
-              y2={CENTER}
-              stroke="hsl(var(--primary))"
-              strokeWidth={1.5}
-            />
-          )}
-          {vCenter && (
-            <line
-              x1={CENTER}
-              y1={INNER_Y - 2}
-              x2={CENTER}
-              y2={INNER_Y + INNER + 2}
-              stroke="hsl(var(--primary))"
-              strokeWidth={1.5}
-            />
-          )}
+          {/* left segment: outer box to inner rect left edge */}
+          <line
+            x1={MARGIN + PIN_LEN}
+            y1={CENTER}
+            x2={INNER_X}
+            y2={CENTER}
+            stroke={ACCENT}
+            strokeWidth={1}
+            strokeDasharray="2 1.5"
+          />
+          {/* right segment: inner rect right edge to outer box */}
+          <line
+            x1={INNER_X + INNER}
+            y1={CENTER}
+            x2={BOX - MARGIN - PIN_LEN}
+            y2={CENTER}
+            stroke={ACCENT}
+            strokeWidth={1}
+            strokeDasharray="2 1.5"
+          />
+        </>
+      )}
+      {vCenter && (
+        <>
+          {/* top segment: outer box to inner rect top edge */}
+          <line
+            x1={CENTER}
+            y1={MARGIN + PIN_LEN}
+            x2={CENTER}
+            y2={INNER_Y}
+            stroke={ACCENT}
+            strokeWidth={1}
+            strokeDasharray="2 1.5"
+          />
+          {/* bottom segment: inner rect bottom edge to outer box */}
+          <line
+            x1={CENTER}
+            y1={INNER_Y + INNER}
+            x2={CENTER}
+            y2={BOX - MARGIN - PIN_LEN}
+            stroke={ACCENT}
+            strokeWidth={1}
+            strokeDasharray="2 1.5"
+          />
         </>
       )}
 
@@ -252,11 +286,10 @@ function PinBox({
         y1={CENTER}
         x2={MARGIN + PIN_LEN}
         y2={CENTER}
-        stroke={
-          leftOn ? "hsl(var(--primary))" : "hsl(var(--foreground) / 0.35)"
-        }
+        stroke={lColor}
         strokeWidth={PIN_W}
         strokeLinecap="round"
+        strokeDasharray={lDash}
       />
       {/* right pin */}
       <line
@@ -264,11 +297,10 @@ function PinBox({
         y1={CENTER}
         x2={BOX - MARGIN - PIN_LEN}
         y2={CENTER}
-        stroke={
-          rightOn ? "hsl(var(--primary))" : "hsl(var(--foreground) / 0.35)"
-        }
+        stroke={rColor}
         strokeWidth={PIN_W}
         strokeLinecap="round"
+        strokeDasharray={rDash}
       />
       {/* top pin */}
       <line
@@ -276,9 +308,10 @@ function PinBox({
         y1={MARGIN}
         x2={CENTER}
         y2={MARGIN + PIN_LEN}
-        stroke={topOn ? "hsl(var(--primary))" : "hsl(var(--foreground) / 0.35)"}
+        stroke={tColor}
         strokeWidth={PIN_W}
         strokeLinecap="round"
+        strokeDasharray={tDash}
       />
       {/* bottom pin */}
       <line
@@ -286,21 +319,20 @@ function PinBox({
         y1={BOX - MARGIN}
         x2={CENTER}
         y2={BOX - MARGIN - PIN_LEN}
-        stroke={
-          bottomOn ? "hsl(var(--primary))" : "hsl(var(--foreground) / 0.35)"
-        }
+        stroke={bColor}
         strokeWidth={PIN_W}
         strokeLinecap="round"
+        strokeDasharray={bDash}
       />
 
       {/* invisible click targets — rendered on top of strokes */}
       {!disabled && (
         <>
-          {/* left pin hit area */}
+          {/* left pin hit area — clamped to x>=0 */}
           <rect
-            x={MARGIN - HIT / 2}
+            x={0}
             y={CENTER - HIT / 2}
-            width={PIN_LEN + HIT}
+            width={MARGIN + PIN_LEN + HIT / 2}
             height={HIT}
             fill="transparent"
             className="cursor-pointer"
@@ -308,11 +340,11 @@ function PinBox({
             role="button"
             aria-label={labels.left}
           />
-          {/* right pin hit area */}
+          {/* right pin hit area — clamped to x<=BOX */}
           <rect
             x={BOX - MARGIN - PIN_LEN - HIT / 2}
             y={CENTER - HIT / 2}
-            width={PIN_LEN + HIT}
+            width={MARGIN + PIN_LEN + HIT / 2}
             height={HIT}
             fill="transparent"
             className="cursor-pointer"
@@ -320,24 +352,24 @@ function PinBox({
             role="button"
             aria-label={labels.right}
           />
-          {/* top pin hit area */}
+          {/* top pin hit area — clamped to y>=0 */}
           <rect
             x={CENTER - HIT / 2}
-            y={MARGIN - HIT / 2}
+            y={0}
             width={HIT}
-            height={PIN_LEN + HIT}
+            height={MARGIN + PIN_LEN + HIT / 2}
             fill="transparent"
             className="cursor-pointer"
             onClick={() => onToggleV("top")}
             role="button"
             aria-label={labels.top}
           />
-          {/* bottom pin hit area */}
+          {/* bottom pin hit area — clamped to y<=BOX */}
           <rect
             x={CENTER - HIT / 2}
             y={BOX - MARGIN - PIN_LEN - HIT / 2}
             width={HIT}
-            height={PIN_LEN + HIT}
+            height={MARGIN + PIN_LEN + HIT / 2}
             fill="transparent"
             className="cursor-pointer"
             onClick={() => onToggleV("bottom")}

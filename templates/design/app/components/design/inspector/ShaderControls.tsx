@@ -16,6 +16,11 @@ import {
   type ShaderPresetDef,
   type ShaderPresetName,
 } from "@shared/shader-presets";
+import {
+  buildFallbackGradient,
+  prefersReducedMotion,
+} from "@shared/shader-safety";
+import { IconX } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -35,7 +40,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import { ScrubInput } from "./ScrubInput";
+import { type ScrubInputChangeMeta, ScrubInput } from "./ScrubInput";
 
 // ---------------------------------------------------------------------------
 // Dynamic shader component map
@@ -54,15 +59,6 @@ const SHADER_COMPONENTS: Record<ShaderPresetName, AnyShaderComponent> = {
   Dithering: Dithering as AnyShaderComponent,
   PaperTexture: PaperTexture as AnyShaderComponent,
 };
-
-// ---------------------------------------------------------------------------
-// Reduced-motion helper (inline, SSR-safe)
-// ---------------------------------------------------------------------------
-
-function getPreferreducedMotion(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
 
 // ---------------------------------------------------------------------------
 // ShaderPreview sub-component
@@ -92,20 +88,18 @@ function ShaderPreview({ descriptor, animated }: ShaderPreviewProps) {
   }, [descriptor, animated]);
 
   // Fallback gradient from the preset's default colors
-  const fallbackColors =
-    (preset?.defaultColors ?? preset?.defaultColorBack)
-      ? [preset.defaultColorBack ?? "#555", preset.defaultColors?.[0] ?? "#888"]
-      : ["#555555", "#888888"];
-
   const fallbackStyle = {
-    background: `linear-gradient(135deg, ${fallbackColors.join(", ")})`,
+    background: buildFallbackGradient(
+      preset?.defaultColors ?? [],
+      preset?.defaultColorBack,
+    ),
   };
 
   try {
     return (
       <div
-        className="relative overflow-hidden rounded"
-        style={{ width: 120, height: 80 }}
+        className="relative w-full overflow-hidden rounded-md"
+        style={{ aspectRatio: "16 / 7" }}
       >
         <ShaderComponent
           {...shaderProps}
@@ -123,18 +117,30 @@ function ShaderPreview({ descriptor, animated }: ShaderPreviewProps) {
       <Tooltip>
         <TooltipTrigger asChild>
           <div
-            className="rounded"
-            style={{ width: 120, height: 80, ...fallbackStyle }}
+            className="w-full rounded-md"
+            style={{ aspectRatio: "16 / 7", ...fallbackStyle }}
           />
         </TooltipTrigger>
         <TooltipContent>
           {
-            "WebGL unavailable - showing fallback" /* i18n-ignore shader tooltip */
+            "WebGL unavailable – showing fallback" /* i18n-ignore shader tooltip */
           }
         </TooltipContent>
       </Tooltip>
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shared row wrapper: label-left, control-right, h-6 density
+// ---------------------------------------------------------------------------
+
+function ParamLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="w-[5.5rem] shrink-0 truncate text-[11px] text-muted-foreground">
+      {children}
+    </span>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +165,7 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
         min={min}
         max={max}
         step={step ?? 1}
-        onChange={(v) => onChange(key, v)}
+        onChange={(v: number, _meta: ScrubInputChangeMeta) => onChange(key, v)}
         className="w-full"
       />
     );
@@ -168,17 +174,15 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
   if (kind === "enum") {
     const strVal = typeof value === "string" ? value : String(paramDef.default);
     return (
-      <div className="flex items-center gap-2">
-        <span className="w-20 shrink-0 truncate text-xs text-muted-foreground">
-          {label}
-        </span>
+      <div className="flex h-6 items-center gap-1.5">
+        <ParamLabel>{label}</ParamLabel>
         <Select value={strVal} onValueChange={(v) => onChange(key, v)}>
-          <SelectTrigger className="h-7 flex-1 text-xs">
+          <SelectTrigger className="h-6 flex-1 text-[11px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {(options ?? []).map((opt: string) => (
-              <SelectItem key={opt} value={opt} className="text-xs">
+              <SelectItem key={opt} value={opt} className="text-[11px]">
                 {opt}
               </SelectItem>
             ))}
@@ -193,15 +197,15 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
       typeof value === "boolean" ? value : Boolean(paramDef.default);
     const switchId = `shader-param-${key}`;
     return (
-      <div className="flex items-center justify-between gap-2">
-        <Label htmlFor={switchId} className="text-xs text-muted-foreground">
+      <div className="flex h-6 items-center justify-between gap-1.5">
+        <Label htmlFor={switchId} className="text-[11px] text-muted-foreground">
           {label}
         </Label>
         <Switch
           id={switchId}
           checked={boolVal}
           onCheckedChange={(checked) => onChange(key, checked)}
-          className="scale-90"
+          className="scale-[0.8] origin-right"
         />
       </div>
     );
@@ -210,23 +214,23 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
   if (kind === "color") {
     const strVal = typeof value === "string" ? value : String(paramDef.default);
     return (
-      <div className="flex items-center gap-2">
-        <span className="w-20 shrink-0 truncate text-xs text-muted-foreground">
-          {label}
-        </span>
+      <div className="flex h-6 items-center gap-1.5">
+        <ParamLabel>{label}</ParamLabel>
         <Tooltip>
           <TooltipTrigger asChild>
             <input
               type="color"
               value={strVal}
               onChange={(e) => onChange(key, e.target.value)}
-              className="h-7 w-8 cursor-pointer rounded border border-border bg-transparent p-0.5"
+              className="h-6 w-6 shrink-0 cursor-pointer rounded border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-0.5"
               aria-label={label}
             />
           </TooltipTrigger>
           <TooltipContent>{label}</TooltipContent>
         </Tooltip>
-        <span className="text-[10px] text-muted-foreground">{strVal}</span>
+        <span className="truncate font-mono text-[11px] text-muted-foreground">
+          {strVal}
+        </span>
       </div>
     );
   }
@@ -238,8 +242,8 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
     const limit = maxCount ?? 10;
     return (
       <div className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <div className="flex flex-wrap gap-1">
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+        <div className="flex flex-wrap items-center gap-1">
           {arrVal.map((color, i) => {
             const colorLabel = `Color ${i + 1}`;
             return (
@@ -254,7 +258,7 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
                         next[i] = e.target.value;
                         onChange(key, next);
                       }}
-                      className="h-6 w-6 cursor-pointer rounded border border-border bg-transparent p-0"
+                      className="h-6 w-6 cursor-pointer rounded border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-0"
                       aria-label={colorLabel}
                     />
                   </TooltipTrigger>
@@ -269,12 +273,12 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
                           const next = arrVal.filter((_, idx) => idx !== i);
                           onChange(key, next);
                         }}
-                        className="text-[10px] leading-none text-muted-foreground hover:text-destructive"
+                        className="flex size-4 items-center justify-center rounded text-muted-foreground hover:text-destructive focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         aria-label={
                           "Remove color" /* i18n-ignore shader tooltip */
                         }
                       >
-                        x
+                        <IconX className="size-2.5" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -289,7 +293,7 @@ function ParamRow({ paramDef, value, onChange }: ParamRowProps) {
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 px-2 text-[10px]"
+              className="h-5 px-1.5 text-[10px]"
               onClick={() => onChange(key, [...arrVal, "#ffffff"])}
             >
               {"+ Add" /* i18n-ignore shader compact add button */}
@@ -318,10 +322,10 @@ export function ShaderControls({
   onChange,
   className,
 }: ShaderControlsProps) {
-  const prefersReducedMotion = getPreferreducedMotion();
+  const reducedMotion = prefersReducedMotion();
 
   const [animated, setAnimated] = useState(
-    () => (descriptor.speed ?? 0) !== 0 && !prefersReducedMotion,
+    () => (descriptor.speed ?? 0) !== 0 && !reducedMotion,
   );
 
   const preset = SHADER_PRESET_MAP[descriptor.preset];
@@ -397,31 +401,31 @@ export function ShaderControls({
     }
   }
 
-  function handleSpeedChange(v: number) {
+  function handleSpeedChange(v: number, _meta: ScrubInputChangeMeta) {
     onChange({ ...descriptor, speed: v });
   }
 
   const animateSwitchId = "shader-animate";
 
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-3 rounded-md bg-[#1a1a1a] p-3 text-xs",
-        className,
-      )}
-    >
+    <div className={cn("flex flex-col gap-0", className)}>
+      {/* Live preview — full width, sits at top */}
+      <div className="px-3 pb-2 pt-1">
+        <ShaderPreview descriptor={descriptor} animated={animated} />
+      </div>
+
       {/* Preset picker */}
-      <div className="flex flex-col gap-1.5">
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+      <div className="flex h-6 items-center gap-1.5 px-3">
+        <span className="w-[5.5rem] shrink-0 text-[11px] text-muted-foreground">
           Preset
         </span>
         <Select value={descriptor.preset} onValueChange={handlePresetChange}>
-          <SelectTrigger className="h-7 text-xs">
+          <SelectTrigger className="h-6 flex-1 text-[11px]">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {(SHADER_PRESETS as readonly ShaderPresetDef[]).map((p) => (
-              <SelectItem key={p.name} value={p.name} className="text-xs">
+              <SelectItem key={p.name} value={p.name} className="text-[11px]">
                 {p.label}
               </SelectItem>
             ))}
@@ -429,85 +433,86 @@ export function ShaderControls({
         </Select>
       </div>
 
-      {/* Live preview */}
-      <div className="flex justify-center">
-        <ShaderPreview descriptor={descriptor} animated={animated} />
-      </div>
-
       {/* Animate toggle */}
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex h-6 items-center justify-between gap-1.5 px-3 pt-1">
         <Label
           htmlFor={animateSwitchId}
           className={cn(
-            "text-xs text-muted-foreground",
-            prefersReducedMotion && "opacity-50",
+            "text-[11px] text-muted-foreground",
+            reducedMotion && "opacity-50",
           )}
         >
-          Animate
-          {prefersReducedMotion && (
-            <span className="ml-1 text-[10px]">(reduced motion)</span>
+          {"Animate" /* i18n-ignore shader label */}
+          {reducedMotion && (
+            <span className="ml-1 text-[10px]">
+              {"(reduced motion)" /* i18n-ignore */}
+            </span>
           )}
         </Label>
         <Switch
           id={animateSwitchId}
           checked={animated}
           onCheckedChange={handleAnimatedChange}
-          disabled={prefersReducedMotion}
-          className="scale-90"
+          disabled={reducedMotion}
+          className="scale-[0.8] origin-right"
         />
       </div>
 
       {/* Speed scrub — only when animating */}
       {animated && (
-        <ScrubInput
-          label="Speed"
-          value={descriptor.speed ?? 1}
-          min={-5}
-          max={5}
-          step={0.1}
-          onChange={handleSpeedChange}
-          className="w-full"
-        />
+        <div className="px-3 pt-1">
+          <ScrubInput
+            label="Speed"
+            value={descriptor.speed ?? 1}
+            min={-5}
+            max={5}
+            step={0.1}
+            onChange={handleSpeedChange}
+            className="w-full"
+          />
+        </div>
       )}
 
       {/* Shader-specific params */}
       {preset && preset.params.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-            Parameters
-          </span>
-          {preset.params.map((paramDef: ParamDef) => {
-            if (paramDef.kind === "colors") {
-              // Resolve the current color array
-              const val: string[] =
-                descriptor.colors ?? preset.defaultColors ?? [];
+        <>
+          <div className="mx-3 mt-2 mb-1 border-t border-border/40" />
+          <div className="flex flex-col gap-1 px-3 pb-2">
+            {preset.params.map((paramDef: ParamDef) => {
+              if (paramDef.kind === "colors") {
+                // Resolve the current color array
+                const val: string[] =
+                  descriptor.colors ?? preset.defaultColors ?? [];
+                return (
+                  <ParamRow
+                    key={paramDef.key}
+                    paramDef={paramDef}
+                    value={val}
+                    onChange={(k, v) =>
+                      handleColorsParamChange(k, v as string[])
+                    }
+                  />
+                );
+              }
+
+              const val = descriptor.params[paramDef.key] ?? paramDef.default;
+
               return (
                 <ParamRow
                   key={paramDef.key}
                   paramDef={paramDef}
-                  value={val}
-                  onChange={(k, v) => handleColorsParamChange(k, v as string[])}
+                  value={val as number | boolean | string}
+                  onChange={handleParamChange}
                 />
               );
-            }
-
-            const val = descriptor.params[paramDef.key] ?? paramDef.default;
-
-            return (
-              <ParamRow
-                key={paramDef.key}
-                paramDef={paramDef}
-                value={val as number | boolean | string}
-                onChange={handleParamChange}
-              />
-            );
-          })}
-        </div>
+            })}
+          </div>
+        </>
       )}
 
       {/* Expensive param performance warning */}
       {hasExpensiveParam && (
-        <p className="rounded bg-yellow-950/50 px-2 py-1 text-[10px] text-yellow-400">
+        <p className="mx-3 mb-2 rounded bg-yellow-950/50 px-2 py-1 text-[10px] text-yellow-400">
           {
             "grainMixer / grainOverlay may impact performance on mobile" /* i18n-ignore shader performance warning */
           }
