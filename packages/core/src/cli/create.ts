@@ -1049,12 +1049,21 @@ function postProcessStandalone(
         esbuild: "true",
         "node-pty": "true",
       },
+      // Pin Nitro's file-tracer fork. nf3@0.3.18 switched to a named ESM import
+      // of `nodeFileTrace` from the CJS-only `@vercel/nft`, which crashes the
+      // Nitro production build ("Named export 'nodeFileTrace' not found ... is a
+      // CommonJS module"). 0.3.17 — the version this framework builds against —
+      // does not pull in @vercel/nft, so it avoids the broken interop. Applies
+      // to every template since `agent-native build` runs the Nitro pipeline.
+      overrides: {
+        '"nf3"': '"0.3.17"',
+      },
     };
     if (templateName !== "headless") {
-      sections.overrides = {
+      Object.assign(sections.overrides, {
         '"@assistant-ui/store"': '">=0.2.9 <0.2.14"',
         '"@assistant-ui/tap"': '"^0.5.14"',
-      };
+      });
     }
     let updated = mergeWorkspaceYamlSections(existing, sections);
     updated = mergeWorkspaceYamlListItems(

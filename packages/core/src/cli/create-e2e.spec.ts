@@ -625,6 +625,15 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(wsYaml).toContain("1.6.0");
   });
 
+  it("pins Nitro's nf3 file-tracer so the Nitro build doesn't hit the broken @vercel/nft named import", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
+    const wsYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+    expect(wsYaml).toMatch(/nf3:\s*"0\.3\.17"/);
+  });
+
   it("keeps the default workspace chat app branded as Chat", async () => {
     await createApp("my-ws", { template: "chat,dispatch" });
     const wsDir = path.join(tmpDir, "my-ws");
