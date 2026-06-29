@@ -38,6 +38,9 @@ export const IMAGE_GENERATION_REFRESH_ATTEMPT_MS = Number.isFinite(
   : process.env.NODE_ENV === "test"
     ? 25
     : 8_000;
+const MANUAL_IMAGE_FALLBACK_STALE_MS = 2 * 60 * 1000;
+const MANUAL_IMAGE_FALLBACK_STALE_ERROR =
+  "Manual image generation was interrupted before a preview was created. Start a new generation to retry.";
 
 type ImageRun = typeof schema.assetGenerationRuns.$inferSelect;
 type ImageAsset = typeof schema.assets.$inferSelect;
@@ -475,6 +478,19 @@ export async function finalizeImageRun(
     await syncImageVariantSlot(nextRun, "ready", { asset: existingAsset });
     return { status: "completed", run: nextRun, asset: existingAsset };
   }
+  const manualFallbackStartedAt = metadataString(
+    metadata,
+    "manualFallbackStartedAt",
+  );
+  if (manualFallbackStartedAt) {
+    const startedAt = Date.parse(manualFallbackStartedAt);
+    const elapsedMs = Number.isFinite(startedAt) ? Date.now() - startedAt : 0;
+    if (elapsedMs < MANUAL_IMAGE_FALLBACK_STALE_MS) {
+      const nextRun = await markRunProcessing(getDb(), run, metadata);
+      return { status: "processing", run: nextRun };
+    }
+    throw new Error(MANUAL_IMAGE_FALLBACK_STALE_ERROR);
+  }
 
   const references = await loadReferencesForRun(run);
   const generated = await generateWithManagedImageProviderOnce({
@@ -493,7 +509,12 @@ export async function finalizeImageRun(
     source: run.source as any,
     callerAppId: run.callerAppId ?? undefined,
     requestTimeoutMs: options.providerAttemptTimeoutMs,
-    downloadTimeoutMs: options.providerAttemptTimeoutMs,
+    onManualFallbackStart: async () => {
+      if (metadataString(metadata, "manualFallbackStartedAt")) return;
+      metadata.provider = "manual";
+      metadata.manualFallbackStartedAt = nowIso();
+      await markRunProcessing(getDb(), run, metadata);
+    },
   });
   if (generated.status === "processing") {
     const nextRun = await markRunProcessing(getDb(), run, metadata);

@@ -52,6 +52,7 @@ export interface GenerateProviderInput {
   callerAppId?: string;
   requestTimeoutMs?: number;
   downloadTimeoutMs?: number;
+  onManualFallbackStart?: () => Promise<void>;
 }
 
 export interface GenerateProviderOutput {
@@ -405,40 +406,22 @@ function shouldFallbackToManualImageProvider(err: unknown): boolean {
   );
 }
 
-function canUseManualFallbackForSingleShot(input: GenerateProviderInput) {
-  return !input.runId;
-}
-
-function createSingleShotManualFallbackError(
+async function generateWithManualImageProviderForSingleShot(
   input: GenerateProviderInput,
-  err?: BuilderImageGenerationError,
-): Error {
-  const detail = err?.detail ? ` (${err.detail})` : "";
-  return new FeatureNotConfiguredError({
-    requiredCredential: "BUILDER_PRIVATE_KEY",
-    builderConnectUrl: "/_agent-native/builder/connect",
-    byokDocsUrl: "https://aistudio.google.com/apikey",
-    message: input.runId
-      ? `This image run needs Builder-managed generation to resume safely after timeouts${detail}. Manual OpenAI/Gemini fallback cannot replay the same run id, so reconnect Builder.io or re-enable Builder-managed image generation.`
-      : `Builder-managed image generation is unavailable${detail}. Reconnect Builder.io or add an OpenAI or Gemini API key as the manual fallback.`,
-  });
+): Promise<GenerateProviderOutput> {
+  await input.onManualFallbackStart?.();
+  return generateWithManualImageProvider(input);
 }
 
 export async function generateWithManagedImageProviderOnce(
   input: GenerateProviderInput,
 ): Promise<ManagedImageProviderSingleShotResult> {
   if (!isBuilderImageGenerationEnabled()) {
-    if (
-      canUseManualFallbackForSingleShot(input) &&
-      (await isManualImageGenerationConfigured())
-    ) {
+    if (await isManualImageGenerationConfigured()) {
       return {
         status: "completed",
-        output: await generateWithManualImageProvider(input),
+        output: await generateWithManualImageProviderForSingleShot(input),
       };
-    }
-    if (await isManualImageGenerationConfigured()) {
-      throw createSingleShotManualFallbackError(input);
     }
     throw new FeatureNotConfiguredError({
       requiredCredential: "GEMINI_API_KEY or OPENAI_API_KEY",
@@ -459,22 +442,11 @@ export async function generateWithManagedImageProviderOnce(
       return { status: "processing" };
     }
     const manualFallbackConfigured = await isManualImageGenerationConfigured();
-    if (
-      shouldFallbackToManualImageProvider(err) &&
-      manualFallbackConfigured &&
-      canUseManualFallbackForSingleShot(input)
-    ) {
+    if (shouldFallbackToManualImageProvider(err) && manualFallbackConfigured) {
       return {
         status: "completed",
-        output: await generateWithManualImageProvider(input),
+        output: await generateWithManualImageProviderForSingleShot(input),
       };
-    }
-    if (
-      shouldFallbackToManualImageProvider(err) &&
-      manualFallbackConfigured &&
-      err instanceof BuilderImageGenerationError
-    ) {
-      throw createSingleShotManualFallbackError(input, err);
     }
     if (
       shouldFallbackToManualImageProvider(err) &&

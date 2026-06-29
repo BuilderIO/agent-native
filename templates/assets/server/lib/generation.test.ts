@@ -413,7 +413,7 @@ describe("generateWithManagedImageProvider", () => {
     expect(requestIdempotencyKeys(fetchMock)).toEqual(["run-single-shot"]);
   });
 
-  it("does not use manual fallback for resumable single-shot image runs", async () => {
+  it("uses manual fallback for resumable single-shot image runs after recording the fallback", async () => {
     resolveBuilderCredentialsMock.mockResolvedValue({
       privateKey: null,
       publicKey: null,
@@ -424,22 +424,42 @@ describe("generateWithManagedImageProvider", () => {
     resolveSecretMock.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY" ? "sk-openai-test" : null,
     );
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: [{ b64_json: Buffer.from([9, 8, 7]).toString("base64") }],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    const onManualFallbackStart = vi.fn(async () => undefined);
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(
       generateWithManagedImageProviderOnce({
         ...baseInput,
         runId: "run-manual-fallback",
+        onManualFallbackStart,
       }),
-    ).rejects.toEqual(
+    ).resolves.toEqual(
       expect.objectContaining({
-        name: "FeatureNotConfiguredError",
-        requiredCredential: "BUILDER_PRIVATE_KEY",
-        message: expect.stringContaining("resume safely after timeouts"),
+        status: "completed",
+        output: expect.objectContaining({
+          image: Buffer.from([9, 8, 7]),
+          provider: "openai",
+        }),
       }),
     );
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onManualFallbackStart).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.openai.com/v1/images/generations",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer sk-openai-test",
+        }),
+      }),
+    );
   });
 
   it("uses the bounded action timeout for single-shot provider attempts", async () => {

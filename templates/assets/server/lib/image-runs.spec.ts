@@ -265,6 +265,80 @@ describe("image run finalization", () => {
     expect(upsertVariantSlotMock).not.toHaveBeenCalled();
   });
 
+  it("does not restart an active manual fallback attempt", async () => {
+    const state = { assets: [] as AssetRow[], updates: [] as any[] };
+    getDbMock.mockReturnValue(createDb(state));
+
+    const result = await finalizeImageRun(
+      runRow({
+        metadata: JSON.stringify({
+          manualFallbackStartedAt: new Date().toISOString(),
+        }),
+      }) as any,
+    );
+
+    expect(result.status).toBe("processing");
+    expect(generateWithManagedImageProviderOnceMock).not.toHaveBeenCalled();
+    expect(state.assets).toHaveLength(0);
+  });
+
+  it("records manual fallback start before provider fallback runs", async () => {
+    const state = { assets: [] as AssetRow[], updates: [] as any[] };
+    const db = createDb(state);
+    getDbMock.mockReturnValue(db);
+    createAssetFromBufferMock.mockImplementation(async (input: any) => {
+      const asset = {
+        id: input.id,
+        libraryId: input.libraryId,
+        collectionId: input.collectionId,
+        generationRunId: input.generationRunId,
+      };
+      state.assets.push(asset);
+      return asset;
+    });
+    generateWithManagedImageProviderOnceMock.mockImplementation(
+      async (input: any) => {
+        await input.onManualFallbackStart();
+        return {
+          status: "completed",
+          output: {
+            image: Buffer.from([1, 2, 3]),
+            mimeType: "image/png",
+            model: "gpt-image-2",
+            provider: "openai",
+          },
+        };
+      },
+    );
+
+    const result = await finalizeImageRun(runRow() as any);
+
+    expect(result.status).toBe("completed");
+    expect(state.updates).toContainEqual(
+      expect.objectContaining({
+        status: "processing",
+        metadata: expect.stringContaining("manualFallbackStartedAt"),
+      }),
+    );
+  });
+
+  it("does not use the short provider retry budget as the image download timeout", async () => {
+    const state = { assets: [] as AssetRow[], updates: [] as any[] };
+    getDbMock.mockReturnValue(createDb(state));
+    generateWithManagedImageProviderOnceMock.mockResolvedValue({
+      status: "processing",
+    });
+
+    await finalizeImageRun(runRow() as any, {
+      providerAttemptTimeoutMs: 123,
+    });
+
+    const providerInput =
+      generateWithManagedImageProviderOnceMock.mock.calls[0][0];
+    expect(providerInput.requestTimeoutMs).toBe(123);
+    expect("downloadTimeoutMs" in providerInput).toBe(false);
+  });
+
   it("dedupes concurrent completion by reusing one asset for a run", async () => {
     const state = { assets: [] as AssetRow[], updates: [] as any[] };
     const db = createDb(state);
