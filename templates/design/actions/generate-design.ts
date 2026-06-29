@@ -14,6 +14,10 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  mergeCanvasFramePlacements,
+  type CanvasFramePlacement,
+} from "../shared/canvas-frames.js";
 
 /** Editor deep link so external agents can surface "Open design". */
 function designDeepLink(designId: string): string {
@@ -34,7 +38,9 @@ export default defineAction({
     "version then refine individual files with `edit-design` (search/replace) rather " +
     "than resending a big multi-file payload — a single oversized payload can get cut " +
     "off mid-stream and stall the turn. " +
-    "Do not report a design as ready until this action succeeds.",
+    "Do not report a design as ready until this action succeeds. " +
+    "When adding multiple screens or states, pass canvasFrames with filenames " +
+    "and x/y/width/height so the new screens appear placed on the overview canvas.",
   schema: z.object({
     designId: z.string().describe("Design project ID to save content to"),
     prompt: z.string().describe("The generation prompt (stored for reference)"),
@@ -106,6 +112,34 @@ export default defineAction({
           "radius, dark mode, font choice). Each must reference a CSS var " +
           "the design's `:root` block actually uses.",
       ),
+    canvasFrames: z
+      .preprocess(
+        (v) => (typeof v === "string" ? JSON.parse(v) : v),
+        z
+          .array(
+            z
+              .object({
+                fileId: z.string().optional(),
+                filename: z.string().optional(),
+                x: z.number().optional(),
+                y: z.number().optional(),
+                width: z.number().optional(),
+                height: z.number().optional(),
+                rotation: z.number().optional(),
+                z: z.number().optional(),
+              })
+              .refine((frame) => frame.fileId || frame.filename, {
+                message: "canvasFrames entries require fileId or filename",
+              }),
+          )
+          .optional(),
+      )
+      .optional()
+      .describe(
+        "Optional overview-canvas placements for generated screens. " +
+          "Reference each screen by filename or fileId and include x/y/width/height " +
+          "from generate-screens regions or your planned canvas layout.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -124,6 +158,7 @@ export default defineAction({
     designSystemId,
     projectType,
     tweaks,
+    canvasFrames,
   }) => {
     await assertAccess("design", designId, "editor");
     if (designSystemId) {
@@ -280,6 +315,40 @@ export default defineAction({
         type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
       }));
     }
+    let placedFrames:
+      | Array<{
+          fileId: string;
+          filename?: string;
+          frame: CanvasFramePlacement;
+        }>
+      | undefined;
+    if (canvasFrames !== undefined) {
+      const savedByFileId = new Map(savedFiles.map((file) => [file.id, file]));
+      const savedByFilename = new Map(
+        savedFiles.map((file) => [file.filename, file]),
+      );
+      const existingByFileId = new Map(
+        existingFiles.map((file) => [file.id, file]),
+      );
+      const merged = mergeCanvasFramePlacements({
+        existing: prevData.canvasFrames,
+        placements: canvasFrames,
+        resolveFileId: (placement) => {
+          if (placement.fileId) {
+            return savedByFileId.has(placement.fileId) ||
+              existingByFileId.has(placement.fileId)
+              ? placement.fileId
+              : undefined;
+          }
+          return placement.filename
+            ? (savedByFilename.get(placement.filename)?.id ??
+                existingByName.get(placement.filename)?.id)
+            : undefined;
+        },
+      });
+      mergedData.canvasFrames = merged.canvasFrames;
+      placedFrames = merged.placedFrames;
+    }
     designUpdates.data = JSON.stringify(mergedData);
 
     await db
@@ -292,6 +361,7 @@ export default defineAction({
       urlPath: `/design/${designId}`,
       renderable: true,
       savedFiles,
+      placedFrames,
       fileCount: savedFiles.length,
     };
   },

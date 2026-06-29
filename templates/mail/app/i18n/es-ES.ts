@@ -1,4 +1,8 @@
 const messages = {
+  sidebar: {
+    collapseSidebar: "Contraer barra lateral",
+    expandSidebar: "Expandir barra lateral",
+  },
   mail: {
     appName: "Correo",
     pages: {

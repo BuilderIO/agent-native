@@ -5,6 +5,10 @@ const hiIN = {
     label: "भाषा",
     system: "सिस्टम",
     systemDescription: "ब्राउज़र की भाषा इस्तेमाल करें",
+    suggestionTitle: "{{language}} में यह पेज पढ़ें?",
+    suggestionDescription: "आपके ब्राउज़र की भाषा {{language}} है।",
+    suggestionSwitch: "{{language}} पर स्विच करें",
+    suggestionKeepEnglish: "अंग्रेज़ी रखें",
   },
   header: {
     docs: "दस्तावेज़",
@@ -39,6 +43,9 @@ const hiIN = {
   docs: {
     navigateAria: "दस्तावेज़ नेविगेट करें",
     onThisPage: "इस पेज पर",
+    copyMarkdown: "डॉक को Markdown के रूप में कॉपी करें",
+    copiedMarkdown: "Markdown कॉपी हो गया",
+    copyMarkdownError: "Markdown कॉपी नहीं हो सका",
     previous: "पिछला",
     next: "अगला",
   },
@@ -77,7 +84,7 @@ const hiIN = {
       secondaryCta: "दस्तावेज़ देखें",
     },
     code: {
-      quickStartComment: "पूरे app template से शुरू करें",
+      quickStartComment: "एक command से app बनाएं",
       skillInstallComment:
         "जिस coding agent का आप पहले से उपयोग करते हैं उसमें Agent-Native planning जोड़ें",
       frameworkComment:
@@ -188,12 +195,12 @@ const hiIN = {
       },
     },
     quickStart: {
-      title: "Chat से शुरू करें",
-      body: "एक command actions, durable threads और SQLite पर backed स्थानीय Chat app बनाता है। जब अभी browser UI नहीं चाहिए, तो इसके बजाय `--headless` इस्तेमाल करें।",
+      title: "एक command से शुरू करें",
+      body: "एक command actions, durable threads और SQLite पर backed स्थानीय app बनाता है। जब अभी browser UI नहीं चाहिए, तो इसके बजाय `--headless` इस्तेमाल करें।",
     },
     finalCta: {
       title: "आपका अपना software, agentic era के लिए बना",
-      body: "Chat या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Forkable। आपका।",
+      body: "एक command या durable action से शुरू करें, इसे app-agent loop से चलाएं, फिर operation को दोबारा लिखे बिना UI, jobs और collaboration में बढ़ाएं। ओपन सोर्स। Forkable। आपका।",
       primaryCta: "Action से शुरू करें",
       secondaryCta: "दस्तावेज़ पढ़ें",
       githubCta: "GitHub पर देखें",
@@ -233,6 +240,7 @@ const hiIN = {
       workspaces: "कार्यस्थान",
       voiceInput: "ध्वनि इनपुट",
       mcpApps: "MCP ऐप्स",
+      generativeUi: "जनरेटिव UI",
       toolCalls: "टूल कॉल",
       agentSidebar: "एजेंट साइडबार",
       sharedActions: "साझा क्रियाएं",
@@ -529,7 +537,7 @@ const hiIN = {
       s004: "हुक्म चलाना",
       s005: "देख + सुन सकते हैं",
       s006: "सभी टेम्पलेट",
-      s007: "Loom और Jam का ओपन-सोर्स विकल्प",
+      s007: "Loom का ओपन-सोर्स विकल्प",
       s008: "एक एजेंट में एक Clips लिंक चिपकाएँ और यह प्रतिलेख सुन सकता है, सारांश पढ़ सकता है, और टाइमस्टैम्प्ड फ़्रेम देख सकता है, भले ही इसका मॉडल कच्चे वीडियो या ऑडियो को ग्रहण न कर सके।",
       s009: "आज़माएँ",
       s010: "आप क्या कर सकते हैं",
@@ -1096,16 +1104,17 @@ const hiIN = {
     },
   },
   skillsPage: {
-    metaTitle: "Agent Skills - कोडिंग एजेंट के लिए Visual Plan और Visual Recap",
+    metaTitle:
+      "Agent Skills - कोडिंग एजेंट के लिए Visual Plan, Visual Recap, और Visual Edit",
     metaDescription:
-      "अपने कोडिंग एजेंट को विजुअल प्लानिंग और PR रिकैप देने के लिए Agent-Native ऐप-समर्थित skills इंस्टॉल करें।",
+      "अपने कोडिंग एजेंट को visual planning, PR recaps, और local visual editing देने के लिए Agent-Native app-backed skills इंस्टॉल करें।",
     metaOgDescription:
       "अपने कोडिंग एजेंट को Agent-Native ऐप्स से चलने वाले slash commands दें जिन्हें आप host, inspect और customize कर सकते हैं।",
     metaKeywords:
-      "agent skills, visual plan, visual recap, कोडिंग एजेंट, Claude Code, Codex, PR review, planning, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, कोडिंग एजेंट, Claude Code, Codex, PR review, planning, agent-native",
     heroTitle: "अपने कोडिंग एजेंट को नई शक्तियां दें",
     heroBody:
-      "पूरी तरह customize किए जा सकने वाले Agent-Native ऐप-समर्थित skills इंस्टॉल करें: implementation से पहले visual planning और changes के बाद visual PR recaps।",
+      "पूरी तरह customize किए जा सकने वाले Agent-Native app-backed skills इंस्टॉल करें: implementation से पहले visual planning, changes के बाद visual PR recaps, और local UI flows के लिए visual editing।",
     sectionTitle: "कोडिंग एजेंट के लिए ऐप-समर्थित skills",
     sectionBody:
       "Hosted shareable app links, local files, या self-hosted/custom app इस्तेमाल करें; आपके agent को instructions और जरूरत होने पर matching MCP surface मिलता है।",
@@ -1130,6 +1139,15 @@ const hiIN = {
       feature1: "Schema, API, और file changes summarize करता है",
       feature2: "Optional sticky PR comment post कर सकता है",
       videoAriaLabel: "Visual Recap skill का demo video",
+    },
+    visualEdit: {
+      name: "Visual edit",
+      tagline: "Local UI flows edit करें",
+      description:
+        "Running localhost app को Design में URL-backed screens की तरह खोलता है ताकि visual review और editing हो सके।",
+      feature1: "Ordered URLs से multi-screen flows layout करें",
+      feature2: "Live route states inspect, duplicate, और refine करें",
+      videoAriaLabel: "Visual Edit skill का demo video",
     },
   },
   downloadPage: {
@@ -1395,6 +1413,7 @@ const hiIN = {
     dropInAgent: "Drop-in agent",
     componentApi: "Component API संदर्भ",
     nativeChatUi: "Native chat UI",
+    generativeUi: "जनरेटिव UI",
     realTimeCollaboration: "Real-time collaboration",
     workspaceOverview: "Workspace ओवरव्यू",
     skills: "स्किल्स",

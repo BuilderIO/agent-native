@@ -209,8 +209,8 @@ function tsconfigJson(): string {
   "compilerOptions": {
     "ignoreDeprecations": "6.0",
     "rootDirs": [".", "./.react-router/types"],
-    "baseUrl": ".",
     "paths": {
+      "*": ["./*"],
       "@/*": ["./app/*"]
     }
   },

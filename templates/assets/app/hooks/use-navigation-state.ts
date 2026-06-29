@@ -22,6 +22,13 @@ function optionalLibraryTab(params: URLSearchParams) {
     : undefined;
 }
 
+function isPickerRequest(params: URLSearchParams) {
+  return (
+    params.get("__an_picker") === "1" ||
+    params.get("__an_mcp_chat_bridge") === "1"
+  );
+}
+
 function navigationFromPath(pathname: string, search = "") {
   const params = new URLSearchParams(search);
   const chat = pathname.match(/^\/chat\/([^/]+)/);
@@ -31,13 +38,15 @@ function navigationFromPath(pathname: string, search = "") {
       threadId: decodePathParam(chat[1]),
     };
   }
-  // The "library" view is the brand-kit detail page (route /brand-kits/:id).
-  // Keep the internal view key stable for the agent/MCP contract.
-  const library = pathname.match(/^\/brand-kits\/([^/]+)/);
+  // The "library" view is the unified Library workspace. Keep the internal
+  // detail key stable for agent/MCP callers that already navigate by brand-kit
+  // id, while the URL is now /library/:id.
+  const library = pathname.match(/^\/(?:library|brand-kits)\/([^/]+)/);
   if (library) {
     return {
       view: "library",
-      libraryId: library[1],
+      selection: decodePathParam(library[1]),
+      libraryId: decodePathParam(library[1]),
       activeTab: optionalLibraryTab(params),
     };
   }
@@ -50,24 +59,40 @@ function navigationFromPath(pathname: string, search = "") {
       view: "create",
     };
   }
-  // The "picker" view is the image Library browser (route /library).
   if (pathname === "/library") {
+    if (isPickerRequest(params)) {
+      return {
+        view: "picker",
+        mediaType:
+          params.get("mediaType") === "video"
+            ? "video"
+            : params.get("mediaType") === "image"
+              ? "image"
+              : undefined,
+        libraryId: optionalParam(params, "libraryId"),
+        query: optionalParam(params, "q"),
+        prompt: optionalParam(params, "prompt"),
+        aspectRatio: optionalParam(params, "aspectRatio"),
+      };
+    }
+    const queryLibraryId = optionalParam(params, "libraryId");
+    if (queryLibraryId) {
+      return {
+        view: "library",
+        selection: queryLibraryId,
+        libraryId: queryLibraryId,
+        activeTab: optionalLibraryTab(params),
+      };
+    }
     return {
-      view: "picker",
-      mediaType:
-        params.get("mediaType") === "video"
-          ? "video"
-          : params.get("mediaType") === "image"
-            ? "image"
-            : undefined,
-      libraryId: optionalParam(params, "libraryId"),
-      query: optionalParam(params, "q"),
-      prompt: optionalParam(params, "prompt"),
-      aspectRatio: optionalParam(params, "aspectRatio"),
+      view: "library",
+      selection: "all",
+      tab: optionalParam(params, "tab"),
+      scope: optionalParam(params, "scope"),
+      search: optionalParam(params, "q"),
     };
   }
-  // The "libraries" view is the Brand Kits list (route /brand-kits).
-  if (pathname === "/brand-kits") return { view: "libraries" };
+  if (pathname === "/brand-kits") return { view: "library", selection: "all" };
   if (pathname === "/extensions") return { view: "extensions" };
   const extension = pathname.match(/^\/extensions\/([^/]+)/);
   if (extension) return { view: "extensions", extensionId: extension[1] };
@@ -85,7 +110,7 @@ function pathFromCommand(command: any): string | null {
       params.set("tab", command.activeTab);
     }
     const query = params.toString();
-    return `/brand-kits/${command.libraryId}${query ? `?${query}` : ""}`;
+    return `/library/${command.libraryId}${query ? `?${query}` : ""}`;
   }
   if (
     (command.view === "asset" || command.view === "image") &&
@@ -100,7 +125,7 @@ function pathFromCommand(command: any): string | null {
   ) {
     const tab =
       typeof command.activeTab === "string" ? command.activeTab : "runs";
-    return `/brand-kits/${command.libraryId}?tab=${encodeURIComponent(tab)}`;
+    return `/library/${command.libraryId}?tab=${encodeURIComponent(tab)}`;
   }
   if (command.view === "audit") return "/audit";
   if (command.view === "settings") return "/settings";
@@ -112,6 +137,7 @@ function pathFromCommand(command: any): string | null {
   }
   if (command.view === "picker") {
     const params = new URLSearchParams();
+    params.set("__an_picker", "1");
     if (command.mediaType === "image" || command.mediaType === "video") {
       params.set("mediaType", command.mediaType);
     }
@@ -130,7 +156,7 @@ function pathFromCommand(command: any): string | null {
     const query = params.toString();
     return query ? `/library?${query}` : "/library";
   }
-  if (command.view === "libraries") return "/brand-kits";
+  if (command.view === "libraries") return "/library";
   if (command.view === "extensions" && command.extensionId) {
     return `/extensions/${command.extensionId}`;
   }

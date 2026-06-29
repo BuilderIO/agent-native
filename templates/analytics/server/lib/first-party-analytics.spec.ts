@@ -51,4 +51,28 @@ describe("validateFirstPartyAnalyticsSql", () => {
       ),
     ).not.toThrow();
   });
+
+  it("allows scoped session recording summary queries", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT app, COUNT(*) AS recordings FROM session_recordings GROUP BY app",
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects direct replay chunk queries", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "SELECT COUNT(*) AS chunks FROM session_replay_chunks",
+      ),
+    ).toThrow("session replay chunks");
+  });
+
+  it("rejects replay chunk names even as CTEs", () => {
+    expect(() =>
+      validateFirstPartyAnalyticsSql(
+        "WITH session_replay_chunks AS (SELECT id FROM analytics_events) SELECT COUNT(*) FROM session_replay_chunks",
+      ),
+    ).toThrow("session replay chunks");
+  });
 });

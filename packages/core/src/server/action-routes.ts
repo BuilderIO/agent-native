@@ -356,12 +356,16 @@ export function mountActionRoutes(
                 }
               }
 
-              // If the action returned a string, try to parse as JSON for a clean response
+              // If the action returned a string, try to parse as JSON for a
+              // clean response. Plain strings still need to go over the HTTP
+              // action transport as JSON, otherwise H3 sends text/plain and the
+              // browser action client rejects the successful 2xx response.
               if (typeof result === "string") {
                 try {
                   return JSON.parse(result);
                 } catch {
-                  return result;
+                  setResponseHeader(event, "Content-Type", "application/json");
+                  return JSON.stringify(result);
                 }
               }
 

@@ -1,9 +1,16 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
+import { summarizeArchiveFailures } from "@shared/archive-errors.js";
 import { z } from "zod";
 
 import { archiveEmail } from "../server/lib/email-state.js";
+
+function userFacingActionError(message: string, statusCode: number): Error {
+  const error = new Error(message) as Error & { statusCode: number };
+  error.statusCode = statusCode;
+  return error;
+}
 
 export default defineAction({
   description:
@@ -61,9 +68,12 @@ export default defineAction({
     const failed = results.filter((r) => !r.success);
 
     if (failed.length > 0) {
-      throw new Error(
-        `Archived ${succeeded}/${ids.length} email(s). Failures: ${failed.map((r) => `${r.id}: ${r.error}`).join("; ")}`,
-      );
+      const summary = summarizeArchiveFailures({
+        succeeded,
+        total: ids.length,
+        failures: failed.map((r) => r.error ?? "failed"),
+      });
+      throw userFacingActionError(summary.message, summary.statusCode);
     }
     return `Archived ${succeeded} email(s) successfully`;
   },

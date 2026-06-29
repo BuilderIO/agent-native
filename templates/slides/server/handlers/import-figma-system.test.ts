@@ -5,7 +5,18 @@ const mockGetSession = vi.hoisted(() => vi.fn());
 const mockGetRequestHeader = vi.hoisted(() => vi.fn());
 const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
-const mockParseSlidesFigDesignSystem = vi.hoisted(() => vi.fn());
+const mockStartBuilderDesignSystemIndex = vi.hoisted(() => vi.fn());
+const MockFeatureNotConfiguredError = vi.hoisted(
+  () =>
+    class FeatureNotConfiguredError extends Error {
+      builderConnectUrl?: string;
+
+      constructor(opts: { message?: string; builderConnectUrl?: string } = {}) {
+        super(opts.message);
+        this.builderConnectUrl = opts.builderConnectUrl;
+      }
+    },
+);
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
@@ -16,13 +27,10 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  FeatureNotConfiguredError: MockFeatureNotConfiguredError,
   getSession: (...args: unknown[]) => mockGetSession(...args),
-}));
-
-vi.mock("../lib/fig-design-system.js", () => ({
-  MAX_FIG_BYTES: mockMaxFigBytes,
-  parseSlidesFigDesignSystem: (...args: unknown[]) =>
-    mockParseSlidesFigDesignSystem(...args),
+  startBuilderDesignSystemIndex: (...args: unknown[]) =>
+    mockStartBuilderDesignSystemIndex(...args),
 }));
 
 import { importFigmaSystem } from "./import-figma-system";
@@ -39,9 +47,15 @@ describe("importFigmaSystem", () => {
         data: Buffer.from("fig-kiwi\0\0\0\0"),
       },
     ]);
-    mockParseSlidesFigDesignSystem.mockReturnValue({
+    mockStartBuilderDesignSystemIndex.mockResolvedValue({
       ok: true,
+      source: "builder",
       suggestedTitle: "brand",
+      projectId: "project-1",
+      jobId: "job-1",
+      designSystemId: "ds-1",
+      builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
+      status: "in-progress",
     });
   });
 
@@ -66,7 +80,23 @@ describe("importFigmaSystem", () => {
     expect(result).toEqual({ error: "Upload too large or malformed." });
   });
 
-  it("passes uploaded fig bytes to the parser", async () => {
+  it("rejects oversized parsed multipart payloads", async () => {
+    mockReadMultipartFormData.mockResolvedValue([
+      {
+        name: "file",
+        filename: "brand.fig",
+        data: { length: mockMaxFigBytes + 1 },
+      },
+    ]);
+
+    const result = await importFigmaSystem({} as any);
+
+    expect(mockStartBuilderDesignSystemIndex).not.toHaveBeenCalled();
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 413);
+    expect(result).toEqual({ error: "File too large (max 200 MB)." });
+  });
+
+  it("passes uploaded fig bytes to Builder indexing", async () => {
     const data = Buffer.from("fig-kiwi\0\0\0\0");
     mockReadMultipartFormData.mockResolvedValue([
       { name: "fig", filename: "brand.fig", data },
@@ -74,23 +104,51 @@ describe("importFigmaSystem", () => {
 
     const result = await importFigmaSystem({} as any);
 
-    expect(mockParseSlidesFigDesignSystem).toHaveBeenCalledWith({
-      data,
-      filename: "brand.fig",
+    expect(mockStartBuilderDesignSystemIndex).toHaveBeenCalledWith({
+      projectName: "brand",
+      files: [
+        {
+          name: "brand.fig",
+          data,
+          mimeType: "application/octet-stream",
+        },
+      ],
     });
-    expect(result).toEqual({ ok: true, suggestedTitle: "brand" });
+    expect(result).toMatchObject({
+      ok: true,
+      source: "builder",
+      designSystemId: "ds-1",
+      jobId: "job-1",
+    });
   });
 
-  it("returns parser errors as invalid fig responses", async () => {
-    mockParseSlidesFigDesignSystem.mockImplementation(() => {
-      throw new Error("That doesn't look like a Figma .fig file.");
-    });
+  it("returns Builder connection errors as precondition failures", async () => {
+    mockStartBuilderDesignSystemIndex.mockRejectedValue(
+      new MockFeatureNotConfiguredError({
+        message: "Connect Builder.io before indexing a design system.",
+        builderConnectUrl: "/_agent-native/builder/connect",
+      }),
+    );
 
     const result = await importFigmaSystem({} as any);
 
-    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 422);
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 412);
     expect(result).toEqual({
-      error: "That doesn't look like a Figma .fig file.",
+      error: "Connect Builder.io before indexing a design system.",
+      builderConnectUrl: "/_agent-native/builder/connect",
+    });
+  });
+
+  it("returns Builder errors as upstream failures", async () => {
+    mockStartBuilderDesignSystemIndex.mockRejectedValue(
+      new Error("Builder queue unavailable"),
+    );
+
+    const result = await importFigmaSystem({} as any);
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 502);
+    expect(result).toEqual({
+      error: "Builder queue unavailable",
     });
   });
 });

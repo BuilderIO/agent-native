@@ -132,7 +132,7 @@ function viewForPath(pathname: string): string {
     return "plans";
   }
   if (pathname.startsWith("/extensions")) return "extensions";
-  if (pathname.startsWith("/team")) return "team";
+  if (pathname.startsWith("/team")) return "settings";
   return "plans";
 }
 
@@ -183,8 +183,10 @@ function pathForView(view?: string): string {
       return "/plans";
     case "extensions":
       return "/extensions";
+    case "settings":
+      return "/settings";
     case "team":
-      return "/team";
+      return "/settings#team";
     default:
       return "/";
   }

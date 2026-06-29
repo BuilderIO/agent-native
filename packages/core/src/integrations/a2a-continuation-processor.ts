@@ -528,7 +528,7 @@ function expandRelativeUrls(text: string, agentUrl: string): string {
   if (!text || !agentUrl) return text;
   const base = publicAgentBaseUrl(agentUrl);
   return text.replace(
-    /(^|[\s(\[<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
+    /(^|[\s([<"'`])(\/[a-z0-9_-][a-z0-9_/?&=%#.,:-]*)/gi,
     (_match, lead, path) => `${lead}${base}${path}`,
   );
 }

@@ -20,13 +20,13 @@ function writeId() {
 
 export default defineAction({
   description:
-    "Navigate the UI to a view or form. Views: home, forms, form, responses, response-insights, team, extensions, form-preview. Use view=responses with a formId when the user asks to see/open all responses for a form. Use view=form with tab=edit|responses|settings|integrations to open a form builder sub-tab.",
+    "Navigate the UI to a view or form. Views: ask, home, forms, form, responses, response-insights, team, extensions, form-preview. Use view=ask/home for the Ask Forms chat tab. Use view=forms to open the forms list/table. Use view=responses with a formId when the user asks to see/open all responses for a form. Use view=form with tab=edit|responses|settings|integrations to open a form builder sub-tab.",
   schema: z.object({
     view: z
       .enum(FORMS_NAVIGATION_VIEWS)
       .optional()
       .describe(
-        "View to navigate to (home, forms, form, responses, response-insights, team, extensions, form-preview)",
+        "View to navigate to (ask, home, forms, form, responses, response-insights, team, extensions, form-preview)",
       ),
     formId: z
       .string()

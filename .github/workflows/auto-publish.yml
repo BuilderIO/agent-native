@@ -231,6 +231,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: W3PMF2T3MW
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
+          SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
+          SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
+          SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
+          SENTRY_DESKTOP_ENVIRONMENT: production
         run: pnpm build && npx electron-builder --${{ matrix.platform }} --config --publish always
 
   publish-desktop-release:

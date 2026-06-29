@@ -1,5 +1,7 @@
 import type { LocaleCode } from "@agent-native/core/client";
 
+import zhTW from "./i18n/zh-TW";
+
 const databaseMessages = {
   addAnotherSource: "Add another source",
   agentNativeApps: "Agent-Native apps",
@@ -280,6 +282,7 @@ const databaseMessages = {
 
 const databaseMessagesByLocale = {
   "en-US": databaseMessages,
+  "zh-TW": zhTW.database,
   "zh-CN": {
     openAsFullPage: "作为完整页面打开",
     pick: "并选择",
@@ -1163,6 +1166,11 @@ const editorToolbarMessages = {
   conflictResolvedFromNotion: "Conflict resolved from Notion.",
   connectNotionWorkspaceToLink:
     "Connect a Notion workspace to link this document.",
+  copiedPageLink: "Copied page link",
+  copyPageLink: "Copy page link",
+  couldNotCopyLink: "Could not copy link",
+  clipboardAccessUnavailable:
+    "Clipboard access is not available in this browser.",
   edited: "Edited",
   export: "Export",
   exportFailed: "Export failed",
@@ -1197,6 +1205,7 @@ const editorToolbarMessages = {
   openInNotion: "Open in Notion",
   orgCanFindAndView: "Anyone in your organization can find and view",
   orgLinkCanView: "Anyone in your organization with the link can view",
+  pageBreadcrumb: "Page breadcrumb",
   printDialogOpened: "Print dialog opened",
   printDialogOpenedDescription: "Choose Save as PDF to finish the export.",
   pulledFromNotion: "Pulled from Notion.",
@@ -1443,6 +1452,7 @@ const enUS = {
     describeWhatToGenerate: "Describe what to generate...",
     enterToSubmit: "Enter to submit",
     failedToCreateDatabase: "Failed to create database",
+    failedToCreatePage: "Failed to create page",
     generateWithAi: "Generate with AI",
     dropMedia: "Drop media",
     editLink: "Edit link",
@@ -6439,6 +6449,7 @@ function mergeMessagesForLocale(
 
 export const messagesByLocale = {
   "en-US": enUS,
+  "zh-TW": mergeMessagesForLocale("zh-TW", zhTW),
   "zh-CN": mergeMessagesForLocale("zh-CN", {
     database: {
       ...databaseMessagesByLocale["zh-CN"],
@@ -7524,21 +7535,130 @@ export const messagesByLocale = {
 } satisfies Record<LocaleCode, Messages>;
 
 const contentExactEnglishTranslations = {
-  "zh-CN": { editor: { versionRestoreQuestion: "恢复此版本？" } },
-  "es-ES": { editor: { versionRestoreQuestion: "¿Restaurar esta versión?" } },
-  "fr-FR": { editor: { versionRestoreQuestion: "Restaurer cette version ?" } },
+  "zh-CN": {
+    editor: {
+      failedToCreatePage: "创建页面失败",
+      toolbar: {
+        copiedPageLink: "已复制页面链接",
+        copyPageLink: "复制页面链接",
+        couldNotCopyLink: "无法复制链接",
+        clipboardAccessUnavailable: "此浏览器无法访问剪贴板。",
+        pageBreadcrumb: "页面面包屑",
+      },
+      versionRestoreQuestion: "恢复此版本？",
+    },
+  },
+  "es-ES": {
+    editor: {
+      failedToCreatePage: "No se pudo crear la página",
+      toolbar: {
+        copiedPageLink: "Enlace de página copiado",
+        copyPageLink: "Copiar enlace de página",
+        couldNotCopyLink: "No se pudo copiar el enlace",
+        clipboardAccessUnavailable:
+          "El acceso al portapapeles no está disponible en este navegador.",
+        pageBreadcrumb: "Ruta de la página",
+      },
+      versionRestoreQuestion: "¿Restaurar esta versión?",
+    },
+  },
+  "fr-FR": {
+    editor: {
+      failedToCreatePage: "Impossible de créer la page",
+      toolbar: {
+        copiedPageLink: "Lien de la page copié",
+        copyPageLink: "Copier le lien de la page",
+        couldNotCopyLink: "Impossible de copier le lien",
+        clipboardAccessUnavailable:
+          "L'accès au presse-papiers n'est pas disponible dans ce navigateur.",
+        pageBreadcrumb: "Fil d'Ariane de la page",
+      },
+      versionRestoreQuestion: "Restaurer cette version ?",
+    },
+  },
   "de-DE": {
-    editor: { versionRestoreQuestion: "Diese Version wiederherstellen?" },
+    editor: {
+      failedToCreatePage: "Seite konnte nicht erstellt werden",
+      toolbar: {
+        copiedPageLink: "Seitenlink kopiert",
+        copyPageLink: "Seitenlink kopieren",
+        couldNotCopyLink: "Link konnte nicht kopiert werden",
+        clipboardAccessUnavailable:
+          "Der Zugriff auf die Zwischenablage ist in diesem Browser nicht verfügbar.",
+        pageBreadcrumb: "Seitenpfad",
+      },
+      versionRestoreQuestion: "Diese Version wiederherstellen?",
+    },
   },
   "ja-JP": {
-    editor: { versionRestoreQuestion: "このバージョンを復元しますか？" },
+    editor: {
+      failedToCreatePage: "ページを作成できませんでした",
+      toolbar: {
+        copiedPageLink: "ページリンクをコピーしました",
+        copyPageLink: "ページリンクをコピー",
+        couldNotCopyLink: "リンクをコピーできませんでした",
+        clipboardAccessUnavailable:
+          "このブラウザではクリップボードにアクセスできません。",
+        pageBreadcrumb: "ページのパンくずリスト",
+      },
+      versionRestoreQuestion: "このバージョンを復元しますか？",
+    },
   },
-  "ko-KR": { editor: { versionRestoreQuestion: "이 버전을 복원할까요?" } },
-  "pt-BR": { editor: { versionRestoreQuestion: "Restaurar esta versão?" } },
+  "ko-KR": {
+    editor: {
+      failedToCreatePage: "페이지를 만들지 못했습니다",
+      toolbar: {
+        copiedPageLink: "페이지 링크를 복사했습니다",
+        copyPageLink: "페이지 링크 복사",
+        couldNotCopyLink: "링크를 복사하지 못했습니다",
+        clipboardAccessUnavailable:
+          "이 브라우저에서는 클립보드에 접근할 수 없습니다.",
+        pageBreadcrumb: "페이지 이동 경로",
+      },
+      versionRestoreQuestion: "이 버전을 복원할까요?",
+    },
+  },
+  "pt-BR": {
+    editor: {
+      failedToCreatePage: "Não foi possível criar a página",
+      toolbar: {
+        copiedPageLink: "Link da página copiado",
+        copyPageLink: "Copiar link da página",
+        couldNotCopyLink: "Não foi possível copiar o link",
+        clipboardAccessUnavailable:
+          "O acesso à área de transferência não está disponível neste navegador.",
+        pageBreadcrumb: "Caminho da página",
+      },
+      versionRestoreQuestion: "Restaurar esta versão?",
+    },
+  },
   "hi-IN": {
-    editor: { versionRestoreQuestion: "यह संस्करण पुनर्स्थापित करें?" },
+    editor: {
+      failedToCreatePage: "पेज नहीं बनाया जा सका",
+      toolbar: {
+        copiedPageLink: "पेज लिंक कॉपी किया गया",
+        copyPageLink: "पेज लिंक कॉपी करें",
+        couldNotCopyLink: "लिंक कॉपी नहीं किया जा सका",
+        clipboardAccessUnavailable: "इस ब्राउज़र में क्लिपबोर्ड एक्सेस उपलब्ध नहीं है।",
+        pageBreadcrumb: "पेज ब्रेडक्रंब",
+      },
+      versionRestoreQuestion: "यह संस्करण पुनर्स्थापित करें?",
+    },
   },
-  "ar-SA": { editor: { versionRestoreQuestion: "استعادة هذا الإصدار؟" } },
+  "ar-SA": {
+    editor: {
+      failedToCreatePage: "تعذر إنشاء الصفحة",
+      toolbar: {
+        copiedPageLink: "تم نسخ رابط الصفحة",
+        copyPageLink: "نسخ رابط الصفحة",
+        couldNotCopyLink: "تعذر نسخ الرابط",
+        clipboardAccessUnavailable:
+          "الوصول إلى الحافظة غير متاح في هذا المتصفح.",
+        pageBreadcrumb: "مسار الصفحة",
+      },
+      versionRestoreQuestion: "استعادة هذا الإصدار؟",
+    },
+  },
 } satisfies Partial<Record<LocaleCode, PartialMessages>>;
 
 for (const [locale, overrides] of Object.entries(
@@ -7549,7 +7669,21 @@ for (const [locale, overrides] of Object.entries(
   for (const [group, groupOverrides] of Object.entries(overrides)) {
     const target = (messages as Record<string, Record<string, unknown>>)[group];
     if (target && groupOverrides && typeof groupOverrides === "object") {
-      Object.assign(target, groupOverrides);
+      for (const [key, value] of Object.entries(groupOverrides)) {
+        const nestedTarget = target[key];
+        if (
+          nestedTarget &&
+          value &&
+          typeof nestedTarget === "object" &&
+          typeof value === "object" &&
+          !Array.isArray(nestedTarget) &&
+          !Array.isArray(value)
+        ) {
+          Object.assign(nestedTarget, value);
+        } else {
+          target[key] = value;
+        }
+      }
     }
   }
 }

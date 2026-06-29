@@ -20,6 +20,12 @@ import { cn } from "./utils.js";
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
+function isSyntheticAgentNativeAnonymousEmail(
+  value: string | null | undefined,
+): boolean {
+  return /^anon-[^\s@]+@agent-native\.com$/i.test(value ?? "");
+}
+
 interface ParsedTarget {
   endpoint: string;
   slug: string;
@@ -68,6 +74,18 @@ const FEEDBACK_COPY: Record<
     emptyError: "请先写点内容",
     sendError: "无法发送反馈",
     keyboardHint: "{{shortcut}}+Enter 发送",
+  },
+  "zh-TW": {
+    label: "意見回饋",
+    placeholder: "哪些地方好用、哪裡壞了，或你想改什麼？",
+    submit: "送出意見回饋",
+    submitting: "正在送出...",
+    success: "感謝你的意見回饋。",
+    loadError: "無法載入意見回饋表單",
+    invalidUrl: "意見回饋 URL 無效",
+    emptyError: "請先輸入內容",
+    sendError: "無法送出意見回饋",
+    keyboardHint: "{{shortcut}}+Enter 送出",
   },
   "es-ES": {
     label: "Comentarios",
@@ -330,7 +348,11 @@ export function FeedbackButton({
       try {
         const resolvedSchema = schema ?? (await loadSchema(target));
         if (!schema) setSchema(resolvedSchema);
-        const submitterEmail = session?.email;
+        const submitterEmail = isSyntheticAgentNativeAnonymousEmail(
+          session?.email,
+        )
+          ? null
+          : session?.email;
         const feedbackContext = getFeedbackClientContext({
           chatSessionId,
           storageKey: chatStorageKey,

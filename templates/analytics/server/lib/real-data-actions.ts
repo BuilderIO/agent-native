@@ -69,9 +69,33 @@ const MCP_DATA_SOURCE_TOKENS = [
   "stripe",
 ];
 
+function normalizeActionToolName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-")
+    .replace(/-+/g, "-");
+}
+
+function isToolName(name: string, expected: string): boolean {
+  return normalizeActionToolName(name) === expected;
+}
+
+function isDataQueryActionName(name: string): boolean {
+  return DATA_QUERY_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isCorpusSourceActionName(name: string): boolean {
+  return CORPUS_SOURCE_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isCorpusReductionActionName(name: string): boolean {
+  return CORPUS_REDUCTION_ACTIONS.has(normalizeActionToolName(name));
+}
+
 function isMcpDataSourceTool(name: string): boolean {
-  if (!name.startsWith("mcp__")) return false;
   const normalized = name.toLowerCase();
+  if (!normalized.startsWith("mcp__")) return false;
   return MCP_DATA_SOURCE_TOKENS.some((token) => normalized.includes(token));
 }
 
@@ -94,13 +118,13 @@ function getRunCodeBridgeToolNames(content: string | undefined): string[] {
 
 function hasRunCodeDataQueryAttempt(content: string | undefined): boolean {
   return getRunCodeBridgeToolNames(content).some(
-    (name) => DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name),
+    (name) => isDataQueryActionName(name) || isMcpDataSourceTool(name),
   );
 }
 
 function hasRunCodeCorpusWorkflowAttempt(content: string | undefined): boolean {
   return getRunCodeBridgeToolNames(content).some(
-    (name) => CORPUS_SOURCE_ACTIONS.has(name) || isCorpusCapableMcpTool(name),
+    (name) => isCorpusSourceActionName(name) || isCorpusCapableMcpTool(name),
   );
 }
 
@@ -208,7 +232,7 @@ const UNSUPPORTED_RESULT_CLAIM =
   /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
 
 const SAFE_NO_DATA_RESPONSE =
-  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
+  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|query failed|source query failed|sql failed|error running|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
 
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();
@@ -358,10 +382,10 @@ export function hasIncompleteDataEvidence(
     const name = String(result.name ?? "");
     if (
       name &&
-      !DATA_QUERY_ACTIONS.has(name) &&
+      !isDataQueryActionName(name) &&
       !isMcpDataSourceTool(name) &&
-      name !== "run-code" &&
-      name !== "provider-api-request"
+      !isToolName(name, "run-code") &&
+      !isToolName(name, "provider-api-request")
     ) {
       return false;
     }
@@ -419,9 +443,48 @@ export function hasDataQueryAttempt(
     if (result.isError) return false;
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
-    if (name === "run-code") return hasRunCodeDataQueryAttempt(result.content);
-    return DATA_QUERY_ACTIONS.has(name) || isMcpDataSourceTool(name);
+    if (isToolName(name, "run-code")) {
+      return hasRunCodeDataQueryAttempt(result.content);
+    }
+    return isDataQueryActionName(name) || isMcpDataSourceTool(name);
   });
+}
+
+function isFailedDataQueryAttempt(result: {
+  name?: string;
+  isError?: boolean;
+  content?: string;
+}): boolean {
+  const name = String(result.name ?? "");
+  const isDataQuery =
+    isDataQueryActionName(name) ||
+    isMcpDataSourceTool(name) ||
+    (isToolName(name, "run-code") &&
+      hasRunCodeDataQueryAttempt(result.content));
+  if (!isDataQuery) return false;
+  return result.isError === true || isProviderErrorOnlyContent(result.content);
+}
+
+function compactToolFailure(content: string | undefined): string {
+  const trimmed = String(content ?? "").trim();
+  if (!trimmed) return "the tool returned an error result without details";
+  const max = 900;
+  return trimmed.length > max ? `${trimmed.slice(0, max)}...` : trimmed;
+}
+
+export function failedDataQueryAttemptMessage(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): string | null {
+  const failed = (toolResults ?? []).find(isFailedDataQueryAttempt);
+  if (!failed) return null;
+  const name = String(failed.name ?? "data-source query");
+  return (
+    `I did try \`${name}\`, but it did not return a successful data result: ` +
+    compactToolFailure(failed.content) +
+    "\n\nI need to fix and rerun that query, or report that exact source error instead of giving numbers."
+  );
 }
 
 export function hasCorpusWorkflowAttempt(
@@ -433,8 +496,8 @@ export function hasCorpusWorkflowAttempt(
     if (result.isError) return false;
     if (isProviderErrorOnlyContent(result.content)) return false;
     const name = String(result.name ?? "");
-    if (CORPUS_SOURCE_ACTIONS.has(name)) return true;
-    if (name === "run-code") {
+    if (isCorpusSourceActionName(name)) return true;
+    if (isToolName(name, "run-code")) {
       return hasRunCodeCorpusWorkflowAttempt(result.content);
     }
 
@@ -453,10 +516,7 @@ export function hasFailedCorpusWorkflowEvidence(
 ): boolean {
   return (toolResults ?? []).some((result) => {
     const name = String(result.name ?? "");
-    if (
-      !CORPUS_SOURCE_ACTIONS.has(name) &&
-      !CORPUS_REDUCTION_ACTIONS.has(name)
-    ) {
+    if (!isCorpusSourceActionName(name) && !isCorpusReductionActionName(name)) {
       return false;
     }
     if (result.isError) return true;
@@ -576,19 +636,20 @@ function actionEvidenceTextForSourceRecords(result: {
   content?: string;
 }): string {
   const name = String(result.name ?? "");
+  const normalizedName = normalizeActionToolName(name);
   const content = String(result.content ?? "");
   const parsed = tryParseJsonContent(content);
 
-  if (name === "provider-corpus-job") {
+  if (normalizedName === "provider-corpus-job") {
     return corpusJobSourceEvidenceText(parsed);
   }
-  if (name === "provider-api-request") {
+  if (normalizedName === "provider-api-request") {
     return providerRequestEvidenceText(parsed);
   }
-  if (name === "query-staged-dataset") {
+  if (normalizedName === "query-staged-dataset") {
     return queryStagedDatasetEvidenceText(parsed);
   }
-  if (name === "gong-calls") {
+  if (normalizedName === "gong-calls") {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return "";
     }
@@ -600,7 +661,7 @@ function actionEvidenceTextForSourceRecords(result: {
       transcripts: record.transcripts,
     });
   }
-  if (name === "run-code") {
+  if (normalizedName === "run-code") {
     return content;
   }
   if (isCorpusCapableMcpTool(name)) {

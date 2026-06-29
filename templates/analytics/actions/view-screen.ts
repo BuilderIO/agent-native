@@ -12,10 +12,19 @@ import { z } from "zod";
 import { listDashboardCatalog } from "../server/lib/dashboard-catalog";
 import { getAnalysis, getDashboard } from "../server/lib/dashboards-store";
 import { listAnalyticsPublicKeys } from "../server/lib/first-party-analytics.js";
+import {
+  getSessionReplaySummary,
+  listSessionRecordings,
+  replayRangeToIso,
+  type ReplayRange,
+} from "../server/lib/session-replay.js";
+
+const SESSION_FILTER_KEYS = new Set(["range", "app", "q"]);
+const REPLAY_RANGES = new Set(["24h", "7d", "30d", "90d", "all"]);
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current view, dashboard config (if on a dashboard), analysis details (if on an analysis), and any active URL filter params. Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
+    "See what the user is currently looking at on screen. Returns the current view, dashboard config (if on a dashboard), analysis details (if on an analysis), Analytics session replay context, and any active URL filter params. Prefer the auto-included <current-screen> block; call this only when you need a refreshed snapshot.",
   schema: z.object({}),
   http: false,
   readOnly: true,
@@ -38,6 +47,13 @@ export default defineAction({
       const activeFilters: Record<string, string> = {};
       for (const [k, v] of Object.entries(url.searchParams)) {
         if (k.startsWith("f_") && v) activeFilters[k] = v;
+        if (
+          url.pathname?.startsWith("/sessions") &&
+          SESSION_FILTER_KEYS.has(k) &&
+          v
+        ) {
+          activeFilters[k] = v;
+        }
       }
       if (Object.keys(activeFilters).length > 0) {
         screen.activeFilters = activeFilters;
@@ -107,8 +123,34 @@ export default defineAction({
       if (nav?.extensionId) {
         screen.extensionId = nav.extensionId;
       }
+    } else if (nav?.view === "sessions") {
+      screen.page = nav?.recordingId ? "session-replay-detail" : "sessions";
+      const email = getRequestUserEmail();
+      if (email) {
+        const scope = { userEmail: email, orgId: getRequestOrgId() || null };
+        try {
+          if (nav?.recordingId) {
+            screen.sessionReplay = await getSessionReplaySummary(
+              nav.recordingId,
+              scope,
+            );
+          } else {
+            const params = url?.searchParams ?? {};
+            const sessions = await listSessionRecordings(scope, {
+              from:
+                replayRangeToIso(readReplayRange(params.range)) ?? undefined,
+              app: params.app,
+              query: params.q,
+              limit: 25,
+            });
+            screen.sessionReplays = sessions;
+          }
+        } catch (error: any) {
+          screen.sessionReplayError = error?.message || String(error);
+        }
+      }
     } else if (nav?.view === "overview" || nav?.view === "home" || !nav?.view) {
-      screen.page = "overview";
+      screen.page = "ask";
     } else if (nav?.view === "ask") {
       screen.page = "ask";
     } else if (nav?.view === "query") {
@@ -161,3 +203,9 @@ export default defineAction({
     return JSON.stringify(screen, null, 2);
   },
 });
+
+function readReplayRange(value: unknown): ReplayRange {
+  return typeof value === "string" && REPLAY_RANGES.has(value)
+    ? (value as ReplayRange)
+    : "30d";
+}

@@ -69,6 +69,11 @@ export default defineConfig({
       input: {
         background: resolve(root, "src/background.ts"),
         "content-script": resolve(root, "src/content-script.ts"),
+        "github-preview-content": resolve(
+          root,
+          "src/github-preview-content.ts",
+        ),
+        "github-preview": resolve(root, "src/github-preview.html"),
         offscreen: resolve(root, "src/offscreen.html"),
         overlay: resolve(root, "src/overlay.html"),
         permission: resolve(root, "src/permission.html"),

@@ -4,22 +4,19 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const agentChatHomeMock = vi.hoisted(() => vi.fn());
-const navigateWithAgentChatViewTransitionMock = vi.hoisted(() => vi.fn());
-const navigateMock = vi.hoisted(() => vi.fn());
+const agentChatSurfaceMock = vi.hoisted(() => vi.fn());
+const cancelPrewarmMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/client", () => ({
-  AgentChatHome: (props: Record<string, unknown>) => {
-    agentChatHomeMock(props);
+  AgentChatSurface: (props: Record<string, unknown>) => {
+    agentChatSurfaceMock(props);
     return (
-      <div data-testid="agent-chat-home">
+      <div data-testid="agent-chat-surface">
         {props.composerSlot as React.ReactNode}
       </div>
     );
   },
-  appPath: (path: string) => path,
   markAgentChatHomeHandoff: vi.fn(),
-  navigateWithAgentChatViewTransition: navigateWithAgentChatViewTransitionMock,
   useT: () => (key: string) => {
     const strings: Record<string, string> = {
       "home.composerPlaceholder": "What do you want to do?",
@@ -33,41 +30,13 @@ vi.mock("@agent-native/core/client", () => ({
   },
 }));
 
-vi.mock("react-router", () => ({
-  useNavigate: () => navigateMock,
+vi.mock("@/lib/route-prewarm", () => ({
+  scheduleFormsRoutePrewarm: () => cancelPrewarmMock,
 }));
 
-vi.mock("@/components/ThemeToggle", () => ({
-  ThemeToggle: () => <button type="button">Theme</button>,
-}));
+import { AskPage } from "../pages/AskPage.js";
 
-vi.mock("@/components/ui/button", () => ({
-  Button: ({
-    children,
-    ...props
-  }: React.ButtonHTMLAttributes<HTMLButtonElement>) => (
-    <button type="button" {...props}>
-      {children}
-    </button>
-  ),
-}));
-
-vi.mock("@/components/ui/tooltip", () => ({
-  Tooltip: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  TooltipContent: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  TooltipProvider: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  TooltipTrigger: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-}));
-
-import Index from "./_index.js";
-
-describe("Forms ask home", () => {
+describe("Forms ask page", () => {
   let container: HTMLDivElement;
   let root: Root;
 
@@ -79,23 +48,24 @@ describe("Forms ask home", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps the full-page chat wired to the shared Forms thread state", () => {
+  it("keeps the main Ask tab wired to the shared Forms thread state", () => {
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
 
     act(() => {
-      root.render(<Index />);
+      root.render(<AskPage />);
     });
 
-    expect(agentChatHomeMock).toHaveBeenCalledWith(
+    expect(agentChatSurfaceMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        mode: "page",
         storageKey: "forms",
         showHeader: false,
         showTabBar: false,
       }),
     );
-    expect(agentChatHomeMock.mock.calls[0]?.[0]).not.toHaveProperty(
+    expect(agentChatSurfaceMock.mock.calls[0]?.[0]).not.toHaveProperty(
       "restoreActiveThread",
       false,
     );

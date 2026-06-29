@@ -1,0 +1,526 @@
+---
+title: "A2A-Protokoll"
+description: "Agent-zu-Agent-Kommunikation über JSON-RPC: Erkennung, Messaging, Streaming und Aufgabenverwaltung."
+---
+
+# A2A-Protokoll
+
+Agent-zu-Agent-Kommunikation über HTTP. Agenten entdecken sich gegenseitig, senden Nachrichten und erhalten strukturierte Ergebnisse.
+
+## Übersicht {#overview}
+
+A2A (Agent-zu-Agent) ist ein JSON-RPC-Protokoll für die Kommunikation zwischen Agenten. Ein E-Mail-Agent kann einen Analyseagenten bitten, eine Abfrage auszuführen. Ein Kalenderagent kann nach Problemen in einem Projektmanagementagenten suchen. Jeder Agent stellt seine Fähigkeiten über eine Agentenkarte zur Verfügung und nimmt Arbeiten über einen Standard-JSON-RPC-Endpunkt an.
+
+A2A ist das Substrat für die App-übergreifende Delegierung in diesem Framework – vor allem für [Dispatch](/docs/dispatch), das eine einzelne eingehende Nachricht (Slack, E-Mail usw.) an die App im Arbeitsbereich weiterleitet, die am besten für die Verarbeitung geeignet ist.
+
+Schlüsselkonzepte:
+
+- **Agent-Karte** – öffentliche Metadaten bei `/.well-known/agent-card.json`, die skills und Funktionen beschreiben
+- **JSON-RPC** – agentennative Apps verwenden `POST /_agent-native/a2a`; Externe/alte Peers können `POST /a2a`
+- **Aufgaben** – jede Nachricht erstellt eine Aufgabe mit einem Lebenszyklus (gesendet, in Arbeit, abgeschlossen, fehlgeschlagen, abgebrochen)
+- **JWT Trägerauthentifizierung** – Produktions-A2A erfordert `A2A_SECRET` oder ein explizites Legacy-`apiKeyEnv`
+
+<Diagram id="doc-block-wcc77o" title={"Ein Agent übergibt die Arbeit an einen anderen"} summary={"Ein E-Mail-Agent erkennt die Karte des Analyseagenten, sendet eine JSON-RPC-Nachricht und erhält eine abgeschlossene Aufgabe zurück."}>
+
+```html
+<div class="diagram-handoff">
+  <div class="diagram-card">
+    <strong>Mail-Agent</strong
+    ><small class="diagram-muted">needs analytics</small>
+  </div>
+  <div class="diagram-col">
+    <div class="diagram-pill">GET /.well-known/agent-card.json</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+    <div class="diagram-pill accent">
+      POST /_agent-native/a2a<br /><small class="diagram-muted"
+        >message/send</small
+      >
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+    <div class="diagram-pill ok">Aufgabe · abgeschlossen</div>
+  </div>
+  <div class="diagram-card" data-rough>
+    <strong>Analytics-Agent</strong
+    ><small class="diagram-muted"
+      >führt run-query aus, gibt Ergebnis zurück</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-handoff {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-handoff .diagram-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.diagram-handoff .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Server-Setup {#server-setup}
+
+Die meisten Vorlagen erhalten A2A über das Framework-Agent-Chat-Plugin. Wenn Sie es selbst mounten, rufen Sie `mountA2A()` in einem Server-Plugin auf:
+
+```ts
+// server/plugins/a2a.ts
+import { mountA2A } from "@agent-native/core/a2a";
+
+export default defineNitroPlugin((nitro) => {
+  mountA2A(nitro, {
+    name: "Analytics Agent",
+    description: "Runs analytics queries and returns chart data",
+    skills: [
+      {
+        id: "run-query",
+        name: "Run Query",
+        description: "Execute a SQL query against the analytics database",
+        tags: ["analytics", "sql"],
+        examples: ["Show me signups by source this month"],
+      },
+    ],
+    // Optional legacy external-peer bearer key. Prefer A2A_SECRET for
+    // agent-native workspace calls and production deployments.
+    apiKeyEnv: "A2A_API_KEY",
+    streaming: true, // enable message/stream
+  });
+});
+```
+
+Dies wird bereitgestellt:
+
+- `GET /.well-known/agent-card.json` – öffentliche Discovery-Metadaten.
+- `POST /_agent-native/a2a` – primärer agentennativer JSON-RPC-Endpunkt.
+- `POST /_agent-native/a2a/_process-task` – interne asynchrone Prozessorroute, signiert mit `A2A_SECRET`.
+
+Der Client greift auch für externe Agenten, die den alten/einfachen Pfad offenlegen, auf `/a2a` zurück. Native Bereitstellungen von Produktionsagenten sollten `A2A_SECRET` festlegen; Ohne sie werden gehostete Laufzeiten nicht geschlossen, anstatt nicht authentifizierte Remote-Arbeiten zu akzeptieren.
+
+## Agentenkarte {#agent-card}
+
+Die Agentenkarte wird automatisch aus Ihrer Konfiguration generiert und unter `/.well-known/agent-card.json` bereitgestellt. Andere Agenten rufen es ab, um das skills Ihres Agenten zu ermitteln.
+
+### Fähigkeitsfilterung pro Mandant {#agent-card-filtering}
+
+Der Kartenendpunkt ist öffentlich, daher redigiert das Framework skills, dessen IDs Integrationen pro Benutzer oder pro Organisation offenlegen, bevor es bereitgestellt wird. Jede Fertigkeit, deren ID mit `mcp__user_<emailhash>_…` oder `mcp__org_<orgid>_…` beginnt, wird von der veröffentlichten Karte entfernt. Bedienergesteuerte Standard-MCP-Tools (geladen von `mcp.config.json`) und vorlagendefinierte skills-Tools bleiben sichtbar. Dadurch wird verhindert, dass ein nicht authentifizierter Anrufer per Fingerabdruck erkennt, welche Mandanten vorhanden sind oder welche Integrationen sie verbunden haben. Siehe `packages/core/src/a2a/server.ts`.
+
+```json
+{
+  "name": "Analytics Agent",
+  "description": "Runs analytics queries and returns chart data",
+  "url": "https://analytics.example.com",
+  "version": "1.0.0",
+  "protocolVersion": "0.3",
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false,
+    "stateTransitionHistory": true
+  },
+  "skills": [
+    {
+      "id": "run-query",
+      "name": "Run Query",
+      "description": "Execute a SQL query against the analytics database",
+      "tags": ["analytics", "sql"],
+      "examples": ["Show me signups by source this month"]
+    }
+  ],
+  "securitySchemes": {
+    "jwtBearer": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" },
+    "apiKey": { "type": "http", "scheme": "bearer" }
+  },
+  "security": [{ "jwtBearer": [] }, { "apiKey": [] }]
+}
+```
+
+_(Version kann abweichen; holen Sie sich die Live-Karte Ihrer App unter `/.well-known/agent-card.json` für die aktuelle `protocolVersion`.)_
+
+Wenn `A2A_SECRET` festgelegt ist (der empfohlene Pfad), kündigt die Karte ein
+`jwtBearer`-Schema wie oben. Das `apiKey`-Schema wird nur hinzugefügt, wenn ein Legacy
+`apiKeyEnv` ist ebenfalls konfiguriert, sodass eine Karte mit nur `A2A_SECRET`-Set veröffentlicht wird
+`jwtBearer` allein.
+
+## JSON-RPC-Methoden {#json-rpc-methods}
+
+Alle Methoden werden über `POST /_agent-native/a2a` im JSON-RPC 2.0-Format aufgerufen:
+
+| Methode          | Beschreibung                                                                                                                                                            | Schlüsselparameter            |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `message/send`   | Senden Sie eine Nachricht und warten Sie auf die abgeschlossene Aufgabe. Übergeben Sie `async: true`, um sofort in den Status `working` und die Abfrage zurückzukehren. | `message, contextId?, async?` |
+| `message/stream` | Eine Nachricht senden, SSE-Aufgabenaktualisierungen erhalten                                                                                                            | `message, contextId?`         |
+| `tasks/get`      | Eine Aufgabe nach ID abrufen – wird verwendet, um eine asynchrone Aufgabe bis zum Abschluss abzurufen                                                                   | `id`                          |
+| `tasks/cancel`   | Eine laufende Aufgabe abbrechen                                                                                                                                         | `id`                          |
+
+<Endpoint id="doc-block-1r2t1v2" title={"Primärer A2A-Endpunkt"} summary="Alle JSON-RPC-Methoden sind hier POSTed. message/send angezeigt." method="POST" path="/_agent-native/a2a" summary="Senden Sie eine Nachricht und warten Sie auf die abgeschlossene Aufgabe" auth="JWT bearer signed with A2A_SECRET (or legacy apiKeyEnv static token)" params={[
+  {
+    "name": "Authorization",
+    "in": "header",
+    "type": "string",
+    "required": false,
+    "description": "Bearer token. Required in hosted production runtimes; optional in local dev."
+  },
+  {
+    "name": "method",
+    "in": "body",
+    "type": "string",
+    "required": true,
+    "description": "One of message/send, message/stream, tasks/get, tasks/cancel."
+  },
+  {
+    "name": "params.message",
+    "in": "body",
+    "type": "object",
+    "required": false,
+    "description": "{ role, parts[] } for message/send and message/stream."
+  },
+  {
+    "name": "params.async",
+    "in": "body",
+    "type": "boolean",
+    "required": false,
+    "description": "Return immediately in working state and poll via tasks/get. Use on serverless hosts."
+  },
+  {
+    "name": "params.id",
+    "in": "body",
+    "type": "string",
+    "required": false,
+    "description": "Task id for tasks/get and tasks/cancel."
+  }
+]} request={{
+  "contentType": "application/json",
+  "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"message/send\",\n  \"params\": {\n    \"message\": {\n      \"role\": \"user\",\n      \"parts\": [{ \"type\": \"text\", \"text\": \"Show signups by source\" }]\n    },\n    \"async\": true\n  }\n}"
+}} responses={[
+  {
+    "status": "200",
+    "description": "JSON-RPC result containing the task. With async:true the task returns in working state.",
+    "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"result\": { \"id\": \"task_123\", \"status\": { \"state\": \"working\" } }\n}"
+  },
+  {
+    "status": "503",
+    "description": "Hosted production runtime with no A2A_SECRET configured — fails closed instead of running unauthenticated."
+  }
+]}>
+
+JSON-RPC 2.0 endpoint for `message/send`, `message/stream`, `tasks/get`, and `tasks/cancel`. Pass `async: true` to return immediately in `working` state and poll with `tasks/get`.
+
+</Endpoint>
+
+Wenn `message/send` mit `async: true` aufgerufen wird, stellt der Handler JSON-RPC die Aufgabe in die Warteschlange und löst selbst einen POST auf einer internen `/_agent-native/a2a/_process-task`-Route aus, sodass der Handler in einer neuen Funktionsausführung mit seinem eigenen vollständigen Timeout ausgeführt wird. Diese Route wird mit einem HMAC-Token authentifiziert, das an die Task-ID gebunden ist (Lebensdauer 5 Minuten, signiert mit `A2A_SECRET`). Es wird vor der Route `/_agent-native/a2a` JSON-RPC gemountet, sodass der Präfixabgleich von h3 es nicht verschluckt.
+
+<Diagram id="doc-block-1g6v7jz" title="Asynchroner Aufgabenlebenszyklus auf serverlosem Server" summary={"async:true kehrt in Millisekunden zum Betrieb zurück, dann führt eine neue Ausführung die Agentenschleife aus, während der Anrufer abfragt."} caption="A recurring sweeper re-claims any task left in flight if the function execution dies mid-run.">
+
+```html
+<div class="diagram-async">
+  <div class="diagram-box" data-rough>
+    message/send<br /><small class="diagram-muted">async: true</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill">enqueue task</span
+    ><span class="diagram-pill warn">return working</span
+    ><small class="diagram-muted">~Millisekunden</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    Selbstauslösender POST /_agent-native/a2a/_process-task<br /><small
+      class="diagram-muted"
+      >HMAC-Token · frische Ausführung · volles Timeout</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">tasks/get (poll)</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&#8635;</div>
+    <div class="diagram-pill ok">completed</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-async {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-async .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.diagram-async .diagram-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.diagram-async .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+> [!IMPORTANT]
+> **Serverlose Webhook- und Gateway-Zeitüberschreitungen:**
+> Gehostete Umgebungs-Gateways (wie Netlify, Vercel oder Cloudflare Pages) legen strenge Ausführungslimits (oft 10 bis 30 Sekunden) für öffentlich zugängliche HTTP-Routen fest. Da Agent-Schleifen viel Zeit in Anspruch nehmen können, um Abfragen auszuführen, Kontext abzurufen und Tools auszuführen, müssen Sie `async: true` verwenden, wenn Sie A2A-Endpunkte aufrufen oder externe webhooks verarbeiten. Dadurch wird sofort ein `working`-Status an das API-Gateway zurückgegeben, wodurch die Verbindung nur für einige Millisekunden geöffnet bleibt, während der selbstauslösende `/process-task` POST die Agentenschleife im Hintergrund ausführt. Blockieren Sie nicht die primäre HTTP-Anfrage, die auf den Abschluss der Agentenschleife wartet.
+
+Nachrichten enthalten typisierte Teile – Text, strukturierte Daten und Dateien können alle in einer Nachricht übertragen werden:
+
+<AnnotatedCode
+  id="doc-block-fc8f2r"
+  title="A2A-Nachricht mit typisierten Teilen"
+  language="json"
+  code={
+    '{\n  "role": "user",\n  "parts": [\n    { "type": "text", "text": "Show signups by source" },\n    { "type": "data", "data": { "dateRange": "last-30d" } },\n    {\n      "type": "file",\n      "file": { "name": "report.csv", "mimeType": "text/csv", "bytes": "..." }\n    }\n  ]\n}'
+  }
+  annotations={[
+    {
+      lines: "4",
+      label: "text part",
+      note: "Einfache Anweisungen in natürlicher Sprache, die der Agent vorliest.",
+    },
+    {
+      lines: "5",
+      label: "data part",
+      note: "Strukturierte JSON-Argumente – z.B. ein Datumsbereich – wird zusammen mit der Eingabeaufforderung übergeben.",
+    },
+    {
+      lines: "6-9",
+      label: "file part",
+      note: "Hängen Sie eine Datei mit Namen, `mimeType` und base64 `bytes` an.",
+    },
+  ]}
+/>
+
+## Kunde {#client}
+
+Die `A2AClient`-Klasse übernimmt Erkennung, Nachrichtenübermittlung und Streaming:
+
+```ts
+import { A2AClient } from "@agent-native/core/a2a";
+
+const client = new A2AClient("https://analytics.example.com", "my-api-key");
+
+// Discover agent capabilities
+const card = await client.getAgentCard();
+console.log(card.skills);
+
+// Send a message and get a completed task
+const task = await client.send({
+  role: "user",
+  parts: [{ type: "text", text: "Show signups by source this month" }],
+});
+console.log(task.status.state); // "completed"
+// task.status.message is a Message object ({ role, parts }), not a string.
+// Pull text out of its parts:
+const reply = task.status.message?.parts
+  .filter((p) => p.type === "text")
+  .map((p) => p.text)
+  .join("");
+console.log(reply); // agent's response text
+
+// Stream responses for long-running work
+for await (const update of client.stream({
+  role: "user",
+  parts: [{ type: "text", text: "Generate a full quarterly report" }],
+})) {
+  console.log(update.status.state, update.status.message);
+}
+```
+
+## Komforthelfer {#convenience-helper}
+
+Für einfache Text-in/Text-out-Aufrufe verwenden Sie `callAgent()`:
+
+```ts
+import { callAgent } from "@agent-native/core/a2a";
+
+// One-shot: send text, get text back
+const response = await callAgent(
+  "https://analytics.example.com",
+  "How many signups last week?",
+  { apiKey: process.env.ANALYTICS_API_KEY },
+);
+console.log(response); // "There were 1,247 signups last week..."
+```
+
+## Programmatischer Arbeitsbereichsaufruf {#programmatic-invoke}
+
+Bevorzugen Sie für agentennative Arbeitsbereiche den `agentNative`-Hilfscode oder einen
+Headless-App muss Geschwister-Apps erkennen und sie nach ID, Name oder aufrufen
+URL. Es verwendet die gleichen Erkennungs- und A2A-Aufrufprimitive wie
+`agent-native agents`- und `agent-native invoke` CLI-Befehle.
+
+```ts
+import { agentNative } from "@agent-native/core/agent-native";
+
+const agents = await agentNative.listAgents();
+
+const result = await agentNative.invoke(
+  "analytics",
+  "Summarize signups by source this month.",
+  { userEmail: "steve@example.com" },
+);
+
+console.log(`Called ${result.target.name}: ${result.responseText}`);
+```
+
+Verwenden Sie dies für zusammensetzbare Mini-Apps: Dispatch oder eine Orchestrator-App erkennt
+Workspace-Geschwister und ruft dann die Spezialisten-App auf, die Eigentümer des Anbieters ist
+Datensatz oder Workflow. Legen Sie in Produktions-Agent-nativen Apps jeweils `A2A_SECRET` fest
+App-Umgebung und übergeben Sie die Anruferidentität (`userEmail`), sodass ausgehende Anrufe erfolgen
+signiert als JWT-Inhaber-Token. Verwenden Sie `apiKeyEnv` nur für ältere externe Peers, die
+erwarten Sie ein statisches Inhabertoken. Verwenden Sie lokales actions, anstatt sich selbst aufzurufen.
+
+## Aufgabenlebenszyklus {#task-lifecycle}
+
+Jede Nachricht erstellt eine Aufgabe, die diese Zustände durchläuft:
+
+`submitted` → `working` → `completed` | `failed` | `canceled` | `input-required`
+
+`input-required` ist nicht terminal: Der Handler wartet auf weitere Informationen vom Aufrufer, und die Aufgabe kann zu `working` zurückkehren, sobald diese Eingabe eintrifft.
+
+| Bundesstaat      | Bedeutung                                                        |
+| ---------------- | ---------------------------------------------------------------- |
+| `submitted`      | Aufgabe erstellt, zur Verarbeitung in die Warteschlange gestellt |
+| `working`        | Handler verarbeitet die Nachricht                                |
+| `completed`      | Handler erfolgreich abgeschlossen                                |
+| `failed`         | Der Handler hat einen Fehler ausgegeben                          |
+| `canceled`       | Aufgabe wurde über Aufgaben/Abbrechen abgebrochen                |
+| `input-required` | Handler benötigt weitere Informationen vom Anrufer               |
+
+Aufgaben bleiben in der Tabelle `a2a_tasks` SQL bestehen und können später über `tasks/get` abgerufen werden.
+
+## Sicherheit {#security}
+
+Legen Sie `A2A_SECRET` für jede Produktions-App fest, die A2A-Verkehr aufruft oder empfängt. Agenten-native Anrufer signieren JWT-Inhabertokens mit diesem Geheimnis, damit Empfänger die Identität des Anrufers überprüfen können, bevor die Agentenschleife beginnt.
+
+Für externe Peers, die weiterhin ein gemeinsam genutztes statisches Token verwenden, legen Sie `apiKeyEnv` in Ihrer Konfiguration auf den Namen einer Umgebungsvariablen fest, die das erwartete Bearer-Token enthält:
+
+```ts
+// Config
+mountA2A(app, {
+  // ...
+  apiKeyEnv: "A2A_API_KEY", // reads process.env.A2A_API_KEY
+});
+
+// Client calls with the matching key
+const client = new A2AClient(url, process.env.A2A_API_KEY);
+```
+
+Der Endpunkt der Agentenkarte ist immer öffentlich (keine Authentifizierung), sodass andere Agenten Funktionen erkennen können. Der `/_agent-native/a2a` JSON-RPC-Endpunkt akzeptiert von `A2A_SECRET` signierte JWT-Bearer-Token und akzeptiert bei Konfiguration auch das Legacy-`apiKeyEnv`-Token. In der lokalen Entwicklung kann die Authentifizierung weggelassen werden. In gehosteten Produktionslaufzeiten gibt die fehlende A2A-Authentifizierung 503 zurück, anstatt nicht authentifiziert ausgeführt zu werden.
+
+### Authentifizierungsrichtliniengrenze {#auth-policy}
+
+Bearer-Validierung wird an der Anforderungsgrenze ausgeführt – im JSON-RPC-Handler – bevor die Agentenschleife die Nachricht jemals sieht. Die gemeinsam genutzten Helfer in `packages/core/src/a2a/auth-policy.ts` entscheiden, was die Bereitstellung erfordert:
+
+- `isA2AProductionRuntime()` gibt `true` auf Netlify, AWS Lambda, Cloudflare Pages/Workers, Vercel, Render, Fly und Cloud Run zurück – auch wenn `NODE_ENV` nicht `"production"` ist. Einige serverlose Anbieter setzen `NODE_ENV` nicht konsistent, sodass die Richtlinie auch anbieterspezifische Flags liest.
+- `hasConfiguredA2ASecret()` gibt `true` zurück, wenn `A2A_SECRET` festgelegt ist.
+- `shouldAdvertiseJwtA2AAuth()` ist das, was die Agentenkarte verwendet, um zu entscheiden, ob ein `jwtBearer`-Sicherheitsschema veröffentlicht werden soll.
+
+Die Produktionsrichtlinie ist streng: In jeder Produktionslaufzeit verweigert die asynchrone Route `_process-task` den Versand, es sei denn, `A2A_SECRET` ist konfiguriert (gibt 503 zurück), und der Endpunkt JSON-RPC lehnt nicht authentifizierte Aufrufe ab. Der Dev-Fallback (einmal warnen, zulassen) wird nur ausgelöst, wenn kein Produktionsflag gesetzt ist.
+
+Diese Grenze ist wichtig, da die Agentenschleife Freiformeingaben von einem Remote-Anrufer akzeptiert. Wenn Sie die Bearer-Prüfung in die Schleife einfügen oder sich auf ein Tool verlassen, um sie durchzusetzen, können Prompt-Injection oder ein fehlerhafter Handler die Authentifizierung umgehen. Wenn es an der HTTP-Grenze bleibt, führt ein Token-Fehler zu einem Kurzschluss vor jedem LLM-Aufruf.
+
+Die JWT-Verifizierung (`verifyA2AToken` in `server.ts`) akzeptiert Token, die entweder mit dem globalen `A2A_SECRET` oder einem organisationsweiten Geheimnis signiert sind, das von SQL über den `org_domain`-Anspruch des Tokens gesucht wird, und erzwingt die eigenen `aud`/`iss`-Ansprüche des Tokens, sofern vorhanden.
+
+## Fortsetzungen {#continuations}
+
+Wenn ein Agent einen Remote-A2A-Peer anruft, der nicht sofort zurückkehrt, fragt das Framework `tasks/get` ab, bis die Aufgabe erledigt ist. Dies erfolgt über `A2AClient.sendAndWait`, den Standardmodus, der vom `callAgent()`-Helfer verwendet wird.
+
+```ts
+// Default: async + poll (safe on serverless hosts)
+const reply = await callAgent(url, "Generate the quarterly report", {
+  userEmail: session.email,
+});
+
+// Single-shot blocking POST (avoid on Netlify/Vercel for slow handlers)
+const reply2 = await callAgent(url, "Quick lookup", { async: false });
+```
+
+Für eingehende Fortsetzungen, die durch eine Messaging-Integration (Slack, E-Mail) ausgelöst werden, behält das Framework die Fortsetzung in SQL bei und verarbeitet sie out-of-band:
+
+- Eine Zeile wird in die Tabelle `a2a_continuations` geschrieben, wenn der Integrationshandler die Übergabe an einen Remote-Agenten durchführt.
+- Ein selbstauslösender `POST /_agent-native/integrations/process-a2a-continuation` beansprucht die Zeile, ruft `tasks/get` auf dem Remote-Agenten auf und übermittelt die Antwort entweder an den Integrationsadapter oder führt eine Neuplanung durch.
+- Wenn die Remote-Aufgabe noch funktioniert, wird die Zeile neu geplant und erneut versendet. Das Umfragebudget ist **begrenzt durch ~20 Minuten Remote-Arbeit** (`MAX_REMOTE_WORK_MS`) und **30 Versandversuche** (`MAX_ATTEMPTS`); Nach jedem Grenzwert schlägt die Fortsetzung mit einem eindeutigen Fehler fehl und der Benutzer erhält die Antwort „Der Agent hat nicht rechtzeitig geantwortet“.
+- Ein wiederkehrender Sweeper (`claimDueA2AContinuations`) fordert alle Fortsetzungszeilen erneut an, die noch im Umlauf waren, als die vorherige Funktionsausführung beendet wurde. Selbst wenn die aufrufende App mitten in der Umfrage abstürzt, wird die Arbeit mit dem nächsten Sweep-Tick fortgesetzt.
+
+Definiert in `packages/core/src/integrations/a2a-continuation-processor.ts`. Das gleiche Wiederholungsauftragsmuster wird für Integrations-Webhook-Aufgaben (`pending-tasks-retry-job.ts`) verwendet, bei denen es sich um eine eigene Warteschlange handelt, die auf drei Versuche begrenzt ist – unabhängig vom oben genannten Budget für die Fortsetzungsumfrage.
+
+## Arbeitsbereich A2A {#workspace-a2a}
+
+In einem Multi-App-Arbeitsbereich, der auf einer einzelnen Netlify-Site bereitgestellt wird (siehe [multi-app workspace](/docs/multi-app-workspace)), wird jede App unter `apps/<id>/` automatisch als A2A-Peer registriert:
+
+- Ein gemeinsamer `A2A_SECRET` wird zur Erstellungszeit in die Umgebung jeder App eingebunden.
+- App-übergreifende Aufrufe haben denselben Ursprung – `https://workspace.example.com/apps/analytics` ruft `https://workspace.example.com/apps/mail` auf – es gibt also kein DNS-, CORS- oder paarweises JWT-Setup.
+- Ausgehende Anrufe, die mit dem gemeinsamen Geheimnis signiert sind, enthalten die E-Mail-Adresse des Anrufers als `sub` und (sofern vorhanden) die Organisationsdomäne. Der JWT-Verifizierer des Empfängers akzeptiert entweder das gemeinsame Geheimnis oder das organisationsbezogene Geheimnis von SQL in dieser Reihenfolge.
+- Die Agentenerkennung durchsucht die Arbeitsbereichsregistrierung, anstatt sich darauf zu verlassen, dass der Bediener jeden Peer manuell verbindet. Siehe `discoverAgents` in `packages/core/src/server/agent-discovery.ts` und den Organisationsaktualisierungspfad in `packages/core/src/org/handlers.ts`.
+
+Extern A2A – Anrufe an Agenten außerhalb Ihres Arbeitsbereichs – verwendet weiterhin das Bearer-Token-Modell (`apiKeyEnv` + `A2AClient(url, apiKey)`). Der Arbeitsbereich A2A ist darüber geschichtet; Es ändert sich nichts an externen Kollegen.
+
+## Serverlose Fallstricke {#serverless}
+
+**Verlassen Sie sich nie darauf, dass ein Fire-and-Forget-`Promise` die Antwort überlebt.** Serverlose Funktionen (Netlify, Vercel, AWS Lambda, Cloud Run) frieren ein, sobald der Antworttext geleert wird – manchmal bevor der TCP-Handshake eines unerwarteten `fetch(...)` überhaupt abgeschlossen ist. Muster, die lokal auf dem Knoten funktionieren, lassen die Arbeit in der Produktion stillschweigend fallen.
+
+Das Muster des Frameworks, das sowohl vom asynchronen A2A-Versand als auch vom [integration webhook queue](/docs/messaging) verwendet wird, lautet:
+
+1. Akzeptieren Sie die Anfrage, behalten Sie bei, was mit SQL passieren muss, und geben Sie sofort 200 zurück.
+2. Selbstauslösung eines `POST` an eine separate Framework-Route (`/_agent-native/a2a/_process-task` oder `/_agent-native/integrations/process-task`), damit die eigentliche Arbeit in einer **frischen Funktionsausführung** mit einem eigenen vollständigen Timeout ausgeführt wird.
+3. Authentifizieren Sie die Selbstauslösung mit einem HMAC-Token, das an die Zeilen-ID gebunden und mit `A2A_SECRET` signiert ist.
+4. Ein wiederkehrender Wiederholungsauftrag löscht alle beanspruchten, aber noch nicht abgeschlossenen Zeilen, sodass eine abgestürzte Funktion die Arbeit nicht zum Scheitern bringt.
+
+Wenn Sie Ihren eigenen A2A-Handler oder Integrationsadapter schreiben, folgen Sie der gleichen Form. Hängen Sie nach `return` keine Arbeit an ein losgelöstes Versprechen. Wenn Sie sich von einem serverlosen Handler selbst auslösen müssen, starten Sie den Abruf vor der Rückkehr und geben Sie ihm einen kleinen Vorsprung (das Framework verwendet eine kurze Zeitüberschreitung), damit Laufzeiten im Lambda-Stil nicht einfrieren, bevor die ausgehende Anforderung den Prozess verlässt. Der `integration-webhooks`-Skill ist die kanonische Referenz.
+
+## Agent-Erwähnungen {#agent-mentions}
+
+You can `@`-mention agents directly in the chat composer. Connected agents use A2A: when you mention a connected agent, the server makes an A2A call to that agent and weaves the response into your conversation context.
+
+Benutzerdefinierte Workspace-Agents sind anders: Sie werden lokal innerhalb der aktuellen App/Laufzeit ausgeführt und nicht über A2A.
+
+Weitere Informationen zur Funktionsweise von Erwähnungen, zum Hinzufügen von Agenten und zum Erstellen benutzerdefinierter Erwähnungsanbieter finden Sie unter [Agent Mentions](/docs/agent-mentions).
+
+## Messaging-Integrationen {#messaging-integrations}
+
+Agenten können auch über externe Messaging-Plattformen wie Slack, E-Mail, Telegram und WhatsApp erreicht werden. Benutzer senden Nachrichten auf diesen Plattformen und der Agent antwortet im selben Thread und verwendet dieselben Tools und actions wie der Web-Chat.
+
+Siehe [Messaging](/docs/messaging) für Einrichtungsdetails für jede Plattform.
+
+## Beispiel: agentenübergreifende Abfrage {#example}
+
+Ein Mail-Agent benötigt Analysedaten. Der Analyseagent stellt über A2A:
+
+```ts
+// In the mail agent's actions/get-analytics.ts
+import { defineAction } from "@agent-native/core/action";
+import { callAgent } from "@agent-native/core/a2a";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Ask the analytics agent a question.",
+  schema: z.object({ question: z.string() }),
+  async run({ question }) {
+    const response = await callAgent(
+      "https://analytics.example.com",
+      question,
+      { apiKey: process.env.ANALYTICS_API_KEY },
+    );
+    return { answer: response };
+  },
+});
+```
+
+Der Analyseagent empfängt die Nachricht, führt die Abfrage über seinen Handler aus und gibt das Ergebnis zurück. Die Mail-Aktion erhält die Textantwort zurück. Keine gemeinsame Datenbank, keine direkten API-Aufrufe – nur Kommunikation zwischen Agenten.

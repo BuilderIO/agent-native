@@ -253,6 +253,32 @@ export const recordingBrowserDiagnostics = table(
   },
 );
 
+export const recordingBugReports = table("recording_bug_reports", {
+  recordingId: text("recording_id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  organizationId: text("workspace_id").notNull(),
+  orgId: text("org_id"),
+  projectId: text("project_id"),
+  title: text("title"),
+  description: text("description").notNull().default(""),
+  severity: text("severity", {
+    enum: ["low", "normal", "high", "urgent"],
+  })
+    .notNull()
+    .default("normal"),
+  sourceUrl: text("source_url"),
+  pageTitle: text("page_title"),
+  appVersion: text("app_version"),
+  environment: text("environment"),
+  reporterEmail: text("reporter_email"),
+  reporterName: text("reporter_name"),
+  reporterId: text("reporter_id"),
+  metadataJson: text("metadata_json").notNull().default("{}"),
+  submittedAt: text("submitted_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
 export const recordingCtas = table("recording_ctas", {
   id: text("id").primaryKey(),
   recordingId: text("recording_id").notNull(),

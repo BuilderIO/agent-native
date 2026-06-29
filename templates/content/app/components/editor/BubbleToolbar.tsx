@@ -11,10 +11,16 @@ import {
   IconH3,
   IconH4,
 } from "@tabler/icons-react";
-import { NodeSelection, type EditorState } from "@tiptap/pm/state";
+import {
+  NodeSelection,
+  Plugin,
+  PluginKey,
+  type EditorState,
+} from "@tiptap/pm/state";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import type { Editor } from "@tiptap/react";
 import { BubbleMenu } from "@tiptap/react/menus";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   Tooltip,
@@ -44,6 +50,15 @@ const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
   "localMdxComponent",
 ]);
 
+type SelectionFillRange = {
+  from: number;
+  to: number;
+};
+
+const selectionFillPluginKey = new PluginKey<SelectionFillRange | null>(
+  "contentSelectionFill",
+);
+
 function selectionIncludesBubbleToolbarExcludedNode(
   state: EditorState,
   from: number,
@@ -71,6 +86,73 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
   const t = useT();
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+
+  useEffect(() => {
+    const plugin = new Plugin<SelectionFillRange | null>({
+      key: selectionFillPluginKey,
+      state: {
+        init: () => null,
+        apply: (tr, value) => {
+          const meta = tr.getMeta(selectionFillPluginKey);
+          if (meta !== undefined) return meta;
+          return value
+            ? {
+                from: tr.mapping.map(value.from),
+                to: tr.mapping.map(value.to),
+              }
+            : null;
+        },
+      },
+      props: {
+        decorations(state) {
+          const range = selectionFillPluginKey.getState(state);
+          if (!range || range.from === range.to) return DecorationSet.empty;
+          return DecorationSet.create(state.doc, [
+            Decoration.inline(range.from, range.to, {
+              class: "notion-selection-fill",
+            }),
+          ]);
+        },
+      },
+    });
+
+    editor.registerPlugin(plugin);
+
+    const syncSelectionFill = () => {
+      const { state } = editor;
+      const { from, to } = state.selection;
+      const nextRange =
+        editor.isFocused &&
+        from !== to &&
+        !selectionIncludesBubbleToolbarExcludedNode(state, from, to)
+          ? { from, to }
+          : null;
+      const currentRange = selectionFillPluginKey.getState(state);
+      if (
+        currentRange?.from === nextRange?.from &&
+        currentRange?.to === nextRange?.to
+      ) {
+        return;
+      }
+      editor.view.dispatch(
+        state.tr
+          .setMeta(selectionFillPluginKey, nextRange)
+          .setMeta("addToHistory", false),
+      );
+    };
+
+    editor.on("selectionUpdate", syncSelectionFill);
+    editor.on("focus", syncSelectionFill);
+    editor.on("blur", syncSelectionFill);
+    syncSelectionFill();
+
+    return () => {
+      editor.off("selectionUpdate", syncSelectionFill);
+      editor.off("focus", syncSelectionFill);
+      editor.off("blur", syncSelectionFill);
+      editor.unregisterPlugin(selectionFillPluginKey);
+    };
+  }, [editor]);
 
   const handleSetLink = () => {
     if (linkUrl.trim()) {

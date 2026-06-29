@@ -1,0 +1,413 @@
+---
+title: "دليل Skills"
+description: "كيفية عمل skills في الوكيل الأصلي: إطار العمل skills والمجال skills وإنشاء skills مخصص."
+---
+
+# دليل Skills
+
+Skills هي ملفات Markdown التي تمنح الوكيل معرفة عميقة حول أنماط ومسارات عمل محددة.
+
+## ما هي skills {#what-are-skills}
+
+Skills موجود في `.agents/skills/<name>/SKILL.md` ويحتوي على إرشادات مفصلة للوكيل. تركز كل مهارة على اهتمام واحد - كيفية تخزين البيانات، وكيفية مزامنة الحالة، وكيفية تفويض العمل إلى دردشة الوكيل.
+
+يتم دائمًا إدخال المادة الأمامية لكل مهارة `name` و`description` في كتلة skills الخاصة بموجه النظام حتى يعرف العميل ما هو skills الموجود. يتم تحميل جسم المهارة بالكامل عند الطلب عندما يقرر الوكيل أن المهارة ذات صلة بالمهمة (يتم عرضها أيضًا عبر `docs-search`). ولهذا السبب فإن إبقاء الأوصاف قصيرة ومحددة للمشغل أمر مهم: الوصف هو الشيء الوحيد الذي يقرأه الوكيل قبل أن يقرر تحميل الباقي أم لا.
+
+<Diagram id="doc-block-dyws55" title={"الكشف التدريجي"} summary={"فقط الاسم + الوصف لكل مهارة يكون دائمًا في السياق. يتم تحميل الجسم بالكامل عند الطلب عندما تتطابق المهمة."}>
+
+```html
+<div class="sk-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">دائما في موجه النظام</span>
+    <div class="sk-list">
+      <span class="diagram-pill"
+        >storing-data &mdash;
+        <small class="diagram-muted">add data models&hellip;</small></span
+      ><span class="diagram-pill"
+        >real-time-sync &mdash;
+        <small class="diagram-muted">wire polling&hellip;</small></span
+      ><span class="diagram-pill"
+        >create-skill &mdash;
+        <small class="diagram-muted">add a skill&hellip;</small></span
+      >
+    </div>
+    <small class="diagram-muted">just name + description (cheap)</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <small class="diagram-muted">task matches a description</small
+    ><span class="diagram-pill accent">load on demand</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    Full <code>SKILL.md</code> body<br /><small class="diagram-muted"
+      >قواعد، كود، افعل ولا تفعل</small
+    >
+  </div>
+</div>
+```
+
+```css
+.sk-flow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.sk-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  min-width: 240px;
+}
+.sk-flow .sk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sk-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.sk-flow .diagram-arrow {
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+## إطار العمل skills {#framework-skills}
+
+هذه هي skills المجمعة مع **القالب الافتراضي**. تعتمد المجموعة المحددة المتوفرة في أي تطبيق معين على القالب الذي قمت بتركيبه منه — تحقق من دليل `.agents/skills/` الخاص بهذا القالب لمعرفة ما يتم شحنه بالفعل.
+
+| المهارة                | متى يتم الاستخدام                                                     |
+| ---------------------- | --------------------------------------------------------------------- |
+| `storing-data`         | إضافة نماذج البيانات أو تكوين القراءة/الكتابة أو الحالة               |
+| `real-time-sync`       | مزامنة استقصاء الأسلاك، عدم تحديث تصحيح أخطاء UI                      |
+| `delegate-to-agent`    | تفويض عمل الذكاء الاصطناعي من UI أو actions إلى الوكيل                |
+| `actions`              | إنشاء أو تشغيل الوكيل actions                                         |
+| `self-modifying-code`  | تحرير مصدر التطبيق أو مكوناته أو أنماطه                               |
+| `create-skill`         | إضافة skills جديد للوكيل                                              |
+| `capture-learnings`    | تسجيل التصحيحات والأنماط                                              |
+| `frontend-design`      | إنشاء أو تصميم أي صفحة ويب UI أو مكوناتها أو صفحاتها                  |
+| `adding-a-feature`     | قائمة التحقق المكونة من أربع مناطق: UI، actions، skills، حالة التطبيق |
+| `internationalization` | تحديث نسخة UI المترجمة وكتالوجات اللغات وأنماط RTL الآمنة             |
+| `shadcn-ui`            | استخدام العناصر الأولية والمكونات shadcn/ui                           |
+| `security`             | المصادقة والتحكم في الوصول والتعامل السري                             |
+| `real-time-collab`     | التحرير التعاوني متعدد المستخدمين                                     |
+| `agent-engines`        | تبديل محرك الوكيل الأساسي أو تكوينه                                   |
+| `notifications`        | أنماط الإشعارات داخل التطبيق والإشعارات الفورية                       |
+| `progress`             | تتبع وإظهار تقدم المهام في الخلفية                                    |
+| `inline-embeds`        | تضمين التطبيقات أو إطارات iframe داخل دردشة الوكيل                    |
+
+`context-awareness` و`a2a-protocol` هما skills على مستوى إطار العمل ومتوفران في دليل `.agents/skills/` في جذر الريبو - راجع `.agents/skills/` الخاص بكل قالب لمعرفة ما يرثه.
+
+## المجال skills {#domain-skills}
+
+تتضمن القوالب skills الخاصة بمجالها. توجد هذه العناصر في نفس دليل `.agents/skills/` ولكنها تغطي أنماطًا خاصة بالقالب. راجع دليل `.agents/skills/` الخاص بكل قالب للحصول على القائمة الكاملة؛ عينة تمثيلية:
+
+- **قالب البريد** — `email-drafts`، `draft-queue`
+- **قالب النماذج** — `form-building`، `form-publishing`، `form-responses`
+- **نموذج التحليلات** — `adhoc-analysis`، `bigquery`، `cross-source-analysis`، `dashboard-management`، `data-querying`، `provider-api`، `gong`، `hubspot`، `prometheus`
+- **نموذج الشرائح** — `create-deck`، `deck-management`، `design-systems`، `slide-editing`، `slide-images`
+
+يتبع المجال skills نفس تنسيق إطار العمل skills. فهي تقوم بتشفير أنماط خاصة بالقالب الذي يجب على الوكيل اتباعه.
+
+## skills المدعوم بالتطبيق {#app-backed-skills}
+
+تشمل skills المدعومة بالتطبيق حاليا `visual-plan` و`visual-recap` من Plan،
+و`visual-edit` من Design، و`assets` من Assets، و`content` لتحرير docs/blog/MDX
+من المستودع.
+
+تحزم skills المدعومة بالتطبيق تطبيقًا أصليًا للوكيل باعتباره قطعة أثرية في سوق المهارات. يمكن أن تتضمن الحزمة تعليمات الوكيل، وبيانات تعريف موصل skills المصدرة، وتعليمات التشغيل المستضافة/المحلية، وأسطح UI مثل تطبيقات MCP.
+
+> **التفاصيل الكاملة أدناه:** يتم تغطية آليات skills المدعومة بالتطبيق (تنسيق البيان، وأوامر CLI، ومحولات السوق، وتجزئة التحديث التلقائي) في [App-backed skills — full details](#app-backed-skills-full).
+
+## إنشاء skills مخصص {#creating-skills}
+
+إنشاء مهارة عندما:
+
+- هناك نمط يجب على الوكيل اتباعه بشكل متكرر
+- يحتاج سير العمل إلى إرشادات خطوة بخطوة
+- تريد دمج الملفات من قالب
+
+لا تنشئ مهارة عندما:
+
+- الإرشاد موجود بالفعل في مهارة أخرى - قم بتوسيعه بدلاً من ذلك
+- التوجيه يتم لمرة واحدة - ضعه في `AGENTS.md` أو ذاكرة مساحة العمل بدلاً من ذلك
+
+## تنسيق المهارة {#skill-format}
+
+كل مهارة عبارة عن ملف Markdown مع المادة الأمامية YAML:
+
+<AnnotatedCode
+  id="doc-block-1cl3ufb"
+  title={"تشريح SKILL.md"}
+  filename=".agents/skills/project-imports/SKILL.md"
+  language="markdown"
+  code={
+    "---\nname: project-imports\ndescription: >-\n  How to import projects from the legacy CSV export. Use when the user uploads\n  a project CSV or asks to migrate projects from the old system.\n---\n\n# Project Imports\n\n## Rule\n\nAlways validate the CSV header row before writing any rows. Reject unknown\ncolumns rather than silently dropping them.\n\n## How\n\n1. Call `get-import-schema` to fetch the expected columns.\n2. Parse the first CSV row and diff against the schema.\n3. If any required columns are missing, return an error — do not proceed.\n4. Stream remaining rows through `create-project-item` in batches of 50.\n\n## Don't\n\n- Don't hold all rows in memory — stream them.\n- Don't create duplicate projects; check for an existing name first.\n\n## Related Skills\n\n- **storing-data** — SQL schema and write patterns for new rows\n- **sharing** — exposing a project to other users after import"
+  }
+  annotations={[
+    {
+      lines: "2",
+      label: "مفتاح الاكتشاف",
+      note: "The `name` matches the folder; it is how the skill is invoked as `/project-imports`.",
+    },
+    {
+      lines: "3-5",
+      label: "المشغل",
+      note: "هذا `description` هو النص **الوحيد** الموجود دائمًا في السياق. اجعلها تشير بدقة *متى* تنطبق المهارة.",
+    },
+    {
+      lines: "9-14",
+      label: "القواعد أولاً",
+      note: "Lead with the hard rule and the why; the agent reads the body only once the task matches.",
+    },
+    {
+      lines: "27-30",
+      label: "الارتباط المتبادل",
+      note: "أشر إلى المهارات ذات الصلة حتى يتمكن الوكيل من تسلسلها بدلاً من إعادة استخلاص التوجيه.",
+    },
+  ]}
+/>
+
+يتم استخدام المادة الأمامية `name` و`description` بواسطة نظام أدوات العميل لاكتشاف المهارات. يجب أن يشير الوصف إلى وقت تفعيل المهارة - كن محددًا بشأن المواقف.
+
+احفظ الملف في `.agents/skills/my-skill/SKILL.md`. يجب أن يتطابق اسم الدليل مع `name` في المادة الأمامية.
+
+> **راجع أيضًا:** [Writing Agent Instructions](/docs/writing-agent-instructions) للتعرف على كيفية صياغة أوصاف المهارات، وتطبيق الكشف التدريجي، والحفاظ على `AGENTS.md`. تستخدم كلتا الصفحتين مهارة `project-imports` كمثال عملي.
+
+## نطاق المهارة: وقت التشغيل مقابل التطوير {#skill-scope}
+
+يتحكم حقل المادة الأمامية الاختياري `scope` في العميل الذي تستهدفه المهارة:
+
+| `scope`   | هل تم التحميل بواسطة وكيل وقت التشغيل؟ | استخدام لـ                                                                 |
+| --------- | -------------------------------------- | -------------------------------------------------------------------------- |
+| `both`    | نعم (افتراضي)                          | Skills مفيد للوكيل داخل التطبيق. هذا هو الإعداد الافتراضي عند حذف `scope`. |
+| `runtime` | نعم                                    | Skills مخصص لوكيل وقت التشغيل داخل التطبيق فقط.                            |
+| `dev`     | لا                                     | Skills مخصص فقط لعامل التشفير البشري (مثل رمز Claude).                     |
+
+```markdown
+---
+name: release-checklist
+description: >-
+  Steps for cutting a release. Use when preparing or publishing a new version.
+scope: dev
+---
+```
+
+عند غياب `scope` (أو تعيينه على قيمة غير معروفة)، يتم تعيينه افتراضيًا على `both`، لذلك يستمر تحميل كل مهارة موجودة في وقت التشغيل — هذا الحقل متوافق تمامًا مع الإصدارات السابقة. مهارة `scope: dev` غير مرئية لعامل وقت التشغيل في كل مكان: فهي مستبعدة من كتلة skills التي تم حقنها في موجه النظام ومن نتائج `docs-search`.
+
+### إظهار مهارة خاصة بالمطورين فقط لوكيل البرمجة الخاص بك {#dev-only-skills}
+
+يقرأ وقت التشغيل الأصلي للوكيل skills من `.agents/skills/`. يقرأ رمز Claude skills من `.claude/skills/` بشكل مستقل. لإتاحة مهارة لوكيل الترميز الخاص بك ولكنها مخفية عن وكيل وقت التشغيل:
+
+- ضع علامة `scope: dev` في `.agents/skills/<name>/SKILL.md` حتى لا يقوم وكيل وقت التشغيل بتحميله أبدًا، و/أو
+- ضع المهارة أو اعكسها ضمن `.claude/skills/<name>/SKILL.md` حتى يلتقطها كود Claude.
+
+يحل هذا محل الاختراق القديم المتمثل في الاعتماد على كود Claude الذي يقرأ `.claude/skills` فقط - `scope: dev` يجعل تقسيم وقت التشغيل مقابل التطوير خيارًا صريحًا من الدرجة الأولى.
+
+<Diagram id="doc-block-1cyxyfn" title={"أي وكيل يقوم بتحميل أي مهارة"} summary={"يحدد النطاق ما إذا كان وكيل وقت التشغيل داخل التطبيق يرى مهارة أم لا. تكون مهارات التطوير مرئية فقط لوكيل البرمجة الخاص بك."}>
+
+```html
+<div class="sc-grid">
+  <div class="diagram-card">
+    <span class="diagram-pill">.agents/skills/</span>
+    <div class="sc-row">
+      <span class="diagram-pill ok">scope: both</span
+      ><small class="diagram-muted">default</small>
+    </div>
+    <div class="sc-row">
+      <span class="diagram-pill ok">scope: runtime</span>
+    </div>
+    <div class="sc-row"><span class="diagram-pill warn">scope: dev</span></div>
+  </div>
+  <div class="sc-targets">
+    <div class="diagram-box">
+      Runtime agent<br /><small class="diagram-muted"
+        >reads <code>both</code> + <code>runtime</code></small
+      >
+    </div>
+    <div class="diagram-box">
+      وكيل البرمجة<br /><small class="diagram-muted"
+        >Claude Code reads <code>.claude/skills/</code> +
+        <code>dev</code></small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.sc-grid {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.sc-grid .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+}
+.sc-grid .sc-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sc-grid .sc-targets {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+```
+
+</Diagram>
+
+> **راجع أيضًا:** [Writing Agent Instructions](/docs/writing-agent-instructions) للتعرف على كيفية صياغة أوصاف المهارات، وتطبيق الإفصاح التدريجي، والحفاظ على `AGENTS.md`.
+
+## Skills مقابل AGENTS.md {#skills-vs-agents-md}
+
+> **AGENTS.md** — النظرة العامة. يسرد كافة البرامج النصية، ويصف نموذج البيانات، ويشرح بنية التطبيق. يقرأ الوكيل هذا أولاً لفهم التطبيق.
+>
+> **Skills** — الغوص العميق. تركز كل مهارة على نمط واحد يحتوي على قواعد تفصيلية، وأمثلة للتعليمات البرمجية، وقوائم المهام/المحظورات. يقرأ الوكيل هذه العناصر عندما يحتاج إلى اتباع نمط معين.
+
+يخبر `AGENTS.md` الوكيل _ما_ يفعله التطبيق. Skills أخبر الوكيل بكيفية القيام بأشياء محددة بشكل صحيح. كلاهما مطلوب — `AGENTS.md` للتوجيه، وskills للتنفيذ.
+
+## Skills مقابل الذاكرة {#skills-vs-memory}
+
+> **Skills** — أدلة إرشادية مؤلفة وقابلة لإعادة الاستخدام. تنطبق على كل مستخدم، ويتم استدعاؤها عند الطلب عندما تتطابق المهمة.
+>
+> **الذاكرة (`LEARNINGS.md` / `memory/MEMORY.md`)** — يتم تحميل الدروس المستفادة من المشروعات المشتركة والذاكرة المنظمة الشخصية في كل دورة.
+
+إذا كانت المعرفة تنطبق على _جميع_ الأشخاص\_ الذين يعملون في التطبيق ("يفضلون دائمًا CTEs على الاستعلامات الفرعية")، فهي مهارة أو `LEARNINGS.md` مشتركة. إذا كان الأمر يتعلق بهذا المستخدم تحديدًا ("يحب ستيف الإجابات المختصرة")، فهو ينتمي إلى `memory/MEMORY.md`. راجع [Workspace Memory](/docs/workspace#memory) للحصول على العلاج الكامل.
+
+---
+
+# متقدم
+
+## skills المدعوم بالتطبيق - التفاصيل الكاملة {#app-backed-skills-full}
+
+يحزم skills المدعوم بالتطبيق تطبيقًا أصليًا للوكيل باعتباره أحد عناصر سوق المهارات.
+يمكن أن تتضمن الحزمة تعليمات الوكيل، وموصل skills، وموصل MCP المُصدر
+البيانات الوصفية وتعليمات التشغيل المستضافة/المحلية وأسطح UI مثل تطبيقات MCP.
+
+تبدأ كل مهارة مدعومة بالتطبيق بـ `agent-native.app-skill.json` في جذر التطبيق:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "assets",
+  "hosted": {
+    "url": "https://assets.agent-native.com",
+    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+  },
+  "mcp": { "serverName": "agent-native-assets" },
+  "skills": [
+    {
+      "path": ".agents/skills/asset-generation",
+      "visibility": "both",
+      "exportAs": "assets"
+    }
+  ]
+}
+```
+
+تتحكم رؤية المهارة في ما يتم شحنه:
+
+| الرؤية     | المعنى                                                        |
+| ---------- | ------------------------------------------------------------- |
+| `internal` | يتم استخدامه بواسطة وكيل التطبيق، ولا يتم تصديره إلى الأسواق. |
+| `exported` | يتم تصديره إلى الأسواق، ولكن لا يحتاجه التطبيق داخليًا.       |
+| `both`     | يتم استخدامه داخليًا وتصديره.                                 |
+
+المستضاف هو مسار التثبيت الافتراضي. الإطلاق المحلي واضح للتخصيص،
+العمل دون اتصال بالإنترنت، أو الاستخدام الحساس للخصوصية.
+
+```bash
+# المسار السعيد: التعليمات المصدرة بالإضافة إلى موصل MCP المستضاف.
+npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add assets
+
+# تحرير Content docs/blog/MDX مع اعتبار الريبو مصدر الحقيقة.
+npx @agent-native/core@latest skills add content --mode local-files --scope project
+
+# Vercel/open Skills CLI: تعليمات مصدرة فقط، بلا تكوين MCP.
+npx skills@latest add BuilderIO/agent-native --skill assets
+
+# قم بتسجيل موصل MCP مستضاف لعملاء الوكيل المحلي.
+npx @agent-native/core@latest app-skill ensure --manifest templates/assets/agent-native.app-skill.json
+
+# تجسيد وتشغيل مصدر محلي قابل للتحرير.
+npx @agent-native/core@latest app-skill launch --manifest templates/assets/agent-native.app-skill.json --local --into ./assets-local
+
+# إنشاء محولات السوق: Codex البرنامج المساعد، Claude السوق، Vercel المهارات،
+# مهارات plain/Claude وتكوينات MCP.
+npx @agent-native/core@latest app-skill pack --manifest templates/assets/agent-native.app-skill.json --out ./dist/assets-skill
+
+# ثبّت حزمة محلية مصدّرة باستخدام Vercel/open Skills CLI.
+npx skills@latest add ./dist/assets-skill --skill assets -a codex -y
+
+# قم بإضافة سوق الكود Claude الذي تم إنشاؤه، ثم قم بتثبيت البرنامج الإضافي للأصول الخاص به.
+claude plugin marketplace add ./dist/assets-skill/adapters/claude-marketplace
+claude plugin install agent-native-assets@agent-native-apps
+```
+
+احتفظ بالأسرار خارج ملفات المهارات. يجب أن يحتوي البيان على موصل URL فقط
+بيانات التعريف؛ يتم إعداد OAuth/الجهاز في مضيف MCP أو من خلال التطبيق العادي
+تدفق الإعدادات.
+
+محول Vercel Labs `skills` عبارة عن حزمة `skills/<name>/SKILL.md` محمولة
+بالنسبة إلى `npx skills@latest add ...`، إلا أن `skills` CLI الأولي يقوم بتثبيت الإرشادات فقط.
+لا يقوم بتشغيل البرامج النصية لما بعد التثبيت المحددة بواسطة الريبو أو تسجيل موصلات MCP.
+احتفظ بـ Agent Native CLI كمسار المستندات الافتراضي للوكلاء المحليين لأنه
+أيضًا بتسجيل موصل MCP. `BuilderIO/agent-native` هو GitHub حقيقي
+مصدر مستودع Vercel/open Skills CLI؛ `skills.sh` هو اكتشاف و
+دليل لوحة الصدارة، وليس مساحة اسم حزمة بنمط npm.
+
+يكتب محول سوق Claude Code
+`adapters/claude-marketplace/.claude-plugin/marketplace.json` بالإضافة إلى متداخل
+دليل البرنامج المساعد الذي يحتوي على `skills/<name>/SKILL.md` و`.mcp.json`. في Claude
+الرمز، إضافة السوق، تثبيت `agent-native-assets@agent-native-apps`،
+أعد تحميل المكونات الإضافية، ثم قم بمصادقة موصل URL فقط MCP من `/mcp`.
+
+تم إعداد بيانات المكونات الإضافية التي تم إنشاؤها للتحديث التلقائي: رمز Claude
+مجموعات إدخال السوق `autoUpdate: true` (مع إصدار الالتزام SHA) و
+يضمِّن المكون الإضافي Codex `version` تجزئة محتوى للحزمتين skills وMCP
+نقطة النهاية، لذا تلتقط المكونات الإضافية المثبتة تغييرات المهارات دون إعادة التعبئة. ال
+يتم نشر تطبيق الخطة بهذه الطريقة كسوق جاهز للإضافة في جذر الريبو —
+راجع [Plan plugin & marketplace](/docs/plan-plugin) للتثبيت الشامل
+وتدفق التحديث التلقائي.
+
+بالنسبة للمستخدمين الذين قاموا بتثبيت skills المنسوخ من خلال CLI العالمي بدلاً من
+سوق المكونات الإضافية، استخدم أوامر الحداثة CLI:
+
+```bash
+npx @agent-native/core@latest skills status visual-plan
+npx @agent-native/core@latest skills update visual-plan
+```
+
+يقوم `skills update` بمسح مشروع Codex/Claude المعروف ومجلدات مهارات المستخدم، ويقارن
+تجزئة المجلد المنسوخ إلى أحدث مهارة مجمعة، وإعادة كتابة المجلدات القديمة في
+المكان. تتضمن Agent Native skills المنسوخة حديثًا `agent-native-skill.json`
+علامة حتى يتمكن إخراج الحالة المستقبلية من تحديد المصدر والتجزئة.
+
+تتضمن تطبيقات ومساحات العمل Agent Native التي تم إنشاؤها أيضًا إطار العمل المقدم
+skills ضمن `.agents/skills` (أو `packages/shared/.agents/skills` في
+مساحة العمل). قم بتحديث تلك السقالات skills من CLI الحالي/الأحدث باستخدام:
+
+```bash
+npm run skills:update
+# أو دون الاعتماد على البرنامج النصي للحزمة المحلية:
+npx @agent-native/core@latest skills update scaffold --project
+```
+
+يظل `AGENTS.md` و`.agents/skills` أساسيين. يقوم أمر التحديث أيضًا بإصلاح
+روابط التوافق Claude (`CLAUDE.md` و`.claude/skills`) حتى يرى رمز Claude
+نفس التعليمات دون الاحتفاظ بنسخة ثانية.

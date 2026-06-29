@@ -19,6 +19,7 @@ import jaJP from "../i18n/ja-JP";
 import koKR from "../i18n/ko-KR";
 import ptBR from "../i18n/pt-BR";
 import zhCN from "../i18n/zh-CN";
+import zhTW from "../i18n/zh-TW";
 import { withDefaultSocialImage } from "../seo";
 
 const SKILLS_PAGE_META = {
@@ -32,6 +33,7 @@ const SKILLS_PAGE_META = {
   "ko-KR": koKR.skillsPage,
   "pt-BR": ptBR.skillsPage,
   "zh-CN": zhCN.skillsPage,
+  "zh-TW": zhTW.skillsPage,
 };
 
 export const meta = ({ params }: { params?: { locale?: string } } = {}) => {
@@ -65,7 +67,7 @@ const INSTALL_COMMAND = "npx @agent-native/core@latest skills add";
 
 type Skill = {
   command: string;
-  copyKey: "visualPlan" | "visualRecap";
+  copyKey: "visualPlan" | "visualRecap" | "visualEdit";
   docsTo: string;
   videoUrl?: string;
 };
@@ -82,6 +84,12 @@ const SKILLS: Skill[] = [
     copyKey: "visualRecap",
     docsTo: "/docs/pr-visual-recap",
     videoUrl: import.meta.env.VITE_VISUAL_RECAP_SKILL_DEMO_VIDEO_URL,
+  },
+  {
+    command: "/visual-edit",
+    copyKey: "visualEdit",
+    docsTo: "/docs/template-design",
+    videoUrl: import.meta.env.VITE_VISUAL_EDIT_SKILL_DEMO_VIDEO_URL,
   },
 ];
 
@@ -280,7 +288,7 @@ export default function SkillsPage() {
         <p className="mb-8 max-w-2xl text-base text-[var(--fg-secondary)]">
           {t("skillsPage.sectionBody")}
         </p>
-        <div className="grid gap-6 md:grid-cols-2">
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {SKILLS.map((skill) => (
             <SkillCard key={skill.command} skill={skill} />
           ))}

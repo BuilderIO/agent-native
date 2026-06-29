@@ -146,7 +146,7 @@ export default defineAction({
     readOnly: false,
     requiresAuth: true,
     isConsequential: true,
-    title: "Create Visual Plan",
+    title: "Create Prototype Plan",
     description:
       "Create a plan whose primary review surface is a functional prototype.",
   },

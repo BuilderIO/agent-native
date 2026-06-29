@@ -45,6 +45,8 @@ type NativeRecording = {
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
+  savedToDisk?: boolean;
+  savedFilename?: string;
 };
 
 type PopupStatusResponse = {
@@ -93,8 +95,16 @@ const FEEDBACK_URL =
 const FEEDBACK_PLACEHOLDER = "Tell us what's on your mind...";
 const FEEDBACK_SUBMIT_TEXT = "Send feedback";
 const FEEDBACK_SUCCESS_MESSAGE = "Thanks for the feedback!";
+const STORAGE_SETUP_REQUIRED_MESSAGE =
+  "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
+const STORAGE_SETUP_FAILURE_RE =
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
 const feedbackTarget = parseFeedbackTarget(FEEDBACK_URL);
 const feedbackSchemaCache = new Map<string, Promise<FeedbackFormSchema>>();
+
+function isStorageSetupFailureMessage(message: string | null | undefined) {
+  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
 
 function screenSurface(
   value: CaptureSurface,
@@ -507,6 +517,14 @@ function setStatus(message: string, kind: "info" | "error" = "info"): void {
   status.dataset.kind = kind;
 }
 
+function setStorageHelp(visible: boolean): void {
+  byId<HTMLDivElement>("storage-help").hidden = !visible;
+}
+
+function storageSetupUrl(settings: ExtensionSettings): string {
+  return `${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`;
+}
+
 function renderMode(settings: ExtensionSettings): void {
   const mode = recordingMode(settings);
   for (const button of document.querySelectorAll<HTMLButtonElement>(
@@ -690,7 +708,10 @@ function renderActiveRecording(recording: NativeRecording | null): void {
   start.hidden = active;
   signIn.hidden = true;
   if (recordingActions) recordingActions.hidden = !active;
-  if (!recording) return;
+  if (!recording) {
+    setStorageHelp(false);
+    return;
+  }
 
   recordingTitle.textContent = recording.targetTitle || "Current recording";
   const host = hostnameLabel(recording.targetUrl);
@@ -700,16 +721,31 @@ function renderActiveRecording(recording: NativeRecording | null): void {
     titleKey && hostKey && (titleKey === hostKey || hostKey.includes(titleKey));
   recordingUrl.textContent = duplicate ? "" : host;
   recordingUrl.hidden = !host || Boolean(duplicate);
+  const storageFailure = isStorageSetupFailureMessage(recording.error);
+  let errorText = storageFailure
+    ? STORAGE_SETUP_REQUIRED_MESSAGE
+    : recording.error || "Recording needs attention";
+  // If the upload failed but we saved the recording to disk, lead with the
+  // reassurance (it's not lost) and the re-upload action.
+  if (recording.status === "error" && recording.savedToDisk) {
+    const named = recording.savedFilename
+      ? ` (${recording.savedFilename})`
+      : "";
+    errorText = storageFailure
+      ? `Couldn't upload — storage isn't connected. Your clip is saved to your downloads${named}. Connect storage, then re-upload it with "Upload video".`
+      : `Couldn't upload your clip. It's saved to your downloads${named} — try re-uploading it with "Upload video".`;
+  }
   recordingStatus.textContent =
     recording.status === "uploading"
       ? "Saving..."
       : recording.status === "stopping"
         ? "Stopping..."
         : recording.status === "error"
-          ? recording.error || "Recording needs attention"
+          ? errorText
           : `Recording ${formatDuration(recording.startedAtMs)}`;
   recordingStatus.dataset.kind =
     recording.status === "error" ? "error" : "info";
+  setStorageHelp(recording.status === "error" && storageFailure);
 }
 
 async function init(): Promise<void> {
@@ -751,6 +787,7 @@ async function init(): Promise<void> {
   const openSettings = byId<HTMLButtonElement>("open-settings");
   const openRecent = byId<HTMLButtonElement>("open-recent");
   const signIn = byId<HTMLButtonElement>("sign-in");
+  const storageHelpOpen = byId<HTMLButtonElement>("storage-help-open");
   let activeRecording: NativeRecording | null = null;
   let authStatus: AuthStatus = "checking";
   let feedbackOpenedAt = 0;
@@ -1071,6 +1108,7 @@ async function init(): Promise<void> {
   start.addEventListener("click", async () => {
     start.disabled = true;
     signIn.hidden = true;
+    setStorageHelp(false);
     setStatus(""); // no chatty "Checking…/Starting…" text — the disabled button is enough
     try {
       authStatus = await readAuthStatus(settings);
@@ -1085,10 +1123,11 @@ async function init(): Promise<void> {
       if (!storageConfigured) {
         start.disabled = false;
         setStatus(
-          "Connect Builder.io or S3 storage in Clips, then start recording.",
+          "Connect storage in Clips first: Builder.io (free tier storage + AI) or S3-compatible storage.",
           "error",
         );
-        await createTab(`${settings.clipsBaseUrl.replace(/\/+$/, "")}/record`);
+        setStorageHelp(true);
+        await createTab(storageSetupUrl(settings));
         window.close();
         return;
       }
@@ -1117,7 +1156,14 @@ async function init(): Promise<void> {
         setStatus("");
         return;
       }
-      setStatus(message, "error");
+      const storageSetupFailure = isStorageSetupFailureMessage(message);
+      setStorageHelp(storageSetupFailure);
+      setStatus(
+        storageSetupFailure
+          ? "Connect storage in Clips first: Builder.io (free tier storage + AI) or S3-compatible storage."
+          : message,
+        "error",
+      );
     } catch (err) {
       captureExtensionError(err, {
         tags: { surface: "popup", action: "start-recording" },
@@ -1128,11 +1174,22 @@ async function init(): Promise<void> {
         },
       });
       start.disabled = false;
+      const message =
+        err instanceof Error ? err.message : "Could not start Clips.";
+      const storageSetupFailure = isStorageSetupFailureMessage(message);
+      setStorageHelp(storageSetupFailure);
       setStatus(
-        err instanceof Error ? err.message : "Could not start Clips.",
+        storageSetupFailure
+          ? "Connect storage in Clips first: Builder.io (free tier storage + AI) or S3-compatible storage."
+          : message,
         "error",
       );
     }
+  });
+
+  storageHelpOpen.addEventListener("click", async () => {
+    await createTab(storageSetupUrl(settings));
+    window.close();
   });
 
   signIn.addEventListener("click", async () => {
@@ -1161,7 +1218,13 @@ async function init(): Promise<void> {
     }
     stop.disabled = false;
     discard.disabled = false;
-    setStatus(response.error || "Could not stop recording.", "error");
+    const message = response.error || "Could not stop recording.";
+    const storageSetupFailure = isStorageSetupFailureMessage(message);
+    setStorageHelp(storageSetupFailure);
+    setStatus(
+      storageSetupFailure ? STORAGE_SETUP_REQUIRED_MESSAGE : message,
+      "error",
+    );
   });
 
   discard.addEventListener("click", async () => {

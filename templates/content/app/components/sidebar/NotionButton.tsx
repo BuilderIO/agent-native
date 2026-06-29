@@ -191,6 +191,7 @@ export function NotionButton() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          scope: "workspace",
           vars: [
             { key: "NOTION_CLIENT_ID", value: clientId },
             { key: "NOTION_CLIENT_SECRET", value: clientSecret },

@@ -23,8 +23,15 @@ export default defineAction({
       .enum(["html", "css", "jsx", "asset"])
       .optional()
       .describe("Updated file type"),
+    syncCollab: z
+      .boolean()
+      .optional()
+      .default(true)
+      .describe(
+        "Whether to mirror content updates into the live collaboration document.",
+      ),
   }),
-  run: async ({ id, content, filename, fileType }) => {
+  run: async ({ id, content, filename, fileType, syncCollab }) => {
     // Path traversal guard on filename
     if (
       filename &&
@@ -74,7 +81,7 @@ export default defineAction({
       .where(eq(schema.designFiles.id, id));
 
     // Push content through the collab layer so live editors see the change
-    if (content !== undefined) {
+    if (content !== undefined && syncCollab) {
       const collabExists = await hasCollabState(id);
       if (collabExists) {
         await applyText(id, content, "content", "agent");

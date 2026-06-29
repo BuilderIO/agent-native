@@ -105,6 +105,8 @@ await dbExec("UPDATE notes SET title = 'Updated Title' WHERE id = 'abc'");
 | `extensionData.list(collection, opts?)`          | List items in a collection                               | `extensionData.list('todos', { scope: 'all' })`                                                                  |
 | `extensionData.get(collection, id, opts?)`       | Get a single item by id                                  | `extensionData.get('todos', 'todo-1')`                                                                           |
 | `extensionData.remove(collection, id, opts?)`    | Delete an item                                           | `extensionData.remove('todos', 'todo-1')`                                                                        |
+| `agentNative.ui.output(value, opts?)`            | Record passive inline UI output in application state     | `agentNative.ui.output({ threshold })`                                                                           |
+| `agentNative.chat.send(message, opts?)`          | Send a visible prompt or selected value back to chat     | `agentNative.chat.send('Use Q2', { context: { q: 2 } })`                                                         |
 
 ## Persisting Custom Data
 

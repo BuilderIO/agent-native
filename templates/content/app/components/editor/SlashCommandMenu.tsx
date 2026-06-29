@@ -1,4 +1,5 @@
 import { useSendToAgentChat, useT } from "@agent-native/core/client";
+import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 import {
   IconTypography,
   IconH1,
@@ -44,6 +45,8 @@ import { buildRegistrySlashItems } from "./registrySlashItems";
 interface SlashCommandMenuProps {
   editor: Editor;
   documentId?: string;
+  onDraftCommitted?: () => void | Promise<void>;
+  onDraftPersisted?: (markdown: string) => boolean | Promise<boolean>;
   /**
    * The open document's linked Notion page id, when it has one. When set, the
    * registry-derived block slash items are filtered to specs that round-trip to
@@ -65,7 +68,35 @@ interface CommandItem {
   searchText?: string;
   shortcut?: string;
   icon: React.ElementType;
-  action: (editor: Editor) => void | boolean | Promise<void>;
+  preserveSlashRange?: boolean;
+  action: (
+    editor: Editor,
+    context: { slashRange: { from: number; to: number } | null },
+  ) => void | boolean | Promise<void>;
+}
+
+function getActiveSlashCommandRange(editor: Editor) {
+  const { state } = editor;
+  if (!state.selection.empty) return null;
+  const { from, $from } = state.selection;
+  if (!$from.parent.isTextblock) return null;
+
+  const blockStart = $from.start();
+  const textBefore = state.doc.textBetween(blockStart, from, "\n");
+  const slashQuery = parseSlashCommandQuery(textBefore);
+  if (slashQuery === null) return null;
+
+  const slashIndex = textBefore.lastIndexOf("/");
+  return {
+    from: blockStart + slashIndex,
+    to: from,
+  };
+}
+
+function waitForEditorUpdateFrame() {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
 }
 
 interface CommandTemplate extends Omit<CommandItem, "title" | "description"> {
@@ -369,11 +400,13 @@ export function SlashCommandMenu({
   editor,
   documentId,
   notionPageId,
+  onDraftCommitted,
+  onDraftPersisted,
 }: SlashCommandMenuProps) {
   const t = useT();
   const { send } = useSendToAgentChat();
   const navigate = useNavigate();
-  const createPage = useCreatePage();
+  const createPage = useCreatePage({ navigate: false, awaitPersist: true });
   const createDatabase = useCreateContentDatabase(documentId ?? null);
 
   const [isOpen, setIsOpen] = useState(false);
@@ -505,12 +538,70 @@ export function SlashCommandMenu({
     title: t("editor.slash.page"),
     description: t("editor.slash.pageDescription"),
     icon: IconFileText,
-    action: async () => {
+    preserveSlashRange: true,
+    action: async (_editor, { slashRange }) => {
       if (!documentId) {
         toast.error(t("editor.noDocumentSelected"));
         return;
       }
-      await createPage(documentId);
+      let pageId: string;
+      try {
+        pageId = await createPage(documentId);
+      } catch {
+        return;
+      }
+      const pageReference = {
+        type: "notionBlockAtom",
+        attrs: {
+          tagName: "page",
+          attrsJson: JSON.stringify({
+            id: pageId,
+          }),
+          label: "Untitled",
+        },
+      };
+      const insertContent = [pageReference, { type: "paragraph" }];
+      const range = slashRange
+        ? (() => {
+            const $from = editor.state.doc.resolve(slashRange.from);
+            return $from.parent.isTextblock
+              ? { from: $from.before(), to: $from.after() }
+              : slashRange;
+          })()
+        : null;
+
+      if (range) {
+        editor.chain().focus().insertContentAt(range, insertContent).run();
+      } else {
+        const { $from } = editor.state.selection;
+        editor
+          .chain()
+          .focus()
+          .insertContentAt($from.after(), insertContent)
+          .run();
+      }
+      await waitForEditorUpdateFrame();
+      try {
+        const content = collapseExactRepeatedNfm(
+          docToNfm(editor.getJSON() as any),
+          {
+            requiredText: `id="${pageId}"`,
+          },
+        );
+        if (onDraftPersisted) {
+          const persisted = await onDraftPersisted(content);
+          if (!persisted) throw new Error(t("empty.genericError"));
+        } else {
+          await onDraftCommitted?.();
+        }
+      } catch (error) {
+        toast.error(t("editor.failedToCreatePage"), {
+          description:
+            error instanceof Error ? error.message : t("empty.genericError"),
+        });
+        return;
+      }
+      navigate(`/page/${pageId}`, { flushSync: true });
     },
   };
 
@@ -621,19 +712,19 @@ export function SlashCommandMenu({
 
   const executeCommand = useCallback(
     async (cmd: CommandItem) => {
-      if (slashPosRef.current !== null) {
-        const { from } = editor.state.selection;
-        editor
-          .chain()
-          .focus()
-          .deleteRange({ from: slashPosRef.current, to: from })
-          .run();
+      const slashRange =
+        getActiveSlashCommandRange(editor) ??
+        (slashPosRef.current !== null
+          ? { from: slashPosRef.current, to: editor.state.selection.from }
+          : null);
+      if (slashRange && !cmd.preserveSlashRange) {
+        editor.chain().focus().deleteRange(slashRange).run();
       }
       setIsOpen(false);
       setIsTurnInto(false);
       setQuery("");
       slashPosRef.current = null;
-      await cmd.action(editor);
+      await cmd.action(editor, { slashRange });
     },
     [editor],
   );
@@ -688,24 +779,29 @@ export function SlashCommandMenu({
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
+        e.stopPropagation();
         if (filteredCommands.length === 0) return;
         setSelectedIndex((i) => (i + 1) % filteredCommands.length);
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
+        e.stopPropagation();
         if (filteredCommands.length === 0) return;
         setSelectedIndex(
           (i) => (i - 1 + filteredCommands.length) % filteredCommands.length,
         );
       } else if (e.key === "Enter") {
         e.preventDefault();
+        e.stopPropagation();
         if (filteredCommands[selectedIndex]) {
           executeCommand(filteredCommands[selectedIndex]);
         }
       } else if (e.key === "Escape") {
+        e.stopPropagation();
         setIsOpen(false);
         setIsTurnInto(false);
         setQuery("");
         slashPosRef.current = null;
+        onDraftCommitted?.();
       }
     };
 
@@ -717,6 +813,8 @@ export function SlashCommandMenu({
     filteredCommands,
     executeCommand,
     editor,
+    onDraftCommitted,
+    onDraftPersisted,
     openGeneratePopover,
     readInlineGenerateCommand,
     submitGeneratePrompt,
@@ -956,8 +1054,10 @@ function CommandButton({
   return (
     <button
       ref={buttonRef}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={onExecute}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        onExecute();
+      }}
       onMouseEnter={onHover}
       className={cn(
         "flex min-h-9 w-full items-center gap-3 px-3 py-1 text-left transition-colors",

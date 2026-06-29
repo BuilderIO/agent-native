@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadFile = vi.hoisted(() => vi.fn());
 const mockPdfText = vi.hoisted(() => vi.fn());
-const mockParseSlidesFigDesignSystem = vi.hoisted(() => vi.fn());
+const mockStartBuilderDesignSystemIndex = vi.hoisted(() => vi.fn());
 
 vi.mock("fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("fs")>();
@@ -39,13 +39,13 @@ vi.mock("../server/handlers/decks.js", () => ({
   notifyClients: vi.fn(),
 }));
 
-vi.mock("../server/lib/fig-design-system.js", () => ({
-  parseSlidesFigDesignSystem: (...args: unknown[]) =>
-    mockParseSlidesFigDesignSystem(...args),
-}));
-
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  startBuilderDesignSystemIndex: (...args: unknown[]) =>
+    mockStartBuilderDesignSystemIndex(...args),
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -57,7 +57,16 @@ import action from "./import-file";
 beforeEach(() => {
   vi.clearAllMocks();
   mockReadFile.mockResolvedValue(Buffer.from("%PDF-1.7\n"));
-  mockParseSlidesFigDesignSystem.mockReset();
+  mockStartBuilderDesignSystemIndex.mockResolvedValue({
+    ok: true,
+    source: "builder",
+    projectId: "project-1",
+    jobId: "job-1",
+    designSystemId: "ds-1",
+    suggestedTitle: "brand",
+    builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
+    status: "in-progress",
+  });
 });
 
 describe("import-file PDF source extraction", () => {
@@ -121,39 +130,35 @@ describe("import-file PDF source extraction", () => {
     ).rejects.toThrow("No importable text found in this PDF");
   });
 
-  it("parses .fig files into slide design-system data", async () => {
+  it("starts Builder indexing for .fig files", async () => {
     const figBuffer = Buffer.from("fig-kiwi\0\0\0\0");
-    const designSystem = {
-      colors: { accent: "#ff00aa" },
-      typography: {},
-      spacing: {},
-      borders: {},
-      slideDefaults: {},
-      logos: [],
-    };
     mockReadFile.mockResolvedValue(figBuffer);
-    mockParseSlidesFigDesignSystem.mockReturnValue({
-      ok: true,
-      suggestedTitle: "Brand Kit",
-      data: designSystem,
-      customInstructions: "Use the brand gradient.",
-      preview: { gradients: [], palette: [], namedColors: {} },
-    });
 
     const result = (await action.run({
       filePath: "brand.fig",
       format: "auto",
     })) as any;
 
-    expect(mockParseSlidesFigDesignSystem).toHaveBeenCalledWith({
-      data: figBuffer,
-      filename: "brand.fig",
+    expect(mockStartBuilderDesignSystemIndex).toHaveBeenCalledWith({
+      projectName: "brand",
+      files: [
+        {
+          name: "brand.fig",
+          data: figBuffer,
+          mimeType: "application/octet-stream",
+        },
+      ],
     });
     expect(result).toMatchObject({
       format: "fig",
-      title: "Brand Kit",
-      designSystem,
-      customInstructions: "Use the brand gradient.",
+      title: "brand",
+      source: "builder",
+      projectId: "project-1",
+      jobId: "job-1",
+      designSystemId: "ds-1",
+      builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
+      status: "in-progress",
     });
+    expect(result.instructions).toContain("Do not call create-design-system");
   });
 });

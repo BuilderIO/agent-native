@@ -1,0 +1,249 @@
+---
+title: "CI-Evaluierungstor"
+description: "Schreiben Sie *.eval.ts-Testfälle, die den echten Agenten anhand fester Eingaben ausführen, die Ausgabe mit zusammensetzbaren Scorern bewerten und CI/Bereitstellungen auf einen Schwellenwert beschränken."
+---
+
+# CI-Evaluierungstor
+
+Auswertungen sind ein erstklassiges Testprimitiv: Sie deklarieren eine Eingabeaufforderung und das von Ihnen erwartete Verhalten. Der Läufer **führt tatsächlich die Agentenschleife aus** für diese Eingabe, bewertet die Ausgabe mit zusammensetzbaren Bewertungspunkten und wird mit einem Wert ungleich Null beendet, wenn ein Fall einen Wert unter seinem Schwellenwert aufweist. Dieser Exit ungleich Null macht `agent-native eval` zu einem Drop-in-CI-Deploy-Gate.
+
+Dies ist eine Ergänzung zur Post-hoc-Bewertung in [Observability](/docs/observability):
+
+- **Observability evals** (`observability/evals.ts`) – _„Wie hat dieser echte Lauf abgeschnitten?“_ Passiv, abgetastet, lebt neben Spuren.
+- **`*.eval.ts` (dieses Grundelement)** – _„Tut der Agent bei dieser festen Eingabe das Richtige?“_ Aktiv, deterministisch, ein CI-Gate, das über CLI ausgeführt wird.
+
+Der Runner löst eine anbieterunabhängige Engine/ein anbieterunabhängiges Modell aus der vorhandenen Registrierung auf – kein Modell ist fest codiert – sodass dieselbe Suite für jede Engine ausgeführt wird, für die die App konfiguriert ist.
+
+<Diagram id="doc-block-v07e0k" title="Vom festen Eingang bis zum Bereitstellungstor" summary={"Der Läufer führt tatsächlich die Agentenschleife für jeden Fall aus, bewertet die Ausgabe und verlässt sie mit einem Wert ungleich Null, wenn einer der Punktezähler unter den Schwellenwert fällt – was ihn zu einem Drop-in-CI-Gate macht."}>
+
+```html
+<div class="eval-flow">
+  <div class="diagram-node">
+    *.eval.ts<br /><small class="diagram-muted"
+      >prompt + expected behavior</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Agentenschleife ausführen<br /><small class="diagram-muted"
+      >real engine/model</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    Scorers<br /><small class="diagram-muted"
+      >every one must pass threshold</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box ok">exit 0 &rarr; deploy</div>
+    <div class="diagram-box warn">exit 1 &rarr; block</div>
+  </div>
+</div>
+```
+
+```css
+.eval-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.eval-flow .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.eval-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.eval-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Eine Bewertung schreiben {#writing}
+
+Legen Sie eine `*.eval.ts`-Datei an einer beliebigen Stelle in der App ab (oder eine `evals/*.ts`-Datei). Jede Datei `export default defineEval(...)` (oder exportiert ein Array davon):
+
+```ts
+// evals/greeting.eval.ts
+import { defineEval, contains, llmJudge } from "@agent-native/core/eval";
+
+export default defineEval({
+  name: "greets the user by name",
+  input: { prompt: "Say hi to Ada." },
+  threshold: 0.7, // per-scorer pass bar; default 0.5
+  scorers: [
+    contains("Ada"),
+    llmJudge({ criteria: "friendliness", rubric: "1.0 = warm greeting" }),
+  ],
+});
+```
+
+Eine Bewertung ist nur dann erfolgreich, wenn **jeder** Scorer den Schwellenwert erreicht. Schlüsselfelder `defineEval`:
+
+| Feld        | Typ                   | Notizen                                                                             |
+| ----------- | --------------------- | ----------------------------------------------------------------------------------- |
+| `name`      | Zeichenfolge          | Erforderlich. Wird im Bericht angezeigt.                                            |
+| `input`     | `{ prompt, history }` | Erforderlich `prompt`; optionale vorherige `{ role, text }`-Runden.                 |
+| `scorers`   | `Scorer[]`            | Erforderlich, mindestens einer.                                                     |
+| `threshold` | Nummer `0..1`         | Passleiste pro Torschütze. Standard `0.5`; überschreibbar vom CLI.                  |
+| `run`       | Funktion              | Optionale Überschreibung für benutzerdefinierte Einrichtung (Saatdaten, Multiturn). |
+
+Der den Bewertern übergebene Agentenlauf ist klein und transportunabhängig:
+
+```ts
+interface AgentRunOutput {
+  text: string; // concatenated assistant text
+  toolCalls: readonly string[]; // tool/action names, in call order
+  ok: boolean; // completed without a terminal error
+  error?: string;
+  runId: string;
+  durationMs: number;
+}
+```
+
+## Eingebaute Scorer {#built-in}
+
+Importiert von `@agent-native/core/eval`:
+
+| Scorer                   | Punktzahl                                                                                             | Modell? |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- | ------- |
+| `exactMatch(expected)`   | `1.0`, wenn der Text gleich `expected` ist (gekürzt, ohne Berücksichtigung der Groß-/Kleinschreibung) | Nein    |
+| `contains(needles)`      | Anteil der erforderlichen Teilzeichenfolgen vorhanden (so dass Teiltreffer sichtbar sind)             | Nein    |
+| `usesTool(toolName)`     | `1.0`, wenn der Agent dieses Tool/diese Aktion mindestens einmal aufgerufen hat                       | Nein    |
+| `llmJudge({ criteria })` | LLM-als-Richter punktete anhand einer Rubrik in natürlicher Sprache, → `0..1`                         | Ja      |
+
+`exactMatch` und `contains` benötigen einen optionalen `{ caseSensitive }`. `llmJudge` übernimmt `{ criteria, rubric?, name?, scoreRange? }` – seine Ausgabe wird auf `[0, 1]` normalisiert, und das Richtermodell ist das, was der Läufer aufgelöst hat (niemals ein fest codierter Anbieter).
+
+## Benutzerdefinierte Scorer: die 4-stufige Pipeline {#custom}
+
+`createScorer` erstellt einen Scorer aus einer 4-stufigen Pipeline im Mastra-Stil. Es ist nur `generateScore` erforderlich:
+
+<Diagram id="doc-block-q3uriz" title="Die 4-stufige Scorer-Pipeline" summary={"Identitätsvorgaben vorverarbeiten und analysieren; Es ist nur „generateScore“ erforderlich. „analysieren“ kann einfaches JS ausführen oder über ctx einen LLM-Richter aufrufen."}>
+
+```html
+<div class="scorer">
+  <div class="diagram-card">
+    <span class="diagram-pill">preprocess(run)</span
+    ><small class="diagram-muted"
+      >transform the run/output &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">analyze(x, ctx)</span
+    ><small class="diagram-muted"
+      >plain JS or LLM judge &middot; optional</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">generateScore(a)</span
+    ><small class="diagram-muted"
+      >&rarr; 0..1 normalized &middot; <strong>required</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">generateReason</span
+    ><small class="diagram-muted">human-readable why &middot; optional</small>
+  </div>
+</div>
+```
+
+```css
+.scorer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.scorer .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.scorer .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+```text
+preprocess(run)     → x          transform the run/output (optional)
+analyze(x, ctx)     → analysis   plain JS OR an LLM judge (optional)
+generateScore(a)    → 0..1       REQUIRED, normalized
+generateReason(...) → string     human-readable why (optional)
+```
+
+`preprocess` und `analyze` sind standardmäßig identisch (der Scorer sieht den rohen `AgentRunOutput`). Der Schritt `analyze` erhält einen `ctx` mit einem anbieterunabhängigen `judge()`-Helfer für die von LLM unterstützte Bewertung:
+
+```ts
+import { createScorer, clamp01 } from "@agent-native/core/eval";
+
+// A scorer that rewards short, tool-using answers.
+const concise = createScorer({
+  name: "concise_with_tool",
+  analyze(run) {
+    return {
+      words: run.text.trim().split(/\s+/).length,
+      usedTool: run.toolCalls.length > 0,
+    };
+  },
+  generateScore({ words, usedTool }) {
+    if (!usedTool) return 0;
+    return clamp01(1 - Math.max(0, words - 40) / 200);
+  },
+  generateReason({ analysis }) {
+    return `${analysis.words} words, tool used: ${analysis.usedTool}`;
+  },
+});
+```
+
+## Das Tor laufen lassen {#cli}
+
+```bash
+agent-native eval                    # run every *.eval.ts; non-zero exit on failure
+agent-native eval billing            # nur Dateien, deren Pfad „Billing“ enthält
+agent-native eval --json             # machine-readable report (for CI)
+agent-native eval --threshold 0.8    # override every eval's pass threshold (0..1)
+```
+
+Der Befehl erkennt `**/*.eval.ts` und `evals/*.ts` unter der aktuellen App, führt den Agenten für jede Eingabe aus, bewertet sie, druckt eine lesbare Tabelle (oder JSON) und **wird ungleich Null beendet, wenn eine Bewertung unter ihrem Schwellenwert liegt**.
+
+Exit-Codes:
+
+| Code | Bedeutung                                                                                           |
+| ---- | --------------------------------------------------------------------------------------------------- |
+| `0`  | Alle Evaluierungen bestanden – _oder_ es wurden keine Evaluierungsdateien gefunden (CI-freundlich). |
+| `1`  | Mindestens eine Bewertung lag unter dem Schwellenwert oder die Suite ist fehlerhaft.                |
+| `2`  | Ungültige Argumente (z. B. `--threshold` außerhalb von `[0, 1]`).                                   |
+
+### Als CI-Deploy-Gate {#ci}
+
+Fügen Sie es der Pipeline hinzu, die vor einer Bereitstellung ausgeführt wird:
+
+```yaml
+# .github/workflows/deploy.yml (excerpt)
+- run: npx agent-native eval --json
+```
+
+Eine Regression, die einen Scorer unter den Schwellenwert fallen lässt, schlägt den Schritt fehl und blockiert die Bereitstellung. Eine App ohne Evaluierungsdateien wird `0` beendet, daher ist die Übernahme von Evals eine Opt-in-Aktion pro App.
+
+## Was kommt als nächstes?
+
+- [**Observability**](/docs/observability) – Post-hoc-Bewertung realer Produktionsläufe (die ergänzende Ebene)
+- [**Actions**](/docs/actions) – die tools/actions, die in `toolCalls` angezeigt werden
+- [**Agent Teams**](/docs/agent-teams) – Subagenten, die eine Bewertung ausführen könnte

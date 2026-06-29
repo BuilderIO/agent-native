@@ -1,0 +1,179 @@
+---
+title: "फ़ाइल अपलोड"
+description: "फ़ाइल अपलोड स्टोरेज कॉन्फ़िगर करें - डेव, Builder.io या उत्पादन के लिए कस्टम प्रदाताओं के लिए SQL फ़ॉलबैक।"
+---
+
+# फ़ाइल अपलोड
+
+फ्रेमवर्क एक फ़ाइल अपलोड एब्स्ट्रैक्शन प्रदान करता है जो एक कॉन्फ़िगर करने योग्य प्रदाता के माध्यम से अपलोड को रूट करता है। टेम्प्लेट `uploadFile()` को कॉल करते हैं और एक URL वापस प्राप्त करते हैं - स्टोरेज बैकएंड एप्लिकेशन कोड को बदले बिना स्वैप किया जा सकता है।
+
+## यह कैसे काम करता है {#how-it-works}
+
+अपलोड अनुरोध `POST /_agent-native/file-upload` पर जाते हैं, जो सक्रिय प्रदाता को भेजता है। आप जाँच सकते हैं कि कौन सा प्रदाता `GET /_agent-native/file-upload/status` पर कॉन्फ़िगर किया गया है।
+
+प्रदाता समाधान आदेश है:
+
+1. **उपयोगकर्ता-पंजीकृत प्रदाता** — `registerFileUploadProvider()` के माध्यम से पंजीकृत कस्टम प्रदाता
+2. **Builder.io प्रदाता** - अंतर्निहित, Builder.io कनेक्ट होने पर स्वचालित रूप से सक्रिय हो जाता है
+3. **SQL फ़ॉलबैक** — डेटाबेस में फ़ाइलों को बेस64 के रूप में संग्रहीत करता है (डेव के लिए ठीक है, उत्पादन के लिए नहीं)
+
+<Diagram id="doc-block-1j4i20h" title={"प्रदाता समाधान आदेश"} summary={"uploadFile() क्रम में पहले कॉन्फ़िगर किए गए प्रदाता को चुनता है। SQL फ़ॉलबैक हमेशा मौजूद रहता है इसलिए अपलोड शून्य सेटअप के साथ काम करते हैं।"}>
+
+```html
+<div class="diagram-upload">
+  <div class="diagram-box" data-rough>
+    uploadFile()<br /><small class="diagram-muted"
+      >POST /_agent-native/file-upload</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-step">
+      <span class="diagram-pill accent">1</span>
+      <div class="diagram-node">
+        उपयोगकर्ता-पंजीकृत<br /><small class="diagram-muted"
+          >registerFileUploadProvider() — S3, R2, GCS…</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill">2</span>
+      <div class="diagram-node">
+        Builder.io<br /><small class="diagram-muted"
+          >कनेक्ट होने पर स्वतः — CDN से सर्व</small
+        >
+      </div>
+    </div>
+    <div class="diagram-step">
+      <span class="diagram-pill warn">3</span>
+      <div class="diagram-node">
+        SQL वैकल्पिक fallback विकल्प<br /><small class="diagram-muted"
+          >DB में base64 — केवल dev</small
+        >
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-upload {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-upload .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-upload .diagram-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-upload .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1b993nk" title={"अपलोड समापन बिंदु"} method="POST" path="/_agent-native/file-upload" summary={"सक्रिय प्रदाता के माध्यम से एक फ़ाइल अपलोड करें और एक सार्वजनिक URL वापस प्राप्त करें।"} request={{
+  "contentType": "multipart/form-data"
+}} responses={[
+  {
+    "status": "200",
+    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+  }
+]}>
+
+Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.
+
+</Endpoint>
+
+## डिफ़ॉल्ट: SQL फ़ॉलबैक {#sql-fallback}
+
+जब कोई प्रदाता कॉन्फ़िगर नहीं किया जाता है, तो फ़ाइलें संसाधन प्रणाली के माध्यम से SQL डेटाबेस में बेस 64 डेटा के रूप में संग्रहीत की जाती हैं। यह स्थानीय विकास के लिए लीक से हटकर काम करता है लेकिन उत्पादन के लिए अनुशंसित नहीं है - बड़ी फ़ाइलें डेटाबेस को फुला देती हैं और कोई CDN नहीं होता है।
+
+फ़ॉलबैक का उपयोग करने पर एक बार की चेतावनी लॉग की जाती है।
+
+## Builder.io होस्टिंग {#builder-hosting}
+
+जब आपका ऐप Builder.io से कनेक्ट होता है, तो फ़ाइल अपलोड स्वचालित रूप से Builder की एसेट होस्टिंग पर रूट हो जाते हैं। फ़ाइलों को CDN से बिना किसी कॉन्फ़िगरेशन की आवश्यकता के परोसा जाता है। यह अनुशंसित उत्पादन सेटअप है.
+
+## कस्टम प्रदाता {#custom-providers}
+
+किसी भी स्टोरेज बैकएंड (S3, Cloudflare R2, GCS, आदि) का उपयोग करने के लिए सर्वर प्लगइन में एक कस्टम प्रदाता पंजीकृत करें:
+
+```ts
+// server/plugins/file-upload.ts
+import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+
+export default defineNitroPlugin(() => {
+  registerFileUploadProvider({
+    id: "s3",
+    name: "Amazon S3",
+    isConfigured: () => !!process.env.S3_BUCKET,
+    upload: async ({ data, filename, mimeType }) => {
+      const key = `uploads/${Date.now()}-${filename}`;
+      await s3Client.putObject({
+        Bucket: process.env.S3_BUCKET!,
+        Key: key,
+        Body: data,
+        ContentType: mimeType,
+      });
+      return {
+        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
+        provider: "s3",
+      };
+    },
+  });
+});
+```
+
+## API अपलोड करें {#upload-api}
+
+`FileUploadProvider` इंटरफ़ेस:
+
+```ts
+interface FileUploadProvider {
+  id: string; // Unique id, e.g. "s3"
+  name: string; // Human-readable name
+  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  upload: (input: FileUploadInput) => Promise<FileUploadResult>;
+}
+
+interface FileUploadInput {
+  data: Uint8Array | Buffer; // File contents
+  filename?: string; // Original filename
+  mimeType?: string; // MIME type, e.g. "image/png"
+  ownerEmail?: string; // For per-user scoping in fallback
+}
+
+interface FileUploadResult {
+  url: string; // Public URL for the uploaded file
+  id?: string; // Provider-specific id
+  provider: string; // Which provider handled it
+}
+```
+
+actions या सर्वर कोड में `@agent-native/core/file-upload` से `uploadFile()` का उपयोग करें:
+
+```ts
+import { uploadFile } from "@agent-native/core/file-upload";
+
+const result = await uploadFile({
+  data: fileBuffer,
+  filename: "photo.jpg",
+  mimeType: "image/jpeg",
+});
+
+if (result) {
+  // Provider handled it — result.url is the public URL
+} else {
+  // No provider configured — handle SQL वैकल्पिक fallback विकल्प yourself, or skip
+}
+```

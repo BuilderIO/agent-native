@@ -16,14 +16,19 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
+import {
+  docSourceSlugFromFilename,
+  preferMdxDocSourceFiles,
+} from "../../lib/docs-source";
 import {
   DocBlock,
   DocBlocksProvider,
   resolveDocBlockType,
   splitDocSegments,
   validateDocBlock,
+  validateDocSegment,
 } from "./docBlocks";
 
 const CONTENT_DIR = join(
@@ -38,15 +43,21 @@ type LoadedDoc = {
   body: string;
 };
 
+type DocSegment = ReturnType<typeof splitDocSegments>[number];
+type BlockSegment = Extract<DocSegment, { kind: "block" }>;
+type ValidatableBlockSegment =
+  | BlockSegment
+  | Extract<DocSegment, { kind: "invalid-block" }>;
+type ParsedDoc = LoadedDoc & {
+  segments: DocSegment[];
+};
+
 function loadDocsFromDir(dir: string, locale?: string): LoadedDoc[] {
-  return readdirSync(dir)
-    .filter((name) => name.endsWith(".md"))
-    .sort()
-    .map((name) => ({
-      locale,
-      slug: name.replace(/\.md$/, ""),
-      body: readFileSync(join(dir, name), "utf8"),
-    }));
+  return preferMdxDocSourceFiles(readdirSync(dir)).map((name) => ({
+    locale,
+    slug: docSourceSlugFromFilename(name),
+    body: readFileSync(join(dir, name), "utf8"),
+  }));
 }
 
 function loadDocs(): LoadedDoc[] {
@@ -65,26 +76,21 @@ function docLabel(doc: LoadedDoc) {
   return doc.locale ? `${doc.locale}/${doc.slug}` : doc.slug;
 }
 
-function parseJsonBlockData(segment: {
-  alias: string;
-  body: string;
-}): unknown | undefined {
+function parseJsonBlockData(segment: BlockSegment): unknown {
+  if (segment.source === "mdx") return segment.data;
   if (resolveDocBlockType(segment.alias) === "mermaid") return undefined;
   const trimmed = segment.body.trim();
   if (!trimmed) return undefined;
   return JSON.parse(trimmed) as unknown;
 }
 
-function fileTreeSegments(doc: LoadedDoc) {
-  return splitDocSegments(doc.body).filter(
-    (
-      segment,
-    ): segment is Extract<
-      ReturnType<typeof splitDocSegments>[number],
-      { kind: "block" }
-    > =>
+function fileTreeSegments(doc: ParsedDoc) {
+  return doc.segments.filter(
+    (segment): segment is BlockSegment =>
       segment.kind === "block" &&
-      resolveDocBlockType(segment.alias) === "file-tree",
+      (segment.source === "mdx"
+        ? segment.type === "file-tree"
+        : resolveDocBlockType(segment.alias) === "file-tree"),
   );
 }
 
@@ -99,11 +105,46 @@ function shouldTranslateFileTreeText(value: unknown): value is string {
   return /[A-Za-z]/.test(trimmed);
 }
 
+function fileTreeTitle(segment: BlockSegment): unknown {
+  return segment.source === "mdx" ? segment.title : segment.attrs.title;
+}
+
+function isValidatableBlockSegment(
+  segment: DocSegment,
+): segment is ValidatableBlockSegment {
+  return segment.kind === "block" || segment.kind === "invalid-block";
+}
+
+function markdownLinesOutsideFences(markdown: string): string[] {
+  const lines: string[] = [];
+  let inFence = false;
+  for (const line of markdown.split("\n")) {
+    if (/^\s*(?:```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (!inFence) lines.push(line);
+  }
+  return lines;
+}
+
 describe("docs visual blocks", () => {
   const docs = loadDocs();
   const localizedDocs = loadLocalizedDocs();
-  const allDocs = [...docs, ...localizedDocs];
-  const docsBySlug = new Map(docs.map((doc) => [doc.slug, doc]));
+  let allDocs: ParsedDoc[] = [];
+  let localizedParsedDocs: ParsedDoc[] = [];
+  let docsBySlug = new Map<string, ParsedDoc>();
+
+  beforeAll(() => {
+    const parseDoc = (doc: LoadedDoc): ParsedDoc => ({
+      ...doc,
+      segments: splitDocSegments(doc.body),
+    });
+    const parsedDocs = docs.map(parseDoc);
+    localizedParsedDocs = localizedDocs.map(parseDoc);
+    allDocs = [...parsedDocs, ...localizedParsedDocs];
+    docsBySlug = new Map(parsedDocs.map((doc) => [doc.slug, doc]));
+  }, 90_000);
 
   it("loads doc sources", () => {
     expect(docs.length).toBeGreaterThan(0);
@@ -116,49 +157,86 @@ describe("docs visual blocks", () => {
     const failures: string[] = [];
     for (const doc of allDocs) {
       const rawOpeners = (doc.body.match(/^```an-[\w-]+/gm) ?? []).length;
-      const parsedBlocks = splitDocSegments(doc.body).filter(
-        (segment) => segment.kind === "block",
+      const parsedFenceBlocks = doc.segments.filter(
+        (segment) =>
+          segment.kind === "block" &&
+          segment.source === "fence" &&
+          segment.alias.startsWith("an-"),
       ).length;
-      if (parsedBlocks !== rawOpeners) {
+      if (parsedFenceBlocks !== rawOpeners) {
         failures.push(
-          `${docLabel(doc)}: ${rawOpeners} \`an-*\` openers but ${parsedBlocks} parsed blocks`,
+          `${docLabel(doc)}: ${rawOpeners} \`an-*\` openers but ${parsedFenceBlocks} parsed fence blocks`,
         );
       }
     }
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
-  });
+  }, 30_000);
+
+  it("does not leave legacy an-* source fences in docs", () => {
+    const failures = allDocs
+      .map((doc) => {
+        const count = (doc.body.match(/^```an-[\w-]+/gm) ?? []).length;
+        return count > 0 ? `${docLabel(doc)}: ${count} legacy fences` : "";
+      })
+      .filter(Boolean);
+
+    expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
+  }, 30_000);
+
+  it("does not leave registered MDX block tags behind as prose", () => {
+    const failures: string[] = [];
+    const rawBlockTagPattern =
+      /^\s*<(?:AnnotatedCode|Callout|Checklist|Columns|DataModel|Diagram|Diff|Endpoint|FileTree|JsonExplorer|OpenApiSpec|Table|Tabs|Wireframe)(?:\s|>|\/|$)/;
+    for (const doc of allDocs) {
+      const leaked = doc.segments
+        .filter((segment) => segment.kind === "markdown")
+        .flatMap((segment) =>
+          markdownLinesOutsideFences(segment.text).filter((line) =>
+            rawBlockTagPattern.test(line),
+          ),
+        );
+      if (leaked.length > 0) {
+        failures.push(
+          `${docLabel(doc)}: unparsed registered MDX block tags: ${leaked.join(
+            ", ",
+          )}`,
+        );
+      }
+    }
+    expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
+  }, 30_000);
 
   it("every embedded block passes its schema", () => {
     const failures: string[] = [];
     for (const doc of allDocs) {
-      const segments = splitDocSegments(doc.body);
-      segments.forEach((segment, index) => {
-        if (segment.kind !== "block") return;
-        const result = validateDocBlock(segment.alias, segment.body);
+      doc.segments.forEach((segment, index) => {
+        if (!isValidatableBlockSegment(segment)) return;
+        const result = validateDocSegment(segment);
         if (!result.ok) {
           failures.push(
-            `${docLabel(doc)} [block #${index} \`${segment.alias}\`]: ${result.error}`,
+            `${docLabel(doc)} [block #${index} \`${
+              segment.kind === "invalid-block"
+                ? segment.tag
+                : segment.source === "mdx"
+                  ? segment.type
+                  : segment.alias
+            }\`]: ${result.error}`,
           );
         }
       });
     }
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
-  });
+  }, 30_000);
 
   it("every embedded block renders through the SSR path", () => {
     const failures: string[] = [];
     for (const doc of allDocs) {
-      const segments = splitDocSegments(doc.body);
-      segments.forEach((segment, index) => {
-        if (segment.kind !== "block") return;
+      doc.segments.forEach((segment, index) => {
+        if (!isValidatableBlockSegment(segment)) return;
         try {
           const html = renderToStaticMarkup(
             <DocBlocksProvider>
-              <DocBlock
-                alias={segment.alias}
-                attrs={segment.attrs}
-                body={segment.body}
-              />
+              <DocBlock segment={segment} />
             </DocBlocksProvider>,
           );
           // A rendered DocBlockError surfaces as the only child text; treat the
@@ -169,23 +247,31 @@ describe("docs visual blocks", () => {
           }
         } catch (error) {
           failures.push(
-            `${docLabel(doc)} [block #${index} \`${segment.alias}\`]: render threw — ${
-              (error as Error).message
-            }`,
+            `${docLabel(doc)} [block #${index} \`${
+              segment.kind === "invalid-block"
+                ? segment.tag
+                : segment.source === "mdx"
+                  ? segment.type
+                  : segment.alias
+            }\`]: render threw — ${(error as Error).message}`,
           );
         }
       });
     }
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
-  }, 30_000);
+  }, 90_000);
 
   it("renders stable fallback ids across repeated SSR renders", () => {
     const element = (
       <DocBlocksProvider>
         <DocBlock
-          alias="an-callout"
-          attrs={{}}
-          body='{ "tone": "info", "body": "Stable id" }'
+          segment={{
+            kind: "block",
+            source: "fence",
+            alias: "an-callout",
+            attrs: {},
+            body: '{ "tone": "info", "body": "Stable id" }',
+          }}
         />
       </DocBlocksProvider>
     );
@@ -193,9 +279,55 @@ describe("docs visual blocks", () => {
     expect(renderToStaticMarkup(element)).toBe(renderToStaticMarkup(element));
   });
 
+  it("fails registered MDX tags with unknown attributes", () => {
+    const segment = splitDocSegments(
+      `<Callout tone="info" typo="nope">\n\nHeads up.\n\n</Callout>`,
+    ).find(isValidatableBlockSegment);
+
+    expect(segment).toMatchObject({
+      kind: "invalid-block",
+      tag: "Callout",
+    });
+    expect(segment && validateDocSegment(segment)).toEqual({
+      ok: false,
+      error: "unknown attribute — typo",
+    });
+  });
+
+  it("fails registered MDX tags with unknown nested data keys", () => {
+    const segment = splitDocSegments(
+      '<FileTree title="Files" entries={[{ path: "app/page.tsx", surprise: true }]} />',
+    ).find(isValidatableBlockSegment);
+
+    expect(segment).toMatchObject({
+      kind: "invalid-block",
+      tag: "FileTree",
+    });
+    expect(segment && validateDocSegment(segment)).toEqual({
+      ok: false,
+      error: "unknown key — entries[0].surprise",
+    });
+  });
+
+  it("fails fenced block JSON with unknown data keys", () => {
+    expect(
+      validateDocBlock(
+        "an-file-tree",
+        JSON.stringify({
+          title: "Files",
+          entries: [{ path: "app/page.tsx", surprise: true }],
+          extra: true,
+        }),
+      ),
+    ).toEqual({
+      ok: false,
+      error: "unknown keys — extra, entries[0].surprise",
+    });
+  });
+
   it("localizes file-tree prose while preserving paths", () => {
     const failures: string[] = [];
-    for (const localizedDoc of localizedDocs) {
+    for (const localizedDoc of localizedParsedDocs) {
       const sourceDoc = docsBySlug.get(localizedDoc.slug);
       if (!sourceDoc) continue;
       const sourceTrees = fileTreeSegments(sourceDoc);
@@ -217,8 +349,8 @@ describe("docs visual blocks", () => {
           | undefined;
 
         if (
-          shouldTranslateFileTreeText(sourceTree.attrs.title) &&
-          localizedTree.attrs.title === sourceTree.attrs.title
+          shouldTranslateFileTreeText(fileTreeTitle(sourceTree)) &&
+          fileTreeTitle(localizedTree) === fileTreeTitle(sourceTree)
         ) {
           failures.push(
             `${docLabel(localizedDoc)} file-tree #${treeIndex}: title still matches English`,
@@ -252,5 +384,5 @@ describe("docs visual blocks", () => {
     }
 
     expect(failures, `\n${failures.join("\n")}\n`).toEqual([]);
-  });
+  }, 30_000);
 });

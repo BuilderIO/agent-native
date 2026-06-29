@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   filterProviderTranscriptSegments,
+  isLikelyMismatchedTranscriptLanguage,
   isNoSpeechProviderText,
   normalizeProviderTranscript,
 } from "./provider-transcript";
@@ -35,5 +36,35 @@ describe("provider transcript normalization", () => {
     expect(segments).toEqual([
       { startMs: 500, endMs: 1000, text: "Hello there." },
     ]);
+  });
+
+  it("flags ready transcripts whose stored language strongly disagrees with the script", () => {
+    expect(
+      isLikelyMismatchedTranscriptLanguage(
+        "en",
+        "我會去學習我的課程。然後我可以選擇這個團。",
+      ),
+    ).toBe(true);
+    expect(
+      isLikelyMismatchedTranscriptLanguage(
+        "zh-CN",
+        "I was speaking English about GitHub Copilot scrolling.",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not flag mixed-language mentions inside otherwise matching transcripts", () => {
+    expect(
+      isLikelyMismatchedTranscriptLanguage(
+        "en",
+        "Open the GitHub issue and select the 中文 label.",
+      ),
+    ).toBe(false);
+    expect(
+      isLikelyMismatchedTranscriptLanguage(
+        "zh-TW",
+        "請打開 GitHub Copilot app 的設定。",
+      ),
+    ).toBe(false);
   });
 });

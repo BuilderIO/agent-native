@@ -2,16 +2,18 @@ import { defineEventHandler, setResponseStatus, getMethod, getQuery } from "h3";
 import { getRequestHeader } from "h3";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
-import { getOrgContext } from "../org/context.js";
+import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { getSession } from "../server/auth.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
+import { resolveSecret } from "../server/credential-provider.js";
 import {
   getH3App,
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   processA2AContinuationById,
   processDueA2AContinuations,
@@ -173,6 +175,12 @@ type RemoteCodeCommandEnvelope = {
   orgId?: unknown;
   command?: unknown;
   source?: unknown;
+};
+
+type IntegrationCredentialContext = {
+  userEmail: string;
+  orgId?: string;
+  isIntegrationCaller?: boolean;
 };
 
 const REMOTE_DEVICE_ONLINE_MS = 90_000;
@@ -517,8 +525,7 @@ export function createIntegrationsPlugin(
     // init can leave us with an empty string forever. The getter
     // re-resolves on every webhook so freshly-set secrets work without
     // a redeploy.
-    const getApiKey = () =>
-      options?.apiKey ?? process.env.ANTHROPIC_API_KEY ?? "";
+    const getApiKey = () => options?.apiKey ?? "";
 
     // Build the system prompt
     const baseSystemPrompt = options?.systemPrompt ?? INTEGRATION_SYSTEM_PROMPT;
@@ -567,6 +574,39 @@ export function createIntegrationsPlugin(
         ownerEmail: session.email,
         orgId: orgCtx?.orgId ?? session.orgId ?? null,
       };
+    }
+
+    function toCredentialContext(
+      ctx: { ownerEmail: string; orgId: string | null },
+      opts?: { isIntegrationCaller?: boolean },
+    ): IntegrationCredentialContext {
+      return {
+        userEmail: ctx.ownerEmail,
+        ...(ctx.orgId ? { orgId: ctx.orgId } : {}),
+        ...(opts?.isIntegrationCaller ? { isIntegrationCaller: true } : {}),
+      };
+    }
+
+    async function credentialContextForIntegrationConfig(
+      config: Awaited<ReturnType<typeof getIntegrationConfig>>,
+    ): Promise<IntegrationCredentialContext | null> {
+      const ownerEmail =
+        typeof config?.owner === "string" ? config.owner.trim() : "";
+      if (!ownerEmail) return null;
+      const orgId = await resolveOrgIdForEmail(ownerEmail).catch(() => null);
+      return {
+        userEmail: ownerEmail,
+        ...(orgId ? { orgId } : {}),
+        isIntegrationCaller: true,
+      };
+    }
+
+    async function withCredentialContext<T>(
+      context: IntegrationCredentialContext | null,
+      fn: () => Promise<T>,
+    ): Promise<T> {
+      if (!context) return fn();
+      return runWithRequestContext(context, fn);
     }
 
     async function requireRemoteDevice(event: any) {
@@ -627,11 +667,15 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
-        if (!(await requireSession(event))) return { error: "unauthorized" };
         const baseUrl = getBaseUrl(event);
+        const ctx = await requireSessionContext(event);
+        if (!ctx) return { error: "unauthorized" };
+        const credentialContext = toCredentialContext(ctx);
         const statuses: IntegrationStatus[] = [];
         for (const adapter of adapters) {
-          const status = await adapter.getStatus(baseUrl);
+          const status = await withCredentialContext(credentialContext, () =>
+            adapter.getStatus(baseUrl),
+          );
           const config = await getIntegrationConfig(adapter.platform);
           status.enabled = !!config?.configData?.enabled;
           status.webhookUrl = `${baseUrl}${P}/${adapter.platform}/webhook`;
@@ -1422,9 +1466,13 @@ export function createIntegrationsPlugin(
 
         // ─── GET /:platform/status ─────────────────────────────
         if (action === "status" && method === "GET") {
-          if (!(await requireSession(event))) return { error: "unauthorized" };
+          const ctx = await requireSessionContext(event);
+          if (!ctx) return { error: "unauthorized" };
           const baseUrl = getBaseUrl(event);
-          const status = await adapter.getStatus(baseUrl);
+          const status = await withCredentialContext(
+            toCredentialContext(ctx),
+            () => adapter.getStatus(baseUrl),
+          );
           const config = await getIntegrationConfig(platform);
           status.enabled = !!config?.configData?.enabled;
           status.webhookUrl = `${baseUrl}${P}/${platform}/webhook`;
@@ -1482,14 +1530,20 @@ export function createIntegrationsPlugin(
             return "ok";
           }
 
+          const config = await getIntegrationConfig(platform);
+          const credentialContext =
+            await credentialContextForIntegrationConfig(config);
+
           // Handle platform verification challenges (e.g. Slack url_verification)
           // before checking enable state or parsing the message.
-          const verification = await adapter.handleVerification(event);
+          const verification = await withCredentialContext(
+            credentialContext,
+            () => adapter.handleVerification(event),
+          );
           if (verification.handled) {
             return verification.response ?? "ok";
           }
 
-          const config = await getIntegrationConfig(platform);
           if (!config?.configData?.enabled) {
             setResponseStatus(event, 404);
             return { error: `Integration ${platform} is not enabled` };
@@ -1500,13 +1554,17 @@ export function createIntegrationsPlugin(
           // hangs on streaming providers), and that means handleWebhook's
           // own verifyWebhook step is bypassed. Without this call anyone
           // could POST a forged Slack/Telegram/email payload.
-          const isValid = await adapter.verifyWebhook(event);
+          const isValid = await withCredentialContext(credentialContext, () =>
+            adapter.verifyWebhook(event),
+          );
           if (!isValid) {
             setResponseStatus(event, 401);
             return { error: "Invalid webhook signature" };
           }
 
-          const incoming = await adapter.parseIncomingMessage(event);
+          const incoming = await withCredentialContext(credentialContext, () =>
+            adapter.parseIncomingMessage(event),
+          );
           if (!incoming) {
             setResponseStatus(event, 200);
             return "ok";
@@ -1582,10 +1640,18 @@ export function createIntegrationsPlugin(
           if (platform === "telegram") {
             const baseUrl = getBaseUrl(event);
             const webhookUrl = `${baseUrl}${P}/telegram/webhook`;
-            const token = process.env.TELEGRAM_BOT_TOKEN;
+            const ctx = await requireSessionContext(event);
+            if (!ctx) return { error: "unauthorized" };
+            const token = await withCredentialContext(
+              toCredentialContext(ctx),
+              () => resolveSecret("TELEGRAM_BOT_TOKEN"),
+            );
             if (!token) {
               setResponseStatus(event, 400);
-              return { error: "TELEGRAM_BOT_TOKEN not configured" };
+              return {
+                error:
+                  "TELEGRAM_BOT_TOKEN not configured. Save it in settings.",
+              };
             }
             try {
               const res = await fetch(

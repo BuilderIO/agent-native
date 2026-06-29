@@ -60,7 +60,7 @@ async function assertPlanOwner(planId: string) {
 }
 
 function collabPrefixPattern(planId: string) {
-  return `${`plan:${planId}:`.replace(/[\\%_]/g, (value) => `\\${value}`)}%`;
+  return `${`plan:${planId}:`.replace(/[!%_]/g, (value) => `!${value}`)}%`;
 }
 
 function isMissingCollabTableError(error: unknown) {
@@ -71,7 +71,7 @@ async function deletePlanCollabState(planId: string) {
   await deleteCollabState(`plan:${planId}`);
   try {
     await getDbExec().execute({
-      sql: `DELETE FROM _collab_docs WHERE doc_id LIKE ? ESCAPE '\\'`,
+      sql: `DELETE FROM _collab_docs WHERE doc_id LIKE ? ESCAPE '!'`,
       args: [collabPrefixPattern(planId)],
     });
   } catch (error) {

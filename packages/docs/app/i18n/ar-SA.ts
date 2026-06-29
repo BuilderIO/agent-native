@@ -5,6 +5,10 @@ const arSA = {
     label: "اللغة",
     system: "النظام",
     systemDescription: "استخدم لغة المتصفح",
+    suggestionTitle: "هل تريد قراءة هذه الصفحة باللغة {{language}}؟",
+    suggestionDescription: "لغة متصفحك هي {{language}}.",
+    suggestionSwitch: "التبديل إلى {{language}}",
+    suggestionKeepEnglish: "إبقاء الإنجليزية",
   },
   header: {
     docs: "الوثائق",
@@ -39,6 +43,9 @@ const arSA = {
   docs: {
     navigateAria: "تصفح الوثائق",
     onThisPage: "في هذه الصفحة",
+    copyMarkdown: "نسخ المستند كـ Markdown",
+    copiedMarkdown: "تم نسخ Markdown",
+    copyMarkdownError: "تعذر نسخ Markdown",
     previous: "السابق",
     next: "التالي",
   },
@@ -77,7 +84,7 @@ const arSA = {
       secondaryCta: "عرض الوثائق",
     },
     code: {
-      quickStartComment: "ابدأ بقالب تطبيق كامل",
+      quickStartComment: "أنشئ app بأمر واحد",
       skillInstallComment:
         "أضف تخطيط Agent-Native إلى coding agent تستخدمه بالفعل",
       frameworkComment: "يشغل action واحد agent و UI و HTTP و MCP و A2A و CLI.",
@@ -187,12 +194,12 @@ const arSA = {
       },
     },
     quickStart: {
-      title: "ابدأ مع Chat",
-      body: "ينشئ أمر واحد Chat app محلية مدعومة ب actions و durable threads و SQLite. استخدم `--headless` بدلا من ذلك عندما لا تريد UI في المتصفح بعد.",
+      title: "ابدأ مع أمر واحد",
+      body: "ينشئ أمر واحد app محلية مدعومة ب actions و durable threads و SQLite. استخدم `--headless` بدلا من ذلك عندما لا تريد UI في المتصفح بعد.",
     },
     finalCta: {
       title: "software تملكه، مبني لعصر agentic era",
-      body: "ابدأ مع Chat أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
+      body: "ابدأ مع أمر واحد أو durable action، شغّله عبر app-agent loop، ثم نمّه إلى UI و jobs وتعاون من دون إعادة كتابة العملية. مفتوح المصدر. Forkable. لك.",
       primaryCta: "ابدأ مع Action",
       secondaryCta: "اقرأ الوثائق",
       githubCta: "عرض على GitHub",
@@ -232,6 +239,7 @@ const arSA = {
       workspaces: "مساحات العمل",
       voiceInput: "الإدخال الصوتي",
       mcpApps: "MCP التطبيقات",
+      generativeUi: "واجهة توليدية",
       toolCalls: "مكالمات الأداة",
       agentSidebar: "الشريط الجانبي للوكيل",
       sharedActions: "الإجراءات المشتركة",
@@ -527,7 +535,7 @@ const arSA = {
       s004: "إملاء",
       s005: "يمكن أن ترى + تسمع",
       s006: "جميع القوالب",
-      s007: "البديل مفتوح المصدر لـ Loom وJam",
+      s007: "البديل مفتوح المصدر لـ Loom",
       s008: "الصق رابط Clips في الوكيل ويمكنه سماع النص وقراءة الملخصات ورؤية الإطارات ذات الطوابع الزمنية حتى لو لم يتمكن النموذج الخاص به من استيعاب الفيديو أو الصوت الخام.",
       s009: "جرّب",
       s010: "ما يمكنك القيام به",
@@ -1094,16 +1102,17 @@ const arSA = {
     },
   },
   skillsPage: {
-    metaTitle: "مهارات الوكيل - Visual Plan و Visual Recap لوكلاء البرمجة",
+    metaTitle:
+      "مهارات الوكيل - Visual Plan و Visual Recap و Visual Edit لوكلاء البرمجة",
     metaDescription:
-      "ثبّت مهارات مدعومة بتطبيقات Agent-Native ليستخدم وكيل البرمجة التخطيط المرئي وملخصات PR.",
+      "ثبّت مهارات مدعومة بتطبيقات Agent-Native ليستخدم وكيل البرمجة التخطيط المرئي وملخصات PR والتحرير المرئي المحلي.",
     metaOgDescription:
       "امنح وكيل البرمجة أوامر slash مدعومة بتطبيقات Agent-Native يمكنك استضافتها وفحصها وتخصيصها.",
     metaKeywords:
-      "مهارات الوكيل, visual plan, visual recap, وكيل برمجة, Claude Code, Codex, مراجعة PR, تخطيط, agent-native",
+      "مهارات الوكيل, visual plan, visual recap, visual edit, وكيل برمجة, Claude Code, Codex, مراجعة PR, تخطيط, agent-native",
     heroTitle: "امنح وكيل البرمجة قدرات جديدة",
     heroBody:
-      "ثبّت مهارات مدعومة بتطبيقات Agent-Native يمكنك تخصيصها بالكامل: تخطيط مرئي قبل التنفيذ وملخصات PR مرئية بعد وصول التغييرات.",
+      "ثبّت مهارات مدعومة بتطبيقات Agent-Native يمكنك تخصيصها بالكامل: تخطيط مرئي قبل التنفيذ وملخصات PR مرئية بعد وصول التغييرات وتحرير مرئي لتدفقات UI المحلية.",
     sectionTitle: "مهارات مدعومة بتطبيقات لوكلاء البرمجة",
     sectionBody:
       "استخدم روابط تطبيقات مستضافة قابلة للمشاركة أو ملفات محلية أو تطبيقا مستضافا ذاتيا/مخصصا؛ يحصل وكيلك على التعليمات وسطح MCP المطابق عند الحاجة.",
@@ -1128,6 +1137,15 @@ const arSA = {
       feature1: "يلخص تغييرات schema و API والملفات",
       feature2: "يمكنه اختياريا نشر تعليق PR مثبت",
       videoAriaLabel: "فيديو توضيحي لمهارة Visual Recap",
+    },
+    visualEdit: {
+      name: "تحرير مرئي",
+      tagline: "حرر تدفقات UI المحلية",
+      description:
+        "يفتح تطبيق localhost يعمل داخل Design كشاشات مرتبطة بعناوين URL للمراجعة والتحرير المرئي.",
+      feature1: "رتب تدفقات متعددة الشاشات من عناوين URL مرتبة",
+      feature2: "افحص حالات المسارات الحية وكررها وحسنها",
+      videoAriaLabel: "فيديو توضيحي لمهارة Visual Edit",
     },
   },
   downloadPage: {
@@ -1392,6 +1410,7 @@ const arSA = {
     dropInAgent: "وكيل جاهز للإضافة",
     componentApi: "واجهة Component API",
     nativeChatUi: "واجهة دردشة أصلية",
+    generativeUi: "واجهة توليدية",
     realTimeCollaboration: "تعاون فوري",
     workspaceOverview: "نظرة عامة على Workspace",
     skills: "المهارات",

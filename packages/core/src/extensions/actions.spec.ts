@@ -40,6 +40,11 @@ function mockExtensionModules(
   opts: { store?: Record<string, unknown>; resolveAccessRole?: string } = {},
 ) {
   vi.doMock("./store.js", () => baseStoreMock(opts.store));
+  vi.doMock("./local.js", () => ({
+    getLocalExtension: vi.fn(async () => null),
+    isLocalExtensionRow: (row: any) => !!row?.source,
+    listLocalExtensions: vi.fn(async () => []),
+  }));
   vi.doMock("./slots/store.js", () => ({
     addExtensionSlotTarget: vi.fn(),
     installExtensionSlot: vi.fn(),
@@ -781,9 +786,76 @@ describe("extensions/actions", () => {
     )) as any;
 
     expect(result.ok).toBe(true);
+    expect(actions["create-extension"].chatUI?.renderer).toBe(
+      "core.inline-extension",
+    );
     expect(createExtension).toHaveBeenCalledWith(
       expect.objectContaining({ content: "<div>inline</div>" }),
     );
+  });
+
+  it("render-inline-extension returns a transient chat-only extension", async () => {
+    const createExtension = vi.fn();
+    mockExtensionModules({ store: { createExtension } });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = (await actions["render-inline-extension"].run(
+      {
+        name: "Threshold tuner",
+        description: "Adjust a score",
+        content: "<div x-data></div>",
+        context: '{"score":42}',
+        initialHeight: 360,
+      },
+      { caller: "tool" } as any,
+    )) as any;
+
+    expect(actions["render-inline-extension"].readOnly).toBe(true);
+    expect(actions["render-inline-extension"].chatUI?.renderer).toBe(
+      "core.inline-extension",
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      inlineExtension: {
+        mode: "transient",
+        name: "Threshold tuner",
+        description: "Adjust a score",
+        content: "<div x-data></div>",
+        context: { score: 42 },
+        initialHeight: 360,
+      },
+    });
+    expect(result.inlineExtension.id).toMatch(/^inline-/);
+    expect(createExtension).not.toHaveBeenCalled();
+  });
+
+  it("show-extension-inline returns saved extension metadata for inline chat rendering", async () => {
+    const getExtension = vi.fn(async () => extensionRow);
+    mockExtensionModules({ store: { getExtension } });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const result = (await actions["show-extension-inline"].run({
+      id: "ext-zoom",
+      context: '{"source":"chat"}',
+    })) as any;
+
+    expect(actions["show-extension-inline"].readOnly).toBe(true);
+    expect(actions["show-extension-inline"].chatUI?.renderer).toBe(
+      "core.inline-extension",
+    );
+    expect(getExtension).toHaveBeenCalledWith("ext-zoom");
+    expect(result).toMatchObject({
+      ok: true,
+      inlineExtension: {
+        mode: "persisted",
+        id: "ext-zoom",
+        name: "Connect Zoom",
+        path: "/extensions/ext-zoom/connect-zoom",
+        context: { source: "chat" },
+      },
+    });
   });
 
   it("update-extension replaces full content from an attachment by reference", async () => {

@@ -22,7 +22,7 @@ import {
 
 export default defineAction({
   description:
-    "Permanently delete a recording and every related row (comments, reactions, viewers, events, transcript, tags, CTAs, shares). This cannot be undone.",
+    "Permanently delete a recording and every related row (comments, reactions, viewers, events, transcript, tags, CTAs, shares, diagnostics, bug reports). This cannot be undone.",
   schema: z.object({
     id: z.string().describe("Recording ID"),
   }),
@@ -57,6 +57,12 @@ export default defineAction({
     await db
       .delete(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.id));
+    await db
+      .delete(schema.recordingBrowserDiagnostics)
+      .where(eq(schema.recordingBrowserDiagnostics.recordingId, args.id));
+    await db
+      .delete(schema.recordingBugReports)
+      .where(eq(schema.recordingBugReports.recordingId, args.id));
     await db
       .delete(schema.recordingTags)
       .where(eq(schema.recordingTags.recordingId, args.id));

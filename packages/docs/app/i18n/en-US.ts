@@ -3,6 +3,10 @@ const enUS = {
     label: "Language",
     system: "System",
     systemDescription: "Use your browser language",
+    suggestionTitle: "Read this page in {{language}}?",
+    suggestionDescription: "Your browser language is {{language}}.",
+    suggestionSwitch: "Switch to {{language}}",
+    suggestionKeepEnglish: "Keep English",
   },
   header: {
     docs: "Docs",
@@ -37,6 +41,9 @@ const enUS = {
   docs: {
     navigateAria: "Navigate docs",
     onThisPage: "On this page",
+    copyMarkdown: "Copy doc as Markdown",
+    copiedMarkdown: "Copied Markdown",
+    copyMarkdownError: "Couldn't copy Markdown",
     previous: "Previous",
     next: "Next",
   },
@@ -86,7 +93,7 @@ const enUS = {
       secondaryCta: "View the Docs",
     },
     code: {
-      quickStartComment: "Start with a full app template",
+      quickStartComment: "Create an app with one command",
       skillInstallComment:
         "Add agent-native planning to a coding agent you already use",
       frameworkComment:
@@ -197,12 +204,12 @@ const enUS = {
       },
     },
     quickStart: {
-      title: "Start with Chat",
-      body: "One command creates a local chat app backed by actions, durable threads, and SQLite. Use `--headless` instead when you want no browser UI yet.",
+      title: "Start with a Command",
+      body: "One command creates a local app backed by actions, durable threads, and SQLite. Use `--headless` instead when you want no browser UI yet.",
     },
     finalCta: {
       title: "Software you own, built for the agentic era",
-      body: "Start with chat or a durable action, run it through the app-agent loop, then grow it into UI, jobs, and collaboration without rewriting the operation. Open source. Forkable. Yours.",
+      body: "Start with a command or a durable action, run it through the app-agent loop, then grow it into UI, jobs, and collaboration without rewriting the operation. Open source. Forkable. Yours.",
       primaryCta: "Start with an Action",
       secondaryCta: "Read the Docs",
       githubCta: "View on GitHub",
@@ -242,6 +249,7 @@ const enUS = {
       workspaces: "Workspaces",
       voiceInput: "Voice input",
       mcpApps: "MCP apps",
+      generativeUi: "Generative UI",
       toolCalls: "Tool calls",
       agentSidebar: "Agent sidebar",
       sharedActions: "Shared actions",
@@ -528,7 +536,7 @@ const enUS = {
       s004: "Dictate",
       s005: "Can See + Hear",
       s006: "All Templates",
-      s007: "The open-source alternative to Loom and Jam",
+      s007: "The open-source alternative to Loom",
       s008: "Paste a Clips link into an agent and it can hear the transcript, read summaries, and see timestamped frames even if its model cannot ingest raw video or audio.",
       s009: "Try It",
       s010: "What you can do",
@@ -1095,16 +1103,17 @@ const enUS = {
     },
   },
   skillsPage: {
-    metaTitle: "Agent Skills - Visual Plan and Visual Recap for coding agents",
+    metaTitle:
+      "Agent Skills - Visual Plan, Visual Recap, and Visual Edit for coding agents",
     metaDescription:
-      "Install Agent-Native app-backed skills your coding agent can use for visual planning and PR recaps.",
+      "Install Agent-Native app-backed skills your coding agent can use for visual planning, PR recaps, and local visual editing.",
     metaOgDescription:
       "Give your coding agent slash commands powered by Agent-Native apps you can host, inspect, and customize.",
     metaKeywords:
-      "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, coding agent, Claude Code, Codex, PR review, planning, agent-native",
     heroTitle: "Give your coding agent new superpowers",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
+      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation, visual PR recaps after changes land, and visual editing for local UI flows.",
     sectionTitle: "App-backed skills for coding agents",
     sectionBody:
       "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
@@ -1129,6 +1138,15 @@ const enUS = {
       feature1: "Summarizes schema, API, and file changes",
       feature2: "Optionally posts one sticky PR comment",
       videoAriaLabel: "Visual Recap skill demo video",
+    },
+    visualEdit: {
+      name: "Visual Edit",
+      tagline: "Edit local UI flows",
+      description:
+        "Opens a running localhost app in Design as URL-backed screens for visual review and editing.",
+      feature1: "Lay out multi-screen flows from ordered URLs",
+      feature2: "Inspect, duplicate, and refine live route states",
+      videoAriaLabel: "Visual Edit skill demo video",
     },
   },
   downloadPage: {
@@ -1395,6 +1413,7 @@ const enUS = {
     dropInAgent: "Drop-in Agent",
     componentApi: "Component API",
     nativeChatUi: "Native Chat UI",
+    generativeUi: "Generative UI",
     realTimeCollaboration: "Real-Time Collaboration",
     workspaceOverview: "Workspace Overview",
     skills: "Skills",

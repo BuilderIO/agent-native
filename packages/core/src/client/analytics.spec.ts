@@ -62,13 +62,20 @@ function installFetch({
     model: "claude-sonnet-4-6",
     source: "app_secrets",
   },
+  session = { error: "not authenticated" },
 }: {
   status?: Record<string, unknown>;
+  session?: Record<string, unknown>;
 } = {}) {
   const analyticsCalls: Array<[unknown, RequestInit]> = [];
   const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
     if (String(url).includes("/_agent-native/agent-engine/status")) {
       return new Response(JSON.stringify(status), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (String(url).includes("/_agent-native/auth/session")) {
+      return new Response(JSON.stringify(session), {
         headers: { "Content-Type": "application/json" },
       });
     }
@@ -177,6 +184,61 @@ describe("browser analytics pageviews", () => {
         llm_model: "claude-sonnet-4-6",
         llm_connection_source: "app_secrets",
       },
+    });
+  });
+
+  it("accepts the first-party public key and endpoint at configure time", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+    });
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(1);
+    const [url, init] = analyticsCalls[0];
+    expect(url).toBe("https://analytics.example.test/api/analytics/track");
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      publicKey: "anpk_configured",
+      event: "pageview",
+    });
+  });
+
+  it("attaches the signed-in session identity to first-party analytics", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch({
+      session: {
+        email: "dev@example.com",
+        userId: "auth-user-1",
+        name: "Dev User",
+        orgId: "org_123",
+      },
+    });
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/api/analytics/track",
+      getDefaultProps: (_name, properties) => ({
+        ...properties,
+        app: "agent-native-clips",
+      }),
+    });
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(1);
+    const body = JSON.parse(String(analyticsCalls[0][1].body));
+    expect(body.userId).toBe("dev@example.com");
+    expect(body.properties).toMatchObject({
+      userId: "dev@example.com",
+      userEmail: "dev@example.com",
+      userName: "Dev User",
+      orgId: "org_123",
+      app: "agent-native-clips",
+      template: "clips",
     });
   });
 
@@ -378,6 +440,108 @@ describe("browser analytics pageviews", () => {
       },
     };
     expect(options.beforeSend(eventWithAppFrame)).toBe(eventWithAppFrame);
+  });
+
+  it("drops iOS WebKit scroll bridge noise from docs Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "TypeError",
+            value:
+              "undefined is not an object (evaluating 'window.webkit.messageHandlers.scrollEventHandler.postMessage')",
+            stacktrace: {
+              frames: [{ filename: "/assets/analytics.js", function: "r" }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/ja-JP",
+      },
+    });
+
+    expect(result).toBeNull();
+  });
+
+  it("drops source-less public docs stack overflow noise from browser Sentry", async () => {
+    installBrowser();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      sentryDsn: "https://public@example/4511270423822336",
+      sentryEnvironment: "production",
+    };
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    const options = sentryMock.init.mock.calls[0][0];
+    const result = options.beforeSend({
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/skills",
+      },
+    });
+
+    expect(result).toBeNull();
+
+    const eventWithAppFrame = {
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [
+                {
+                  filename: "/assets/app.js",
+                  function: "render",
+                },
+              ],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://www.agent-native.com/skills",
+      },
+    };
+    expect(options.beforeSend(eventWithAppFrame)).toBe(eventWithAppFrame);
+
+    const nonDocsEvent = {
+      exception: {
+        values: [
+          {
+            type: "RangeError",
+            value: "Maximum call stack size exceeded.",
+            stacktrace: {
+              frames: [{ filename: "undefined", function: null }],
+            },
+          },
+        ],
+      },
+      request: {
+        url: "https://mail.agent-native.com/inbox",
+      },
+    };
+    expect(options.beforeSend(nonDocsEvent)).toBe(nonDocsEvent);
   });
 
   it("drops user-aborted browser requests from Sentry", async () => {

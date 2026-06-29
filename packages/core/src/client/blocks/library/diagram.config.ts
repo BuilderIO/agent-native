@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { childCodeFenceFields, serializeChildCodeFenceFields } from "../mdx.js";
 import type { BlockMdxConfig } from "../types.js";
 
 /**
@@ -9,10 +10,9 @@ import type { BlockMdxConfig } from "../types.js";
  * (`diagram.tsx`) consume one definition. Keeping it React-free means importing
  * it into a server module never pulls React into the Nitro/SSR bundle.
  *
- * The MDX `tag` + attribute shape MUST match the legacy `<Diagram … data={…} />`
- * encoding — the whole `data` object is serialized as one JSON `data` prop — so
- * stored `.mdx` round-trips byte-compatibly (the block originated in the plan
- * template before moving here).
+ * The MDX `tag` keeps backward compatibility with legacy
+ * `<Diagram … data={…} />` files while the current authoring form stores
+ * maintainable `html`/`css` as child code fences.
  */
 
 export interface DiagramNode {
@@ -157,22 +157,46 @@ export const diagramSchema = z
     });
   }) as unknown as z.ZodType<DiagramData>;
 
+function hasChildFenceData(data: DiagramData) {
+  return Boolean(data.html || data.css);
+}
+
+function graphDataForAttr(data: DiagramData): DiagramData | undefined {
+  const graph: DiagramData = {};
+  if (data.nodes?.length) graph.nodes = data.nodes;
+  if (data.edges?.length) graph.edges = data.edges;
+  if (data.notes?.length) graph.notes = data.notes;
+  if (Object.keys(graph).length > 0) return graph;
+  return hasChildFenceData(data) ? undefined : data;
+}
+
 /**
- * MDX config: the entire `data` object is serialized as one JSON `data` prop and
- * the element is self-closing — exactly the legacy `<Diagram id … data={…} />`
- * form. `toAttrs` returns `{ data }`; `fromAttrs` reads the `data` object,
- * mirroring the legacy `dataAttr(node, "data") ?? { nodes: [], edges: [] }`
- * default so plans missing the prop still parse.
+ * MDX config: new source uses normal fenced-code children:
+ *
+ * `<Diagram caption="...">` plus child `html` / `css` fences. Legacy
+ * `<Diagram data={...} />` remains accepted by `fromAttrs`; `toAttrs` keeps the
+ * `data` key present-but-undefined when using child fences so docs validation
+ * still recognizes old `data={...}` as a supported compatibility attribute.
  */
 export const diagramMdx: BlockMdxConfig<DiagramData> = {
   tag: "Diagram",
-  // The whole data object becomes one JSON `data` prop. Cast to the
-  // structured-attr member of `MdxAttrValue` — `DiagramData` is a closed
-  // interface without an index signature, which the union member requires.
-  toAttrs: (data) => ({ data: data as unknown as Record<string, unknown> }),
-  fromAttrs: (attrs) =>
-    (attrs.object<DiagramData>("data") ?? {
-      nodes: [],
-      edges: [],
-    }) as DiagramData,
+  toAttrs: (data) => ({
+    data: graphDataForAttr(data) as unknown as
+      | Record<string, unknown>
+      | undefined,
+    caption: data.caption,
+  }),
+  fromAttrs: (attrs) => ({
+    ...(attrs.object<DiagramData>("data") ?? {}),
+    ...(attrs.string("caption") !== undefined
+      ? { caption: attrs.string("caption") }
+      : {}),
+  }),
+  serializeChildren: (data) =>
+    serializeChildCodeFenceFields(data, { html: "html", css: "css" }),
+  parseChildren: (childNodes) =>
+    childCodeFenceFields<DiagramData>(childNodes, {
+      html: "html",
+      css: "css",
+    }),
 };

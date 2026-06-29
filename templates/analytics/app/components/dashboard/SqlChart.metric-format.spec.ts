@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatMetricValue,
   safeDashboardLinkHref,
+  sessionReplayHref,
   shouldSplitCurrentDayTimeSeries,
   sortTooltipPayloadItems,
   splitCurrentDayTimeSeriesRows,
@@ -104,6 +105,32 @@ describe("safeDashboardLinkHref", () => {
     expect(safeDashboardLinkHref("//evil.example/path")).toBeNull();
     expect(safeDashboardLinkHref("example.com/path")).toBeNull();
     expect(safeDashboardLinkHref("")).toBeNull();
+  });
+});
+
+describe("sessionReplayHref", () => {
+  it("links recording ids directly to replay detail pages", () => {
+    expect(sessionReplayHref({ recording_id: "sr_123" })).toBe(
+      "/sessions/sr_123",
+    );
+  });
+
+  it("links bare session ids to the filtered sessions list", () => {
+    expect(sessionReplayHref({ session_id: "sess_123" })).toBe(
+      "/sessions?range=all&q=sess_123",
+    );
+  });
+
+  it("prefers recording ids when both ids are present", () => {
+    expect(
+      sessionReplayHref({ recording_id: "sr_123", session_id: "sess_123" }),
+    ).toBe("/sessions/sr_123");
+  });
+
+  it("encodes session ids in list filters", () => {
+    expect(sessionReplayHref({ session_id: "session with/slash" })).toBe(
+      "/sessions?range=all&q=session+with%2Fslash",
+    );
   });
 });
 

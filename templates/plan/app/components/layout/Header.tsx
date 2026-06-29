@@ -10,7 +10,6 @@ const pageTitleKeys: Record<string, string> = {
   "/": "header.plan",
   "/plans": "header.plan",
   "/settings": "header.settings",
-  "/team": "header.team",
 };
 
 function resolveTitle(pathname: string): string {

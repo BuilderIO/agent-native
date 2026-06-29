@@ -91,6 +91,26 @@ describe("content database migrations", () => {
     );
   });
 
+  it("creates Builder MDX sidecar cache table additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("CREATE TABLE IF NOT EXISTS builder_doc_sidecars");
+    for (const column of [
+      "document_id TEXT NOT NULL",
+      "path TEXT NOT NULL",
+      "content TEXT NOT NULL",
+      "content_hash TEXT NOT NULL",
+    ]) {
+      expect(source).toContain(column);
+    }
+    expect(source).toContain(
+      "CREATE UNIQUE INDEX IF NOT EXISTS builder_doc_sidecars_doc_path_idx",
+    );
+  });
+
   it("cleans source review and execution rows when database pages are deleted", () => {
     const source = readFileSync(
       join(__dirname, "..", "..", "actions", "_database-utils.ts"),

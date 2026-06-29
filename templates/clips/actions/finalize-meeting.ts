@@ -13,12 +13,20 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
+import type { VoiceContextPack } from "@agent-native/core/voice";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
 import cleanupTranscript, { CleanupResult } from "./cleanup-transcript.js";
+import { loadAgentsMdContext } from "./lib/agents-md-context.js";
+
+function trimContextValue(value: string, maxChars: number): string {
+  const trimmed = value.replace(/\0/g, "").trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars).trimEnd()}\n[truncated]`;
+}
 
 export default defineAction({
   description:
@@ -72,29 +80,90 @@ export default defineAction({
       .set({ transcriptStatus: "pending", updatedAt: nowIso })
       .where(eq(schema.meetings.id, args.meetingId));
 
-    const participants = await db
-      .select()
-      .from(schema.meetingParticipants)
-      .where(eq(schema.meetingParticipants.meetingId, args.meetingId));
+    const [participants, recordingRows, agentsContext] = await Promise.all([
+      db
+        .select()
+        .from(schema.meetingParticipants)
+        .where(eq(schema.meetingParticipants.meetingId, args.meetingId)),
+      meeting.recordingId
+        ? db
+            .select({
+              title: schema.recordings.title,
+              sourceAppName: schema.recordings.sourceAppName,
+              sourceWindowTitle: schema.recordings.sourceWindowTitle,
+              description: schema.recordings.description,
+            })
+            .from(schema.recordings)
+            .where(eq(schema.recordings.id, meeting.recordingId))
+            .limit(1)
+        : Promise.resolve([]),
+      loadAgentsMdContext({
+        ownerEmail: meeting.ownerEmail,
+        purpose: "summary",
+      }),
+    ]);
+    const linkedRecording = recordingRows[0] ?? null;
 
-    const contextLines: string[] = [];
-    if (meeting.title) contextLines.push(`Meeting: ${meeting.title}`);
+    // Build a single bounded context pack for the summary prompt. Avoid also
+    // emitting the same fields as a parallel plain-text `context` string: the
+    // cleanup prompt concatenates both into one <context> block, so passing
+    // both would duplicate every snippet (and the plain-text path was
+    // unbounded at ~20k chars per field).
+    const contextSnippets: NonNullable<VoiceContextPack["snippets"]> = [];
+    const addSnippet = (label: string, value: string, maxChars = 2_000) => {
+      const trimmed = trimContextValue(value, maxChars);
+      if (trimmed) contextSnippets.push({ label, value: trimmed });
+    };
+    if (meeting.title) addSnippet("Meeting title", meeting.title, 200);
     if (meeting.scheduledStart)
-      contextLines.push(`Scheduled: ${meeting.scheduledStart}`);
+      addSnippet("Scheduled start", meeting.scheduledStart, 120);
     if (participants.length) {
-      contextLines.push(
-        `Attendees: ${participants
-          .map((p) => `${p.name ?? p.email} <${p.email}>`)
-          .join(", ")}`,
+      addSnippet(
+        "Attendees",
+        participants.map((p) => `${p.name ?? p.email} <${p.email}>`).join(", "),
+        1800,
       );
     }
+    if (meeting.userNotesMd.trim()) {
+      addSnippet("User notes", meeting.userNotesMd, 3_000);
+    }
+    if (linkedRecording) {
+      addSnippet(
+        "Linked Clip",
+        [
+          linkedRecording.title,
+          linkedRecording.sourceAppName,
+          linkedRecording.sourceWindowTitle,
+          linkedRecording.description,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        1800,
+      );
+    }
+    if (agentsContext)
+      addSnippet("AGENTS.md preferences", agentsContext, 3_000);
+    const contextPack: VoiceContextPack | undefined = contextSnippets.length
+      ? {
+          surface: "clips-meeting",
+          mode: "summary",
+          snippets: contextSnippets,
+          metadata: {
+            meetingId: meeting.id,
+            recordingId: meeting.recordingId,
+            calendarEventId: meeting.calendarEventId,
+            source: meeting.source,
+            platform: meeting.platform,
+          },
+        }
+      : undefined;
 
     let result: CleanupResult;
     try {
       result = await cleanupTranscript.run({
         transcript: transcriptText,
         task: "summary",
-        context: contextLines.join("\n") || undefined,
+        contextPack,
       });
     } catch (err) {
       await db

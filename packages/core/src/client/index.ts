@@ -11,7 +11,9 @@ export {
   appendAgentChatContextToMessage,
   clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
+  insertAgentComposerReference,
   listAgentChatContext,
+  normalizeAgentComposerReference,
   refreshAgentChatContext,
   removeAgentChatContextItem,
   sendToAgentChat,
@@ -27,11 +29,16 @@ export {
   type AgentChatContextSetOptions,
   type AgentChatContextState,
   type AgentChatMessage,
+  type AgentComposerReference,
+  type AgentComposerReferenceInsertOptions,
+  type AgentComposerReferenceInsertPayload,
 } from "./agent-chat.js";
 export {
   saveAgentEngineApiKey,
+  saveAgentEngineProviderSettings,
   type AgentEngineProvider,
   type SaveAgentEngineApiKeyOptions,
+  type SaveAgentEngineProviderSettingsOptions,
 } from "./agent-engine-key.js";
 export { useAgentChatGenerating } from "./use-agent-chat.js";
 export {
@@ -568,6 +575,7 @@ export {
   ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
+  ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
   type ActionChatUIConfig,
 } from "../action-ui.js";
 export {
@@ -604,7 +612,13 @@ export {
   type DataWidgetResultMetadata,
 } from "./chat/widgets/data-widget-types.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
-export { SettingsPanel, type SettingsPanelProps } from "./settings/index.js";
+export {
+  SettingsPanel,
+  SettingsTabsPage,
+  type SettingsPanelProps,
+  type SettingsTabItem,
+  type SettingsTabsPageProps,
+} from "./settings/index.js";
 export { useBuilderStatus } from "./settings/useBuilderStatus.js";
 export {
   openBuilderConnectPopup,
@@ -671,12 +685,21 @@ export {
   trackEvent,
   trackSessionStatus,
   configureTracking,
+  maybeStartSessionReplay,
+  startSessionReplay,
+  stopSessionReplay,
+  getAnalyticsAnonymousId,
+  getAnalyticsSessionId,
   getFirstTouchAttribution,
   setSentryUser,
   captureError,
   captureClientException,
   type ClientCaptureContext,
+  type ConfigureTrackingOptions,
   type FirstTouchAttribution,
+  type SessionReplayOptions,
+  type SessionReplayStartResult,
+  type SessionReplayUrlMatcher,
 } from "./analytics.js";
 export { track } from "./track.js";
 export {
@@ -853,6 +876,8 @@ export {
   serializeSpecBlock,
   parseSpecBlock,
   createAttrReader,
+  childCodeFenceFields,
+  serializeChildCodeFenceFields,
   describeBlocksForAgent,
   renderBlockVocabularyReference,
   type BlockSpec,

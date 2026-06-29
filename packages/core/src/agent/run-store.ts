@@ -172,6 +172,7 @@ async function ensureRunTables(): Promise<void> {
           ["error_detail", "TEXT"],
           ["dispatch_mode", "TEXT"],
           ["diag_stage", "TEXT"],
+          ["worker_stage", "TEXT"],
         ] as const) {
           await ensureColumnExists(
             "agent_runs",
@@ -248,6 +249,7 @@ async function ensureRunTables(): Promise<void> {
         "error_detail",
         "dispatch_mode",
         "diag_stage",
+        "worker_stage",
       ] as const) {
         try {
           await client.execute(`ALTER TABLE agent_runs ADD COLUMN ${col} TEXT`);
@@ -449,12 +451,13 @@ export async function readBackgroundRunClaim(runId: string): Promise<{
   dispatchMode: string | null;
   status: string | null;
   diagStage: string | null;
+  workerStage: string | null;
   lastLivenessAt: number | null;
 } | null> {
   await ensureRunTables();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT dispatch_mode, status, diag_stage, started_at, heartbeat_at FROM agent_runs WHERE id = ? LIMIT 1`,
+    sql: `SELECT dispatch_mode, status, diag_stage, worker_stage, started_at, heartbeat_at FROM agent_runs WHERE id = ? LIMIT 1`,
     args: [runId],
   });
   const row = rows?.[0] as
@@ -462,6 +465,7 @@ export async function readBackgroundRunClaim(runId: string): Promise<{
         dispatch_mode?: string | null;
         status?: string | null;
         diag_stage?: string | null;
+        worker_stage?: string | null;
         started_at?: number | null;
         heartbeat_at?: number | null;
       }
@@ -471,6 +475,7 @@ export async function readBackgroundRunClaim(runId: string): Promise<{
     dispatchMode: row.dispatch_mode ?? null,
     status: row.status ?? null,
     diagStage: row.diag_stage ?? null,
+    workerStage: row.worker_stage ?? null,
     // Same liveness basis the unclaimed-reaper uses (COALESCE(heartbeat_at,
     // started_at)), so the foreground can decide to recover BEFORE the reaper.
     lastLivenessAt: row.heartbeat_at ?? row.started_at ?? null,
@@ -644,10 +649,26 @@ export async function recordRunDiagnostic(
       ...(detail ? { detail: detail.slice(0, 1500) } : {}),
       at: Date.now(),
     }).slice(0, 2000);
-    await client.execute({
-      sql: `UPDATE agent_runs SET diag_stage = ? WHERE id = ?`,
-      args: [payload, runId],
-    });
+    // Worker-setup stages ALSO land in `worker_stage`, a column the foreground's
+    // inline-recovery `setup_timings` write never touches. `/runs/active` only
+    // surfaces a run after it is claimed, and the foreground then overwrites
+    // `diag_stage` — so without this the durable worker's pre-claim progression
+    // (where it stalled before claiming) is unrecoverable. `worker_stage`
+    // preserves the last worker stage reached for post-hoc diagnosis.
+    const isWorkerStage =
+      stage === RUN_DIAG_STAGE.workerSetupStep ||
+      stage === RUN_DIAG_STAGE.workerStarted;
+    if (isWorkerStage) {
+      await client.execute({
+        sql: `UPDATE agent_runs SET diag_stage = ?, worker_stage = ? WHERE id = ?`,
+        args: [payload, payload, runId],
+      });
+    } else {
+      await client.execute({
+        sql: `UPDATE agent_runs SET diag_stage = ? WHERE id = ?`,
+        args: [payload, runId],
+      });
+    }
   } catch {
     // Diagnostics are best-effort; never let them break the run or the route.
   }

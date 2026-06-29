@@ -80,6 +80,40 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("method: 'PUT'");
   });
 
+  it("exposes a chat bridge helper to extension code", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("function sendToChat(message, options)");
+    expect(html).toContain("type: 'agent-native-send-to-chat'");
+    expect(html).toContain("sendToChat: sendToChat");
+    expect(html).toContain("send: sendToChat");
+    expect(html).toContain("window.sendToAgentChat = sendToChat");
+  });
+
+  it("exposes a passive UI output helper keyed by extension id", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "inline-1");
+
+    expect(html).toContain("function inlineUiOutputKey()");
+    expect(html).toContain("'inline-ui:' + safeId + ':output'");
+    expect(html).toContain("function outputToUi(value, options)");
+    expect(html).toContain(
+      "appFetch('/_agent-native/application-state/' + key",
+    );
+    expect(html).toContain("'X-Request-Source': 'inline-ui'");
+    expect(html).toContain("type: 'agent-native-ui-output'");
+    expect(html).toContain("ui: Object.assign");
+    expect(html).toContain("output: outputToUi");
+  });
+
+  it("auto-resizes transient srcdoc inline iframes", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "inline-1");
+
+    expect(html).toContain(
+      "new URLSearchParams(location.search).get('slot') || window.parent !== window",
+    );
+    expect(html).toContain("agent-native-extension-resize");
+  });
+
   it("serializes authenticated extension binding metadata", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1", {
       authorEmail: "owner+qa@example.test",
@@ -141,6 +175,7 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
   const HOST_FILES = [
     "ExtensionViewer.tsx",
     "EmbeddedExtension.tsx",
+    "InlineExtensionFrame.tsx",
     "ExtensionEditor.tsx",
   ];
 

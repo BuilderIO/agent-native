@@ -17,6 +17,7 @@ const messages = {
     settings: "Settings",
     brand: "Forms",
     askForms: "Ask Forms",
+    allForms: "All forms",
     team: "Team",
   },
   settings: {
@@ -43,6 +44,8 @@ const messages = {
     suggestionExport: "Export responses to CSV",
   },
   sidebar: {
+    collapseSidebar: "Collapse sidebar",
+    expandSidebar: "Expand sidebar",
     formGenerationStale:
       "Form generation is taking longer than expected. You can try again.",
     untitledForm: "Untitled Form",

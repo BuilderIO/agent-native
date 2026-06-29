@@ -1,16 +1,17 @@
 import { useT } from "@agent-native/core/client";
-import { useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { useDraggable } from "@dnd-kit/core";
 import {
   IconGripVertical,
   IconDotsVertical,
   IconMaximize,
   IconPencil,
+  IconRefresh,
   IconTrash,
   IconCode,
   IconDownload,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ChartFillHeight, SqlChart } from "@/components/dashboard/SqlChart";
 import {
@@ -37,12 +38,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { serializePanelSql } from "./panel-sql";
 import type { SqlPanel } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
@@ -55,7 +58,51 @@ interface SqlChartCardProps {
    *  validation failure so the popover can stay open and surface the error. */
   onSaveSql?: (sql: string) => Promise<void>;
   editable?: boolean;
+  eagerLoad?: boolean;
+  isDragSource?: boolean;
 }
+
+const PanelDragHandle = memo(function PanelDragHandle({
+  panelId,
+  label,
+  className,
+  iconClassName,
+}: {
+  panelId: string;
+  label: string;
+  className: string;
+  iconClassName: string;
+}) {
+  const { attributes, listeners, setActivatorNodeRef, setNodeRef } =
+    useDraggable({
+      id: panelId,
+    });
+
+  const setHandleRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      setNodeRef(node);
+      setActivatorNodeRef(node);
+    },
+    [setActivatorNodeRef, setNodeRef],
+  );
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          ref={setHandleRef}
+          className={className}
+          aria-label={label}
+          {...attributes}
+          {...listeners}
+        >
+          <IconGripVertical className={iconClassName} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+});
 
 export function SqlChartCard({
   panel,
@@ -64,38 +111,54 @@ export function SqlChartCard({
   onEdit,
   onSaveSql,
   editable = true,
+  eagerLoad = false,
+  isDragSource = false,
 }: SqlChartCardProps) {
   const t = useT();
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: panel.id, disabled: !editable });
+  const queryClient = useQueryClient();
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [exportCsv, setExportCsv] = useState<(() => void) | null>(null);
   const [shouldLoadData, setShouldLoadData] = useState(
-    panel.chartType === "section",
+    eagerLoad || panel.chartType === "section",
   );
   const cardRef = useRef<HTMLDivElement | null>(null);
-
-  const setCardNodeRef = useCallback(
-    (node: HTMLDivElement | null) => {
-      setNodeRef(node);
-      cardRef.current = node;
-    },
-    [setNodeRef],
+  const chartQueryKey = useMemo(
+    () =>
+      [
+        "sql-chart",
+        panel.id,
+        serializePanelSql(resolvedSql ?? panel.sql),
+        panel.source,
+      ] as const,
+    [panel.id, panel.source, panel.sql, resolvedSql],
   );
+  const chartFetchCount = useIsFetching({ queryKey: chartQueryKey });
+  const chartHasCachedData =
+    queryClient.getQueryData(chartQueryKey) !== undefined;
+  const isChartRefreshing = chartHasCachedData && chartFetchCount > 0;
+
+  const setCardNodeRef = useCallback((node: HTMLDivElement | null) => {
+    cardRef.current = node;
+  }, []);
 
   const handleExportCsvChange = useCallback((handler: (() => void) | null) => {
     setExportCsv(handler ? () => handler : null);
   }, []);
 
+  const handleRefresh = useCallback(() => {
+    setShouldLoadData(true);
+    void queryClient.invalidateQueries({
+      queryKey: chartQueryKey,
+    });
+  }, [chartQueryKey, queryClient]);
+
   useEffect(() => {
+    if (eagerLoad) {
+      setShouldLoadData(true);
+      return;
+    }
     if (panel.chartType === "section") {
       setShouldLoadData(true);
       return;
@@ -116,24 +179,17 @@ export function SqlChartCard({
         }
       },
       {
-        rootMargin: "800px 0px",
+        rootMargin: "320px 0px",
         threshold: 0.01,
       },
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [panel.chartType, panel.id]);
+  }, [eagerLoad, panel.chartType, panel.id]);
 
   useEffect(() => {
     setExportCsv(null);
   }, [panel.id]);
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    zIndex: isDragging ? 50 : undefined,
-    opacity: isDragging ? 0.7 : 1,
-  };
 
   // Section panels render as a flush header row (no card chrome, full width)
   // so they read as dividers between groups of panels rather than as another
@@ -142,8 +198,9 @@ export function SqlChartCard({
     return (
       <div
         ref={setCardNodeRef}
-        style={style}
-        className="group relative mt-2 first:mt-0"
+        style={isDragSource ? { zIndex: 50 } : undefined}
+        data-dragging={isDragSource ? "true" : undefined}
+        className="dashboard-section-card group relative mt-2 first:mt-0"
       >
         <div className="flex items-center gap-2 border-b border-border pb-2">
           <h2 className="text-base font-semibold flex-1">{panel.title}</h2>
@@ -184,21 +241,12 @@ export function SqlChartCard({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                    aria-label={t("sqlDashboard.dragToReorder")}
-                    {...attributes}
-                    {...listeners}
-                  >
-                    <IconGripVertical className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("sqlDashboard.dragToReorder")}
-                </TooltipContent>
-              </Tooltip>
+              <PanelDragHandle
+                panelId={panel.id}
+                label={t("sqlDashboard.dragToReorder")}
+                className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                iconClassName="h-3.5 w-3.5"
+              />
             </div>
           ) : null}
         </div>
@@ -245,15 +293,35 @@ export function SqlChartCard({
   return (
     <div
       ref={setCardNodeRef}
-      style={style}
-      className="group relative h-full hover:z-20 focus-within:z-20"
+      style={isDragSource ? { zIndex: 50 } : undefined}
+      data-dragging={isDragSource ? "true" : undefined}
+      className="dashboard-chart-card group relative h-full hover:z-20 focus-within:z-20"
     >
       <Card className="flex h-full flex-col overflow-visible">
         <CardHeader className="pb-2 flex flex-row items-center gap-2 shrink-0">
           <CardTitle className="text-sm font-medium flex-1 truncate">
             {panel.title}
           </CardTitle>
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+          <div
+            className={`flex items-center gap-1 transition-opacity ${
+              isChartRefreshing
+                ? "opacity-100"
+                : "opacity-0 group-hover:opacity-100 focus-within:opacity-100"
+            }`}
+          >
+            {isChartRefreshing ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex size-6 items-center justify-center rounded text-muted-foreground">
+                    <Spinner
+                      className="size-3.5"
+                      aria-label={t("sqlDashboard.refreshing")}
+                    />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{t("sqlDashboard.refreshing")}</TooltipContent>
+              </Tooltip>
+            ) : null}
             {showPanelMenu ? (
               <DropdownMenu>
                 <Tooltip>
@@ -310,6 +378,11 @@ export function SqlChartCard({
                       {t("sidebar.edit")}
                     </DropdownMenuItem>
                   )}
+                  {!editable ? <DropdownMenuSeparator /> : null}
+                  <DropdownMenuItem onSelect={handleRefresh}>
+                    <IconRefresh className="h-4 w-4 mr-2" />
+                    {t("sqlDashboard.refresh")}
+                  </DropdownMenuItem>
                   {editable ? (
                     <DropdownMenuItem
                       onSelect={(e) => {
@@ -325,25 +398,16 @@ export function SqlChartCard({
               </DropdownMenu>
             ) : null}
             {editable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
-                    aria-label={t("sqlDashboard.dragToReorder")}
-                    {...attributes}
-                    {...listeners}
-                  >
-                    <IconGripVertical className="h-3.5 w-3.5" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {t("sqlDashboard.dragToReorder")}
-                </TooltipContent>
-              </Tooltip>
+              <PanelDragHandle
+                panelId={panel.id}
+                label={t("sqlDashboard.dragToReorder")}
+                className="p-1 rounded cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
+                iconClassName="h-3.5 w-3.5"
+              />
             ) : null}
           </div>
         </CardHeader>
-        <CardContent className="flex flex-1 flex-col overflow-visible pt-0">
+        <CardContent className="dashboard-chart-content flex flex-1 flex-col overflow-visible pt-0">
           <SqlChart
             panel={panel}
             resolvedSql={resolvedSql}

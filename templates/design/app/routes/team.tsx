@@ -1,5 +1,4 @@
-import { useT } from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+import { Navigate } from "react-router";
 
 import { messagesByLocale } from "@/i18n-data";
 
@@ -8,12 +7,5 @@ export function meta() {
 }
 
 export default function TeamRoute() {
-  const t = useT();
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
-        <TeamPage createOrgDescription={t("pages.teamCreateOrgDescription")} />
-      </main>
-    </div>
-  );
+  return <Navigate to="/settings#team" replace />;
 }

@@ -47,6 +47,8 @@ const messages = {
     suggestionSlow: "イントロアニメーションを遅くする",
   },
   sidebar: {
+    collapseSidebar: "サイドバーを折りたたむ",
+    expandSidebar: "サイドバーを展開",
     navigation: "ナビゲーション",
     openNavigation: "ナビゲーションを開く",
   },

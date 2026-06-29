@@ -67,6 +67,46 @@ function scrubEvent<T extends Sentry.Event>(event: T): T {
   return event;
 }
 
+function shouldDropExpectedMediaPermissionError(
+  error: unknown,
+  context: CaptureContext,
+): boolean {
+  const tags = context.tags ?? {};
+  const isPermissionProbe =
+    tags.surface === "permission" &&
+    (!tags.permission ||
+      tags.permission === "mic" ||
+      tags.permission === "cam");
+  const isOptionalBubbleCamera =
+    tags.surface === "overlay" && tags.overlayPart === "bubble";
+  if (!isPermissionProbe && !isOptionalBubbleCamera) return false;
+
+  const text =
+    error instanceof Error
+      ? `${error.name}: ${error.message}`
+      : String(error ?? "");
+
+  return (
+    /\bNotAllowedError\b/i.test(text) ||
+    /\bPermission (?:denied|dismissed)\b/i.test(text) ||
+    /\bPermission denied by system\b/i.test(text) ||
+    /\bNotReadableError\b/i.test(text) ||
+    /\bCould not start video source\b/i.test(text) ||
+    /\b(?:NotFoundError|DevicesNotFoundError)\b/i.test(text) ||
+    /\bRequested device not found\b/i.test(text)
+  );
+}
+
+function shouldDropExpectedMediaPermissionEvent(event: Sentry.Event): boolean {
+  if (event.tags?.surface !== "permission") return false;
+  const exceptionText = (event.exception?.values ?? [])
+    .map((value) => `${value.type ?? ""}: ${value.value ?? ""}`)
+    .join(" ");
+  return shouldDropExpectedMediaPermissionError(exceptionText, {
+    tags: { surface: "permission" },
+  });
+}
+
 function scrubScopeString(value: string): string {
   const scrubbed = scrubUrl(value, { redactAllQueryValues: true });
   if (scrubbed !== value) return scrubbed;
@@ -160,6 +200,7 @@ export function initExtensionSentry(surface: string): void {
         runtime: "chrome-extension",
         surface,
       };
+      if (shouldDropExpectedMediaPermissionEvent(event)) return null;
       return scrubEvent(event);
     },
   });
@@ -175,7 +216,9 @@ export function captureExtensionError(
   error: unknown,
   context: CaptureContext = {},
 ): string | undefined {
-  if (!initialized) return undefined;
+  if (!initialized || shouldDropExpectedMediaPermissionError(error, context)) {
+    return undefined;
+  }
   try {
     return Sentry.withScope((scope) => {
       if (context.tags) {

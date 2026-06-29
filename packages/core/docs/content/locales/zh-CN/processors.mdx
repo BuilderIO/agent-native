@@ -1,0 +1,141 @@
+---
+title: "环内处理器"
+description: "循环内部观察者/护栏挂钩，用于监视模型的流输出和工具在运行中调用并可以中止它 - 实时护栏和完成证明门的接缝。"
+---
+
+# 循环处理器
+
+`Processor` 是代理运行的循环内部**观察者/护栏**。它监视模型的流式输出，工具在运行过程中调用它的请求，保持其自己的临时状态，并且可以在声明“完成”之前**中止**运行。这是实时护栏（阻止中流不允许的输出）和完成证明/覆盖门（检查模型将要做什么并停止它）的结构先决条件。
+
+<Diagram id="doc-block-1zox12" title={"三个钩子在奔跑中开火的地方"} summary={"processOutputStream 监视每个块，processOutputStep 控制每个响应的工具调用，processOutputResult 在最后记录判决。任何钩子都可以通过 TripWire 中止。"}>
+
+```html
+<div class="diagram-proc">
+  <div class="diagram-node" data-rough>
+    stream chunks<br /><small class="diagram-muted">processOutputStream</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    per model response<br /><small class="diagram-muted"
+      >processOutputStep — 拦截工具调用</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node" data-rough>
+    run end<br /><small class="diagram-muted">processOutputResult — 判定</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-pill warn">
+    abort() &rarr; TripWire &rarr; tripwire event
+  </div>
+</div>
+```
+
+```css
+.diagram-proc {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-proc .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-proc .diagram-pill {
+  flex-basis: 100%;
+}
+```
+
+</Diagram>
+
+> [!WARNING]
+> 处理器是**配置**，不是工具，不是操作，也不是创作 DSL。处理器仅观察、改变它们自己的流范围状态和 `abort()`。它们从不定义应用程序行为、替换 actions 或出现在模型中。应用程序操作属于[actions](/docs/actions)。
+
+## 挂钩 {#hooks}
+
+处理器实现三个可选生命周期挂钩的任何子集（形状借用自 Mastra 的输出处理器）：
+
+| 钩子                  | 着火了……                              | 用它来……                               |
+| --------------------- | ------------------------------------- | -------------------------------------- |
+| `processOutputStream` | 模型生成时的每个流块（文本/思维增量） | 在整轮落地之前对输出做出反应           |
+| `processOutputStep`   | 每个模型响应一次，围绕工具执行        | 检查模型即将运行的工具调用；给他们设门 |
+| `processOutputResult` | 在运行结束时，带有最终的辅助文本      | 记录对已完成答案的判决/完成证明        |
+
+每个处理器都有自己的可变的、运行范围的 `state` 对象，该对象在单次运行中的每个钩子调用中持续存在，并且与其他处理器的状态**隔离**。
+
+```ts
+import type { Processor } from "@agent-native/core";
+
+const noSecretsInOutput: Processor = {
+  name: "no-secrets",
+  processOutputStream({ part, abort }) {
+    if (part.type === "text" && /sk-live_/.test(part.text)) {
+      abort("Model attempted to emit a live secret token.", {
+        kind: "secret-leak",
+      });
+    }
+  },
+};
+
+const coverageGate: Processor = {
+  name: "proof-of-done",
+  processOutputStep({ toolCalls, state }) {
+    // Track what the model has actually done this run...
+    for (const call of toolCalls) {
+      (state.ran ??= new Set<string>()).add(call.name);
+    }
+  },
+  processOutputResult({ text, state }) {
+    // ...and record a verdict over the final answer.
+    const ran = state.ran as Set<string> | undefined;
+    state.verdict = ran?.has("run-tests") ? "verified" : "unverified";
+  },
+};
+```
+
+## 使用 `TripWire` 中止 {#tripwire}
+
+挂钩通过调用 `abort(reason, meta?)` 来停止运行，这会抛出 **`TripWire`**。循环捕获它，发出单个 **`tripwire` 事件**，干净地停止，并将原因显示为最终的辅助消息。
+
+```ts
+import { TripWire } from "@agent-native/core";
+```
+
+`tripwire` 事件携带：
+
+| 字段        | 类型     | 注释                               |
+| ----------- | -------- | ---------------------------------- |
+| `reason`    | `string` | 人类可读的原因传递给 `abort`。     |
+| `processor` | `string` | 声明 `name` 时中止的处理器的名称。 |
+
+`TripWire` 还带有可选的结构化 `meta` 和原始 `processor` 名称，供 `instanceof` 检查的程序化消费者使用。由于暂停是正常的，`processOutputResult` 仍然会在（暂停的）最终文本上触发，因此即使运行被中止，完成证明处理器也可以记录其结论。
+
+## 连接处理器 {#wiring}
+
+处理器通过 `runAgentLoop` 上的 `processors` 数组在代码中进行配置：
+
+```ts
+await runAgentLoop({
+  engine,
+  model,
+  systemPrompt,
+  tools,
+  messages,
+  actions,
+  send,
+  signal,
+  processors: [noSecretsInOutput, coverageGate],
+});
+```
+
+**未使用时零开销。**仅当提供至少一个处理器时，循环才会构建处理器链；当 `processors` 被省略或为空时，没有任何接缝代码运行，并且循环逐字节不变。挂钩按注册顺序运行，可以是同步的，也可以是异步的。
+
+> [!NOTE]
+> 循环级接缝是今天的可交付成果，可由子代理、A2A、MCP 和测试直接调用。通过 HTTP 聊天处理程序线程化 `processors`（因此每个请求解析器可以在不直接调用 `runAgentLoop` 的情况下配置它们）是尚未连接的便利管道 - 现在在 `runAgentLoop` 调用站点配置处理器。
+
+## 相关
+
+- [**Durable Resume**](/docs/durable-resume) — 循环如何在中断中幸存下来而不重新运行已完成的副作用。
+- [**Custom Agents & Teams**](/docs/agent-teams) - 子代理运行相同的循环并可以携带自己的处理器。
+- [**Observability**](/docs/observability) — 记录处理器判决以及运行跟踪。

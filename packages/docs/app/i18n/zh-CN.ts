@@ -5,6 +5,10 @@ const zhCN = {
     label: "语言",
     system: "系统",
     systemDescription: "使用浏览器语言",
+    suggestionTitle: "要用{{language}}阅读此页面吗？",
+    suggestionDescription: "你的浏览器语言是{{language}}。",
+    suggestionSwitch: "切换到{{language}}",
+    suggestionKeepEnglish: "继续使用英文",
   },
   header: {
     docs: "文档",
@@ -39,6 +43,9 @@ const zhCN = {
   docs: {
     navigateAria: "浏览文档",
     onThisPage: "本页内容",
+    copyMarkdown: "将文档复制为 Markdown",
+    copiedMarkdown: "已复制 Markdown",
+    copyMarkdownError: "无法复制 Markdown",
     previous: "上一页",
     next: "下一页",
   },
@@ -77,7 +84,7 @@ const zhCN = {
       secondaryCta: "查看文档",
     },
     code: {
-      quickStartComment: "从完整应用模板开始",
+      quickStartComment: "用一条命令创建 app",
       skillInstallComment: "把 Agent-Native 规划加入你已经使用的 coding agent",
       frameworkComment: "一个 action 驱动 agent、UI、HTTP、MCP、A2A 和 CLI。",
       frameworkDescription: "从本地 app-agent loop 打招呼。",
@@ -183,12 +190,12 @@ const zhCN = {
       },
     },
     quickStart: {
-      title: "从 Chat 开始",
-      body: "一条命令会创建一个本地 Chat app，背后有 actions、durable threads 和 SQLite 支撑。还没有浏览器 UI 需求时，可以改用 `--headless`。",
+      title: "从一条命令开始",
+      body: "一条命令会创建一个本地 app，背后有 actions、durable threads 和 SQLite 支撑。还没有浏览器 UI 需求时，可以改用 `--headless`。",
     },
     finalCta: {
       title: "你拥有的软件，为 agentic 时代而建",
-      body: "从 Chat 或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。可 fork。属于你。",
+      body: "从一条命令或 durable action 开始，让它跑过 app-agent loop，然后在不重写操作的情况下成长为 UI、jobs 和协作。开源。可 fork。属于你。",
       primaryCta: "从 Action 开始",
       secondaryCta: "阅读文档",
       githubCta: "在 GitHub 查看",
@@ -228,6 +235,7 @@ const zhCN = {
       workspaces: "工作空间",
       voiceInput: "语音输入",
       mcpApps: "MCP 应用程序",
+      generativeUi: "生成式 UI",
       toolCalls: "工具调用",
       agentSidebar: "代理侧边栏",
       sharedActions: "共同行动",
@@ -521,7 +529,7 @@ const zhCN = {
       s004: "口授",
       s005: "能看到+听到",
       s006: "所有模板",
-      s007: "Loom 和 Jam 的开源替代方案",
+      s007: "Loom 的开源替代方案",
       s008: "将 Clips 链接粘贴到代理中，即使其模型无法摄取原始视频或音频，它也可以听到文字记录、读取摘要并查看带时间戳的帧。",
       s009: "试用",
       s010: "你能做什么",
@@ -1088,16 +1096,17 @@ const zhCN = {
     },
   },
   skillsPage: {
-    metaTitle: "代理技能 - 面向编码代理的 Visual Plan 和 Visual Recap",
+    metaTitle:
+      "代理技能 - 面向编码代理的 Visual Plan、Visual Recap 和 Visual Edit",
     metaDescription:
-      "安装由 Agent-Native 应用支持的技能，让你的编码代理能进行可视化规划和 PR 回顾。",
+      "安装由 Agent-Native 应用支持的技能，让你的编码代理能进行可视化规划、PR 回顾和本地可视化编辑。",
     metaOgDescription:
       "为你的编码代理添加由 Agent-Native 应用驱动的斜杠命令，可托管、检查并自定义。",
     metaKeywords:
-      "代理技能, visual plan, visual recap, 编码代理, Claude Code, Codex, PR 审查, 规划, agent-native",
+      "代理技能, visual plan, visual recap, visual edit, 编码代理, Claude Code, Codex, PR 审查, 规划, agent-native",
     heroTitle: "给你的编码代理新的超能力",
     heroBody:
-      "安装由 Agent-Native 应用支持、可完全自定义的应用技能：实现前做可视化规划，变更落地后做可视化 PR 回顾。",
+      "安装由 Agent-Native 应用支持、可完全自定义的应用技能：实现前做可视化规划，变更落地后做可视化 PR 回顾，并可视化编辑本地 UI 流程。",
     sectionTitle: "面向编码代理的应用支持技能",
     sectionBody:
       "使用托管的可分享应用链接、本地文件，或自托管/自定义应用；代理会获得指令，并在需要时获得匹配的 MCP 表面。",
@@ -1122,6 +1131,15 @@ const zhCN = {
       feature1: "总结 schema、API 和文件变更",
       feature2: "可选择发布一条固定的 PR 评论",
       videoAriaLabel: "Visual Recap 技能演示视频",
+    },
+    visualEdit: {
+      name: "可视化编辑",
+      tagline: "编辑本地 UI 流程",
+      description:
+        "把正在运行的 localhost 应用作为 URL 支撑的屏幕打开到 Design 中，用于可视化审阅和编辑。",
+      feature1: "从有序 URL 布局多屏流程",
+      feature2: "检查、复制并优化实时路由状态",
+      videoAriaLabel: "Visual Edit 技能演示视频",
     },
   },
   downloadPage: {
@@ -1379,6 +1397,7 @@ const zhCN = {
     dropInAgent: "嵌入式 Agent",
     componentApi: "组件 API",
     nativeChatUi: "原生聊天 UI",
+    generativeUi: "生成式 UI",
     realTimeCollaboration: "实时协作",
     workspaceOverview: "工作区概览",
     skills: "技能",

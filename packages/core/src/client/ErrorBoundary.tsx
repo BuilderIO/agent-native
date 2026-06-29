@@ -54,6 +54,16 @@ const errorCopy: Record<
     goHome: "回到首页",
     reload: "重新加载",
   },
+  "zh-TW": {
+    loadingLatest: "正在載入最新版本...",
+    genericTitle: "發生錯誤",
+    genericDetails: "發生未預期的錯誤。",
+    notFoundTitle: "找不到頁面",
+    notFoundDetails: "找不到這個頁面。",
+    statusTitle: (status) => `${status} 錯誤`,
+    goHome: "回首頁",
+    reload: "重新載入",
+  },
   "es-ES": {
     loadingLatest: "Cargando la versión más reciente...",
     genericTitle: "Algo salió mal",

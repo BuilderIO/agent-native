@@ -5,6 +5,10 @@ const deDE = {
     label: "Sprache",
     system: "System",
     systemDescription: "Browsersprache verwenden",
+    suggestionTitle: "Diese Seite auf {{language}} lesen?",
+    suggestionDescription: "Ihre Browsersprache ist {{language}}.",
+    suggestionSwitch: "Zu {{language}} wechseln",
+    suggestionKeepEnglish: "Englisch behalten",
   },
   header: {
     docs: "Dokumente",
@@ -39,6 +43,9 @@ const deDE = {
   docs: {
     navigateAria: "Docs navigieren",
     onThisPage: "Auf dieser Seite",
+    copyMarkdown: "Dokument als Markdown kopieren",
+    copiedMarkdown: "Markdown kopiert",
+    copyMarkdownError: "Markdown konnte nicht kopiert werden",
     previous: "Zurück",
     next: "Weiter",
   },
@@ -77,7 +84,7 @@ const deDE = {
       secondaryCta: "Docs ansehen",
     },
     code: {
-      quickStartComment: "Starte mit einem vollständigen App-Template",
+      quickStartComment: "Erstelle eine App mit einem Befehl",
       skillInstallComment:
         "Füge Agent-Native-Planung zu einem coding agent hinzu, den du bereits nutzt",
       frameworkComment:
@@ -188,12 +195,12 @@ const deDE = {
       },
     },
     quickStart: {
-      title: "Mit Chat starten",
-      body: "Ein Befehl erstellt eine lokale Chat app mit actions, durable threads und SQLite. Nutze stattdessen `--headless`, wenn du noch keine Browser-UI willst.",
+      title: "Mit einem Befehl starten",
+      body: "Ein Befehl erstellt eine lokale App mit actions, durable threads und SQLite. Nutze stattdessen `--headless`, wenn du noch keine Browser-UI willst.",
     },
     finalCta: {
       title: "Software, die dir gehört, gebaut für die agentic era",
-      body: "Starte mit Chat oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
+      body: "Starte mit einem Befehl oder einem durable action, führe es durch den app-agent loop und erweitere es dann zu UI, jobs und Zusammenarbeit, ohne die Operation neu zu schreiben. Open Source. Forkable. Deins.",
       primaryCta: "Mit einem Action starten",
       secondaryCta: "Docs lesen",
       githubCta: "Auf GitHub ansehen",
@@ -233,6 +240,7 @@ const deDE = {
       workspaces: "Arbeitsbereiche",
       voiceInput: "Spracheingabe",
       mcpApps: "MCP Apps",
+      generativeUi: "Generative Oberfläche",
       toolCalls: "Werkzeugaufrufe",
       agentSidebar: "Agenten-Seitenleiste",
       sharedActions: "Geteilte Aktionen",
@@ -531,7 +539,7 @@ const deDE = {
       s004: "Diktieren",
       s005: "Kann sehen + hören",
       s006: "Alle Vorlagen",
-      s007: "Die Open-Source-Alternative zu Loom und Jam",
+      s007: "Die Open-Source-Alternative zu Loom",
       s008: "Fügen Sie einen Clips-Link in einen Agenten ein und dieser kann das Transkript anhören, Zusammenfassungen lesen und zeitgestempelte Frames sehen, selbst wenn sein Modell kein Rohvideo oder Audio aufnehmen kann.",
       s009: "Ausprobieren",
       s010: "Was Sie tun können",
@@ -1098,16 +1106,17 @@ const deDE = {
     },
   },
   skillsPage: {
-    metaTitle: "Agent Skills - Visual Plan und Visual Recap fuer Coding Agents",
+    metaTitle:
+      "Agent Skills - Visual Plan, Visual Recap und Visual Edit fuer Coding Agents",
     metaDescription:
-      "Installiere Agent-Native appgestuetzte Skills fuer visuelle Planung und PR-Recaps in deinem Coding Agent.",
+      "Installiere Agent-Native appgestuetzte Skills fuer visuelle Planung, PR-Recaps und lokale visuelle Bearbeitung in deinem Coding Agent.",
     metaOgDescription:
       "Gib deinem Coding Agent Slash-Commands auf Basis von Agent-Native Apps, die du hosten, pruefen und anpassen kannst.",
     metaKeywords:
-      "Agent Skills, Visual Plan, Visual Recap, Coding Agent, Claude Code, Codex, PR Review, Planung, agent-native",
+      "Agent Skills, Visual Plan, Visual Recap, Visual Edit, Coding Agent, Claude Code, Codex, PR Review, Planung, agent-native",
     heroTitle: "Gib deinem Coding Agent neue Superkraefte",
     heroBody:
-      "Installiere appgestuetzte Skills mit Agent-Native Apps, die du voll anpassen kannst: visuelle Planung vor der Umsetzung und visuelle PR-Recaps nach den Aenderungen.",
+      "Installiere appgestuetzte Skills mit Agent-Native Apps, die du voll anpassen kannst: visuelle Planung vor der Umsetzung, visuelle PR-Recaps nach den Aenderungen und visuelle Bearbeitung lokaler UI-Flows.",
     sectionTitle: "Appgestuetzte Skills fuer Coding Agents",
     sectionBody:
       "Nutze gehostete teilbare App-Links, lokale Dateien oder eine selbst gehostete/angepasste App; dein Agent erhaelt Anweisungen plus die passende MCP-Oberflaeche, wenn sie gebraucht wird.",
@@ -1132,6 +1141,15 @@ const deDE = {
       feature1: "Fasst Schema-, API- und Dateiaenderungen zusammen",
       feature2: "Kann optional einen fixierten PR-Kommentar posten",
       videoAriaLabel: "Demo-Video zum Visual Recap Skill",
+    },
+    visualEdit: {
+      name: "Visuelle Bearbeitung",
+      tagline: "Lokale UI-Flows bearbeiten",
+      description:
+        "Oeffnet eine laufende localhost-App in Design als URL-gestuetzte Screens fuer visuelle Pruefung und Bearbeitung.",
+      feature1: "Mehrere Flow-Screens aus geordneten URLs anlegen",
+      feature2: "Live-Routenzustaende pruefen, duplizieren und verfeinern",
+      videoAriaLabel: "Demo-Video zum Visual Edit Skill",
     },
   },
   downloadPage: {
@@ -1400,6 +1418,7 @@ const deDE = {
     dropInAgent: "Drop-in-Agent",
     componentApi: "Komponenten-API",
     nativeChatUi: "Native Chat-UI",
+    generativeUi: "Generative Oberfläche",
     realTimeCollaboration: "Echtzeit-Zusammenarbeit",
     workspaceOverview: "Workspace-Überblick",
     skills: "Fähigkeiten",

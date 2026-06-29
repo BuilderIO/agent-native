@@ -262,7 +262,7 @@ export default defineAction({
     if (
       args.notify !== false &&
       args.principalType === "user" &&
-      isEmailConfigured() &&
+      (await isEmailConfigured()) &&
       !isSyntheticQaEmail(principalId)
     ) {
       try {

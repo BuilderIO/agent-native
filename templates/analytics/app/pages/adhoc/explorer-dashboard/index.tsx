@@ -14,12 +14,14 @@ import {
 } from "@agent-native/core/client";
 import {
   DndContext,
+  DragOverlay,
   closestCenter,
   PointerSensor,
   KeyboardSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragStartEvent,
 } from "@dnd-kit/core";
 import {
   arrayMove,
@@ -35,6 +37,7 @@ import {
   IconDots,
   IconEye,
   IconEyeOff,
+  IconGripVertical,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback } from "react";
@@ -111,6 +114,17 @@ type FetchedExplorerDashboard = {
   hiddenBy: string | null;
 } & ResourceAccess;
 
+function ExplorerDashboardDragPreview({ title }: { title: string | null }) {
+  if (!title) return null;
+
+  return (
+    <div className="explorer-dashboard-drag-preview flex max-w-64 items-center gap-2 rounded-md border bg-background/95 px-3 py-2 text-sm font-medium text-foreground shadow-lg ring-1 ring-primary/20">
+      <IconGripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="truncate">{title}</span>
+    </div>
+  );
+}
+
 async function fetchDashboard(
   id: string,
 ): Promise<FetchedExplorerDashboard | null> {
@@ -181,6 +195,9 @@ export default function ExplorerDashboardPage() {
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [activeDragChartId, setActiveDragChartId] = useState<string | null>(
+    null,
+  );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
@@ -456,8 +473,13 @@ export default function ExplorerDashboardPage() {
     }),
   );
 
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragChartId(String(event.active.id));
+  }, []);
+
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
+      setActiveDragChartId(null);
       if (!dashboard || !canEdit) return;
       const { active, over } = event;
       if (!over || active.id === over.id) return;
@@ -471,6 +493,10 @@ export default function ExplorerDashboardPage() {
     },
     [dashboard, canEdit, persist],
   );
+
+  const handleDragCancel = useCallback(() => {
+    setActiveDragChartId(null);
+  }, []);
 
   const handleSaveName = useCallback(() => {
     if (!dashboard || !canEdit) return;
@@ -509,6 +535,12 @@ export default function ExplorerDashboardPage() {
 
   // Config name lookup
   const configNameMap = new Map(savedConfigs.map((c) => [c.id, c.name]));
+  const activeDragChart = activeDragChartId
+    ? (dashboard.charts.find((chart) => chart.id === activeDragChartId) ?? null)
+    : null;
+  const activeDragChartTitle = activeDragChart
+    ? (configNameMap.get(activeDragChart.configId) ?? activeDragChart.configId)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -700,13 +732,18 @@ export default function ExplorerDashboardPage() {
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
+          onDragStart={canEdit ? handleDragStart : undefined}
           onDragEnd={canEdit ? handleDragEnd : undefined}
+          onDragCancel={handleDragCancel}
         >
           <SortableContext
             items={dashboard.charts.map((c) => c.id)}
             strategy={rectSortingStrategy}
           >
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div
+              className="explorer-dashboard-grid grid grid-cols-1 md:grid-cols-2 gap-4"
+              data-dashboard-dragging={activeDragChartId ? "true" : undefined}
+            >
               {dashboard.charts.map((chart) => (
                 <DashboardChartCard
                   key={chart.id}
@@ -724,6 +761,9 @@ export default function ExplorerDashboardPage() {
               ))}
             </div>
           </SortableContext>
+          <DragOverlay adjustScale={false} dropAnimation={null} zIndex={1000}>
+            <ExplorerDashboardDragPreview title={activeDragChartTitle} />
+          </DragOverlay>
         </DndContext>
       )}
 

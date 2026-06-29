@@ -5,6 +5,10 @@ const koKR = {
     label: "언어",
     system: "시스템",
     systemDescription: "브라우저 언어 사용",
+    suggestionTitle: "이 페이지를 {{language}}로 읽을까요?",
+    suggestionDescription: "브라우저 언어는 {{language}}입니다.",
+    suggestionSwitch: "{{language}}로 전환",
+    suggestionKeepEnglish: "영어 유지",
   },
   header: {
     docs: "문서",
@@ -39,6 +43,9 @@ const koKR = {
   docs: {
     navigateAria: "문서 탐색",
     onThisPage: "이 페이지",
+    copyMarkdown: "문서를 Markdown으로 복사",
+    copiedMarkdown: "Markdown 복사됨",
+    copyMarkdownError: "Markdown을 복사할 수 없음",
     previous: "이전",
     next: "다음",
   },
@@ -77,7 +84,7 @@ const koKR = {
       secondaryCta: "문서 보기",
     },
     code: {
-      quickStartComment: "완성된 앱 템플릿으로 시작",
+      quickStartComment: "명령 하나로 app 만들기",
       skillInstallComment:
         "이미 쓰는 coding agent 에 Agent-Native 계획 기능 추가",
       frameworkComment:
@@ -188,12 +195,12 @@ const koKR = {
       },
     },
     quickStart: {
-      title: "Chat 으로 시작",
-      body: "명령 하나가 actions, durable threads, SQLite 로 뒷받침되는 로컬 Chat app 을 만듭니다. 아직 브라우저 UI 가 필요 없다면 `--headless` 를 사용하세요.",
+      title: "명령으로 시작",
+      body: "명령 하나가 actions, durable threads, SQLite 로 뒷받침되는 로컬 app 을 만듭니다. 아직 브라우저 UI 가 필요 없다면 `--headless` 를 사용하세요.",
     },
     finalCta: {
       title: "직접 소유하는 소프트웨어, agentic era 를 위해 구축",
-      body: "Chat 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
+      body: "명령 또는 durable action 에서 시작해 app-agent loop 를 거치고, 작업을 다시 쓰지 않고 UI, jobs, 협업으로 키우세요. 오픈소스. Fork 가능. 당신의 것입니다.",
       primaryCta: "Action 으로 시작",
       secondaryCta: "문서 읽기",
       githubCta: "GitHub 에서 보기",
@@ -233,6 +240,7 @@ const koKR = {
       workspaces: "작업공간",
       voiceInput: "음성 입력",
       mcpApps: "MCP 앱",
+      generativeUi: "생성형 UI",
       toolCalls: "도구 호출",
       agentSidebar: "상담원 사이드바",
       sharedActions: "공유 작업",
@@ -530,7 +538,7 @@ const koKR = {
       s004: "받아쓰기",
       s005: "볼 수 있고 들을 수 있음",
       s006: "모든 템플릿",
-      s007: "Loom 및 Jam에 대한 오픈 소스 대안",
+      s007: "Loom에 대한 오픈 소스 대안",
       s008: "Clips 링크를 에이전트에 붙여 넣으면 해당 모델이 원시 비디오 또는 오디오를 수집할 수 없는 경우에도 스크립트를 듣고, 요약을 읽고, 타임스탬프가 표시된 프레임을 볼 수 있습니다.",
       s009: "사용해 보기",
       s010: "당신이 할 수 있는 일",
@@ -1098,16 +1106,16 @@ const koKR = {
   },
   skillsPage: {
     metaTitle:
-      "Agent Skills - 코딩 에이전트를 위한 Visual Plan 및 Visual Recap",
+      "Agent Skills - 코딩 에이전트를 위한 Visual Plan, Visual Recap, Visual Edit",
     metaDescription:
-      "코딩 에이전트가 시각적 계획과 PR 요약을 사용할 수 있도록 Agent-Native 앱 기반 스킬을 설치합니다.",
+      "코딩 에이전트가 시각적 계획, PR 요약, 로컬 시각적 편집을 사용할 수 있도록 Agent-Native 앱 기반 스킬을 설치합니다.",
     metaOgDescription:
       "호스팅, 검사, 커스터마이즈가 가능한 Agent-Native 앱으로 코딩 에이전트에 슬래시 명령을 추가하세요.",
     metaKeywords:
-      "agent skills, visual plan, visual recap, 코딩 에이전트, Claude Code, Codex, PR 리뷰, 계획, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, 코딩 에이전트, Claude Code, Codex, PR 리뷰, 계획, agent-native",
     heroTitle: "코딩 에이전트에 새로운 능력을 더하세요",
     heroBody:
-      "완전히 커스터마이즈할 수 있는 Agent-Native 앱 기반 스킬을 설치하세요. 구현 전 시각적 계획과 변경 후 시각적 PR 요약을 제공합니다.",
+      "완전히 커스터마이즈할 수 있는 Agent-Native 앱 기반 스킬을 설치하세요. 구현 전 시각적 계획, 변경 후 시각적 PR 요약, 로컬 UI 흐름의 시각적 편집을 제공합니다.",
     sectionTitle: "코딩 에이전트를 위한 앱 기반 스킬",
     sectionBody:
       "호스팅된 공유 앱 링크, 로컬 파일 또는 자체 호스팅/커스텀 앱을 사용할 수 있으며, 에이전트는 필요한 지침과 해당 MCP 표면을 받습니다.",
@@ -1132,6 +1140,15 @@ const koKR = {
       feature1: "스키마, API, 파일 변경을 요약",
       feature2: "선택적으로 고정 PR 댓글 게시",
       videoAriaLabel: "Visual Recap 스킬 데모 비디오",
+    },
+    visualEdit: {
+      name: "시각적 편집",
+      tagline: "로컬 UI 흐름 편집",
+      description:
+        "실행 중인 localhost 앱을 Design에서 URL 기반 화면으로 열어 시각적으로 검토하고 편집합니다.",
+      feature1: "정렬된 URL로 다중 화면 흐름 배치",
+      feature2: "라이브 라우트 상태를 검사, 복제, 개선",
+      videoAriaLabel: "Visual Edit 스킬 데모 비디오",
     },
   },
   downloadPage: {
@@ -1397,6 +1414,7 @@ const koKR = {
     dropInAgent: "Drop-in Agent 추가",
     componentApi: "컴포넌트 API",
     nativeChatUi: "네이티브 채팅 UI",
+    generativeUi: "생성형 UI",
     realTimeCollaboration: "실시간 협업",
     workspaceOverview: "Workspace 개요",
     skills: "스킬",

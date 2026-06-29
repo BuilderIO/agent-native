@@ -1,0 +1,366 @@
+---
+title: "通知"
+description: "プラグイン可能なチャネルを使用したアプリ内通知 — 受信トレイ、Webhook、またはカスタム"
+---
+
+# 通知
+
+1 つの機能で多くの目的地。サーバー側のコード (アクション、オートメーション、プラグイン) から `notify()` を呼び出すと、イベントがユーザーのアプリ内受信箱に到達し、登録されているすべてのチャネルに展開されます。ホスト テンプレートがそのヘッダーにドロップするベル アンド ドロップダウン UI コンポーネントが付属しています。
+
+通知は、アプリのベル受信トレイへの一方向のアラートです (さらに Webhook のファンアウト)。 Slack/email/Telegram/WhatsApp からエージェントと*会話*するには、[Messaging](/docs/messaging) を参照してください。
+
+```ts
+import { notify } from "@agent-native/core/notifications";
+
+await notify(
+  { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
+  { owner: "steve@builder.io" },
+);
+```
+
+<Diagram id="doc-block-1u2y5zs" title={"1 つの電話でさまざまな宛先へ"} summary={"Notice() は常に所有者スコープの受信ボックス行を書き込み、登録されているすべてのチャネルに並行してファンアウトし (ベストエフォート)、イベント バス上で notification.sent を発行します。"}>
+
+```html
+<div class="diagram-notify">
+  <div class="diagram-node">
+    notify(input, { owner })<br /><small class="diagram-muted"
+      >any server code &middot; action, automation, plugin</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel fan" data-rough>
+    <div class="fan-row">
+      <span class="diagram-pill accent">inbox</span>
+      <div class="diagram-box" data-rough>
+        notifications table &rarr; bell UI<br /><small class="diagram-muted"
+          >always on &middot; owner-scoped</small
+        >
+      </div>
+    </div>
+    <div class="fan-row">
+      <span class="diagram-pill">webhook</span>
+      <div class="diagram-box" data-rough>
+        POST JSON to NOTIFICATIONS_WEBHOOK_URL<br /><small class="diagram-muted"
+          >best-effort</small
+        >
+      </div>
+    </div>
+    <div class="fan-row">
+      <span class="diagram-pill">custom</span>
+      <div class="diagram-box" data-rough>
+        registerNotificationChannel(...)<br /><small class="diagram-muted"
+          >best-effort &middot; runs in parallel</small
+        >
+      </div>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">notification.sent</span
+    ><small class="diagram-muted"
+      >event bus &middot; automations can chain</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-notify {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-notify .fan {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+.diagram-notify .fan-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.diagram-notify .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+.diagram-notify .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 重大度 {#severities}
+
+| 重大度     | 用途                                   |
+| ---------- | -------------------------------------- |
+| `info`     | 確認、進捗マイルストーン、FYI          |
+| `warning`  | ユーザーがすぐに確認する必要があるもの |
+| `critical` | 早急な対応が必要です                   |
+
+重大度はドロップダウンのバッジのスタイルを決定し、チャネルに渡されるため、緊急度に応じて分岐できます。
+
+## 内蔵チャンネル {#channels}
+
+| チャンネル | 配送                                                         | 必須                                                         |
+| ---------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `inbox`    | `notifications` テーブルに保持されます。ベル UI を動かします | 常時オン — プリミティブの一部。                              |
+| `webhook`  | POST JSON から構成済みの URL                                 | `NOTIFICATIONS_WEBHOOK_URL` 環境変数は起動時に設定されます。 |
+
+Webhook チャネルは、所有者のアドホック [secrets](/docs/security) に対して URL と `NOTIFICATIONS_WEBHOOK_AUTH` の両方の `${keys.NAME}` 参照を解決するため、生の値がエージェントのコンテキストに入ることはありません。キーごとの URL ホワイトリストが適用されます。自動化 `web-request` ツールが使用するのと同じルールです。
+
+<Diagram id="doc-block-pmqexc" title={"チャネルと重大度"} summary={"受信トレイは常にオンになっています。 Webhook には環境変数が必要です。カスタム チャネルは起動時に登録されます。重大度はバッジのスタイルを決定し、すべてのチャネルに渡されます。"}>
+
+```html
+<div class="diagram-channels">
+  <div class="diagram-panel col" data-rough>
+    <strong>Channels</strong>
+    <div class="diagram-box" data-rough>
+      inbox<br /><small class="diagram-muted"
+        >always on &mdash; part of the primitive</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      webhook<br /><small class="diagram-muted"
+        >needs NOTIFICATIONS_WEBHOOK_URL</small
+      >
+    </div>
+    <div class="diagram-box" data-rough>
+      custom<br /><small class="diagram-muted"
+        >registerNotificationChannel()</small
+      >
+    </div>
+  </div>
+  <div class="diagram-panel col" data-rough>
+    <strong>重大度がバッジを決定</strong>
+    <div class="sev-row">
+      <span class="diagram-pill">info</span
+      ><span class="diagram-muted">確認、FYI</span>
+    </div>
+    <div class="sev-row">
+      <span class="diagram-pill warn">warning</span
+      ><span class="diagram-muted">look at soon</span>
+    </div>
+    <div class="sev-row">
+      <span class="diagram-pill accent">critical</span
+      ><span class="diagram-muted">needs immediate attention</span>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-channels {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+.diagram-channels .col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  min-width: 240px;
+}
+.diagram-channels .sev-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+```
+
+</Diagram>
+
+## API {#api}
+
+### `notify(input, meta)` {#notify}
+
+通知を配信します。明示的に除外しない限り、常に受信トレイに保持されます。追加の登録チャネルはベストエフォートで並行して実行されます。
+
+```ts
+await notify(
+  {
+    severity: "critical",
+    title: "Database offline",
+    body: "Primary dropped connections",
+    metadata: { runbookUrl: "https://runbooks/db-offline" },
+    channels: ["inbox", "webhook"], // optional allowlist; omit to run all
+  },
+  { owner: "ops@company.com" },
+);
+```
+
+`meta.owner` は必須です。通知の範囲を指定して、そのユーザーのみがベルに表示されるようにします。
+
+### `registerNotificationChannel(channel)` {#register}
+
+任意のサーバー プラグインからカスタム チャネルを登録します。
+
+```ts
+import { registerNotificationChannel } from "@agent-native/core/notifications";
+
+registerNotificationChannel({
+  name: "slack-ops",
+  async deliver(input, meta) {
+    await fetch(process.env.OPS_SLACK_WEBHOOK!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: `*${input.severity.toUpperCase()}* — ${input.title}\n${input.body ?? ""}`,
+        owner: meta.owner,
+      }),
+    });
+  },
+});
+```
+
+チャンネル名は一意です。再登録すると、以前のチャンネルが置き換えられます。 `deliver()` はベストエフォートです。スローするとエラーがログに記録されますが、他のチャネルや受信トレイの行はブロックされません。
+
+### リストと読み取り {#read}
+
+```ts
+import {
+  listNotifications,
+  countUnread,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+} from "@agent-native/core/notifications";
+
+const rows = await listNotifications("steve@builder.io", {
+  unreadOnly: true,
+  limit: 50,
+});
+const unread = await countUnread("steve@builder.io");
+await markNotificationRead(rows[0].id, "steve@builder.io");
+await markAllNotificationsRead("steve@builder.io");
+await deleteNotification(rows[0].id, "steve@builder.io");
+```
+
+各関数は所有者スコープであり、クロスユーザー読み取りやクロスユーザー書き込みはありません。
+
+## NotificationChannel インターフェース {#channel-interface}
+
+```ts
+interface NotificationChannel {
+  name: string;
+  deliver(
+    input: NotificationInput,
+    meta: NotificationMeta,
+  ): void | Promise<void>;
+}
+
+interface NotificationInput {
+  severity: "info" | "warning" | "critical";
+  title: string;
+  body?: string;
+  metadata?: Record<string, unknown>;
+  channels?: string[];
+}
+
+interface NotificationMeta {
+  owner: string;
+}
+```
+
+## HTTP API {#http}
+
+core-routes プラグインによって `/_agent-native/notifications/*` にマウントされます。すべてのルートは、認証されたセッションの電子メールにスコープされます。
+
+| メソッド | パス                                                |
+| -------- | --------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
+| `GET`    | `/_agent-native/notifications/count`                |
+| `POST`   | `/_agent-native/notifications/:id/read`             |
+| `POST`   | `/_agent-native/notifications/read-all`             |
+| `DELETE` | `/_agent-native/notifications/:id`                  |
+
+<Endpoint id="doc-block-wg8xf2" title={"リスト通知"} summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary={"現在のユーザーに対する最近の通知を一覧表示します"} auth={"Authenticated session; results are scoped to the session's email."} params={[
+  {
+    "name": "unread",
+    "in": "query",
+    "type": "boolean",
+    "required": false,
+    "description": "When true, returns only unread notifications."
+  },
+  {
+    "name": "limit",
+    "in": "query",
+    "type": "number",
+    "required": false,
+    "description": "Max rows to return."
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Owner-scoped notification rows, newest first."
+  }
+]}>
+
+</Endpoint>
+
+## UIコンポーネント {#ui}
+
+```tsx
+import { NotificationsBell } from "@agent-native/core/client/notifications";
+
+export function HeaderBar() {
+  return (
+    <header className="flex items-center gap-2">
+      {/* … */}
+      <NotificationsBell browserNotifications />
+    </header>
+  );
+}
+```
+
+未読バッジが付いたベルのアイコン。クリックすると、最近の通知のドロップダウンが開きます。 shadcn セマンティック トークンを使用し、ホスト テンプレートのライト/ダーク テーマに適応します。
+
+`browserNotifications` を渡すと、新しい未読アイテムごとにシステム `new Notification(...)` ポップアップも起動されます。これは、ユーザーのタブがバックグラウンドにある場合に便利です。ユーザーが許可を与えるまで、ドロップダウンには「有効にする」プロンプトが表示されます。重複は、通知 `tag` フィールドを通じて ID ごとに防止されます。
+
+## エージェント ツール {#agent-tools}
+
+すべてのテンプレートに 1 つの `manage-notifications` ツールが登録されます。 `action` パラメータは操作を選択します:
+
+| アクション | パラメータ                                                            | 目的                                                   |
+| ---------- | --------------------------------------------------------------------- | ------------------------------------------------------ |
+| `send`     | `severity` (必須)、`title` (必須)、`body`、`metadataJson`、`channels` | ユーザーの受信トレイと登録チャンネルに通知を送信します |
+| `list`     | `unreadOnly`、`limit` (最大 200、デフォルト 20)                       | コンテキストに関する最近の通知をリストする             |
+
+オートメーション ([Automations](/docs/automations) を参照) は、本体内で `action=send` を使用して `manage-notifications` を呼び出すことができます。これは、外部イベントをユーザーに表示されるアラートに変換する標準的なパターンです。
+
+## イベントバス {#event-bus}
+
+配信が成功するたびに、[event bus](/docs/automations#event-bus) で `notification.sent` が発行されます:
+
+```json
+{
+  "notificationId": "n-123",
+  "severity": "critical",
+  "title": "DB offline",
+  "body": "Primary dropped connections",
+  "deliveredChannels": ["inbox", "webhook"]
+}
+```
+
+オートメーションはこれを連鎖させることができます。 _「重要な通知が発生した場合は、オンコールでもページングします。」_
+
+## 仕組み {#internals}
+
+- **所有者のスコープ** — すべての行に `owner` 列があります。すべてのクエリはそれをフィルタリングします。すべてのルートでは、認証されたセッションの電子メールが使用されます。ユーザーがお互いの通知を見ることはありません。
+- **ポーリング統合** — すべてのミューテーションが `recordChange()` を呼び出すため、[`useDbSync`](/docs/client) を使用するテンプレートは追加の配線なしで自動無効化されます。
+- **ベストエフォート型ファンアウト** — チャネルエラーが捕捉され、ログに記録されます。 1 つのチャネルに障害が発生しても、他のチャネルや受信トレイへの書き込みはブロックされません。
+- **Fire-and-forget** — 受信箱への書き込みが完了すると、`notify()` が戻ります。カスタム チャネルはバックグラウンドで実行されます。
+
+## 次は何ですか
+
+- [**Automations**](/docs/automations) — `notify()` の最も一般的な呼び出し元
+- [**Security**](/docs/security) — Webhook チャネルを強化する `${keys.NAME}` 置換
+- [**Server plugins**](/docs/server) — 起動時にカスタム チャネルが登録される場所

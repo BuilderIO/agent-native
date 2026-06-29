@@ -148,7 +148,7 @@ export function DocumentTreeItem({
           isDragging && "bg-accent/70 text-accent-foreground shadow-sm",
           isActive
             ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+            : "text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
         style={{
           paddingInlineStart: `${indent}px`,
@@ -208,14 +208,20 @@ export function DocumentTreeItem({
         </span>
 
         <div
-          className="absolute end-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 bg-inherit"
+          className={cn(
+            "pointer-events-none absolute right-1 top-1/2 flex flex-shrink-0 -translate-y-1/2 items-center gap-0.5 rounded-md pl-1 opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100",
+            "bg-accent text-foreground",
+            isActive && "text-accent-foreground",
+          )}
           onPointerDown={(e) => e.stopPropagation()}
         >
           {hasMenuActions && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="w-6 h-6 flex items-center justify-center rounded hover:bg-accent"
+                  type="button"
+                  className="flex h-6 w-6 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`More actions for ${node.title || "Untitled"}`}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <IconDots size={14} />
@@ -259,7 +265,9 @@ export function DocumentTreeItem({
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
-                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-accent"
+                  type="button"
+                  className="flex h-7 w-7 items-center justify-center rounded text-current hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`Add sub-page to ${node.title || "Untitled"}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     onCreateChild(node.id);

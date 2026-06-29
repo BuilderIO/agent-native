@@ -20,6 +20,24 @@ const messages = {
       "녹화를 시작하려면 Clips 확장 프로그램을 다시 여세요.",
     gotIt: "확인",
   },
+  builderCredits: {
+    pausedTitle: "Builder.io 크레딧이 일시 중지됨",
+    transcriptionDescription:
+      "백업 전사를 다시 사용하려면 Builder.io를 업그레이드하세요. 기존 네이티브 전사는 계속 표시됩니다.",
+    cleanupDescription:
+      "전사 정리, 요약, AI 제목을 다시 사용하려면 Builder.io를 업그레이드하세요. 네이티브 전사는 유지되었습니다.",
+    settingsDescription:
+      "백업 전사, 전사 정리, 요약, AI 제목을 다시 사용하려면 Builder.io를 업그레이드하세요. 기존 네이티브 전사는 계속 표시됩니다.",
+    titleDescription:
+      "AI 제목 생성이 일시 중지되었습니다. 전사는 계속 사용할 수 있습니다.",
+    upgrade: "Builder.io 업그레이드",
+    retryAfterUpgrade: "업그레이드 후 다시 시도",
+    openAiSetup: "AI 설정",
+    featureBackupTranscription: "백업 전사",
+    featureCleanup: "전사 정리",
+    featureSummaries: "요약",
+    featureTitles: "AI 제목",
+  },
   recorder: {
     cameraBlurTitle: "배경 흐리게",
     cameraBlurDescription: "나는 선명하게, 뒤쪽 배경은 흐리게 유지합니다",
@@ -331,6 +349,13 @@ const messages = {
       "이번 녹음에서 우리는 어떤 연설도 듣지 못했습니다. 의도적인 것이라면 모든 준비가 완료된 것입니다. 그렇지 않은 경우 마이크 및 음성 권한을 확인한 다음 텍스트 변환을 다시 시도하세요.",
     retry: "다시 해 보다",
     transcriptUnavailable: "스크립트를 사용할 수 없음: {{reason}}",
+    transcriptUnavailableTitle: "전사를 사용할 수 없음",
+    providerNeedsAttention: "공급자 확인 필요",
+    providerNeedsAttentionDescription:
+      "현재 공급자가 이 요청을 일시 중지했습니다. Builder.io로 전환하거나 키를 업데이트한 뒤 다시 시도하세요.",
+    enableTranscriptionTitle: "전사 사용",
+    enableTranscriptionDescription:
+      "이 Clip의 캡션, 전사 검색, 요약을 사용합니다.",
     searchPlaceholder: "성적표 검색",
     copyTranscript: "성적표 복사",
     downloadSrt: ".srt 다운로드",
@@ -346,7 +371,7 @@ const messages = {
     cleanupBuilderFailed:
       "Builder.io가 연결되어 있어도 정리를 완료할 수 없습니다. 원어민 성적표가 보관되었습니다.",
     cleanupPaused:
-      "정리가 일시중지되었습니다. 활성화하려면 설정에서 Builder.io를 연결하세요.",
+      "정리가 일시중지되었습니다. 설정에서 AI를 연결하세요: Builder.io(무료 크레딧) 또는 직접 보유한 LLM 키.",
     builderNoResponse:
       "Builder로부터 답변을 듣지 못했습니다. 팝업을 허용하고 다시 시도하세요.",
     saveFailed: "저장 실패({{status}})",
@@ -588,7 +613,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "Builder.io는 Clips 업로드의 기본 저장 경로입니다. 자체 버킷이 필요할 때 S3를 사용할 수 있습니다.",
     checkingBuilder: "Builder.io 확인 중",
     builderConnected: "Builder.io 연결됨",
-    connectBuilder: "Builder.io 연결",
+    connectBuilder: "Builder.io 사용 (무료)",
     builderConnectedFor: "{{orgName}}에 Builder.io를 사용 중입니다.",
     builderConnectedGeneric: "새 클립은 연결된 Builder.io 제공자를 사용합니다.",
     builderIncludes:
@@ -614,12 +639,12 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     s3PublicBaseUrlLabel: "공개 기본 URL",
     apiSetup: "AI 설정",
     apiSetupDescription:
-      "Builder.io는 관리형 AI 크레딧의 기본 경로입니다. 제공자 키는 선택 사항이며 여기에서 추가할 수 있습니다.",
-    builderEasySetup: "Builder.io가 가장 쉬운 설정입니다",
+      "Builder.io 무료 크레딧 또는 직접 보유한 LLM 키로 AI를 연결하세요.",
+    builderEasySetup: "Builder.io 무료 크레딧",
     builderAiAvailable:
       "포함된 AI 크레딧과 관리형 전사를 Clips에서 사용할 수 있습니다.",
     builderAiDescription:
-      "포함된 AI 크레딧, 객체 저장소, 업로드, 관리형 전사를 사용하려면 먼저 Builder를 연결하세요.",
+      "포함된 AI 크레딧, 객체 스토리지, 업로드, 관리형 전사에는 먼저 Builder.io를 사용하세요.",
     providerKeyTitle: "자체 제공자 키 사용",
     providerKeyDescription:
       "제공자 과금 사용을 위해 Anthropic, OpenAI, Gemini, Groq 또는 OpenRouter 키를 추가하세요.",
@@ -761,7 +786,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     pickAtLeastTwo: "이어붙일 녹화를 2개 이상 선택하세요",
     videoUrlMissing: "하나 이상의 녹화에 준비된 동영상 URL이 아직 없습니다",
     connectStorage:
-      "녹화를 이어붙이기 전에 Builder.io 또는 S3 호환 스토리지를 연결하세요.",
+      "녹화를 이어붙이기 전에 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지.",
     created: "이어붙인 녹화가 생성됨",
     failed: "녹화 이어붙이기 실패",
     noOtherRecordings: "사용 가능한 다른 녹화가 없습니다.",
@@ -826,6 +851,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     replyingTo: "답글 대상",
     commentAt: "댓글 위치",
     writeReply: "답글 쓰기...",
+    commentButton: "댓글",
+    composerPlaceholder: "댓글 추가…",
+    mentionSomeone: "멘션하기",
+    addEmoji: "이모지 추가",
   },
   shareMeeting: {
     pageTitle: "회의 노트 · Clips",
@@ -990,9 +1019,12 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "5분 동안 Builder 응답이 없습니다. 팝업을 확인하고 다시 시도하세요.",
     builderConnected: "Builder.io 연결됨",
     waitingForBuilder: "Builder 대기 중...",
-    connectBuilder: "Builder.io 연결",
+    connectBuilder: "Builder.io 사용 (무료)",
     free: "무료",
     configureS3: "S3 호환 스토리지 구성",
+    whyPrompt: "왜 이 화면이 보이나요?",
+    whyDescription:
+      "Clips는 100% 무료 오픈 소스 앱이므로 클립을 저장할 방법을 연결해야 합니다. Builder.io로 무료 티어 스토리지와 AI를 사용하거나, S3 호환 객체 스토리지와 직접 보유한 LLM 키를 사용하세요.",
   },
   captureInstall: {
     title: "Choose your recorder (현지화됨)",
@@ -1195,9 +1227,9 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     downloadRecording: "Download recording (현지화됨)",
     openRecorderInTab: "Open recorder in tab (현지화됨)",
     connectStorageToFinish:
-      "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it. (현지화됨)",
+      "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
-      "Connect Builder.io or S3 storage on the next screen and Clips will retry the import. (현지화됨)",
+      "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (현지화됨)",
@@ -1290,6 +1322,38 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     spacePageTitle: "스페이스 · Clips",
     spacesPageTitle: "스페이스 · Clips",
     trashPageTitle: "휴지통 · Clips",
+  },
+  bugReportRoute: {
+    pageTitle: "버그 리포트 · Clips",
+    donePageTitle: "버그 리포트 제출됨 · Clips",
+    eyebrow: "버그 리포트",
+    title: "버그 리포트 녹화",
+    description:
+      "팀을 위해 화면, 음성, 정리된 브라우저 컨텍스트로 짧은 재현 영상을 캡처합니다.",
+    issueTitleLabel: "문제 제목",
+    issueTitlePlaceholder: "무엇이 잘못되었나요?",
+    detailsLabel: "세부 정보",
+    detailsPlaceholder: "무엇이 일어나길 기대했나요?",
+    emailLabel: "이메일",
+    emailPlaceholder: "you@example.com",
+    severityLabel: "심각도",
+    severityLow: "낮음",
+    severityNormal: "보통",
+    severityHigh: "높음",
+    severityUrgent: "긴급",
+    sourceLabel: "출처",
+    sourceUnknown: "현재 제품 페이지",
+    startRecording: "화면 리포트 녹화",
+    privacyNote:
+      "Clips는 기본적으로 워크스페이스 접근 권한으로 녹화를 저장합니다. URL과 메타데이터는 저장 전에 수정됩니다.",
+    doneTitle: "버그 리포트가 제출되었습니다",
+    doneDescription:
+      "녹화가 Clips에 저장되었고 호스트 제품에 알림을 보냈습니다.",
+    openRecording: "녹화 열기",
+    copyLink: "링크 복사",
+    copied: "복사됨",
+    returnToProduct: "제품으로 돌아가기",
+    missingRecording: "녹화를 찾을 수 없습니다",
   },
   meetingsRoute: {
     pageTitle: "Meetings · Clips (현지화됨)",

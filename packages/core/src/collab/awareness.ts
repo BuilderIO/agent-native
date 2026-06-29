@@ -102,7 +102,7 @@ function pruneIfEmpty(docId: string, map: Map<number, AwarenessEntry>): void {
  *
  * Client sends its awareness state and receives other clients' states.
  *
- * Body: { clientId: number, state: string (base64) }
+ * Body: { clientId: number, state: string | null (JSON-encoded awareness state, or null to clear) }
  * Response: { states: Array<{ clientId: number, state: string }> }
  */
 export const postAwareness = defineEventHandler(async (event: H3Event) => {
@@ -115,28 +115,31 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const body = await readBody(event);
   const { clientId, state } = body as {
     clientId?: number;
-    state?: string;
+    state?: string | null;
   };
 
-  if (clientId == null || !state) {
+  if (clientId == null || state === undefined) {
     // `!clientId` would wrongly reject clientId === 0, which is a valid
-    // (if rare) Yjs client id. Only reject missing/null ids here.
+    // (if rare) Yjs client id. A null state is valid: it clears this client.
     setResponseStatus(event, 400);
     return { error: "clientId and state required" };
   }
 
   const map = getDocAwareness(docId);
 
-  // Store this client's state
-  map.set(clientId, { clientId, state, lastSeen: Date.now() });
+  if (state === null) {
+    map.delete(clientId);
+  } else {
+    // Store this client's state
+    map.set(clientId, { clientId, state, lastSeen: Date.now() });
+  }
 
   // Clean expired entries, then prune the outer-map entry if it becomes empty.
   // Without pruning, a deployment with many transient docIds (e.g. one per
   // session) would grow _awarenessMap without bound.
   cleanExpired(map);
-  // map has at least the sender's entry so size >= 1 here; pruneIfEmpty is a
-  // no-op in the normal path but guards against edge cases (e.g. clientId 0
-  // that was immediately evicted by a concurrent cleanExpired run).
+  // Null-state clears and expiry can empty the map; prune the outer entry so
+  // transient document ids do not accumulate.
   pruneIfEmpty(docId, map);
 
   // Build the full list of current states (all clients including sender).

@@ -1091,7 +1091,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         ...updates,
       };
       void _slides;
-      void _ca;
+      _ca;
       if (Object.keys(persistableUpdates).length > 0) {
         enqueueDeckOp(id, {
           op: "patch-deck-fields",

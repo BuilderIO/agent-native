@@ -4,6 +4,15 @@ import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
+const getOrgContextMock = vi.hoisted(() =>
+  vi.fn(async () => ({ orgId: "org-qa", role: "owner" })),
+);
+const resolveOrgIdForEmailMock = vi.hoisted(() =>
+  vi.fn(async () => "org-owner"),
+);
+const runWithRequestContextMock = vi.hoisted(() =>
+  vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
+);
 const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
@@ -26,6 +35,15 @@ vi.mock("../deploy/route-discovery.js", () => ({
 
 vi.mock("../server/auth.js", () => ({
   getSession: getSessionMock,
+}));
+
+vi.mock("../org/context.js", () => ({
+  getOrgContext: getOrgContextMock,
+  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
+}));
+
+vi.mock("../server/request-context.js", () => ({
+  runWithRequestContext: runWithRequestContextMock,
 }));
 
 vi.mock("./config-store.js", () => ({
@@ -161,7 +179,13 @@ describe("integrations plugin routes", () => {
     vi.clearAllMocks();
     getIntegrationConfigMock.mockImplementation(async () => ({
       configData: { enabled: false },
+      owner: null,
     }));
+    getOrgContextMock.mockResolvedValue({ orgId: "org-qa", role: "owner" });
+    resolveOrgIdForEmailMock.mockResolvedValue("org-owner");
+    runWithRequestContextMock.mockImplementation(
+      (_ctx: unknown, fn: () => unknown) => fn(),
+    );
     handleWebhookMock.mockResolvedValue({ status: 200, body: "ok" });
     resourceGetByPathMock.mockImplementation(async () => null);
   });
@@ -201,6 +225,38 @@ describe("integrations plugin routes", () => {
           "https://app.test/docs/_agent-native/integrations/fake/webhook",
       }),
     ]);
+  });
+
+  it("runs integration status checks in the signed-in request context", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+    });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-team", role: "admin" });
+    const getStatus = vi.fn(async () => ({
+      platform: "fake",
+      label: "Fake",
+      enabled: false,
+      configured: true,
+    }));
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, getStatus }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/status",
+    );
+
+    expect(result.status).toBe(200);
+    expect(getStatus).toHaveBeenCalledTimes(1);
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-team",
+      },
+      expect.any(Function),
+    );
   });
 
   it("requires a session before mutating integration config", async () => {
@@ -330,7 +386,9 @@ describe("integrations plugin routes", () => {
   it("loads compact owner resources when handling integration webhooks", async () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true },
+      owner: "owner+qa@example.com",
     });
+    resolveOrgIdForEmailMock.mockResolvedValueOnce("org-owner");
     resourceGetByPathMock.mockImplementation(async (owner, path) => {
       if (owner === "shared" && path === "AGENTS.md") {
         return { content: "Shared Dispatch instruction" };
@@ -369,6 +427,17 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
+    expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith(
+      "owner+qa@example.com",
+    );
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      {
+        userEmail: "owner+qa@example.com",
+        orgId: "org-owner",
+        isIntegrationCaller: true,
+      },
+      expect.any(Function),
+    );
     expect(handleWebhookMock).toHaveBeenCalledTimes(1);
     const [, options] = handleWebhookMock.mock.calls[0];
     expect(options.systemPrompt).toContain("Base prompt.");

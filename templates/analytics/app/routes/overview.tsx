@@ -1,10 +1,17 @@
-import { messagesByLocale } from "@/i18n-data";
-import OverviewPage from "@/pages/overview/OverviewPage";
+import { redirect, type LoaderFunctionArgs } from "react-router";
 
-export function meta() {
-  return [{ title: messagesByLocale["en-US"].routeTitles.overview }];
+function target(url: URL): string {
+  return `/ask${url.search}${url.hash}`;
 }
 
-export default function OverviewRoute() {
-  return <OverviewPage />;
+export function loader({ url }: LoaderFunctionArgs) {
+  throw redirect(target(url));
+}
+
+export function clientLoader({ url }: LoaderFunctionArgs) {
+  throw redirect(target(url));
+}
+
+export default function OverviewAliasRoute() {
+  return null;
 }

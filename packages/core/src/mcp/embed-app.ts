@@ -124,6 +124,7 @@ export function embedApp(
     let app = null;
     let appConnectPromise = null;
     let openAiBridge = null;
+    let lastOpenAiSyncSignature = null;
     let wrapperRequestId = 0;
     const wrapperRequests = new Map();
     let toolInput = {};
@@ -936,7 +937,17 @@ export function embedApp(
         throw new Error("Embedded app returned HTTP " + response.status + ".");
       }
       const html = await response.text();
-      const appUrl = source.url || new URL(response.url || src);
+      // Use the FINAL URL the fetch landed on after following redirects, NOT
+      // the pre-redirect embed-start location. The embed ticket's targetPath is
+      // /_agent-native/open?...&to=/plans/<id>, which 302-redirects to the real
+      // app route; we render that route's HTML. If we replaceState to the
+      // pre-redirect /_agent-native/open (a server-only framework route), the
+      // hydrated React Router has no matching client route and throws a 404
+      // ("No route matches URL /_agent-native/open"). response.url is the
+      // resolved app route (/plans/<id>) the router can actually match.
+      const appUrl = new URL(
+        response.url || (source.url ? source.url.href : src),
+      );
       try {
         window.history.replaceState(window.history.state, "", localPathFromUrl(appUrl, false));
       } catch {}
@@ -1523,11 +1534,19 @@ export function embedApp(
         setMessage("Ready to open.");
         return;
       }
-      setMessage("Loading app");
       try {
         const selfNavigate = shouldSelfNavigateToApp();
         if (startedFor === launchUrl) return;
         startedFor = launchUrl;
+        // Only show the loading message when no frame is mounted yet. ChatGPT
+        // fires openai:set_globals (and thus re-launch) constantly; calling
+        // setMessage() unconditionally here wiped the just-mounted iframe out of
+        // the stage on every redundant launch, so the app rendered and was
+        // instantly blanked back to "Loading app" forever. renderFrame()/
+        // transplant replace the stage themselves when they actually (re)mount.
+        if (!appFrame) {
+          setMessage("Loading app");
+        }
         const embedUrl = withChatBridgeParam(launchUrl);
         if (selfNavigate && isEmbedStartUrl(embedUrl)) {
           if (shouldTransplantAppDocument()) {
@@ -1652,6 +1671,31 @@ export function embedApp(
       toolResultData = objectValue(data);
       openUrl = openLinkFrom(params, data);
       openStartUrl = embedStartUrlFrom(params, data);
+      // ChatGPT/Codex fire openai:set_globals extremely often, and the listener
+      // that calls this re-syncs on each one. Because this function calls
+      // notifyHostHeight()/sendHostContext() (which the host reflects back as a
+      // fresh set_globals), an unguarded sync becomes an infinite feedback storm
+      // that starves the host until it shows its sad-face placeholder. Only do
+      // the host round-trips + (re)launch when something we care about changed.
+      // Deliberately EXCLUDE bridge.maxHeight: the host mutates it on every
+      // set_globals as it echoes our height back, which would defeat the guard.
+      let signature;
+      try {
+        signature = JSON.stringify([
+          toolInput,
+          openUrl,
+          openStartUrl,
+          bridge.displayMode,
+          bridge.theme,
+          bridge.locale
+        ]);
+      } catch {
+        signature = null;
+      }
+      if (signature !== null && signature === lastOpenAiSyncSignature) {
+        return true;
+      }
+      lastOpenAiSyncSignature = signature;
       updateTitle(data);
       updateOpenButton();
       updateDisplayButton();

@@ -9,7 +9,7 @@
 
 export type OnboardingMethodBadge = "recommended" | "beta" | "free" | "soon";
 
-/** Fields for a form-style onboarding method (key/value env-var entry). */
+/** Fields for a form-style onboarding method (key/value secret entry). */
 export interface OnboardingFormField {
   key: string;
   label: string;

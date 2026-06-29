@@ -17,6 +17,7 @@ import {
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
+  resolveSecret,
 } from "../server/credential-provider.js";
 import { getSetting } from "../settings/store.js";
 import { registerOnboardingStep } from "./registry.js";
@@ -121,9 +122,9 @@ const llmStep: OnboardingStep = {
         await import("../server/credential-provider.js");
       if (await resolveHasCompleteBuilderConnection()) return true;
     } catch {
-      if (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) {
-        return true;
-      }
+      // Credential storage may be unavailable during early boot. Do not fall
+      // back to deployment-level Builder env here; the scoped resolver owns the
+      // policy for when that is safe.
     }
     try {
       if (await detectEngineFromUserSecrets()) return true;
@@ -287,12 +288,14 @@ const emailStep: OnboardingStep = {
       },
     },
   ],
-  isComplete: () => {
-    if (process.env.RESEND_API_KEY) return true;
+  isComplete: async () => {
+    if (await resolveSecret("RESEND_API_KEY")) return true;
     // SendGrid rejects Resend's sandbox sender, so EMAIL_FROM must also be
     // set — otherwise sendEmail() throws at runtime even though the API key
     // is configured.
-    if (process.env.SENDGRID_API_KEY) return !!process.env.EMAIL_FROM;
+    if (await resolveSecret("SENDGRID_API_KEY")) {
+      return !!(await resolveSecret("EMAIL_FROM"));
+    }
     return false;
   },
 };

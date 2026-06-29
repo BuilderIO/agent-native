@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
+import { useIsMobile } from "@/hooks/use-mobile";
+
 const DISMISSED_KEY = "clips.desktop-promo.dismissed";
 
 function detectDesktopApp(): boolean {
@@ -17,6 +19,7 @@ function detectDesktopApp(): boolean {
 }
 
 export function useDesktopPromo() {
+  const isMobile = useIsMobile();
   const [isDesktopApp, setIsDesktopApp] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -40,8 +43,9 @@ export function useDesktopPromo() {
 
   return {
     isDesktopApp,
-    shouldShowPromo: !isDesktopApp && !dismissed,
-    shouldShowSidebarLink: !isDesktopApp,
+    isMobile,
+    shouldShowPromo: !isMobile && !isDesktopApp && !dismissed,
+    shouldShowSidebarLink: !isMobile && !isDesktopApp,
     dismiss,
   };
 }

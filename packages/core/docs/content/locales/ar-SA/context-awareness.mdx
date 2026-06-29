@@ -1,0 +1,482 @@
+---
+title: "الوعي بالسياق"
+description: "كيف يعرف الوكيل ما ينظر إليه المستخدم: حالة التنقل، وسياق التحديد، وشاشة العرض، وعمليات تسليم sendToAgentChat، وأوامر التنقل، ومنع الارتعاش."
+---
+
+# الوعي بالسياق
+
+> **صفحة المطور.** هذه الصفحة مخصصة للمطورين الذين يقومون بتوصيل طبقة سياق التطبيق. للتعرف على تجربة المستخدم النهائي - كيف يستخدم الوكيل هذا السياق في المحادثة - راجع [Using Your Agent](/docs/using-your-agent).
+
+كيف يعرف الوكيل ما ينظر إليه المستخدم - وكيف يمكن للوكيل التحكم في ما يراه المستخدم.
+
+## نظرة عامة {#overview}
+
+بدون الوعي بالسياق، يكون الوكيل أعمى. يسأل "أي بريد إلكتروني؟" عندما يحدق المستخدم في واحد. ولا يمكنه التصرف بناءً على التحديد الحالي، ولا يمكنه تقديم اقتراحات ذات صلة، ولا يمكنه تعديل ما يراه المستخدم. من خلال الوعي بالسياق، يمكن للمستخدم النقر فوق صف، أو تمييز فقرة، أو تحديد عنصر شريحة، أو الضغط على Cmd+I، ثم قول "تلخيص هذا" وسيعرف الوكيل بالفعل معنى "هذا".
+
+لفهم ما يجب وضعه على أي سطح (AGENTS.md مقابل skills مقابل application_state)، راجع [Writing Agent Instructions — The four surfaces the agent sees](/docs/writing-agent-instructions#four-surfaces).
+
+ستة أنماط تحل هذه المشكلة:
+
+1. **حالة التنقل** -- يكتب UI مفتاح `navigation` لحالة التطبيق عند كل تغيير للمسار
+2. **URL الحالي** - يكتب إطار العمل `__url__` بحيث تكون معلمات الاستعلام مرئية وقابلة للتحرير بواسطة الوكيل
+3. **حالة التحديد** -- يكتب UI مفتاح `selection` عندما يركز المستخدم على شيء ذي معنى أو يحدده أو يحدده عدة مرات
+4. **`view-screen`** -- إجراء يقرأ حالة التطبيق، ويجلب البيانات السياقية، ويعيد لقطة لما يراه المستخدم
+5. **التسليم الفوري** -- تستدعي عناصر التحكم UI `sendToAgentChat()` عندما تتحول النقرة إلى وكيل
+6. **`navigate`** -- أمر يتم تنفيذه مرة واحدة من الوكيل لإخبار UI بالمكان الذي يجب أن يذهب إليه
+
+<Diagram id="doc-block-11zddes" title={"كيف يرى الوكيل ما تراه"} summary={"تكتب واجهة المستخدم مفاتيح حالة خفيفة الوزن؛ تعمل شاشة العرض على ترطيبها وتحويلها إلى سجلات حقيقية؛ يمكن للوكيل كتابة التنقل مرة أخرى لتحريك واجهة المستخدم."}>
+
+```html
+<div class="diagram-ctx">
+  <div class="diagram-card col">
+    <span class="diagram-pill">يكتب واجهة المستخدم</span>
+    <div class="diagram-node">
+      ملاحة<br /><small class="diagram-muted">عرض، معرفات مفتوحة</small>
+    </div>
+    <div class="diagram-node">
+      __url__<br /><small class="diagram-muted">مرشحات قابلة للمشاركة</small>
+    </div>
+    <div class="diagram-node">
+      اختيار<br /><small class="diagram-muted">الصفوف والكتل والأشكال</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">view-screen</span
+    ><small class="diagram-muted">يقرأ الدولة &middot; جلب السجلات</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    تصرفات الوكيل<br /><small class="diagram-muted">على الكائن الحقيقي</small>
+  </div>
+  <div class="diagram-arrow diagram-accent" aria-hidden="true">&#8635;</div>
+  <div class="diagram-box diagram-accent">
+    التنقل<br /><small class="diagram-muted"
+      >يقوم الوكيل بنقل واجهة المستخدم</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-ctx {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-ctx .col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+}
+.diagram-ctx .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px;
+}
+.diagram-ctx .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## طبقات السياق {#context-layers}
+
+استخدم قنوات سياق مختلفة لوظائف مختلفة:
+
+| الطبقة                                         | المالك            | استخدمه من أجل                                                                           |
+| ---------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------- |
+| مفتاح حالة التطبيق `navigation`                | UI                | حالة المسار الدلالي: العرض الحالي، السجل المفتوح، علامة التبويب النشطة، المعرفات الثابتة |
+| مفتاح حالة التطبيق `__url__`                   | الإطار UI         | اسم المسار الحالي، وسلسلة البحث، والتجزئة، ومعلمات استعلام URL التي تم تحليلها           |
+| مفتاح حالة التطبيق `__set_url__`               | الوكيل/إطار العمل | تعديلات URL لقطة واحدة من `set-search-params` و`set-url-path`                            |
+| مفتاح حالة التطبيق `selection`                 | UI                | التحديد الدلالي الدائم: الصفوف والكتل والأشكال والأصول والرسائل                          |
+| مفتاح حالة التطبيق `pending-selection-context` | UI / `AgentPanel` | نص محدد بلقطة واحدة مرفق بدورة الدردشة التالية، عادةً من Cmd+I                           |
+| إجراء `view-screen`                            | الوكيل            | تحويل مفاتيح حالة التطبيق إلى سجلات حقيقية وملخصات الشاشة                                |
+| `sendToAgentChat()`                            | UI                | تحويل نقرة أو أمر أو دبوس تعليق أو عنصر محدد إلى مطالبة للدردشة                          |
+| مفتاح حالة التطبيق `navigate`                  | الوكيل            | مطالبة UI بالانتقال إلى مسار آخر أو التركيز على كائن آخر                                 |
+
+الإصدار القصير: معلمات الاستعلام URL هي مصدر الحقيقة للمرشحات القابلة للمشاركة، ويخزن `navigation` المعرفات الدلالية وأسماء العرض، ويحول `view-screen` طبقات الحالة هذه إلى بيانات مفيدة، ويحول `sendToAgentChat()` نية UI إلى رسالة دردشة عندما ينقر المستخدم على أمر.
+
+## حالة التنقل {#navigation-state}
+
+يكتب UI مفتاح `navigation` لحالة التطبيق عند كل تغيير للمسار. وهذا يخبر الوكيل بالعرض الذي يستخدمه المستخدم، والعنصر المفتوح، وحالة UI الدلالية المهمة.
+
+```json
+{
+  "view": "inbox",
+  "threadId": "thread-123",
+  "focusedEmailId": "msg-456",
+  "label": "important"
+}
+```
+
+ما يجب تضمينه في حالة التنقل:
+
+- `view` -- الصفحة/القسم الحالي، مثل "البريد الوارد" أو "منشئ النماذج" أو "لوحة المعلومات"
+- معرفات العناصر -- العنصر المحدد/المفتوح، مثل `threadId` أو `formId`
+- الأسماء المستعارة الدلالية -- علامة التبويب النشطة، أو اسم التصنيف، أو مفاهيم التطبيقات الثابتة الأخرى التي تساعد الوكيل على التفكير
+- حالة التركيز الخفيف - الصف الذي تم التركيز عليه، علامة التبويب النشطة، اللوحة الحالية
+
+اجعل `navigation` صغيرًا ودلاليًا. يجب أن تحدد الشاشة الحالية، ولا تكرر السجلات بأكملها أو تعكس كل معلمات الاستعلام. جلب السجلات في `view-screen` حتى يحصل الوكيل دائمًا على بيانات جديدة.
+
+يقرأ الوكيل هذا قبل التصرف:
+
+```ts
+import { readAppState } from "@agent-native/core/application-state";
+
+const navigation = await readAppState("navigation");
+// { view: "inbox", threadId: "thread-123", label: "important" }
+```
+
+## URL والمرشحات الحالية {#current-url}
+
+يقوم `AgentPanel` تلقائيًا بمزامنة جهاز التوجيه React الحالي URL مع مفتاح حالة التطبيق `__url__`. يقوم الوكيل المدمج بتضمينه في كل دور ككتلة `<current-url>`:
+
+```text
+<current-url>
+pathname: /adhoc/revenue
+search: ?f_region=west&q=renewal
+searchParams:
+  f_region: west
+  q: renewal
+</current-url>
+```
+
+هذه هي الطبقة الأساسية لحالة المرشح القابلة للمشاركة. إذا كان بإمكان المستخدم نسخ URL والعودة إلى نفس القائمة التي تمت تصفيتها، فإن عامل التصفية ينتمي إلى سلسلة الاستعلام. يمكن للوكيل تغيير تلك المرشحات باستخدام أداة `set-search-params` المدمجة:
+
+```text
+set-search-params({ "params": { "f_region": "east", "q": null } })
+```
+
+استخدم `navigation` فقط للأسماء المستعارة الدلالية التي تساعد `view-screen` في جلب البيانات الصحيحة أو تلخيصها. قد تحتفظ لوحة المعلومات بـ `navigation.dashboardId` بينما تمتلك `__url__.searchParams` `f_region` و`f_dateStart` و`q`.
+
+عندما تقوم `view-screen` بإرجاع لقطة أكثر ثراءً، يمكنها نسخ مرشحات URL المهمة إلى كائن `activeFilters` سهل الاستخدام:
+
+```ts
+const url = (await readAppState("__url__")) as {
+  searchParams?: Record<string, string>;
+} | null;
+
+if (url?.searchParams) {
+  screen.activeFilters = Object.fromEntries(
+    Object.entries(url.searchParams).filter(
+      ([key, value]) => key.startsWith("f_") && value,
+    ),
+  );
+}
+```
+
+## حالة التحديد {#selection-state}
+
+التحديد هو حالة UI الدلالية. إنها الطريقة التي يصبح بها "المخطط الذي نقرت عليه" أو "هذه الصفوف الثلاثة" أو "عنوان الشريحة" أو "نطاق مسودة البريد الإلكتروني الحالي" سياقًا مرئيًا للنموذج.
+
+استخدم مفتاح حالة التطبيق `selection` للاختيار الدائم الذي يجب أن يستمر لمدة دقيقة من التنقل، أو اقتراحات الدردشة الفارغة، أو مكالمة `view-screen` اللاحقة:
+
+```json
+{
+  "kind": "slide.elements",
+  "deckId": "deck-123",
+  "slideId": "slide-4",
+  "items": [
+    {
+      "id": "hero-title",
+      "selector": "[data-block-id='hero-title']",
+      "label": "Hero title",
+      "text": "إطلاق الربع الثالث plan"
+    }
+  ],
+  "capturedAt": 1780332977027
+}
+```
+
+اكتبه من UI عندما يقوم المستخدم بتحديد كائنات ذات معنى أو التركيز عليها أو تحديدها بشكل متعدد:
+
+```tsx
+import { setClientAppState } from "@agent-native/core/client";
+
+async function syncSelection(selection: unknown | null) {
+  await setClientAppState("selection", selection, { keepalive: true });
+}
+```
+
+تتضمن حالة التحديد الجيد ما يلي:
+
+- المعرفات الثابتة التي يمكن للوكيل استخدامها في actions، مثل `threadId`، أو `slideId`، أو `assetId`
+- تصنيف بشري قصير حتى تكون المطالبات والاقتراحات قابلة للقراءة
+- ما يكفي من النص أو البيانات الوصفية لتوضيح الكائن
+- محددات مواقع UI الاختيارية مثل المحددات أو الإحداثيات عندما يحتاج الوكيل إلى الرجوع مرة أخرى إلى عنصر مرئي
+- `capturedAt` عندما يكون التحديد القديم ضارًا
+
+تجنب تخزين الأسرار أو المستندات الكاملة أو الحمولات الثنائية الكبيرة أو استجابات API الكاملة في `selection`. معرفات المتجر بالإضافة إلى مقتطفات قصيرة، ثم اسمح لـ `view-screen` بإحضار المصدر الحالي للحقيقة.
+
+### نص محدد بلقطة واحدة {#pending-selection-context}
+
+يتعامل `AgentPanel` بالفعل مع تدفق تحديد النص الشائع. عندما يضغط المستخدم على Cmd+I (أو Ctrl+I) مع تحديد النص في الصفحة، فإنه:
+
+1. يقرأ `window.getSelection()`
+2. يكتب `{ text, capturedAt }` إلى `pending-selection-context`
+3. يركز على محادثة الوكيل
+
+يقوم وكيل الإنتاج بإدخال هذا المفتاح في المنعطف التالي كسياق تحديد فوري ويتجاهله بمجرد أن يصبح قديمًا. هذا هو المسار الذي يجعل "تحديد النص، اضغط على Cmd+I، اسأل "اجعل هذا أكثر تأثيرًا"" يعمل دون قيام المستخدم بنسخ التحديد في الموجه.
+
+يمكن للمحررين المخصصين كتابة نفس المفتاح عندما لا يتم تمثيل اختيارهم بواسطة تحديد المتصفح الأصلي:
+
+```tsx
+import { setClientAppState } from "@agent-native/core/client";
+
+await setClientAppState(
+  "pending-selection-context",
+  {
+    text: selectedMarkdown,
+    capturedAt: Date.now(),
+  },
+  { keepalive: true },
+);
+```
+
+استخدم `pending-selection-context` لتدفقات لقطة واحدة "التصرف بناءً على هذا النص المحدد بالضبط". استخدم `selection` لتحديد الكائنات الدائمة التي يجب أن تستمر `view-screen` والاقتراحات الديناميكية في رؤيتها.
+
+## إجراء شاشة العرض {#view-screen-action}
+
+يجب أن يحتوي كل قالب على إجراء `view-screen`. فهو يقرأ حالة التنقل والاختيار، ويجلب البيانات ذات الصلة، ويعيد لقطة لما يراه المستخدم. هذه هي عيون الوكيل.
+
+<AnnotatedCode
+  id="doc-block-thv3k6"
+  title={"شاشة العرض - عيون الوكيل"}
+  filename="actions/view-screen.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { readAppState } from "@agent-native/core/application-state";\nimport { eq, inArray } from "drizzle-orm";\nimport { z } from "zod";\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description:\n    "See what the user is currently looking at on screen.",\n  schema: z.object({}),\n  http: false,\n  run: async () => {\n    const navigation = (await readAppState("navigation")) as any;\n    const selection = (await readAppState("selection")) as any;\n    const screen: Record<string, unknown> = {};\n    if (navigation) screen.navigation = navigation;\n    if (selection) screen.selection = selection;\n\n    const db = getDb();\n\n    // Fetch data based on what the user is viewing\n    if (navigation?.view === "inbox") {\n      screen.emailList = await db\n        .select()\n        .from(schema.emails)\n        .where(eq(schema.emails.label, navigation.label));\n    }\n    if (navigation?.threadId) {\n      screen.thread = await db\n        .select()\n        .from(schema.threads)\n        .where(eq(schema.threads.id, navigation.threadId));\n    }\n    if (selection?.kind === "email.messages") {\n      screen.selectedMessages = await db\n        .select()\n        .from(schema.emails)\n        .where(inArray(schema.emails.id, selection.messageIds));\n    }\n\n    if (Object.keys(screen).length === 0) {\n      return "No application state found. Is the app running?";\n    }\n    return screen;\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10-11",
+      label: "سطح الأداة",
+      note: "يقرأ الوكيل هذا الوصف ليعرف أنه يمكنه الاتصال بـ `view-screen` لرؤية واجهة المستخدم الحالية.",
+    },
+    {
+      lines: "13",
+      label: "http: خطأ",
+      note: "الإجراء الداخلي — لم يتم الكشف عنه عبر HTTP. الوكيل و `pnpm action` يسمونه، وليس المتصفح.",
+    },
+    {
+      lines: "15-16",
+      label: "قراءة الدولة",
+      note: "يسحب المفاتيح `navigation` و`selection` خفيفة الوزن التي كتبتها واجهة المستخدم.",
+    },
+    {
+      lines: "23-37",
+      label: "هيدرات",
+      note: "يحول هذه المعرفات إلى سجلات **حديثة** مباشرة من SQL، بحيث يتحقق الوكيل من الكائن المباشر قبل التصرف.",
+    },
+  ]}
+/>
+
+يجب على الوكيل الاتصال بـ `pnpm action view-screen` قبل التصرف على UI الحالي. هذا هو التقليد الصعب عبر جميع القوالب. عند إضافة ميزات جديدة، قم بتحديث `view-screen` لإرجاع البيانات الخاصة بالعرض الجديد وأي شكل تحديد جديد.
+
+<Callout id="doc-block-8osc8m" tone="info">
+
+**احتفظ بـ `navigation` و`selection` صغيرين.** معرفات المتجر بالإضافة إلى التسميات القصيرة، وليس السجلات الكاملة. `view-screen` يجلب مصدر الحقيقة عند الطلب، لذلك لا تصل الحالة القديمة أو الضخمة إلى الوكيل أبدًا.
+
+</Callout>
+
+## التسليم الفوري باستخدام `sendToAgentChat()` {#send-to-agent-chat}
+
+في بعض الأحيان، لا يجب أن يكون السياق موجودًا في حالة التطبيق فحسب. ينقر المستخدم على زر، ويسقط دبوس تعليق، ويحدد عنصرًا ويختار "اسأل الوكيل"، أو يضغط على أمر AI في شريط الأدوات. تلك النقرة هي تعليمات. في المتصفح UI، قم بتسليمها إلى الوكيل باستخدام `sendToAgentChat()`.
+
+```tsx
+import { sendToAgentChat } from "@agent-native/core/client";
+
+function askAgentAboutSelection(selection: {
+  documentId: string;
+  blockId: string;
+  label: string;
+  text: string;
+}) {
+  sendToAgentChat({
+    message: `Improve the selected block: ${selection.label}`,
+    context: [
+      `Document id: ${selection.documentId}`,
+      `Block id: ${selection.blockId}`,
+      "Current selected text:",
+      selection.text,
+    ].join("\n"),
+    submit: false,
+    openSidebar: true,
+  });
+}
+```
+
+استخدم الحقول عمدًا:
+
+| الحقل               | المعنى                                                                        |
+| ------------------- | ----------------------------------------------------------------------------- |
+| `message`           | نص المطالبة المرئي المعروض في الدردشة                                         |
+| `context`           | سياق مخفي مرئي للنموذج، ولا يظهر كنص دردشة يواجه المستخدم                     |
+| `submit: true`      | أرسل فورًا؛ مناسب لأزرار الأوامر الصريحة مثل "إصلاح التخطيط"                  |
+| `submit: false`     | ملء مسبق لمراجعة المستخدم؛ مناسب لـ "اسأل الوكيل عن هذا" أو التحديدات الغامضة |
+| `openSidebar: true` | اجعل استجابة الوكيل مرئية حتى لو كانت اللوحة مطوية                            |
+| `newTab: true`      | ابدأ سلسلة دردشة منفصلة لمهمة إنشاء أكبر                                      |
+| `type: "code"`      | توجيه إلى إطار تحرير التعليمات البرمجية عندما يتعلق الطلب بتغيير مصدر التطبيق |
+
+`sendToAgentChat()` هو برنامج تضمين المتصفح المدعوم لمسار الدردشة المرسلة والذي يُرى أحيانًا داخليًا باسم `agentNative.submitChat`. يجب أن يستدعي التطبيق UI المجمّع بدلاً من نشر `agentNative.submitChat` مباشرة لأن المجمّع يتعامل مع الأشرطة الجانبية المحلية، وتوجيه Builder/الإطار، وتوجيه مضيف التطبيق MCP، ومعرفات علامات التبويب، وتوجيه طلب التعليمات البرمجية.
+
+استخدم `agentChat.submit()` أو `agentChat.prefill()` لسياقات العقدة/البرنامج النصي حيث لا يوجد شريط جانبي للمتصفح. بشكل عام, يجب ألا يقوم الخادم actions باستدعاء `sendToAgentChat()` للمتصفح فقط؛ إذا كان الإجراء يحتاج إلى UI المفتوح ليطلب من الوكيل شيئًا ما، فاكتب طلبًا صغيرًا في `application_state` ودع جسر UI يرسله من المتصفح.
+
+### العناصر التي تم النقر عليها في المطالبة {#clicked-items-in-prompt}
+
+بالنسبة لتجربة "النقر على العناصر الموجودة في UI وتصبح جزءًا من الموجه"، قم بدمج حالة التحديد مع التسليم الموجه:
+
+1. عند النقر أو التحديد المتعدد، اكتب حالة `selection` الدلالية حتى يتمكن `view-screen` والاقتراحات الديناميكية والمنعطفات المستقبلية من رؤيتها.
+2. إذا كانت النقرة أيضًا بمثابة أمر، فاتصل بـ `sendToAgentChat()` مع `message` مرئي وموجز و`context` مخفي أكثر ثراءً.
+3. في `view-screen`، قم بترطيب المعرفات المحددة في السجلات الحالية حتى يتمكن الوكيل من التحقق من الكائن قبل تغييره.
+4. امسح `selection` عندما لا يكون الكائن محددًا أو محذوفًا أو لم يعد ذا صلة.
+
+يمنح ذلك المستخدم السلوك السحري "هذا ما قصدته" دون حشو كل مطالبة بسياق مرئي ضخم.
+
+## إجراء التنقل {#navigate-action}
+
+`navigate` هي صورة معكوسة لـ `navigation`. حيث `navigation` هو UI الذي يخبر الوكيل بمكان تواجد المستخدم، `navigate` هو الوكيل الذي يخبر UI بالمكان الذي يجب أن يذهب إليه. يكتب الوكيل أمر `navigate` لمرة واحدة إلى حالة التطبيق؛ يقرأها UI، ويقوم بالتنقل، ثم يحذف الإدخال.
+
+```ts
+// Agent side -- write a navigate command
+import { writeAppState } from "@agent-native/core/application-state";
+
+await writeAppState("navigate", { view: "inbox", threadId: "thread-123" });
+```
+
+على الجانب UI، لا يمكنك مطلقًا استقصاء هذا المفتاح أو حذفه يدويًا. يتم التعامل مع كلا الاتجاهين - كتابة `navigation` في كل تغيير للمسار واستخدام أمر `navigate` الخاص بالوكيل - بواسطة خطاف واحد، [`useNavigationState`](#use-navigation-state)، تمت تغطيته في القسم التالي.
+
+ينتمي مفتاح `navigation` إلى UI؛ يجب ألا يكتب إليه الوكيل مباشرة. يكتب الوكيل `navigate`، ويقوم UI بتنفيذ النقل، وهذه الخطوة هي ما يقوم بتحديث `navigation`.
+
+عندما تحتوي الوجهة على URL حقيقي، قم بتضمين `path` من نفس الأصل على
+أمر `navigate` واطلب من UI تفضيل هذا المسار قبل الرجوع إلى
+الحقول الدلالية. حافظ على قناة واحدة للتنقل في التطبيق: لا تكتب كليهما
+`navigate` و`__set_url__` لنفس الحركة. `__set_url__` مخصص لـ
+أدوات إطار عمل URL (`set-url-path`، `set-search-params`) ومرشح URL فقط
+التغييرات. بالنسبة للأوامر التي يمكن أن تصل أثناء بث الدردشة، قم بتنفيذ المسار
+باستخدام `navigate(path, { replace: true, flushSync: true })` بدلاً من تغليفه
+في انتقال العرض بحيث يظل شريط العناوين والصفحة المرئية معًا.
+
+## خطاف useNavigationState {#use-navigation-state}
+
+`useNavigationState` هو **رابط تطبيقك، وليس استيراد إطار عمل.** يشحن كل قالب واحدًا في `app/hooks/use-navigation-state.ts` ويستدعيه مرة واحدة من غلاف التطبيق (`root.tsx`). وهو المكان الوحيد الذي يربط الأسلاك في كلا الاتجاهين:
+
+- **الخارج (UI → الوكيل):** يكتب مفتاح `navigation` كلما تغير المسار، بحيث يعرف الوكيل دائمًا العرض الحالي.
+- **الوارد (الوكيل → UI):** يستقصي أمر `navigate`، ويقوم بتشغيل التنقل، ويحذف الأمر.
+
+يظل قصيرًا لأنه عبارة عن غلاف رفيع حول إطار العمل الحقيقي البدائي، `useAgentRouteState` (المصدر من `@agent-native/core/client`). أنت توفر وظيفتين خاصتين بالتطبيق ويتولى إطار العمل الباقي:
+
+```tsx
+// app/hooks/use-navigation-state.ts -- this file lives in YOUR app
+import { useAgentRouteState } from "@agent-native/core/client";
+import { TAB_ID } from "@/lib/tab-id";
+
+interface NavigationState {
+  view: "inbox" | "thread";
+  threadId?: string;
+  path?: string;
+}
+
+export function useNavigationState() {
+  useAgentRouteState<NavigationState>({
+    browserTabId: TAB_ID,
+    requestSource: TAB_ID,
+
+    // UI → agent: derive semantic state from the current URL.
+    getNavigationState: ({ pathname }) => {
+      const match = pathname.match(/^\/thread\/([^/]+)/);
+      return match ? { view: "thread", threadId: match[1] } : { view: "inbox" };
+    },
+
+    // agent → UI: turn a `navigate` command into a route to push.
+    getCommandPath: (command) =>
+      command.path ??
+      (command.view === "thread" && command.threadId
+        ? `/thread/${command.threadId}`
+        : "/"),
+    navigateOptions: { replace: true, flushSync: true },
+  });
+}
+```
+
+| أنت تكتب                                                 | مقابض الإطار                                                                            |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `getNavigationState` — قم بتعيين URL إلى الحالة الدلالية | يكتب `navigation` على نطاق علامة التبويب بالإضافة إلى مفتاح احتياطي عام                 |
+| `getCommandPath` — قم بتعيين أمر `navigate` إلى المسار   | استقصاء الأوامر، والحذف بعد القراءة، وحماية الأوامر المكررة، ووضع علامات على مصدر الطلب |
+
+يفترض `useAgentRouteState` جهاز التوجيه React. عندما لا يكون التنقل موجودًا في URL - خطوة معالج، تحديد قماش، غلاف غير موجه - انزل إلى المستوى الأدنى `useSemanticNavigationState` بدلاً من ذلك: يمكنك تسليمه قيمة `state` جاهزة بالإضافة إلى `navigationKeys`/`commandKeys` ورد اتصال `onCommand`، ويظل غير متأكد تمامًا بشأن React جهاز التوجيه.
+
+## منع الارتعاش {#jitter-prevention}
+
+عندما يكتب الوكيل إلى حالة التطبيق، قد يتسبب نظام المزامنة في قيام UI بإعادة جلب البيانات التي كتبها للتو. وهذا يخلق غضب. الحل هو وضع علامات على المصدر:
+
+استخدم `setClientAppState`، و`writeClientAppState`، و`readClientAppState`، و`deleteClientAppState` من `@agent-native/core/client` للوصول إلى حالة التطبيق من جانب المتصفح. تمرير `{ requestSource: TAB_ID }` على UI يكتب عند الاقتران مع `useDbSync({ ignoreSource: TAB_ID })`؛ قم بتمرير `{ keepalive: true }` لعمليات الكتابة قصيرة الأمد مثل تنظيف التحديد أثناء التفريغ.
+
+```ts
+// app/root.tsx
+import { TAB_ID } from "@/lib/tab-id";
+
+useDbSync({
+  queryClient,
+  ignoreSource: TAB_ID, // ignore events from this tab's own writes
+});
+```
+
+كيفية العمل:
+
+- يتم وضع علامة على كتابات الوكيل بعلامة `requestSource: "agent"` (يقوم مساعدو الإجراء بذلك تلقائيًا)
+- تتضمن عمليات الكتابة UI المعرف الفريد لعلامة التبويب عبر رأس `X-Request-Source`
+- يقوم الخادم بتخزين المصدر في كل حدث
+- عند معالجة أحداث المزامنة، يقوم UI بتصفية الأحداث المطابقة لقيمة `ignoreSource` الخاصة به -- لذلك لا يقوم بإعادة جلب البيانات التي كتبها للتو
+- لا تزال الأحداث من الوكلاء وعلامات التبويب الأخرى وactions تحدث بشكل طبيعي
+
+<Diagram id="doc-block-lx85cl" title={"تعمل علامات المصدر على إيقاف عدم استقرار الإرجاع الذاتي"} summary={"تتجاهل علامة التبويب أحداث المزامنة التي تم ختمها بـ TAB_ID الخاص بها، ولكنها لا تزال تتفاعل مع عمليات كتابة الوكيل وعلامات التبويب الأخرى."}>
+
+```html
+<div class="diagram-jitter">
+  <div class="diagram-node">
+    علامة التبويب هذه تكتب<br /><small class="diagram-muted"
+      >طلب X-المصدر: TAB_ID</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>مصدر مخازن الخادم<br />على الحدث</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card col">
+    <div class="diagram-pill warn">المصدر == TAB_ID &rarr; تم تجاهله</div>
+    <small class="diagram-muted">لا الإعادة، لا وميض</small>
+    <div class="diagram-pill ok">
+      وكيل / علامة التبويب الأخرى &rarr; مُطبَّق
+    </div>
+    <small class="diagram-muted">تحديثات واجهة المستخدم مباشرة</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-jitter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-jitter .col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+}
+.diagram-jitter .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>

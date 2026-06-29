@@ -20,6 +20,24 @@ const messages = {
       "Ouvrez à nouveau l’extension Clips pour commencer l’enregistrement.",
     gotIt: "Compris",
   },
+  builderCredits: {
+    pausedTitle: "Crédits Builder.io en pause",
+    transcriptionDescription:
+      "Mettez Builder.io à niveau pour reprendre la transcription de secours. Les transcriptions natives existantes restent visibles.",
+    cleanupDescription:
+      "Mettez Builder.io à niveau pour reprendre le nettoyage des transcriptions, les résumés et les titres IA. La transcription native a été conservée.",
+    settingsDescription:
+      "Mettez Builder.io à niveau pour reprendre la transcription de secours, le nettoyage des transcriptions, les résumés et les titres IA. Les transcriptions natives existantes restent visibles.",
+    titleDescription:
+      "La génération de titres IA est en pause. Votre transcription fonctionne toujours.",
+    upgrade: "Mettre Builder.io à niveau",
+    retryAfterUpgrade: "Réessayer après la mise à niveau",
+    openAiSetup: "Configuration IA",
+    featureBackupTranscription: "Transcription de secours",
+    featureCleanup: "Nettoyage de transcription",
+    featureSummaries: "Résumés",
+    featureTitles: "Titres IA",
+  },
   recorder: {
     cameraBlurTitle: "Flouter l'arrière-plan",
     cameraBlurDescription: "Restez net et floutez ce qui est derrière vous",
@@ -339,6 +357,13 @@ const messages = {
       "Nous n'avons capté aucun discours dans cet enregistrement. Si c’était intentionnel, vous êtes prêt. Sinon, vérifiez vos autorisations de microphone et de parole, puis réessayez la transcription.",
     retry: "Réessayer",
     transcriptUnavailable: "Transcription indisponible : {{reason}}",
+    transcriptUnavailableTitle: "Transcription indisponible",
+    providerNeedsAttention: "Le fournisseur demande une action",
+    providerNeedsAttentionDescription:
+      "Le fournisseur actuel a mis cette demande en pause. Passez à Builder.io ou mettez la clé à jour, puis réessayez.",
+    enableTranscriptionTitle: "Activer la transcription",
+    enableTranscriptionDescription:
+      "Activez les sous-titres, la recherche dans la transcription et les résumés pour ce Clip.",
     searchPlaceholder: "Rechercher la transcription",
     copyTranscript: "Copier la transcription",
     downloadSrt: "Télécharger .srt",
@@ -355,7 +380,7 @@ const messages = {
     cleanupBuilderFailed:
       "Le nettoyage n'a pas pu se terminer même si Builder.io est connecté. La transcription native a été conservée.",
     cleanupPaused:
-      "Le nettoyage est suspendu. Connectez Builder.io dans Paramètres pour l'activer.",
+      "Le nettoyage est suspendu. Connectez l’IA dans Paramètres : Builder.io (crédits gratuits) ou votre propre clé LLM.",
     builderNoResponse:
       "Je n'ai pas eu de réponse de Builder. Autorisez les fenêtres contextuelles et réessayez.",
     saveFailed: "Échec de l'enregistrement ({{status}})",
@@ -600,7 +625,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Builder.io est le chemin de stockage principal pour les téléversements Clips. S3 est disponible si vous devez utiliser votre propre bucket.",
     checkingBuilder: "Vérification de Builder.io",
     builderConnected: "Builder.io connecté",
-    connectBuilder: "Connecter Builder.io",
+    connectBuilder: "Utiliser Builder.io (gratuit)",
     builderConnectedFor: "Utilisation de Builder.io pour {{orgName}}.",
     builderConnectedGeneric:
       "Les nouveaux clips utilisent le fournisseur Builder.io connecté.",
@@ -628,12 +653,12 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     s3PublicBaseUrlLabel: "URL de base publique",
     apiSetup: "Configuration IA",
     apiSetupDescription:
-      "Builder.io est le chemin par défaut pour les crédits IA gérés. Les clés de fournisseur sont facultatives et peuvent être ajoutées ici.",
-    builderEasySetup: "Builder.io est la configuration la plus simple",
+      "Connectez l’IA avec les crédits gratuits Builder.io ou vos propres clés LLM.",
+    builderEasySetup: "Crédits gratuits Builder.io",
     builderAiAvailable:
       "Les crédits IA inclus et la transcription gérée sont disponibles pour Clips.",
     builderAiDescription:
-      "Connectez Builder d’abord pour les crédits IA inclus, le stockage objet, les téléversements et la transcription gérée.",
+      "Utilisez d’abord Builder.io pour les crédits IA inclus, le stockage objet, les téléversements et la transcription gérée.",
     providerKeyTitle: "Utiliser votre propre clé fournisseur",
     providerKeyDescription:
       "Ajoutez des clés Anthropic, OpenAI, Gemini, Groq ou OpenRouter pour une utilisation facturée par fournisseur.",
@@ -782,7 +807,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     videoUrlMissing:
       "Un ou plusieurs enregistrements n’ont pas encore d’URL vidéo prête",
     connectStorage:
-      "Connectez Builder.io ou un stockage compatible S3 avant d’assembler des enregistrements.",
+      "Connectez le stockage avant d’assembler des enregistrements : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3.",
     created: "Enregistrement assemblé créé",
     failed: "Échec de l’assemblage des enregistrements",
     noOtherRecordings: "Aucun autre enregistrement disponible.",
@@ -847,6 +872,10 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     replyingTo: "Réponse à",
     commentAt: "Commentaire à",
     writeReply: "Écrire une réponse...",
+    commentButton: "Commenter",
+    composerPlaceholder: "Ajouter un commentaire…",
+    mentionSomeone: "Mentionner quelqu'un",
+    addEmoji: "Ajouter un emoji",
   },
   shareMeeting: {
     pageTitle: "Notes de réunion · Clips",
@@ -1012,9 +1041,12 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "Aucune réponse de Builder après 5 minutes. Vérifiez la fenêtre contextuelle et réessayez.",
     builderConnected: "Builder.io connecté",
     waitingForBuilder: "En attente de Builder...",
-    connectBuilder: "Connecter Builder.io",
+    connectBuilder: "Utiliser Builder.io (gratuit)",
     free: "Gratuit",
     configureS3: "configurer un stockage compatible S3",
+    whyPrompt: "Pourquoi vois-je ceci ?",
+    whyDescription:
+      "Clips est 100 % gratuit et open source, vous devez donc connecter un moyen de stocker vos clips. Connectez le stockage avec Builder.io pour le stockage et l’IA sur l’offre gratuite, ou utilisez un stockage compatible S3 et vos propres clés LLM.",
   },
   captureInstall: {
     title: "Choose your recorder (Localisé)",
@@ -1217,9 +1249,9 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     downloadRecording: "Download recording (Localisé)",
     openRecorderInTab: "Open recorder in tab (Localisé)",
     connectStorageToFinish:
-      "Connect Builder.io or S3 storage on the next screen and Clips will finish saving it. (Localisé)",
+      "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips terminera l’enregistrement.",
     connectStorageToRetryLoom:
-      "Connect Builder.io or S3 storage on the next screen and Clips will retry the import. (Localisé)",
+      "Connectez le stockage sur l’écran suivant : Builder.io (stockage + IA sur l’offre gratuite) ou stockage compatible S3. Clips relancera l’import.",
   },
   dictateRoute: {
     pageTitle: "Dictate · Clips (Localisé)",
@@ -1313,6 +1345,38 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     spacePageTitle: "Espace · Clips",
     spacesPageTitle: "Espaces · Clips",
     trashPageTitle: "Corbeille · Clips",
+  },
+  bugReportRoute: {
+    pageTitle: "Rapport de bug · Clips",
+    donePageTitle: "Rapport de bug envoyé · Clips",
+    eyebrow: "Rapport de bug",
+    title: "Enregistrer un rapport de bug",
+    description:
+      "Capturez une courte reproduction avec écran, voix et contexte navigateur expurgé pour votre équipe.",
+    issueTitleLabel: "Titre du problème",
+    issueTitlePlaceholder: "Qu'est-ce qui n'a pas fonctionné ?",
+    detailsLabel: "Détails",
+    detailsPlaceholder: "Que deviez-vous voir se produire ?",
+    emailLabel: "Votre e-mail",
+    emailPlaceholder: "vous@example.com",
+    severityLabel: "Gravité",
+    severityLow: "Faible",
+    severityNormal: "Normale",
+    severityHigh: "Élevée",
+    severityUrgent: "Urgente",
+    sourceLabel: "Source",
+    sourceUnknown: "Page produit actuelle",
+    startRecording: "Enregistrer l'écran",
+    privacyNote:
+      "Clips enregistre la capture avec l'accès espace de travail par défaut. Les URL et métadonnées sont expurgées avant l'enregistrement.",
+    doneTitle: "Rapport de bug envoyé",
+    doneDescription:
+      "L'enregistrement est sauvegardé dans Clips et le produit hôte a été notifié.",
+    openRecording: "Ouvrir l'enregistrement",
+    copyLink: "Copier le lien",
+    copied: "Copié",
+    returnToProduct: "Retour au produit",
+    missingRecording: "Enregistrement introuvable",
   },
   meetingsRoute: {
     pageTitle: "Meetings · Clips (Localisé)",

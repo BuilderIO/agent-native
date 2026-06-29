@@ -5,6 +5,10 @@ const frFR = {
     label: "Langue",
     system: "Système",
     systemDescription: "Utiliser la langue du navigateur",
+    suggestionTitle: "Lire cette page en {{language}} ?",
+    suggestionDescription: "La langue de votre navigateur est {{language}}.",
+    suggestionSwitch: "Passer à {{language}}",
+    suggestionKeepEnglish: "Garder l'anglais",
   },
   header: {
     docs: "Documents",
@@ -39,6 +43,9 @@ const frFR = {
   docs: {
     navigateAria: "Parcourir les docs",
     onThisPage: "Sur cette page",
+    copyMarkdown: "Copier le doc en Markdown",
+    copiedMarkdown: "Markdown copié",
+    copyMarkdownError: "Impossible de copier le Markdown",
     previous: "Précédent",
     next: "Suivant",
   },
@@ -77,7 +84,7 @@ const frFR = {
       secondaryCta: "Voir la documentation",
     },
     code: {
-      quickStartComment: "Commencez avec un modèle d’app complet",
+      quickStartComment: "Créez une app avec une commande",
       skillInstallComment:
         "Ajoutez la planification Agent-Native à un coding agent que vous utilisez déjà",
       frameworkComment:
@@ -188,12 +195,12 @@ const frFR = {
       },
     },
     quickStart: {
-      title: "Commencer avec Chat",
-      body: "Une commande crée une Chat app locale adossée à actions, durable threads et SQLite. Utilisez plutôt `--headless` quand vous ne voulez pas encore d'UI navigateur.",
+      title: "Commencez avec une commande",
+      body: "Une commande crée une app locale adossée à actions, durable threads et SQLite. Utilisez plutôt `--headless` quand vous ne voulez pas encore d'UI navigateur.",
     },
     finalCta: {
       title: "Un logiciel qui vous appartient, conçu pour l'ère agentic",
-      body: "Commencez avec Chat ou un durable action, passez-le dans l'app-agent loop, puis faites-le évoluer en UI, jobs et collaboration sans réécrire l'opération. Open source. Forkable. À vous.",
+      body: "Commencez avec une commande ou un durable action, passez-le dans l'app-agent loop, puis faites-le évoluer en UI, jobs et collaboration sans réécrire l'opération. Open source. Forkable. À vous.",
       primaryCta: "Commencer avec un Action",
       secondaryCta: "Lire la documentation",
       githubCta: "Voir sur GitHub",
@@ -233,6 +240,7 @@ const frFR = {
       workspaces: "Espaces de travail",
       voiceInput: "Saisie vocale",
       mcpApps: "MCP applications",
+      generativeUi: "Interface générative",
       toolCalls: "Appels d'outils",
       agentSidebar: "Barre latérale de l'agent",
       sharedActions: "Actions partagées",
@@ -531,7 +539,7 @@ const frFR = {
       s004: "Dicter",
       s005: "Peut voir + entendre",
       s006: "Tous les modèles",
-      s007: "L'alternative open source à Loom et Jam",
+      s007: "L'alternative open source à Loom",
       s008: "Collez un lien Clips dans un agent et celui-ci pourra entendre la transcription, lire des résumés et voir les images horodatées même si son modèle ne peut pas ingérer de vidéo ou d'audio brut.",
       s009: "Essayer",
       s010: "Ce que tu peux faire",
@@ -1098,16 +1106,17 @@ const frFR = {
     },
   },
   skillsPage: {
-    metaTitle: "Skills agent - Visual Plan et Visual Recap pour agents de code",
+    metaTitle:
+      "Skills agent - Visual Plan, Visual Recap et Visual Edit pour agents de code",
     metaDescription:
-      "Installez des skills adossees a des apps Agent-Native pour aider votre agent de code a produire des plans visuels et des recaps de PR.",
+      "Installez des skills adossees a des apps Agent-Native pour aider votre agent de code a produire des plans visuels, des recaps de PR et de l edition visuelle locale.",
     metaOgDescription:
       "Donnez a votre agent de code des commandes slash propulsees par des apps Agent-Native que vous pouvez heberger, inspecter et personnaliser.",
     metaKeywords:
-      "skills agent, visual plan, visual recap, agent de code, Claude Code, Codex, revue PR, planification, agent-native",
+      "skills agent, visual plan, visual recap, visual edit, agent de code, Claude Code, Codex, revue PR, planification, agent-native",
     heroTitle: "Donnez de nouveaux superpouvoirs a votre agent de code",
     heroBody:
-      "Installez des skills adossees a des apps Agent-Native entierement personnalisables : planification visuelle avant implementation et recaps visuels de PR apres les changements.",
+      "Installez des skills adossees a des apps Agent-Native entierement personnalisables : planification visuelle avant implementation, recaps visuels de PR apres les changements et edition visuelle des flows UI locaux.",
     sectionTitle: "Skills adossees a des apps pour agents de code",
     sectionBody:
       "Utilisez des liens d apps hebergees et partageables, des fichiers locaux ou une app auto-hebergee/personnalisee ; votre agent recoit les instructions et la surface MCP correspondante quand elle est necessaire.",
@@ -1133,6 +1142,15 @@ const frFR = {
       feature1: "Resume les changements de schema, d API et de fichiers",
       feature2: "Peut publier un commentaire PR epingle",
       videoAriaLabel: "Video de demonstration de la skill Visual Recap",
+    },
+    visualEdit: {
+      name: "Edition visuelle",
+      tagline: "Modifier les flows UI locaux",
+      description:
+        "Ouvre une app localhost en cours d execution dans Design comme ecrans adosses a des URL pour revue et edition visuelles.",
+      feature1: "Dispose des flows multi-ecrans depuis des URL ordonnees",
+      feature2: "Inspecte, duplique et affine les etats de routes en direct",
+      videoAriaLabel: "Video de demonstration de la skill Visual Edit",
     },
   },
   downloadPage: {
@@ -1402,6 +1420,7 @@ const frFR = {
     dropInAgent: "Agent intégrable",
     componentApi: "API de composants",
     nativeChatUi: "UI de chat native",
+    generativeUi: "Interface générative",
     realTimeCollaboration: "Collaboration temps réel",
     workspaceOverview: "Vue d'ensemble du workspace",
     skills: "Compétences",

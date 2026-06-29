@@ -230,7 +230,7 @@ export async function notifyPlanCommentRecipients({
   insertedCommentIds,
   priorComments,
 }: CommentNotificationInput): Promise<void> {
-  if (insertedCommentIds.length === 0 || !isEmailConfigured()) return;
+  if (insertedCommentIds.length === 0 || !(await isEmailConfigured())) return;
 
   const db = getDb();
   const [planRow] = await db

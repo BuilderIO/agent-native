@@ -253,6 +253,95 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     googleNeverFinished:
       "Google 登录未完成。请检查 Google OAuth 重定向 URI 和服务器日志中的 [agent-native][google-oauth]。",
   },
+  "zh-TW": {
+    languageLabel: "語言",
+    systemLanguage: "系統",
+    pageTitleSignIn: "登入",
+    pageTitleWelcome: "歡迎",
+    welcomeTitle: "歡迎",
+    signInTitle: "登入",
+    welcomeBackTitle: "歡迎回來",
+    checkEmailTitle: "檢查你的電子郵件",
+    resetPasswordTitle: "重設密碼",
+    createAccountSubtitle: "建立帳號即可開始",
+    googleOnlySubtitle: "使用你的工作區 Google 帳號繼續",
+    signInSubtitle: "登入你的帳號",
+    finishAccountSubtitle: "完成帳號建立",
+    resetPasswordSubtitle: "重設你的密碼",
+    upgradeCopy: "繼續登入，將此應用程式連結到你的帳號並遷移本機資料。",
+    googleButton: "使用 Google 登入",
+    dividerOr: "或",
+    createAccount: "建立帳號",
+    signIn: "登入",
+    email: "電子郵件",
+    password: "密碼",
+    confirmPassword: "確認密碼",
+    passwordMinPlaceholder: "至少 8 個字元",
+    confirmPasswordPlaceholder: "確認密碼",
+    enterPasswordPlaceholder: "輸入密碼",
+    signupProgress: "註冊進度",
+    progressAccount: "帳號",
+    progressVerify: "驗證",
+    progressStart: "開始",
+    verificationSent: "驗證郵件已送出",
+    verifyCopyPrefix: "我們已將安全連結寄到",
+    verifyCopySuffix: "。點擊連結後回到這裡，應用程式會自動完成登入。",
+    verificationNote:
+      "你可以保持此分頁開啟。如果回來後沒有自動重新整理，請點擊繼續。",
+    continue: "繼續",
+    resendEmail: "重新寄送郵件",
+    back: "返回",
+    forgotPassword: "忘記密碼？",
+    sendResetLink: "寄送重設連結",
+    backToSignIn: "返回登入",
+    localNotePrefix: "你的帳號儲存在此應用程式自己的資料庫中",
+    localNoteSuffix: "，而不是第三方服務。",
+    runLocally: "在本機執行",
+    runLocallySentence: "在本機執行",
+    openSource: "100% 免費且開源",
+    useOwnGoogleClient: "使用你自己的 Google OAuth 用戶端：",
+    copyCommand: "複製指令",
+    copied: "已複製",
+    close: "關閉",
+    closeGoogleChoices: "關閉 Google 登入選項",
+    legalPrefix: "註冊即表示你接受我們的",
+    legalTerms: "條款",
+    legalConnector: "和",
+    legalPrivacy: "隱私權政策",
+    legalSuffix: "。",
+    invalidEmail: "請輸入有效的電子郵件地址，例如 you@example.com。",
+    signInToContinue: "登入以繼續。",
+    finishSignInFailed: "無法自動完成登入。",
+    enterPasswordAfterVerification: "驗證電子郵件後請輸入密碼。",
+    finishSignInManually: "無法自動完成登入。請登入以繼續。",
+    stillWaitingVerification:
+      "仍在等待驗證。請點擊郵件中的連結，然後再次點擊繼續。",
+    checkVerificationFailed: "無法檢查驗證狀態。請重試。",
+    checking: "正在檢查...",
+    checkingVerification: "正在檢查驗證狀態...",
+    sending: "正在寄送...",
+    sent: "已送出",
+    sentVerification: "新的驗證連結已送出。",
+    resendVerificationFailed: "無法重新寄送驗證郵件。",
+    networkErrorRetry: "網路錯誤。請重試。",
+    networkErrorDashRetry: "網路錯誤 - 請重試",
+    passwordsMismatch: "兩次輸入的密碼不一致",
+    creatingAccount: "正在建立帳號...",
+    registrationFailed: "註冊失敗",
+    accountCreatedSigningIn: "帳號已建立，正在登入...",
+    emailVerifiedFinishing: "電子郵件已驗證。正在完成登入...",
+    emailVerifiedSignIn: "電子郵件已驗證。請登入以繼續。",
+    resetEmailSent: "如果該電子郵件存在，重設連結已在寄送途中。",
+    resetEmailFailed: "無法寄送重設郵件。",
+    signingIn: "正在登入...",
+    invalidLogin: "電子郵件或密碼無效",
+    googleNotConfigured: "Google OAuth 尚未設定。",
+    failedToConnect: "連線失敗。請重試。",
+    migrateLocalFallback: "繼續登入以遷移本機資料。",
+    googlePopupHelp: "請允許此網站開啟彈出式視窗後重試",
+    googleNeverFinished:
+      "Google 登入未完成。請檢查 Google OAuth 重新導向 URI，以及伺服器記錄中的 [agent-native][google-oauth]。",
+  },
   "es-ES": {
     languageLabel: "Idioma",
     systemLanguage: "Sistema",
@@ -1038,6 +1127,16 @@ const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
   },
+  "zh-TW": {
+    forms: {
+      tagline: "你的 AI 代理會和你一起建立、發布與分析表單。",
+      features: [
+        "用一句話建立完整表單",
+        "立即發布，產生可分享連結與驗證碼",
+        "依需求取得回覆摘要、匯出與趨勢分析",
+      ],
+    },
+  },
   "es-ES": {
     forms: {
       tagline: "Tu agente de IA crea, publica y analiza formularios contigo.",
@@ -1254,6 +1353,14 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
         }
       : undefined;
   const runLocalCommand = marketing?.runLocalCommand?.trim();
+  const signupLocalModeNote =
+    isAgentNativeHostedHost(opts.requestHost) &&
+    marketing?.signupLocalModeNote?.command.trim()
+      ? {
+          text: marketing.signupLocalModeNote.text.trim(),
+          command: marketing.signupLocalModeNote.command.trim(),
+        }
+      : undefined;
   const brandMarkSrc = withAppBasePath("/agent-native-icon-dark.svg");
   const socialImageUrl = withAgentNativeSocialImageCacheBuster(
     opts.requestOrigin
@@ -1335,6 +1442,13 @@ ${localeMenuItemsHtml}
       : (opts.signupLegalNotice ?? hostedSignupLegalNotice);
   const signupLegalNoteHtml = signupLegalNotice
     ? `      <p class="legal-note">${localizedValue(signupLegalNotice.prefix, "legalPrefix")} <a href="${esc(signupLegalNotice.termsUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.termsLabel, "legalTerms")}</a> ${localizedValue(signupLegalNotice.connector, "legalConnector")} <a href="${esc(signupLegalNotice.privacyUrl)}" target="_blank" rel="noreferrer"${localizedAnchorLabel(signupLegalNotice.privacyLabel, "legalPrivacy")}</a>${localizedValue(signupLegalNotice.suffix, "legalSuffix")}</p>`
+    : "";
+  const signupLocalModeNoteHtml = signupLocalModeNote
+    ? `      <div class="signup-local-mode-note" id="signup-local-mode-note" data-command="${esc(signupLocalModeNote.command)}">
+        <p>${esc(signupLocalModeNote.text)}</p>
+        <code>${esc(signupLocalModeNote.command)}</code>
+        <button type="button" class="copy-run-local" id="copy-signup-local-mode" onclick="__anCopySignupLocalModeCommand()"${i18nAttr("copyCommand")}>${esc(t("copyCommand"))}</button>
+      </div>`
     : "";
   const googleSignInNotice = opts.googleSignInNotice;
   const googleNoticeBodyParts = googleSignInNotice
@@ -2025,6 +2139,33 @@ ${
     text-underline-offset: 2px;
   }
   .legal-note a:hover { color: #aaa; }
+  .signup-local-mode-note {
+    margin-top: 0.75rem;
+    padding: 0.625rem;
+    color: #777;
+    background: rgba(255,255,255,0.025);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    text-align: left;
+  }
+  .signup-local-mode-note p {
+    margin: 0 0 0.5rem;
+  }
+  .signup-local-mode-note code {
+    display: block;
+    overflow-x: auto;
+    padding-bottom: 0.125rem;
+    color: #b8b8b8;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .signup-local-mode-note .copy-run-local {
+    margin-top: 0.5rem;
+  }
   .msg { margin-top: 0.75rem; font-size: 0.8125rem; display: none; }
   .msg.error { color: #f87171; }
   .msg.success { color: #33C4FF; }
@@ -2376,6 +2517,7 @@ ${
     <input id="s-pass2" type="password" autocomplete="new-password" placeholder="${esc(t("confirmPasswordPlaceholder"))}"${i18nPlaceholderAttr("confirmPasswordPlaceholder")} required minlength="8" />
       <button type="submit"${i18nAttr("createAccount")}>${esc(t("createAccount"))}</button>
 ${signupLegalNoteHtml}
+${signupLocalModeNoteHtml}
       <p class="msg" id="s-msg"></p>
     </form>
 
@@ -3705,7 +3847,7 @@ ${
 }
 ${starfieldScript}
 ${
-  runLocalCommand
+  runLocalCommand || signupLocalModeNote
     ? `
   function __anSetRunLocalCommandOpen(open) {
     var panel = document.getElementById('run-local-panel');
@@ -3739,6 +3881,9 @@ ${
   }
   function __anCopyRunLocalCommand() {
     __anCopyCommandFromPanel('run-local-panel', 'copy-run-local');
+  }
+  function __anCopySignupLocalModeCommand() {
+    __anCopyCommandFromPanel('signup-local-mode-note', 'copy-signup-local-mode');
   }
   function __anCopyGoogleNoticeRunLocalCommand() {
     __anCopyCommandFromPanel('google-preflight-run-local-panel', 'copy-google-preflight-run-local');

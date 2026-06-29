@@ -246,4 +246,6 @@ console.log(
 execFileSync(pnpmExecutable(), [...filters, "run", "build"], {
   cwd: process.cwd(),
   stdio: "inherit",
+  // .cmd files on Windows require shell:true to be found by execFileSync.
+  shell: process.platform === "win32",
 });

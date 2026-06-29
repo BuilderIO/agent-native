@@ -5,6 +5,7 @@ import { Link, NavLink, useLocation } from "react-router";
 
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
 import DocsLanguagePicker from "./DocsLanguagePicker";
+import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
 import ThemeToggle from "./ThemeToggle";
 
 const SearchModal = lazy(() =>
@@ -252,7 +253,10 @@ export default function Header() {
               label={t("header.searchAria")}
               placeholder={t("header.searchPlaceholder")}
             />
-            <DocsLanguagePicker />
+            <div className="flex shrink-0 items-center">
+              <DocsLanguagePicker />
+              <DocsLanguageSuggestion />
+            </div>
             <ThemeToggle />
             <button
               onClick={() =>

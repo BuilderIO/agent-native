@@ -1,0 +1,551 @@
+---
+title: "뇌"
+description: "인용된 기관 메모리, 검토 가능한 소스 수집 및 재사용 가능한 작업 공간 통합을 통해 지원되는 깔끔한 회사 채팅."
+---
+
+# 뇌
+
+브레인은 인용된 제도적 기억을 바탕으로 한 깔끔한 회사 채팅입니다. 사람들이 묻습니다
+평범한 영어 질문; 승인된 회사 지식을 바탕으로 한 두뇌 답변
+Slack 스레드, 회의, 기록, 문제 또는 웹훅 캡처로 다시 연결되는 링크
+답변을 뒷받침합니다.
+
+Brain은 승인된 Slack 채널, 클립 녹음, 그래놀라 팀 공간을 수집합니다
+노트, GitHub 문제/PR 및 일반 기록/웹훅 페이로드. 원시를 저장합니다
+영속적인 사실/의사결정/프로세스를 포착, 추출하고 민감하거나 중요한 정보를 전달
+회사에 알려지기 전 검토를 통해 자신감이 낮은 추억
+
+제품 표면은 의도적으로 단순하게 유지됩니다. **질문**이 기본 채팅입니다
+경험, **출처**, **검토** 및 **지식**은 관리/지원
+데이터 연결, 제안 승인, 인용 메모리 검사를 위한 표면
+
+<Diagram id="doc-block-unss0s" title={"출처에서 인용 답변까지"} summary={"Brain은 승인된 소스를 원시 캡처로 수집하고, 내구성 있는 메모리를 추출하고, 검토를 통해 이를 게이트화한 다음 인용으로 답변합니다."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Sources</span
+    ><small class="diagram-muted"
+      >Slack · Granola · GitHub · Clips · webhooks</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    원시 캡처<br /><small class="diagram-muted">중복 제거됨, 수정됨</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Distill<br /><small class="diagram-muted">사실 · 결정 · 프로세스</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">Review</span
+    ><small class="diagram-muted">sensitive / low-confidence queue</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    <span class="diagram-pill ok">Knowledge</span
+    ><small class="diagram-muted">승인됨, 원자적</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Ask</span
+    ><small class="diagram-muted">cited answer</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.diagram-flow .diagram-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+<WireframeBlock id="doc-block-vvekcs">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>회사 메모리에 질문</h1><span class='wf-pill accent'>42 approved memories</span><span class='wf-pill'>3 sources</span><div style='flex:1'></div><button>Sources</button><button>Review</button></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span data-icon='search' aria-label='검색'></span><strong style='flex:1'>왜 사용량 기반 가격을 선택했나요?</strong><button class='primary'>Ask</button></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Answer</strong><p style='margin:0'>파일럿에서 좌석 수가 자동화 가치를 과소평가한다는 점이 드러난 뒤 팀은 사용량 기반 가격을 선택했습니다.</p><div style='display:flex;gap:8px;flex-wrap:wrap'><span class='wf-pill accent'>가격 책정 RFC</span><span class='wf-pill'>출시 회고</span><span class='wf-pill'>영업 메모</span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>소스 타임라인</strong><div class='wf-box'>5월 3일 · 결정 기록됨</div><div class='wf-box'>5월 8일 · 고객 증거 추가됨</div><div class='wf-box'>5월 12일 · 법무 메모 승인됨</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+앱을 열면 **묻기**가 전면 중앙에 표시됩니다. 깔끔한 채팅이 검토되었습니다.
+회사 메모리. **출처**, **리뷰** 및 **지식**은
+데이터 연결, 제안 승인 및 인용 검사를 위한 관리 화면
+항목.
+
+## 선택 시기
+
+팀에서 "우리가 왜 만들었나요?"와 같은 질문에 상담원이 대답하기를 원할 때 Brain을 사용하세요.
+이 제품 결정은 무엇입니까?", "이 개발 중인 기능은 어떻게 작동합니까?" 또는 "무엇
+이 과정에서 변경되었나요?" 원본 대화, 회의로 돌아가는 링크
+또는 문제
+
+Brain과 Dispatch는 상호 보완적이지만 서로 다른 작업을 수행합니다.
+
+- **Brain은 회사 메모리를 소유합니다.** 소스를 수집하고 원시 캡처를 검토하며
+  영속적인 사실/결정/과정, 인용된 증거의 답변을 정리하고
+  승인된 지식을 상담원에게 공개합니다.
+- **Dispatch는 작업 공간 제어 영역을 소유합니다.** 메시징을 중앙 집중화합니다.
+  비밀, 반복 작업, 승인, A2A 조정 및 배포
+  작업 공간 전반의 리소스 승인
+
+다중 앱 작업 공간에서 Dispatch는 A2A를 통해 Brain으로 질문을 라우팅할 수 있으며
+Brain 공유 공급자 자격 증명을 부여할 수 있습니다. 두뇌는 여전히
+승인된 소스 수집, 검토, 검색 및 인용된 Company Brain 답변
+Brain은 읽기 전용, 인용 기반 검색을 공개 A2A 기능으로 노출합니다.
+Dispatch 및 형제 앱이 회사 메모리 질문을 할 수 있도록 — A2A 에이전트
+카드는 공개 검색 메타데이터이지만 검색은 여전히 Brain 내부에서 발생합니다.
+인증된 작업 표면.
+
+## 그것으로 무엇을 할 수 있나요
+
+- **인용된 질문을 물어보세요.** 질문은 제품의 주요 표면입니다: 깔끔한 채팅
+  소스 상태, 리뷰 횟수 및 제안을 포함하여 회사 메모리를 검토했습니다.
+  질문은 부차적으로 유지됩니다. 모든 답변은 Slack 스레드로 다시 연결됩니다.
+  이를 지원하는 회의, 이슈 또는 캡처.
+- **승인된 소스를 연결합니다.** 수동, 일반 웹훅, 클립, Slack를 구성합니다.
+  그래놀라 및 GitHub 소스. 소스는 기본적으로 조직 공유이므로 회사
+  메모리는 전체 작업 공간에 유용합니다.
+- **게시하기 전에 검토하세요.** 제안된 추억은 최고 수준의 검토 경로를 얻습니다.
+  검토자가 문구를 편집하고, 증거/소스 링크를 검사하고, 승인하거나
+  거부합니다. 신뢰도가 높고 민감하지 않은 항목은 즉시 게시할 수 있습니다.
+  회사 수준 또는 민감한 항목이 제안서로 대기열에 추가됩니다.
+- **인용된 지식을 검사합니다.** 지식 경로는 증류된 원자를 보여줍니다
+  종류, 주제, 개체, 신뢰도, 정확한 증거 인용 등이 포함된 항목
+  링크를 대체합니다.
+- **작업 공간 통합 재사용.** 브레인 소스는 공유 작업 공간을 재사용할 수 있음
+  공급자 토큰을 다시 입력하는 대신 연결 권한을 부여합니다. 소스 페이지
+  재사용 가능한 연결 허용 및 공급자 옆에 Brain 소스 레코드 표시
+  준비.
+- **승인된 메모리를 주변 컨텍스트로 미러링합니다.** 정식 승인 항목은
+  `context/company-brain/...` 아래의 작업 공간 리소스로 미러링하여 다른 것
+  앱은 이를 컨텍스트로 사용할 수 있습니다. 두 흐름 모두
+  리소스가 기록되거나 제거되었습니다.
+
+## 시작하기
+
+라이브 데모: [brain.agent-native.com](https://brain.agent-native.com).
+
+1. **데모를 사용해 보세요.** Ask를 열고 **데모 시작**을 선택하세요. 작은 두뇌 씨앗
+   제품 결정 코퍼스, 신뢰 검사를 실행하고 인용된 질문을 질문합니다.
+   추가하기 전에 답변, 인용, 리뷰 및 찾을 수 없는 동작을 볼 수 있습니다
+   실제 회사 데이터.
+2. **소스 하나를 추가하세요.** 단일 Slack 채널, Granola Team-space로 시작하세요
+   피드, GitHub 저장소, 클립 내보내기 또는 일반 성적표 웹훅. 유지
+   인용 및 리뷰 품질이 적절해 보일 때까지는 범위가 작습니다.
+3. **게시하기 전에 검토하세요.** 검토를 통해 증거를 검사하고 문구를 편집하세요.
+   내구력이 뛰어난 회사 메모리만 승인합니다.
+4. **출처에서 질문하세요.** 근거가 있어야 하는 질문에는 질문을 사용하세요.
+   원본 채팅 로그가 아닌 승인된 지식입니다.
+
+공개 데모의 경우 시드된 코퍼스는 제품 결정 회상을 보여줍니다.
+인용 링크, 대체 동작, 검토 게이팅, 수정, 개인 콘텐츠
+실제 작업 공간을 연결하지 않고 배제하고 찾을 수 없는 정직한 행동
+
+### 유용한 메시지
+
+- "연간 가격에 대해 우리는 무엇을 결정했으며, 이에 대한 논의는 어디에서 이루어졌습니까?"
+- "가장 최근의 온보딩 프로세스 변경 사항을 찾아 출처를 인용하세요."
+- "GitHub 논의가 출시 계획에 미치는 영향을 요약해 보세요."
+- "보류 중인 메모리 제안을 검토하고 게시하기에는 너무 모호한 제안을 표시하세요."
+- "어떤 소스가 오래되었거나 동기화에 실패하나요?"
+
+## 개발자용
+
+이 문서의 나머지 부분은 Brain 템플릿을 포크하거나 확장하는 모든 사람을 위한 것입니다.
+
+### 빠른 시작
+
+```bash
+npx @agent-native/core@latest create my-brain --standalone --template brain
+cd my-brain
+pnpm install
+pnpm dev
+```
+
+앱을 열고 **데모 시작**을 선택하면 실제 작업 공간에 연결하지 않고도 인용 메모리를 볼 수 있습니다.
+
+### 데이터 모델
+
+Brain은 의도적으로 SQL 텍스트 검색 및 에이전트 쿼리 확장을 사용합니다.
+벡터 데이터베이스 요구 사항이 없으므로 템플릿은 SQLite 전체에서 이식성을 유지합니다.
+Postgres, Neon, D1, Turso 및 유사한 호스트. 애플리케이션 상태는
+현재 경로, 필터 및 선택된 ID를 통해 상담원은 항상 현재 정보를 알 수 있습니다.
+탐색 및 선택.
+
+Brain의 스키마는 `templates/brain/server/db/schema.ts`에 있습니다. 테이블 8개:
+
+| 테이블                   | 무엇을 담고 있는지                                                                                                          |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `brain_sources`          | 커넥터 구성 — 공급자, 허용 목록에 있는 채널/저장소, 동기화 커서, 상태 검토, `ingest_token_hash`, `status`, `last_synced_at` |
+| `brain_source_shares`    | 소스별 공유 부여(뷰어/편집자/관리자)                                                                                        |
+| `brain_raw_captures`     | `external_id` 중복 제거 키, `content_hash`, 종류 및 증류 상태를 사용한 스크립트, 채널 내보내기, 메모 및 웹훅 가져오기       |
+| `brain_knowledge`        | 정제된 원자 항목 — 종류(결정/사실/과정/...), 주제, 엔터티, 증거 인용문, 신뢰도, `publish_tier`, 대체 링크                   |
+| `brain_knowledge_shares` | 지식별 공유 부여                                                                                                            |
+| `brain_proposals`        | 보류 중인 검토 항목 — 증거 및 검토자 메모가 포함된 생성/업데이트/보관 제안                                                  |
+| `brain_proposal_shares`  | 제안별 지분 부여                                                                                                            |
+| `brain_sync_runs`        | 동기화 감사 로그 — 공급자, 상태, 통계 JSON, 오류, 시작/종료 타임스탬프                                                      |
+| `brain_ingest_queue`     | 백그라운드 증류 큐 — 작업, 상태, 우선순위, 재시도 횟수, `run_after`                                                         |
+
+<DataModel
+  id="doc-block-4tvj3q"
+  title={"뇌 데이터 모델"}
+  summary={
+    "Connectors produce raw captures; distillation turns captures into reviewable knowledge; proposals gate sensitive entries. Sync runs and the ingest queue track background work."
+  }
+  entities={[
+    {
+      id: "sources",
+      name: "brain_sources",
+      note: "커넥터 구성",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "provider",
+          type: "text",
+          note: "slack / granola / github / clips / webhook",
+        },
+        {
+          name: "ingest_token_hash",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "last_synced_at",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "source_shares",
+      name: "brain_source_shares",
+      note: "viewer / editor / admin",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+      ],
+    },
+    {
+      id: "captures",
+      name: "brain_raw_captures",
+      note: "수집된 원시 페이로드",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "external_id",
+          type: "text",
+          note: "dedupe key",
+        },
+        {
+          name: "content_hash",
+          type: "text",
+        },
+        {
+          name: "kind",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge",
+      name: "brain_knowledge",
+      note: "증류된 원자 항목",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: "decision / fact / process",
+        },
+        {
+          name: "topic",
+          type: "text",
+        },
+        {
+          name: "entities",
+          type: "json",
+        },
+        {
+          name: "confidence",
+          type: "real",
+        },
+        {
+          name: "publish_tier",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "knowledge_shares",
+      name: "brain_knowledge_shares",
+      fields: [
+        {
+          name: "knowledge_id",
+          type: "id",
+          fk: "brain_knowledge.id",
+        },
+      ],
+    },
+    {
+      id: "proposals",
+      name: "brain_proposals",
+      note: "검토 항목 대기 중",
+      fields: [
+        {
+          name: "id",
+          type: "id",
+          pk: true,
+        },
+        {
+          name: "op",
+          type: "text",
+          note: "create / update / archive",
+        },
+      ],
+    },
+    {
+      id: "proposal_shares",
+      name: "brain_proposal_shares",
+      fields: [
+        {
+          name: "proposal_id",
+          type: "id",
+          fk: "brain_proposals.id",
+        },
+      ],
+    },
+    {
+      id: "sync_runs",
+      name: "brain_sync_runs",
+      note: "동기화 감사 로그",
+      fields: [
+        {
+          name: "source_id",
+          type: "id",
+          fk: "brain_sources.id",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "stats",
+          type: "json",
+        },
+      ],
+    },
+    {
+      id: "ingest_queue",
+      name: "brain_ingest_queue",
+      note: "백그라운드 증류 대기열",
+      fields: [
+        {
+          name: "operation",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "priority",
+          type: "int",
+        },
+        {
+          name: "run_after",
+          type: "timestamp",
+          nullable: true,
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "sources",
+      to: "captures",
+      kind: "1-n",
+      label: "ingested into",
+    },
+    {
+      from: "knowledge",
+      to: "captures",
+      kind: "n-n",
+      label: "evidence",
+    },
+    {
+      from: "knowledge",
+      to: "proposals",
+      kind: "1-n",
+      label: "gated by",
+    },
+    {
+      from: "sources",
+      to: "sync_runs",
+      kind: "1-n",
+      label: "audited by",
+    },
+  ]}
+/>
+
+### 키 actions
+
+지역별 그룹화(`templates/brain/actions/`):
+
+- **소스 관리** — `create-source`, `update-source`, `delete-source`, `get-source`, `list-sources`, `sync-source`, `sync-due-sources`, `run-slack-pilot`, `test-slack-connection`
+- **캡처 수집** — `import-capture`, `import-transcript`, `list-captures`, `get-capture`, `mark-capture-distilled`, `resanitize-captures`
+- **증류** — `enqueue-distillation`, `enqueue-captures-distillation`, `claim-distillation`, `retry-distillation`, `list-distillation-queue`
+- **지식 및 검토** — `write-knowledge`, `get-knowledge`, `list-knowledge`, `set-knowledge-canonical`, `preview-canonical-resource`, `list-proposals`, `review-proposal`, `approve-proposal`, `reject-proposal`, `update-proposal`
+- **검색 및 조회** — `ask-brain`, `search-knowledge`, `search-everything`
+- **설정** — `get-brain-settings`, `update-brain-settings`, `set-settings`, `get-settings`
+- **평가 및 데모** — `seed-demo-data`, `run-demo-eval`, `run-retrieval-eval`
+- **컨텍스트 및 탐색** — `view-screen`, `navigate`
+- **제공자 API** — `provider-api-catalog`, `provider-api-docs`, `provider-api-request`
+
+### 소스 연결
+
+Brain은 먼저 부여된 작업 공간 연결에서 공급자 자격 증명을 확인합니다.
+그런 다음 이전 버전과 호환되는 Brain-local 또는 등록된 저장소 자격 증명에서
+브레인 소스 자격 증명은 배포 수준 환경 변수로 대체되지 않습니다.
+공유 공급자가 이미 존재하는 경우 복사하는 대신 Brain 액세스 권한을 부여하세요.
+동일한 비밀을 뇌 관련 설정에 적용합니다.
+
+**Slack.** 특정 채널 ID로 범위가 지정된 소스를 만듭니다. 커넥터
+구성된 각 대화를 확인하고 DM 및 MPIM을 거부하며 커서를 저장합니다
+상태이므로 각 동기화는 마지막 동기화가 중지된 위치에서 다시 시작됩니다. 안전한 출시 흐름
+각 Slack 소스 카드를 사용하면 자격 증명 및 허용 목록을 **테스트** 없이
+기록 읽기, 작은 캡이 있는 **안전한 파일럿** 샘플 실행, **캡처 검토**,
+질문이 가능해지기 전에 **검토 대기열**에서 승인하세요. 부여
+소스에 필요한 범위만 봇(자격 증명 검증, 허용 목록
+확인, 허용 목록에 있는 채널 기록, 영구 영구 링크).
+
+**Granola.** 폴링 창과 페이지 크기를 사용하여 소스를 만듭니다. 그래놀라
+Enterprise API 키는 개인 메모나 폴더가 아닌 팀 공간 메모를 노출합니다. 뇌
+메모 요약, 기록, 참석자, 캘린더 메타데이터 및 소스를 저장합니다
+증류 전 원시 캡처로서의 URL.
+
+**GitHub.** 승인된 리포지토리로 범위가 지정된 소스를 생성합니다. 커넥터
+안정적인 소스 URL를 사용하여 제한된 문제와 풀 요청 컨텍스트를 가져옵니다
+Slack 또는 회의 상황과 같이 증류됩니다. 이것은 뇌 컨텍스트 수집이지
+분석 스타일 GitHub 보고를 대체합니다.
+
+**클립 및 일반 webhooks.** Brain은 클립 및 일반 webhooks에 대해 서명된 웹훅을 노출합니다.
+`/api/_agent-native/brain/ingest`에서 일반 사본/캡처 가져오기. 만들기
+`sourceKey`가 있는 소스를 사용하여 베어러 토큰을 받은 후
+`RawCapturePayload`와 `Authorization: Bearer <ingestToken>`. 일반 소스
+통화 기록, 고객 조사, 가져오기에 동일한 페이로드 형태 사용
+제한된 캡처를 생성할 수 있는 노트 또는 기타 소스
+
+<Endpoint id="doc-block-1rqor2m" title={"서명된 수집 웹훅"} summary={"클립 및 일반 transcript/capture 가져오기는 소스별 전달자 토큰과 함께 RawCapturePayload을 게시합니다."} method="POST" path="/api/_agent-native/brain/ingest" summary={"Clips 또는 일반 소스에서 원시 캡처 가져오기"} auth={"Bearer <ingestToken> issued per source via its sourceKey"} request={{
+  "contentType": "application/json",
+  "example": "RawCapturePayload — bounded transcript / capture body"
+}} responses={[
+  {
+    "status": "200",
+    "description": "Capture accepted and queued for distillation"
+  },
+  {
+    "status": "401",
+    "description": "Missing or invalid ingest bearer token"
+  }
+]}>
+
+</Endpoint>
+
+Slack, Granola 및 GitHub 소스는 다음을 사용하여 배경 `autoSync`를 선택할 수 있습니다.
+리뷰 품질이 입증되면 설문조사 주기
+
+### 개인정보 보호 및 게이팅
+
+두뇌는 개인 감시가 아닌 회사 기억을 위해 설계되었습니다:
+
+- Slack 동기화는 명시적으로 구성된 채널만 읽고 DM/MPIM을 거부합니다.
+- Granola 동기화는 비공개가 아닌 Granola의 API에 의해 노출된 팀 공간 메모를 읽습니다.
+  메모 또는 개인 폴더.
+- 원시 캡처는 기본적으로 목록/검색 표면에서 수정됩니다. 리뷰어
+  및 증류 흐름은 필요한 경우에만 미리보기 또는 원시 콘텐츠를 요청합니다.
+- 정화된 지식이 지속되기 전에 소스 구성을 검토해야 할 수 있습니다
+  회사 메모리
+- 설정은 회사 계층 지식에 필요한지 여부에 따라 기본 게시 계층을 제어합니다
+  승인, 인용 요구 사항, 이메일 수정 및 커넥터 오류
+  알림.
+
+### 맞춤 설정
+
+Brain은 에이전트 기본 4개 영역 계약을 따릅니다. 편집을 통해 동작을 변경합니다.
+일치하는 영역을 선택하면 상담원이 다음과 같은 편집 작업을 수행할 수 있습니다.
+
+- `templates/brain/app/routes/` — UI 표면: 질문, 검색, 지식,
+  검토, 소스, 설정 및 팀 경로
+- `templates/brain/actions/` — 모든 에이전트 호출 가능 작업(가져오기, 소스
+  관리, 파일럿 보고서, 증류, 제안서 검토, 인용 검색
+  탐색/컨텍스트). 새로운 파일을 노출하려면 `defineAction`로 새 파일을 추가하세요.
+  능력.
+- `templates/brain/.agents/skills/` — 증류를 위한 뇌별 지침
+  및 검색. 상담원에게 새로운 워크플로를 가르칠 때 기술을 업데이트하거나 추가하세요.
+- `templates/brain/AGENTS.md` — 최상위 에이전트 가이드. 전공 추가 시 업데이트
+  기능.
+- `templates/brain/server/db/schema.ts` — 데이터 모델. 추가 마이그레이션에만 해당;
+  경로, 필터 및 선택된 ID는 에이전트의 `application_state`에 미러링됩니다.
+  컨텍스트.
+
+에이전트에게 변경을 요청하세요. 에이전트는 자체 소스를 편집할 수 있습니다. 참조
+[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+
+## 다음 단계
+
+- [**Dispatch**](/docs/dispatch) — 작업 공간 제어 평면
+- [**Dispatch template**](/docs/template-dispatch) — 비계 조정 앱
+- [**Workspace**](/docs/workspace) — 앱 전체에서 공유 리소스
+- [**A2A Protocol**](/docs/a2a-protocol) — 교차 앱 위임

@@ -313,7 +313,7 @@ function WireframeStyleToggleButton() {
         event.stopPropagation();
         toggleWireframeStyle();
       }}
-      className="absolute right-2 top-2 z-30 inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-background/90 px-2 text-xs font-medium text-muted-foreground opacity-0 shadow-sm backdrop-blur transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/wireframe-artboard:opacity-100"
+      className="absolute right-2 top-2 z-30 inline-flex h-7 items-center gap-1 rounded-md border border-border/60 bg-background px-2 text-xs font-medium text-muted-foreground opacity-0 shadow-sm transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/wireframe-artboard:opacity-100"
     >
       <IconPencil className="size-3.5" aria-hidden="true" />
       <span>{label}</span>
@@ -335,13 +335,19 @@ function HtmlArtboard({
   compact?: boolean;
 }) {
   const renderMode = data.renderMode ?? "wireframe";
+  const designMode = renderMode === "design";
   // Sanitize author HTML/CSS at the render point (defense-in-depth against stored
   // XSS). Self-contained in core via the shared block sanitizer (DOM-based in the
   // browser, regex fallback on the server) so the HTML mockup path renders in any
   // app without the host wiring a sanitizer hook.
   const safeHtml = useMemo(
-    () => renderWireframeIconHtml(sanitizeWireframeHtml(data.html)),
-    [data.html],
+    () =>
+      renderWireframeIconHtml(
+        sanitizeWireframeHtml(data.html, {
+          preserveThemeClasses: designMode,
+        }),
+      ),
+    [data.html, designMode],
   );
   const scopeId = useId().replace(/[^a-zA-Z0-9_-]/g, "");
   const scopedCss = useMemo(() => {

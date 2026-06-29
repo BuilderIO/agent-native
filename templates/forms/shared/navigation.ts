@@ -8,6 +8,7 @@ export const FORM_BUILDER_TABS = [
 export type FormBuilderTab = (typeof FORM_BUILDER_TABS)[number];
 
 export const FORMS_NAVIGATION_VIEWS = [
+  "ask",
   "home",
   "forms",
   "form",
@@ -58,8 +59,9 @@ export function formsRoutePath(target: FormsNavigationTarget): string | null {
   if (!target.view && formId) return formBuilderPath(formId, tab);
 
   switch (target.view) {
+    case "ask":
     case "home":
-      return "/";
+      return "/ask";
     case "forms":
       return "/forms";
     case "form":
@@ -71,7 +73,7 @@ export function formsRoutePath(target: FormsNavigationTarget): string | null {
         ? `/response-insights?formId=${encodeURIComponent(formId)}`
         : "/response-insights";
     case "team":
-      return "/team";
+      return "/settings#team";
     case "extensions":
       return "/extensions";
     case "form-preview":

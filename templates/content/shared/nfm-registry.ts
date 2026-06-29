@@ -34,6 +34,7 @@ import {
   type SerializableBlock,
 } from "@agent-native/core/blocks/server";
 
+import { builderDocsBlockConfigs } from "./builder-docs-blocks";
 import { inlineDatabaseBlockConfig } from "./inline-database-block";
 
 /**
@@ -58,6 +59,9 @@ export function registerContentBlocks(registry: BlockRegistry): void {
   registerLibraryBlockConfigs(registry, {
     overrides: { table: { type: "table-block" } },
   });
+  for (const block of builderDocsBlockConfigs) {
+    registry.register(block);
+  }
   registry.register(inlineDatabaseBlockConfig);
 }
 

@@ -19,11 +19,17 @@ function nanoid(size = 12): string {
   return Array.from(bytes, (b) => chars[b % chars.length]).join("");
 }
 
-export function useCreatePage(opts?: { onAfterNavigate?: () => void }) {
+export function useCreatePage(opts?: {
+  onAfterNavigate?: () => void;
+  navigate?: boolean;
+  awaitPersist?: boolean;
+}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const createDocument = useCreateDocument();
   const onAfterNavigate = opts?.onAfterNavigate;
+  const shouldNavigate = opts?.navigate ?? true;
+  const shouldAwaitPersist = opts?.awaitPersist ?? true;
 
   return useCallback(
     async (parentId?: string) => {
@@ -50,10 +56,12 @@ export function useCreatePage(opts?: { onAfterNavigate?: () => void }) {
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
 
-      navigate(`/page/${id}`, { flushSync: true });
-      onAfterNavigate?.();
+      if (shouldNavigate) {
+        navigate(`/page/${id}`, { flushSync: true });
+        onAfterNavigate?.();
+      }
 
-      try {
+      const persist = async () => {
         await createDocument.mutateAsync({
           id,
           title: "",
@@ -67,21 +75,42 @@ export function useCreatePage(opts?: { onAfterNavigate?: () => void }) {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-      } catch (err) {
+      };
+
+      const onPersistError = (err: unknown) => {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
         queryClient.removeQueries({
           queryKey: ["action", "get-document", { id }],
         });
-        navigate("/");
+        if (shouldNavigate) navigate("/");
         toast.error("Failed to create page", {
           description:
             err instanceof Error ? err.message : "Something went wrong",
         });
+      };
+
+      if (shouldAwaitPersist) {
+        try {
+          await persist();
+        } catch (err) {
+          onPersistError(err);
+          throw err;
+        }
+      } else {
+        void persist().catch(onPersistError);
       }
+
       return id;
     },
-    [createDocument, navigate, onAfterNavigate, queryClient],
+    [
+      createDocument,
+      navigate,
+      onAfterNavigate,
+      queryClient,
+      shouldAwaitPersist,
+      shouldNavigate,
+    ],
   );
 }
