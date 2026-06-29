@@ -338,7 +338,7 @@ Jeder vom Agenten aufrufbare Vorgang ist eine TypeScript-Datei in `templates/des
 - **Designs** – `create-design` (leere Shell), `generate-design` (generierten HTML/JSX-Inhalt schreiben), `update-design`, `get-design`, `list-designs`, `duplicate-design`, `delete-design` und `apply-tweaks` zum Beibehalten von Live-Tweak-Knopf-Werten (Akzentfarbe, Dichte, usw.).
 - **Dateien** – `create-file`, `update-file`, `list-files`, `delete-file` für die Dateien in einem Designprojekt.
 - **Designsysteme** – `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system` und `analyze-brand-assets` zum Sammeln von Markendaten vor der Analyse.
-- **Importieren** – `import-code`, `import-figma`, `import-github`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX) und `import-design-project`, um ein Designsystem aus einem vorhandenen Projekt zu entfernen.
+- **Importieren** — `index-design-system-with-builder` for Builder-backed code/GitHub design-system indexing, plus `import-figma`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **Export & Übergabe** – `export-html`, `export-pdf`, `export-svg`, `export-zip` und `export-coding-handoff`, um ein Design in eine Codierungstool-Übergabe umzuwandeln.
 - **Kontext und Navigation** – `view-screen` (aktuelles Design, offene Datei, Ansicht, ausstehende Frage oder Variantenraster), `get-design-snapshot` (aktueller Status, von dem aus ein externer Agent fortfahren kann) und `navigate`.
 
@@ -361,6 +361,20 @@ Der Einzelbildschirmmodus ist für Scrollen, Interaktion mit Prototypverhalten
 und Bearbeitung der DOM-/Code-Ebenen in einer gerenderten Datei gedacht. Das
 Ebenenfenster spiegelt diese Trennung wider: Bildschirme sind Rahmen der
 obersten Ebene, darunter liegen die DOM-/Code-Ebenen des aktiven Bildschirms.
+
+Installiere `/visual-edit`, wenn ein Coding Agent eine laufende lokale App in
+Design öffnen soll, statt eigenständiges Prototype-HTML zu generieren:
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+Sobald der Dev-Server der Ziel-App läuft, nutzt `/visual-edit`
+`npx @agent-native/core@latest design connect` plus `add-localhost-screens`, um
+jeden angeforderten Pfad oder jede URL als eigenen URL-gestützten iframe-Screen
+zu platzieren. Nummerierte Flows wie `localhost:1234/onboarding/1`,
+`/onboarding/2` und `/onboarding/3` bleiben als getrennte, geordnete Screens im
+Overview-Modus erhalten.
 
 Für stabile Ebenennamen fügen Sie wichtigen Elementen
 `data-agent-native-layer-name` hinzu. Design verwendet dies vor

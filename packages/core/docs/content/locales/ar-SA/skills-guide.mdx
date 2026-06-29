@@ -118,6 +118,10 @@ Skills موجود في `.agents/skills/<name>/SKILL.md` ويحتوي على إر
 
 ## skills المدعوم بالتطبيق {#app-backed-skills}
 
+تشمل skills المدعومة بالتطبيق حاليا `visual-plan` و`visual-recap` من Plan،
+و`visual-edit` من Design، و`assets` من Assets، و`content` لتحرير docs/blog/MDX
+من المستودع.
+
 تحزم skills المدعومة بالتطبيق تطبيقًا أصليًا للوكيل باعتباره قطعة أثرية في سوق المهارات. يمكن أن تتضمن الحزمة تعليمات الوكيل، وبيانات تعريف موصل skills المصدرة، وتعليمات التشغيل المستضافة/المحلية، وأسطح UI مثل تطبيقات MCP.
 
 > **التفاصيل الكاملة أدناه:** يتم تغطية آليات skills المدعومة بالتطبيق (تنسيق البيان، وأوامر CLI، ومحولات السوق، وتجزئة التحديث التلقائي) في [App-backed skills — full details](#app-backed-skills-full).
@@ -328,6 +332,7 @@ scope: dev
 ```bash
 # المسار السعيد: التعليمات المصدرة بالإضافة إلى موصل MCP المستضاف.
 npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visual-edit
 npx @agent-native/core@latest skills add assets
 
 # تحرير Content docs/blog/MDX مع اعتبار الريبو مصدر الحقيقة.

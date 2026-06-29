@@ -1103,16 +1103,17 @@ const enUS = {
     },
   },
   skillsPage: {
-    metaTitle: "Agent Skills - Visual Plan and Visual Recap for coding agents",
+    metaTitle:
+      "Agent Skills - Visual Plan, Visual Recap, and Visual Edit for coding agents",
     metaDescription:
-      "Install Agent-Native app-backed skills your coding agent can use for visual planning and PR recaps.",
+      "Install Agent-Native app-backed skills your coding agent can use for visual planning, PR recaps, and local visual editing.",
     metaOgDescription:
       "Give your coding agent slash commands powered by Agent-Native apps you can host, inspect, and customize.",
     metaKeywords:
-      "agent skills, visual plan, visual recap, coding agent, Claude Code, Codex, PR review, planning, agent-native",
+      "agent skills, visual plan, visual recap, visual edit, coding agent, Claude Code, Codex, PR review, planning, agent-native",
     heroTitle: "Give your coding agent new superpowers",
     heroBody:
-      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation and visual PR recaps after changes land.",
+      "Install app-backed skills powered by Agent-Native apps you can fully customize: visual planning before implementation, visual PR recaps after changes land, and visual editing for local UI flows.",
     sectionTitle: "App-backed skills for coding agents",
     sectionBody:
       "Use hosted shareable app links, local files, or a self-hosted/custom app, and your agent gets instructions plus the matching MCP surface when one is required.",
@@ -1137,6 +1138,15 @@ const enUS = {
       feature1: "Summarizes schema, API, and file changes",
       feature2: "Optionally posts one sticky PR comment",
       videoAriaLabel: "Visual Recap skill demo video",
+    },
+    visualEdit: {
+      name: "Visual Edit",
+      tagline: "Edit local UI flows",
+      description:
+        "Opens a running localhost app in Design as URL-backed screens for visual review and editing.",
+      feature1: "Lay out multi-screen flows from ordered URLs",
+      feature2: "Inspect, duplicate, and refine live route states",
+      videoAriaLabel: "Visual Edit skill demo video",
     },
   },
   downloadPage: {

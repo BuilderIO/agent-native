@@ -850,6 +850,10 @@ const messages = {
     replyingTo: "الرد على",
     commentAt: "تعليق عند",
     writeReply: "اكتب ردًا...",
+    commentButton: "تعليق",
+    composerPlaceholder: "أضف تعليقًا…",
+    mentionSomeone: "أذكر شخصًا",
+    addEmoji: "أضف رمزًا تعبيريًا",
   },
   shareMeeting: {
     pageTitle: "ملاحظات الاجتماع · Clips",

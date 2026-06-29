@@ -4,6 +4,7 @@ import {
   alphaToOpacity,
   parseCssColor,
   rgbaToCss,
+  rgbaToHex,
   withColorOpacity,
 } from "@shared/color-utils";
 import {
@@ -11,18 +12,24 @@ import {
   IconAlignJustified,
   IconAlignLeft,
   IconAlignRight,
+  IconArrowAutofitHeight,
+  IconArrowAutofitWidth,
+  IconBackground,
+  IconBlur,
   IconBorderStyle,
   IconBrush,
   IconChevronDown,
-  IconChevronRight,
   IconCode,
   IconComponents,
+  IconDroplet,
   IconEye,
   IconEyeOff,
   IconFlipHorizontal,
   IconFlipVertical,
   IconFrame,
+  IconLayoutDistributeHorizontal,
   IconLayoutGrid,
+  IconSlice,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
   IconLayoutAlignLeft,
@@ -38,6 +45,8 @@ import {
   IconPalette,
   IconPhoto,
   IconPlus,
+  IconShadow,
+  IconSquare,
   IconTypography,
   IconUnlink,
   IconVector,
@@ -45,6 +54,12 @@ import {
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -78,6 +93,7 @@ import {
   ExportSettingsPanel,
   FigmaColorPicker,
   ScrubInput,
+  SizingField,
   type AlignmentMatrixValue,
   type AutoLayoutMatrixValue,
   type AutoLayoutSizing,
@@ -100,6 +116,7 @@ interface EditPanelProps {
   selectedElement: ElementInfo | null;
   pageStyles?: Record<string, string>;
   zoom?: number;
+  headerTrailing?: ReactNode;
   width?: number;
   activeTab?: InspectorTab;
   onActiveTabChange?: (tab: InspectorTab) => void;
@@ -203,6 +220,7 @@ function ColorInput({
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
+  documentColors,
 }: {
   label: string;
   value: string;
@@ -212,6 +230,8 @@ function ColorInput({
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
+  /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
+  documentColors?: string[];
 }) {
   const [draft, setDraft] = useState(value);
   const [selectedFillId, setSelectedFillId] = useState(SOLID_FILL_ID);
@@ -283,6 +303,26 @@ function ColorInput({
     );
     onBackgroundImageChange(joinCssLayers(nextLayers));
     setSelectedFillId(SOLID_FILL_ID);
+  };
+
+  const handlePaintValueChange = (nextValue: string) => {
+    if (!supportsLayeredFills || !onBackgroundImageChange) {
+      setNext(nextValue);
+      return;
+    }
+
+    const selectedLayer = fillLayerIndex(selectedFillId);
+    if (selectedLayer !== null) {
+      replaceBackgroundLayer(selectedLayer, nextValue);
+      const gradient = parseGradientLayer(nextValue);
+      if (gradient) setSelectedStopId(gradient.stops[0]?.id);
+      return;
+    }
+
+    onBackgroundImageChange(joinCssLayers([nextValue, ...backgroundLayers]));
+    setSelectedFillId(fillLayerId(0));
+    const gradient = parseGradientLayer(nextValue);
+    setSelectedStopId(gradient?.stops[0]?.id);
   };
 
   const fillRows = supportsLayeredFills
@@ -422,6 +462,10 @@ function ColorInput({
       : colorHasVisibleAlpha(draft || value)
         ? "solid"
         : "none";
+  const pickerValue =
+    selectedLayerIndex !== null
+      ? (backgroundLayers[selectedLayerIndex] ?? draft ?? value ?? "#000000")
+      : draft || "#000000";
 
   const handlePaintTypeChange = (type: FigmaPaintType) => {
     const selectedLayer = fillLayerIndex(selectedFillId);
@@ -476,8 +520,11 @@ function ColorInput({
   return (
     <FigmaColorPicker
       label={label}
-      value={draft || "#000000"}
+      value={pickerValue}
       onChange={setNext}
+      onPaintValueChange={
+        supportsLayeredFills ? handlePaintValueChange : undefined
+      }
       blendMode={blendMode}
       onBlendModeChange={onBlendModeChange}
       showBlendMode={supportsLayeredFills}
@@ -499,6 +546,7 @@ function ColorInput({
         supportsLayeredFills ? handleAddGradientStop : undefined
       }
       onRemoveGradientStop={handleRemoveGradientStop}
+      documentColors={documentColors}
     />
   );
 }
@@ -808,41 +856,48 @@ function PropSlider({
 
 const EmptyScrubIcon = () => null;
 
+/**
+ * Figma-style inspector section. Matches Figma's real "Design" panel chrome:
+ *   - NO left collapse chevron (Figma has none).
+ *   - A thin divider line above each section.
+ *   - A bold left-aligned title.
+ *   - Right-aligned action icons (add layer, toggles, styles, etc.).
+ *
+ * The title is still clickable to collapse the body (Figma collapses sections
+ * on title click) but renders no chevron glyph, just like Figma.
+ */
 function PanelSection({
   title,
   actions,
   children,
+  defaultCollapsed = false,
 }: {
   title: string;
   actions?: ReactNode;
   children?: ReactNode;
+  defaultCollapsed?: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(defaultCollapsed);
 
   return (
-    <section className="shrink-0 border-b border-border/90">
-      <div className="flex min-h-8 items-center gap-2 px-3 pt-1.5">
+    <section className="shrink-0 border-t border-[var(--design-editor-control-border)] first:border-t-0">
+      <div className="flex min-h-9 items-center gap-2 px-3">
         <button
           type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 truncate bg-transparent text-left"
+          className="flex min-w-0 flex-1 cursor-pointer items-center bg-transparent text-left"
           onClick={() => setCollapsed((c) => !c)}
           aria-expanded={!collapsed}
         >
-          {collapsed ? (
-            <IconChevronRight className="size-3 shrink-0 text-muted-foreground" />
-          ) : (
-            <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
-          )}
-          <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+          <h3 className="min-w-0 flex-1 truncate text-[11px] font-semibold text-foreground">
             {title}
           </h3>
         </button>
         {actions ? (
-          <div className="flex items-center gap-0.5">{actions}</div>
+          <div className="flex shrink-0 items-center gap-0.5">{actions}</div>
         ) : null}
       </div>
       {!collapsed && children ? (
-        <div className="space-y-1.5 px-3 pb-2 pt-1.5 text-[11px]">
+        <div className="space-y-1.5 px-3 pb-3 pt-0.5 text-[11px]">
           {children}
         </div>
       ) : null}
@@ -1251,6 +1306,64 @@ function autoLayoutAlignmentFromStyles(
   };
 }
 
+/**
+ * Block-level container tags that act like Figma frames. Selecting any of
+ * these shows the Auto layout section (in an "add" state when not yet flex),
+ * mirroring Figma where any frame/container exposes auto-layout controls.
+ */
+const CONTAINER_TAGS = new Set([
+  "div",
+  "section",
+  "main",
+  "header",
+  "footer",
+  "nav",
+  "article",
+  "aside",
+  "form",
+  "ul",
+  "ol",
+  "figure",
+  "fieldset",
+  "details",
+  "dialog",
+  "blockquote",
+  "table",
+  "tbody",
+  "thead",
+  "tr",
+]);
+
+/** Leaf tags that never get auto-layout (text, media, vectors, controls). */
+const LEAF_TAGS = new Set([
+  "img",
+  "video",
+  "picture",
+  "audio",
+  "canvas",
+  "svg",
+  "path",
+  "input",
+  "textarea",
+  "select",
+  "br",
+  "hr",
+  "iframe",
+]);
+
+/**
+ * Whether the element should expose the Auto layout section. True for anything
+ * already laid out with flexbox, or any block-level container tag that isn't a
+ * known leaf/text element. This is what makes a plain frame/container with
+ * children show the full Auto layout section like Figma does.
+ */
+function isContainerElement(element: ElementInfo): boolean {
+  if (element.isFlexContainer) return true;
+  const tag = (element.tagName || "").toLowerCase();
+  if (TEXT_TAGS.has(tag) || LEAF_TAGS.has(tag)) return false;
+  return CONTAINER_TAGS.has(tag);
+}
+
 function isParentFlex(element: ElementInfo): boolean {
   return (
     element.isFlexChild ||
@@ -1268,17 +1381,101 @@ function parentFlexDirection(element: ElementInfo): AutoLayoutSizingAxis {
     : "horizontal";
 }
 
+function isTextElement(element: ElementInfo): boolean {
+  return TEXT_TAGS.has((element.tagName || "").toLowerCase());
+}
+
+/**
+ * Per-axis sizing availability following Figma's contextual rules:
+ *   - Fixed: always.
+ *   - Hug contents: only CONTAINERS (flex/container frames) and TEXT can hug
+ *     their content. Leaves like img/svg/input cannot.
+ *   - Fill container: only when the element is a CHILD of a flex/grid (auto
+ *     layout) parent, OR a block-flow child (which fills via width:100%).
+ * Hug applies to width and height independently; the same set is offered on
+ * both axes here and the per-axis CSS in `commitElementSizing` resolves the
+ * exact behavior (main-axis grow vs cross-axis stretch).
+ */
 function availableSizingForElement(
   element: ElementInfo,
 ): Partial<Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>> {
-  const options: AutoLayoutSizing[] =
-    isParentFlex(element) || isParentGrid(element)
-      ? ["hug", "fill", "fixed"]
-      : ["hug", "fixed"];
-  return {
-    horizontal: options,
-    vertical: options,
+  const canHug = isContainerElement(element) || isTextElement(element);
+  const isFlexChildEl = isParentFlex(element) || isParentGrid(element);
+  // Block-flow children can still "fill" via width:100% on the horizontal axis.
+  const isBlockChild = Boolean(element.parentDisplay) && !isFlexChildEl;
+
+  const buildAxis = (axis: AutoLayoutSizingAxis): AutoLayoutSizing[] => {
+    const options: AutoLayoutSizing[] = ["fixed"];
+    if (canHug) options.push("hug");
+    // Fill: flex/grid child on either axis; block child only fills width.
+    if (isFlexChildEl || (isBlockChild && axis === "horizontal")) {
+      options.push("fill");
+    }
+    return options;
   };
+
+  return {
+    horizontal: buildAxis("horizontal"),
+    vertical: buildAxis("vertical"),
+  };
+}
+
+/** Read the currently-set min/max constraints (px) for a sizing axis. */
+function readElementMinMax(
+  element: ElementInfo,
+  axis: AutoLayoutSizingAxis,
+): { min: number | null; max: number | null } {
+  const styles = element.computedStyles;
+  const minRaw = axis === "horizontal" ? styles.minWidth : styles.minHeight;
+  const maxRaw = axis === "horizontal" ? styles.maxWidth : styles.maxHeight;
+  return {
+    min: parseConstraintLength(minRaw),
+    max: parseConstraintLength(maxRaw),
+  };
+}
+
+/**
+ * Parse a min/max CSS length into a px number, or null when unset. Browser
+ * computed values are "0px"/"none" for the defaults — both read as "not set"
+ * so we don't surface a constraint sub-row the user never added.
+ */
+function parseConstraintLength(value: string | undefined): number | null {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    !normalized ||
+    normalized === "none" ||
+    normalized === "auto" ||
+    normalized === "0px" ||
+    normalized === "0"
+  ) {
+    return null;
+  }
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Commit a single min/max constraint (px) or clear it when value is null. */
+function commitElementMinMax(
+  axis: AutoLayoutSizingAxis,
+  kind: "min" | "max",
+  value: number | null,
+  onStyleChange: (property: string, value: string) => void,
+) {
+  const isHorizontal = axis === "horizontal";
+  const property =
+    kind === "min"
+      ? isHorizontal
+        ? "minWidth"
+        : "minHeight"
+      : isHorizontal
+        ? "maxWidth"
+        : "maxHeight";
+  if (value == null) {
+    // Clearing: min → 0 (CSS initial), max → none (CSS initial).
+    onStyleChange(property, kind === "min" ? "0px" : "none");
+    return;
+  }
+  onStyleChange(property, `${Math.max(0, Math.round(value))}px`);
 }
 
 function inferElementSizing(
@@ -1288,11 +1485,15 @@ function inferElementSizing(
   const styles = element.computedStyles;
   const size = axis === "horizontal" ? styles.width : styles.height;
   const parentDirection = parentFlexDirection(element);
-  const isMainFlexAxis = isParentFlex(element) && parentDirection === axis;
+  const isFlex = isParentFlex(element);
+  const isMainFlexAxis = isFlex && parentDirection === axis;
+  const isCrossFlexAxis = isFlex && parentDirection !== axis;
+  const alignSelf = (styles.alignSelf || "").toLowerCase();
 
   if (
     size === "100%" ||
-    (isMainFlexAxis && Number.parseFloat(styles.flexGrow || "0") > 0)
+    (isMainFlexAxis && Number.parseFloat(styles.flexGrow || "0") > 0) ||
+    (isCrossFlexAxis && alignSelf === "stretch")
   ) {
     return "fill";
   }
@@ -1324,29 +1525,43 @@ function commitElementSizing(
   const patch: Record<string, string> = {};
 
   if (sizing === "fixed") {
+    // Fixed → explicit px dimension. Reset any grow/stretch on the flex
+    // main-axis so the pixel value sticks.
     patch[sizeProperty] = `${resolvedSize}px`;
     if (isMainFlexAxis) {
       patch.flexGrow = "0";
       patch.flexShrink = "0";
       patch.flexBasis = "auto";
     }
-  } else if (sizing === "fill") {
+  } else if (sizing === "hug") {
+    // Hug contents → shrink to fit children/content.
+    patch[sizeProperty] = "fit-content";
     if (isMainFlexAxis) {
-      patch[sizeProperty] = "auto";
-      patch.flexGrow = "1";
-      patch.flexShrink = "1";
-      patch.flexBasis = "0px";
-    } else {
-      patch[sizeProperty] = "100%";
-      if (isFlex) patch.alignSelf = "stretch";
-      if (isGrid) patch[isHorizontal ? "justifySelf" : "alignSelf"] = "stretch";
+      // A flex container hugging on its main axis uses flex-basis:auto + no
+      // stretch (spec: "flex-basis: auto + no stretch").
+      patch.flexGrow = "0";
+      patch.flexShrink = "0";
+      patch.flexBasis = "auto";
     }
   } else {
-    patch[sizeProperty] = "auto";
+    // Fill container.
     if (isMainFlexAxis) {
-      patch.flexGrow = "0";
-      patch.flexShrink = "1";
-      patch.flexBasis = "auto";
+      // Parent main axis → grow into available space: flex: 1 0 0.
+      patch.flexGrow = "1";
+      patch.flexShrink = "0";
+      patch.flexBasis = "0";
+      // Clear any explicit dimension so flex-basis governs.
+      patch[sizeProperty] = "auto";
+    } else if (isFlex) {
+      // Parent cross axis → stretch to the parent's cross size.
+      patch.alignSelf = "stretch";
+      patch[sizeProperty] = "auto";
+    } else if (isGrid) {
+      patch[isHorizontal ? "justifySelf" : "alignSelf"] = "stretch";
+      patch[sizeProperty] = "auto";
+    } else {
+      // Child of a non-flex (block) parent → fill width with 100%.
+      patch[sizeProperty] = "100%";
     }
   }
 
@@ -1370,9 +1585,27 @@ function SelectionHeader({ element }: { element: ElementInfo | null }) {
 
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-      <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
+      {/* M3 · Node-type label + rename/type dropdown affordance (▾) */}
+      <button
+        type="button"
+        className="flex min-w-0 items-center gap-1.5 bg-transparent text-left text-[13px] font-semibold text-foreground"
+      >
         <TypeIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">{title}</span>
+        <IconChevronDown className="size-2.5 shrink-0 text-muted-foreground" />
+      </button>
+      {/* M3 · Right-aligned quick actions: create-component + dev inspect (</>) */}
+      <div className="flex shrink-0 items-center gap-0.5">
+        <SectionIconButton
+          label={"Create component" /* i18n-ignore Figma inspector action */}
+        >
+          <IconComponents className="size-3.5" />
+        </SectionIconButton>
+        <SectionIconButton
+          label={"Inspect code" /* i18n-ignore Figma inspector action */}
+        >
+          <IconCode className="size-3.5" />
+        </SectionIconButton>
       </div>
     </div>
   );
@@ -1381,39 +1614,42 @@ function SelectionHeader({ element }: { element: ElementInfo | null }) {
 function InspectorTabsHeader({
   activeTab,
   onActiveTabChange,
+  trailing,
 }: {
   activeTab: InspectorTab;
   onActiveTabChange: (tab: InspectorTab) => void;
+  trailing?: ReactNode;
 }) {
   const t = useT();
 
   return (
-    <div className="flex min-h-8 shrink-0 items-center justify-between border-b border-border/90 px-3">
+    <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 border-b border-border/90 px-2">
       <Tabs
         value={activeTab}
         onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
       >
-        <TabsList className="h-7 justify-start gap-1 rounded-none bg-transparent p-0">
+        <TabsList className="h-7 justify-start gap-0.5 rounded-none bg-transparent p-0">
           <TabsTrigger
             value="design"
-            className="h-6 rounded-md px-2.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {"Design" /* i18n-ignore Figma inspector tab */}
           </TabsTrigger>
           <TabsTrigger
             value="tweaks"
-            className="h-6 rounded-md px-2.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {t("designEditor.tweaks")}
           </TabsTrigger>
           <TabsTrigger
             value="extensions"
-            className="h-6 rounded-md px-2.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
             {t("designEditor.extensions")}
           </TabsTrigger>
         </TabsList>
       </Tabs>
+      {trailing ? <div className="shrink-0">{trailing}</div> : null}
     </div>
   );
 }
@@ -1423,11 +1659,13 @@ function SectionIconButton({
   onClick,
   children,
   disabled = false,
+  className,
 }: {
   label: string;
   onClick?: () => void;
   children: ReactNode;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <Tooltip>
@@ -1436,10 +1674,52 @@ function SectionIconButton({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed"
+          className={cn(
+            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed",
+            className,
+          )}
           disabled={disabled}
           onClick={onClick}
           aria-label={label}
+        >
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Section-header toggle icon (Figma's right-aligned section actions, e.g. the
+ * auto-layout ⊞ toggle). Highlights with the accent color when active.
+ */
+function SectionIconToggle({
+  label,
+  active = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={label}
+          aria-pressed={active}
+          onClick={onClick}
+          className={cn(
+            "size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground",
+            active &&
+              "bg-[var(--design-editor-accent-color)]/15 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+          )}
         >
           {children}
         </Button>
@@ -1488,57 +1768,6 @@ function InspectorSegment({ children }: { children: ReactNode }) {
     <div className="flex min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
       {children}
     </div>
-  );
-}
-
-function sizingModeLabel(mode: AutoLayoutSizing): string {
-  if (mode === "hug") return "Hug"; // i18n-ignore Figma inspector sizing mode
-  if (mode === "fill") return "Fill"; // i18n-ignore Figma inspector sizing mode
-  return "Fixed"; // i18n-ignore Figma inspector sizing mode
-}
-
-function SizingModeButton({
-  axis,
-  value,
-  resolvedSize,
-  options,
-  onChange,
-}: {
-  axis: "W" | "H";
-  value: AutoLayoutSizing;
-  resolvedSize: number;
-  options: AutoLayoutSizing[];
-  onChange: (value: AutoLayoutSizing) => void;
-}) {
-  const validOptions = options.includes(value) ? options : [...options, value];
-  const currentIndex = validOptions.indexOf(value);
-  const nextValue =
-    validOptions[(currentIndex + 1) % validOptions.length] ?? "fixed";
-  const label = `${axis} ${sizingModeLabel(value)}`;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label={label}
-          onClick={() => onChange(nextValue)}
-          className="h-6 justify-start rounded-md bg-[var(--design-editor-control-bg)] px-0 text-[11px] font-normal text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]"
-        >
-          <span className="flex h-full w-6 shrink-0 items-center justify-center rounded-l-md border-r border-border/60 text-muted-foreground">
-            {axis}
-          </span>
-          <span className="min-w-0 flex-1 truncate px-1 text-left tabular-nums text-muted-foreground">
-            {Math.round(resolvedSize)}
-          </span>
-          <span className="flex h-full min-w-8 items-center justify-center border-l border-border/60 px-1.5 font-medium text-foreground">
-            {sizingModeLabel(value)}
-          </span>
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -1716,7 +1945,7 @@ function StrokeLayerControl({
   return (
     <div className="space-y-1.5">
       {/* Figma stroke row: [swatch+hex trigger (flex-1)] [eye] [remove] */}
-      <div className="flex items-center gap-1.5">
+      <div className="group flex items-center gap-1.5">
         <div className="min-w-0 flex-1">
           <ColorInput
             label=""
@@ -1725,6 +1954,7 @@ function StrokeLayerControl({
           />
         </div>
         <SectionIconButton
+          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={
             visible
               ? t("editPanel.labels.hideLayer")
@@ -1749,6 +1979,7 @@ function StrokeLayerControl({
           )}
         </SectionIconButton>
         <SectionIconButton
+          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -1903,7 +2134,7 @@ function ShadowEffectRow({
   return (
     <Popover>
       {/* Figma effect row: [swatch+label+x,y,blur trigger (flex-1)] [remove] */}
-      <div className="flex items-center gap-1.5">
+      <div className="group flex items-center gap-1.5">
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -1925,6 +2156,7 @@ function ShadowEffectRow({
           </button>
         </PopoverTrigger>
         <SectionIconButton
+          className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
           label={t("editPanel.labels.removeLayer")}
           onClick={onRemove}
         >
@@ -2072,8 +2304,97 @@ function TypographyProperties({
   }));
   const textAlign = styles.textAlign || "left";
 
+  // M1 · Text resizing mode (auto-width / auto-height / fixed). Figma's text
+  // nodes always expose this segment. Infer the current mode from the live CSS:
+  // auto-width hugs both axes (width:auto + no wrapping), auto-height hugs the
+  // height only (fixed width, content wraps), fixed pins both width and height.
+  const widthIsAuto =
+    !styles.width || styles.width === "auto" || styles.width === "max-content";
+  const heightIsAuto = !styles.height || styles.height === "auto";
+  const noWrap = styles.whiteSpace === "nowrap";
+  const resizeMode: "auto-width" | "auto-height" | "fixed" =
+    widthIsAuto && noWrap
+      ? "auto-width"
+      : !heightIsAuto && !widthIsAuto
+        ? "fixed"
+        : "auto-height";
+  const currentWidth = styles.width && !widthIsAuto ? styles.width : "200px";
+  const currentHeight = styles.height && !heightIsAuto ? styles.height : "48px";
+  const setResizeMode = (mode: "auto-width" | "auto-height" | "fixed") => {
+    if (mode === "auto-width") {
+      onStyleChange("width", "auto");
+      onStyleChange("height", "auto");
+      onStyleChange("whiteSpace", "nowrap");
+    } else if (mode === "auto-height") {
+      onStyleChange("width", currentWidth);
+      onStyleChange("height", "auto");
+      onStyleChange("whiteSpace", "normal");
+    } else {
+      onStyleChange("width", currentWidth);
+      onStyleChange("height", currentHeight);
+      onStyleChange("whiteSpace", "normal");
+    }
+  };
+
+  // M2 · Vertical text alignment (top / middle / bottom). For auto-layout text
+  // containers (display:flex) Figma maps this to `justifyContent`; for normal
+  // text we fall back to `verticalAlign`, which is what an inline/grid text box
+  // honors. Read whichever the element currently expresses.
+  const display = (styles.display || "").toLowerCase();
+  const isFlexText = display.includes("flex");
+  const verticalAlign = isFlexText
+    ? styles.justifyContent === "center"
+      ? "middle"
+      : styles.justifyContent === "flex-end"
+        ? "bottom"
+        : "top"
+    : styles.verticalAlign === "middle"
+      ? "middle"
+      : styles.verticalAlign === "bottom"
+        ? "bottom"
+        : "top";
+  const setVerticalAlign = (mode: "top" | "middle" | "bottom") => {
+    if (isFlexText) {
+      onStyleChange(
+        "justifyContent",
+        mode === "middle"
+          ? "center"
+          : mode === "bottom"
+            ? "flex-end"
+            : "flex-start",
+      );
+    } else {
+      onStyleChange("verticalAlign", mode);
+    }
+  };
+
   return (
     <PanelSection title={t("editPanel.sections.typography")}>
+      {/* Row 0: text resizing (auto-width / auto-height / fixed) */}
+      <InspectorSegment>
+        <InspectorIconButton
+          label={"Auto width" /* i18n-ignore Figma text-resize mode */}
+          active={resizeMode === "auto-width"}
+          onClick={() => setResizeMode("auto-width")}
+        >
+          <IconArrowAutofitWidth className="size-3.5" />
+        </InspectorIconButton>
+        <InspectorIconButton
+          label={"Auto height" /* i18n-ignore Figma text-resize mode */}
+          active={resizeMode === "auto-height"}
+          onClick={() => setResizeMode("auto-height")}
+        >
+          <IconArrowAutofitHeight className="size-3.5" />
+        </InspectorIconButton>
+        <InspectorIconButton
+          label={"Fixed size" /* i18n-ignore Figma text-resize mode */}
+          active={resizeMode === "fixed"}
+          onClick={() => setResizeMode("fixed")}
+        >
+          <IconSquare className="size-3.5" />
+        </InspectorIconButton>
+      </InspectorSegment>
+
       {/* Row 1: font family full-width */}
       <Select
         value={styles.fontFamily || "sans-serif"}
@@ -2166,37 +2487,62 @@ function TypographyProperties({
         />
       </div>
 
-      {/* Row 4: text alignment */}
-      <InspectorSegment>
-        <InspectorIconButton
-          label={t("editPanel.textAligns.left")}
-          active={textAlign === "left" || textAlign === "start"}
-          onClick={() => onStyleChange("textAlign", "left")}
-        >
-          <IconAlignLeft className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={t("editPanel.textAligns.center")}
-          active={textAlign === "center"}
-          onClick={() => onStyleChange("textAlign", "center")}
-        >
-          <IconAlignCenter className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={t("editPanel.textAligns.right")}
-          active={textAlign === "right" || textAlign === "end"}
-          onClick={() => onStyleChange("textAlign", "right")}
-        >
-          <IconAlignRight className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={t("editPanel.textAligns.justify")}
-          active={textAlign === "justify"}
-          onClick={() => onStyleChange("textAlign", "justify")}
-        >
-          <IconAlignJustified className="size-3.5" />
-        </InspectorIconButton>
-      </InspectorSegment>
+      {/* Row 4: horizontal + vertical text alignment */}
+      <div className="grid grid-cols-2 gap-1.5">
+        <InspectorSegment>
+          <InspectorIconButton
+            label={t("editPanel.textAligns.left")}
+            active={textAlign === "left" || textAlign === "start"}
+            onClick={() => onStyleChange("textAlign", "left")}
+          >
+            <IconAlignLeft className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={t("editPanel.textAligns.center")}
+            active={textAlign === "center"}
+            onClick={() => onStyleChange("textAlign", "center")}
+          >
+            <IconAlignCenter className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={t("editPanel.textAligns.right")}
+            active={textAlign === "right" || textAlign === "end"}
+            onClick={() => onStyleChange("textAlign", "right")}
+          >
+            <IconAlignRight className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={t("editPanel.textAligns.justify")}
+            active={textAlign === "justify"}
+            onClick={() => onStyleChange("textAlign", "justify")}
+          >
+            <IconAlignJustified className="size-3.5" />
+          </InspectorIconButton>
+        </InspectorSegment>
+        <InspectorSegment>
+          <InspectorIconButton
+            label={"Align top" /* i18n-ignore Figma vertical text align */}
+            active={verticalAlign === "top"}
+            onClick={() => setVerticalAlign("top")}
+          >
+            <IconLayoutAlignTop className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={"Align middle" /* i18n-ignore Figma vertical text align */}
+            active={verticalAlign === "middle"}
+            onClick={() => setVerticalAlign("middle")}
+          >
+            <IconLayoutAlignMiddle className="size-3.5" />
+          </InspectorIconButton>
+          <InspectorIconButton
+            label={"Align bottom" /* i18n-ignore Figma vertical text align */}
+            active={verticalAlign === "bottom"}
+            onClick={() => setVerticalAlign("bottom")}
+          >
+            <IconLayoutAlignBottom className="size-3.5" />
+          </InspectorIconButton>
+        </InspectorSegment>
+      </div>
     </PanelSection>
   );
 }
@@ -2213,8 +2559,21 @@ function FlexContainerControls({
 }) {
   const t = useT();
   const styles = element.computedStyles;
+  // The element's CURRENT layout flow as authored in code, read from its own
+  // computed `display`: block/flow-root/grid/etc. = "normal flow",
+  // flex/inline-flex = auto layout. We forward it so the AutoLayoutMatrix Flow
+  // control can show the right state (normal vs horizontal/vertical/wrap)
+  // instead of an empty "add" affordance.
+  const display = (styles.display || "").toLowerCase();
+  const isFlex = display.includes("flex");
   const flexDirection: AutoLayoutMatrixValue["direction"] =
     styles.flexDirection?.includes("column") ? "vertical" : "horizontal";
+  // When the element is in normal flow (not flex yet), picking any flow option
+  // must first turn it into a flex container; otherwise setting flex-direction
+  // alone is a no-op against a block element.
+  const ensureFlex = () => {
+    if (!isFlex) onStyleChange("display", "flex");
+  };
   const padding = {
     top: parseNumericValue(styles.paddingTop || "0"),
     right: parseNumericValue(styles.paddingRight || "0"),
@@ -2242,24 +2601,37 @@ function FlexContainerControls({
       horizontal: inferElementSizing(element, "horizontal"),
       vertical: inferElementSizing(element, "vertical"),
     },
+    childMinMax: {
+      horizontal: readElementMinMax(element, "horizontal"),
+      vertical: readElementMinMax(element, "vertical"),
+    },
     clipContent: styles.overflow === "hidden",
     resolvedSize: {
       horizontal: element.boundingRect.width,
       vertical: element.boundingRect.height,
     },
+    // Forward the raw CSS display so the matrix can render the correct Flow
+    // state (normal flow for block/grid, flex for flex/inline-flex). Added as an
+    // optional contract field consumed by AutoLayoutMatrix; harmless when the
+    // matrix ignores it.
+    ...({ display } as Partial<AutoLayoutMatrixValue>),
   };
 
   return (
     <div className="space-y-2">
       <AutoLayoutMatrix
         value={autoLayoutValue}
-        onDirectionChange={(direction) =>
+        onDirectionChange={(direction) => {
+          ensureFlex();
           onStyleChange(
             "flexDirection",
             direction === "vertical" ? "column" : "row",
-          )
-        }
-        onWrapChange={(wrap) => onStyleChange("flexWrap", wrap)}
+          );
+        }}
+        onWrapChange={(wrap) => {
+          ensureFlex();
+          onStyleChange("flexWrap", wrap);
+        }}
         onAlignmentChange={(alignment) => {
           if (autoLayoutValue.direction === "vertical") {
             onStyleChange(
@@ -2317,6 +2689,9 @@ function FlexContainerControls({
             onStylesChange,
           );
         }}
+        onChildMinMaxChange={(axis, kind, val) =>
+          commitElementMinMax(axis, kind, val, onStyleChange)
+        }
       />
     </div>
   );
@@ -2428,17 +2803,39 @@ function LayoutContextProperties({
   const flexChild = isParentFlex(element);
   const gridChild = isParentGrid(element);
   const availableSizing = availableSizingForElement(element);
+  const isContainer = isContainerElement(element);
 
-  if (!element.isFlexContainer) {
+  const childControls = (
+    <>
+      {flexChild ? (
+        <div className="border-t border-border/70 pt-2">
+          <FlexChildControls element={element} onStyleChange={onStyleChange} />
+        </div>
+      ) : null}
+      {gridChild ? (
+        <div className="border-t border-border/70 pt-2">
+          <GridChildControls element={element} onStyleChange={onStyleChange} />
+        </div>
+      ) : null}
+    </>
+  );
+
+  // Leaf elements (text, img, svg, etc.) never get auto layout — show the plain
+  // Figma W/H sizing block instead.
+  if (!isContainer) {
     return (
       <PanelSection title={t("editPanel.sections.layout")}>
-        {/* Figma-style single-row-per-axis: [W | value | Fixed/Hug ▾] */}
-        <div className="grid grid-cols-2 gap-1.5">
-          <SizingModeButton
+        {/* Figma-style single-row-per-axis: [W | value | Fixed/Hug/Fill ▾] with
+            the full sizing menu (modes + min/max + variable) per axis. */}
+        <div className="grid grid-cols-2 items-start gap-1.5">
+          <SizingField
             axis="W"
+            sizingAxis="horizontal"
             value={inferElementSizing(element, "horizontal")}
             resolvedSize={element.boundingRect.width}
-            options={availableSizing.horizontal ?? ["hug", "fixed"]}
+            minMax={readElementMinMax(element, "horizontal")}
+            options={availableSizing.horizontal ?? ["fixed"]}
+            disabled={false}
             onChange={(mode) =>
               commitElementSizing(
                 element,
@@ -2448,12 +2845,18 @@ function LayoutContextProperties({
                 onStylesChange,
               )
             }
+            onMinMaxChange={(axis, kind, val) =>
+              commitElementMinMax(axis, kind, val, onStyleChange)
+            }
           />
-          <SizingModeButton
+          <SizingField
             axis="H"
+            sizingAxis="vertical"
             value={inferElementSizing(element, "vertical")}
             resolvedSize={element.boundingRect.height}
-            options={availableSizing.vertical ?? ["hug", "fixed"]}
+            minMax={readElementMinMax(element, "vertical")}
+            options={availableSizing.vertical ?? ["fixed"]}
+            disabled={false}
             onChange={(mode) =>
               commitElementSizing(
                 element,
@@ -2463,45 +2866,151 @@ function LayoutContextProperties({
                 onStylesChange,
               )
             }
+            onMinMaxChange={(axis, kind, val) =>
+              commitElementMinMax(axis, kind, val, onStyleChange)
+            }
           />
         </div>
-        {flexChild ? (
-          <FlexChildControls element={element} onStyleChange={onStyleChange} />
-        ) : null}
-        {gridChild ? (
-          <GridChildControls element={element} onStyleChange={onStyleChange} />
-        ) : null}
+        {childControls}
       </PanelSection>
     );
   }
 
+  // Any container element ALREADY has a layout in code — normal flow (block) by
+  // default, or flex when it uses flexbox. Figma never makes you "add" auto
+  // layout for a frame, so we always render the full layout controls and let
+  // the Flow control reflect/switch the element's current `display`. Choosing a
+  // horizontal/vertical/wrap/grid flow applies `display:flex`; choosing the
+  // normal-flow option resets to `display:block`.
   return (
-    <PanelSection
-      title={t("editPanel.sections.autoLayout")}
-      actions={
-        <span className="flex size-7 items-center justify-center rounded-md bg-[var(--design-editor-accent-color)]/15 text-[var(--design-editor-accent-color)]">
-          <IconLayoutGrid className="size-4" />
-        </span>
-      }
-    >
+    <PanelSection title={t("editPanel.sections.autoLayout")}>
       <FlexContainerControls
         element={element}
         onStyleChange={onStyleChange}
         onStylesChange={onStylesChange}
       />
-
-      {flexChild ? (
-        <div className="border-t border-border/70 pt-2">
-          <FlexChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
-
-      {gridChild ? (
-        <div className="border-t border-border/70 pt-2">
-          <GridChildControls element={element} onStyleChange={onStyleChange} />
-        </div>
-      ) : null}
+      {childControls}
     </PanelSection>
+  );
+}
+
+/**
+ * Figma "Layout grid" / layout-guide section. Shown for frame/container
+ * elements. Renders an overlay column/row guide by applying a non-destructive
+ * `backgroundImage` repeating gradient layer tagged so it can be toggled off
+ * without disturbing real fills.
+ */
+const LAYOUT_GUIDE_MARKER = "/* an-layout-guide */";
+
+function hasLayoutGuide(styles: Record<string, string>): boolean {
+  return Boolean(styles.backgroundImage?.includes("repeating-linear-gradient"));
+}
+
+function LayoutGuideProperties({
+  element,
+  onStyleChange,
+}: {
+  element: ElementInfo;
+  onStyleChange: (property: string, value: string) => void;
+}) {
+  const styles = element.computedStyles;
+  const active = hasLayoutGuide(styles);
+
+  const addGuide = () => {
+    // 12-column overlay guide — Figma's default columns layout grid.
+    const guide =
+      "repeating-linear-gradient(to right, color-mix(in srgb, var(--design-editor-accent-color) 22%, transparent) 0 1px, transparent 1px calc(100% / 12))";
+    const existing = compactCssValue(styles.backgroundImage, "");
+    onStyleChange(
+      "backgroundImage",
+      existing ? `${guide}, ${existing}` : guide,
+    );
+  };
+
+  const removeGuide = () => {
+    const layers = splitCssLayers(styles.backgroundImage || "").filter(
+      (layer) => !layer.includes("repeating-linear-gradient"),
+    );
+    onStyleChange(
+      "backgroundImage",
+      layers.length ? joinCssLayers(layers) : "none",
+    );
+  };
+
+  return (
+    <PanelSection
+      title={"Layout guide" /* i18n-ignore Figma inspector label */}
+      defaultCollapsed
+      actions={
+        <SectionIconButton
+          label={
+            active
+              ? "Remove layout guide" /* i18n-ignore Figma inspector action */
+              : "Add layout guide" /* i18n-ignore Figma inspector action */
+          }
+          onClick={active ? removeGuide : addGuide}
+        >
+          {active ? (
+            <IconMinus className="size-3.5" />
+          ) : (
+            <IconPlus className="size-3.5" />
+          )}
+        </SectionIconButton>
+      }
+    >
+      {active ? (
+        <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 text-[11px] text-muted-foreground">
+          <IconLayoutGrid className="size-3.5 shrink-0" />
+          <span className="min-w-0 flex-1 truncate text-foreground">
+            {"Columns" /* i18n-ignore Figma inspector label */}
+          </span>
+          <span className="shrink-0 tabular-nums">12</span>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          {"No layout guides" /* i18n-ignore Figma inspector empty state */}
+        </p>
+      )}
+    </PanelSection>
+  );
+}
+
+/**
+ * Togglable export preview thumbnail (Figma shows a small preview of the export
+ * frame above the export rows). Renders a proportional placeholder reflecting
+ * the selected element's aspect ratio, fill, radius and dimensions.
+ */
+function ExportPreview({ element }: { element: ElementInfo | null }) {
+  const rect = element?.boundingRect;
+  const width = rect?.width ?? 0;
+  const height = rect?.height ?? 0;
+  const aspect = width > 0 && height > 0 ? width / height : 1;
+  const styles = element?.computedStyles ?? {};
+  const fill = cssColorOrFallback(
+    styles.backgroundColor || styles.color,
+    "var(--design-editor-control-bg)",
+  );
+  const radius = Math.min(8, cssLengthNumber(styles.borderRadius || "0"));
+
+  return (
+    <div className="mt-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] p-3">
+      <div
+        className="mx-auto flex max-h-28 items-center justify-center"
+        style={{
+          aspectRatio: aspect,
+          width: aspect >= 1 ? "100%" : "auto",
+          height: aspect < 1 ? "7rem" : "auto",
+        }}
+      >
+        <div
+          className="size-full border border-[var(--design-editor-control-border)] shadow-sm"
+          style={{ background: fill, borderRadius: radius }}
+        />
+      </div>
+      <p className="mt-2 text-center text-[10px] tabular-nums text-muted-foreground">
+        {Math.round(width)} × {Math.round(height)}
+      </p>
+    </div>
   );
 }
 
@@ -2517,6 +3026,10 @@ function PositionLayoutProperties({
   const styles = element.computedStyles;
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
+  // Reflect the active packing in the alignment segments (Figma highlights the
+  // current alignment). For a flex container the main axis is justifyContent.
+  const alignH = justifyToHorizontal(styles.justifyContent);
+  const alignV = alignToVertical(styles.alignItems);
   const constraintsValue: ConstraintsValue = {
     horizontal:
       styles.left && styles.right
@@ -2603,7 +3116,23 @@ function PositionLayoutProperties({
   );
 
   return (
-    <PanelSection title={t("editPanel.sections.positionLayout")}>
+    <PanelSection
+      title={t("editPanel.sections.positionLayout")}
+      actions={
+        <SectionIconToggle
+          label={"Absolute position" /* i18n-ignore Figma inspector action */}
+          active={constrainedPosition}
+          onClick={() =>
+            onStyleChange(
+              "position",
+              constrainedPosition ? "relative" : "absolute",
+            )
+          }
+        >
+          <IconLayoutDistributeHorizontal className="size-3.5" />
+        </SectionIconToggle>
+      }
+    >
       <div className="space-y-1.5">
         <SubsectionLabel>
           {"Alignment" /* i18n-ignore Figma inspector label */}
@@ -2612,41 +3141,47 @@ function PositionLayoutProperties({
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.textAligns.left")}
+              active={alignH === "left"}
               onClick={() => onStyleChange("justifyContent", "flex-start")}
             >
-              <IconLayoutAlignLeft className="size-4" />
+              <IconLayoutAlignLeft className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.center")}
+              active={alignH === "center"}
               onClick={() => onStyleChange("justifyContent", "center")}
             >
-              <IconLayoutAlignCenter className="size-4" />
+              <IconLayoutAlignCenter className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.textAligns.right")}
+              active={alignH === "right"}
               onClick={() => onStyleChange("justifyContent", "flex-end")}
             >
-              <IconLayoutAlignRight className="size-4" />
+              <IconLayoutAlignRight className="size-3.5" />
             </InspectorIconButton>
           </InspectorSegment>
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.start")}
+              active={alignV === "top"}
               onClick={() => onStyleChange("alignItems", "flex-start")}
             >
-              <IconLayoutAlignTop className="size-4" />
+              <IconLayoutAlignTop className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.center")}
+              active={alignV === "middle"}
               onClick={() => onStyleChange("alignItems", "center")}
             >
-              <IconLayoutAlignMiddle className="size-4" />
+              <IconLayoutAlignMiddle className="size-3.5" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.alignSelfOptions.end")}
+              active={alignV === "bottom"}
               onClick={() => onStyleChange("alignItems", "flex-end")}
             >
-              <IconLayoutAlignBottom className="size-4" />
+              <IconLayoutAlignBottom className="size-3.5" />
             </InspectorIconButton>
           </InspectorSegment>
         </div>
@@ -2738,51 +3273,101 @@ function FillProperties({
   const hasBackgroundLayer = !isTextElement && backgroundLayers.length > 0;
   const hasVisibleFill =
     isTextElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
-  const fallbackValue = isTextElement
-    ? cssColorOrFallback(styles.color, "#000000")
-    : cssColorOrFallback(styles.backgroundColor, "#ffffff");
+
+  // Non-destructive fill hide: stash the color before hiding so toggling
+  // visible again restores the exact original value (Figma never loses color).
+  // Keyed by `${element.id ?? tagName}:${fillProperty}` so separate elements
+  // don't share stash slots.
+  const [hiddenFillStash, setHiddenFillStash] = useState<
+    Record<string, string>
+  >({});
+  const stashKey = `${element.id ?? element.tagName}:${fillProperty}`;
+  const isHidden = fillValue === "transparent" || fillValue === "";
+  const handleFillVisibilityToggle = () => {
+    if (isHidden) {
+      // Restore the stashed color, or fall back to a sensible default.
+      const restored =
+        hiddenFillStash[stashKey] ?? (isTextElement ? "#000000" : "#ffffff");
+      onStyleChange(fillProperty, restored);
+      setHiddenFillStash((prev) => {
+        const next = { ...prev };
+        delete next[stashKey];
+        return next;
+      });
+    } else {
+      // Stash the current color before going transparent.
+      setHiddenFillStash((prev) => ({ ...prev, [stashKey]: fillValue }));
+      onStyleChange(fillProperty, "transparent");
+    }
+  };
+
+  // Document colors: unique hex strings from all CSS color properties on the
+  // selected element, collected via the existing selectionColorValues helper.
+  const docColorHexes = selectionColorValues(element)
+    .map((c) => {
+      const parsed = parseCssColor(c.value);
+      return parsed ? rgbaToHex(parsed) : null;
+    })
+    .filter((h): h is string => Boolean(h));
+  // Deduplicate (selectionColorValues already dedupes by raw CSS value, but
+  // hex normalisation may collapse additional entries e.g. rgb vs #hex).
+  const seenHex = new Set<string>();
+  const documentColors = docColorHexes.filter((h) => {
+    const key = h.toUpperCase();
+    if (seenHex.has(key)) return false;
+    seenHex.add(key);
+    return true;
+  });
 
   return (
     <PanelSection
       title={t("editPanel.sections.fill")}
       actions={
-        <SectionIconButton
-          label={t("editPanel.labels.addLayer")}
-          onClick={() => {
-            if (isTextElement) {
-              onStyleChange(
-                "color",
-                cssColorOrFallback(styles.color, "#000000"),
+        <>
+          {/* Figma color-styles affordance (grid icon) to the left of "+". */}
+          <SectionIconButton
+            label={"Styles" /* i18n-ignore Figma inspector action */}
+          >
+            <IconLayoutGrid className="size-3.5" />
+          </SectionIconButton>
+          <SectionIconButton
+            label={t("editPanel.labels.addLayer")}
+            onClick={() => {
+              if (isTextElement) {
+                onStyleChange(
+                  "color",
+                  cssColorOrFallback(styles.color, "#000000"),
+                );
+                return;
+              }
+              if (!colorHasVisibleAlpha(styles.backgroundColor)) {
+                onStyleChange(
+                  "backgroundColor",
+                  cssColorOrFallback(styles.backgroundColor, "#ffffff"),
+                );
+                return;
+              }
+              const current = compactCssValue(styles.backgroundImage, "");
+              const nextLayer = defaultGradientLayer(
+                "linear",
+                styles.backgroundColor || "#ffffff",
               );
-              return;
-            }
-            if (!colorHasVisibleAlpha(styles.backgroundColor)) {
               onStyleChange(
-                "backgroundColor",
-                cssColorOrFallback(styles.backgroundColor, "#ffffff"),
+                "backgroundImage",
+                current ? `${nextLayer}, ${current}` : nextLayer,
               );
-              return;
-            }
-            const current = compactCssValue(styles.backgroundImage, "");
-            const nextLayer = defaultGradientLayer(
-              "linear",
-              styles.backgroundColor || "#ffffff",
-            );
-            onStyleChange(
-              "backgroundImage",
-              current ? `${nextLayer}, ${current}` : nextLayer,
-            );
-          }}
-        >
-          <IconPlus className="size-3.5" />
-        </SectionIconButton>
+            }}
+          >
+            <IconPlus className="size-3.5" />
+          </SectionIconButton>
+        </>
       }
     >
       {hasVisibleFill ? (
         <div className="space-y-1.5">
           {isTextElement || colorHasVisibleAlpha(fillValue) ? (
             /* Figma row: [swatch+hex trigger (flex-1)] [eye] [remove] */
-            <div className="flex items-center gap-1.5">
+            <div className="group flex items-center gap-1.5">
               <div className="min-w-0 flex-1">
                 <ColorInput
                   label=""
@@ -2799,28 +3384,26 @@ function FillProperties({
                       ? undefined
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
+                  documentColors={documentColors}
                 />
               </div>
               <SectionIconButton
+                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={
-                  fillValue === "transparent"
+                  isHidden
                     ? t("editPanel.labels.showLayer")
                     : t("editPanel.labels.hideLayer")
                 }
-                onClick={() =>
-                  onStyleChange(
-                    fillProperty,
-                    fillValue === "transparent" ? fallbackValue : "transparent",
-                  )
-                }
+                onClick={handleFillVisibilityToggle}
               >
-                {fillValue === "transparent" ? (
+                {isHidden ? (
                   <IconEyeOff className="size-3.5" />
                 ) : (
                   <IconEye className="size-3.5" />
                 )}
               </SectionIconButton>
               <SectionIconButton
+                className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                 label={t("editPanel.labels.removeLayer")}
                 onClick={() => {
                   if (isTextElement) {
@@ -2872,7 +3455,7 @@ function FillProperties({
                   /* Figma row: [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
                   <div
                     key={`${layer}-${index}`}
-                    className="flex items-center gap-1.5"
+                    className="group flex items-center gap-1.5"
                   >
                     <Popover>
                       <PopoverTrigger asChild>
@@ -2899,7 +3482,8 @@ function FillProperties({
                         className="w-80 p-0"
                       >
                         <FigmaColorPicker
-                          value={gradient?.stops[0]?.color ?? "#000000"}
+                          value={gradient?.stops[0]?.color ?? layer}
+                          onPaintValueChange={replaceLayer}
                           onChange={(nextColor) => {
                             if (!gradient) return;
                             const firstStop = gradient.stops[0];
@@ -2934,6 +3518,7 @@ function FillProperties({
                       </PopoverContent>
                     </Popover>
                     <SectionIconButton
+                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={
                         opacity <= 0
                           ? t("editPanel.labels.showLayer")
@@ -2959,6 +3544,7 @@ function FillProperties({
                       )}
                     </SectionIconButton>
                     <SectionIconButton
+                      className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
                       label={t("editPanel.labels.removeLayer")}
                       onClick={removeLayer}
                     >
@@ -3101,8 +3687,50 @@ function AppearanceProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
+  const hidden =
+    styles.visibility === "hidden" ||
+    styles.display === "none" ||
+    parseNumericValue(styles.opacity || "1") === 0;
   return (
-    <PanelSection title={t("root.commandAppearance")}>
+    <PanelSection
+      title={t("root.commandAppearance")}
+      actions={
+        <>
+          {/* Opacity / blend-mode affordance — matches Figma's pill icon */}
+          <SectionIconButton
+            label={
+              "Opacity & blend mode" /* i18n-ignore Figma inspector action */
+            }
+          >
+            <IconSlice className="size-3.5" />
+          </SectionIconButton>
+          {/* Visibility toggle */}
+          <SectionIconToggle
+            label={
+              hidden
+                ? "Show" /* i18n-ignore Figma inspector action */
+                : "Hide" /* i18n-ignore Figma inspector action */
+            }
+            active={hidden}
+            onClick={() =>
+              onStyleChange("visibility", hidden ? "visible" : "hidden")
+            }
+          >
+            {hidden ? (
+              <IconEyeOff className="size-3.5" />
+            ) : (
+              <IconEye className="size-3.5" />
+            )}
+          </SectionIconToggle>
+          {/* Styles / fill library affordance — matches Figma's droplet icon */}
+          <SectionIconButton
+            label={"Styles" /* i18n-ignore Figma inspector action */}
+          >
+            <IconDroplet className="size-3.5" />
+          </SectionIconButton>
+        </>
+      }
+    >
       <div className="grid grid-cols-2 gap-2">
         <ScrubInput
           label={t("editPanel.labels.opacity")}
@@ -3159,28 +3787,65 @@ function EffectsProperties({
   const t = useT();
   const styles = element.computedStyles;
   const blurValue = readBlurFilter(styles.filter);
+  // M5 · Background (backdrop) blur is a distinct Figma effect type, backed by
+  // CSS `backdrop-filter: blur()` (vs layer blur's `filter: blur()`).
+  const backdropBlurValue = readBlurFilter(
+    styles.backdropFilter || styles.webkitBackdropFilter,
+  );
   const shadowLayers = parseShadowLayers(styles.boxShadow);
   const setShadowLayers = (layers: ShadowLayer[]) => {
     const boxShadow = serializeShadowLayers(layers);
     if (onStylesChange) onStylesChange({ boxShadow });
     else onStyleChange("boxShadow", boxShadow);
   };
+  const addDropShadow = () =>
+    setShadowLayers([
+      ...shadowLayers,
+      defaultDropShadowLayer(shadowLayers.length),
+    ]);
+  const addLayerBlur = () => onStyleChange("filter", "blur(4px)");
+  const addBackgroundBlur = () => onStyleChange("backdropFilter", "blur(8px)");
 
   return (
     <PanelSection
       title={t("editPanel.sections.effects")}
       actions={
-        <SectionIconButton
-          label={t("editPanel.labels.addLayer")}
-          onClick={() =>
-            setShadowLayers([
-              ...shadowLayers,
-              defaultDropShadowLayer(shadowLayers.length),
-            ])
-          }
-        >
-          <IconPlus className="size-3.5" />
-        </SectionIconButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground"
+              aria-label={t("editPanel.labels.addLayer")}
+            >
+              <IconPlus className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-44">
+            <DropdownMenuItem
+              className="gap-2 text-[11px]"
+              onSelect={addDropShadow}
+            >
+              <IconShadow className="size-3.5" />
+              {t("editPanel.labels.dropShadow")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-2 text-[11px]"
+              onSelect={addLayerBlur}
+            >
+              <IconBlur className="size-3.5" />
+              {t("editPanel.labels.layerBlur")}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-2 text-[11px]"
+              onSelect={addBackgroundBlur}
+            >
+              <IconBackground className="size-3.5" />
+              {"Background blur" /* i18n-ignore Figma effect type */}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       }
     >
       {shadowLayers.length ? (
@@ -3210,7 +3875,7 @@ function EffectsProperties({
       {blurValue > 0 ? (
         /* Figma effect row for layer blur: flat row matching shadow rows */
         <Popover>
-          <div className="flex items-center gap-1.5">
+          <div className="group flex items-center gap-1.5">
             <PopoverTrigger asChild>
               <button
                 type="button"
@@ -3225,6 +3890,7 @@ function EffectsProperties({
               </button>
             </PopoverTrigger>
             <SectionIconButton
+              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
               label={t("editPanel.labels.removeLayer")}
               onClick={() => onStyleChange("filter", "none")}
               disabled={!styles.filter || styles.filter === "none"}
@@ -3244,6 +3910,58 @@ function EffectsProperties({
               onChange={(value) =>
                 onStyleChange(
                   "filter",
+                  `blur(${Math.max(0, Math.round(value))}px)`,
+                )
+              }
+              unit="px"
+              min={0}
+              precision={1}
+              labelClassName="w-16"
+              inputClassName="h-6"
+            />
+          </PopoverContent>
+        </Popover>
+      ) : null}
+      {backdropBlurValue > 0 ? (
+        /* M5 · Background (backdrop) blur effect row — mirrors the layer-blur row */
+        <Popover>
+          <div className="group flex items-center gap-1.5">
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
+              >
+                <span className="min-w-0 flex-1 truncate font-medium text-foreground">
+                  {"Background blur" /* i18n-ignore Figma effect type */}
+                </span>
+                <span className="shrink-0 tabular-nums text-muted-foreground">
+                  {Math.round(backdropBlurValue)}px
+                </span>
+              </button>
+            </PopoverTrigger>
+            <SectionIconButton
+              className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100"
+              label={t("editPanel.labels.removeLayer")}
+              onClick={() => onStyleChange("backdropFilter", "none")}
+              disabled={
+                !styles.backdropFilter || styles.backdropFilter === "none"
+              }
+            >
+              <IconMinus className="size-3.5" />
+            </SectionIconButton>
+          </div>
+          <PopoverContent
+            side="left"
+            align="start"
+            sideOffset={8}
+            className="w-56 p-3"
+          >
+            <ScrubInput
+              label={t("editPanel.labels.blur")}
+              value={backdropBlurValue}
+              onChange={(value) =>
+                onStyleChange(
+                  "backdropFilter",
                   `blur(${Math.max(0, Math.round(value))}px)`,
                 )
               }
@@ -3289,6 +4007,13 @@ function selectionColorValues(element: ElementInfo): SelectionColorValue[] {
     });
 }
 
+/** Uppercase 6-char hex (no #) for a CSS color, matching Figma's row readout. */
+function selectionDisplayHex(value: string): string {
+  const parsed = parseCssColor(value);
+  if (!parsed) return value.replace(/^#/, "").toUpperCase();
+  return rgbaToHex(parsed).replace(/^#/, "").toUpperCase();
+}
+
 function SelectionColorsProperties({
   element,
   onStyleChange,
@@ -3296,49 +4021,77 @@ function SelectionColorsProperties({
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
 }) {
+  // M6 · Figma's Selection colors collapses to a single "Show selection colors"
+  // affordance, expanding to one editable [swatch · hex · opacity] row per
+  // unique color — matching the Fill row grammar instead of a swatch strip.
+  const [expanded, setExpanded] = useState(false);
   const colors = selectionColorValues(element);
-  const overflowCount = Math.max(0, colors.length - 3);
   if (!colors.length) return null;
 
   return (
     <PanelSection
       title={"Selection colors" /* i18n-ignore Figma inspector label */}
     >
-      <div className="flex min-w-0 items-center gap-1.5">
-        {colors.slice(0, 3).map((color, index) => (
-          <Popover key={`${color.value}-${index}`}>
-            <Tooltip>
-              <TooltipTrigger asChild>
+      {expanded ? (
+        <div className="space-y-1.5">
+          {colors.map((color, index) => {
+            const parsed = parseCssColor(color.value);
+            const opacity = parsed ? alphaToOpacity(parsed.a) : 100;
+            return (
+              <Popover key={`${color.value}-${index}`}>
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="size-5 rounded-sm border border-[var(--design-editor-control-border)] transition-transform hover:scale-110 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-                    style={swatchStyle(color.value)}
+                    className="flex h-6 w-full items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
                     aria-label={color.value}
-                  />
+                  >
+                    <span
+                      className="size-4 shrink-0 rounded-[3px] border border-border/60"
+                      style={swatchStyle(color.value)}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-left uppercase tabular-nums">
+                      {selectionDisplayHex(color.value)}
+                    </span>
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {opacity}%
+                    </span>
+                  </button>
                 </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent>{color.value}</TooltipContent>
-            </Tooltip>
-            <PopoverContent
-              side="left"
-              align="start"
-              sideOffset={8}
-              className="w-80 p-0"
-            >
-              <FigmaColorPicker
-                value={cssColorOrFallback(color.value, "#000000")}
-                onChange={(value) => onStyleChange(color.property, value)}
-              />
-            </PopoverContent>
-          </Popover>
-        ))}
-        {overflowCount > 0 ? (
-          <span className="pl-0.5 text-[11px] font-medium text-muted-foreground">
-            +{overflowCount}
+                <PopoverContent
+                  side="left"
+                  align="start"
+                  sideOffset={8}
+                  className="w-80 p-0"
+                >
+                  <FigmaColorPicker
+                    value={cssColorOrFallback(color.value, "#000000")}
+                    onChange={(value) => onStyleChange(color.property, value)}
+                  />
+                </PopoverContent>
+              </Popover>
+            );
+          })}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="flex h-6 w-full items-center justify-between gap-2 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-left text-[11px] text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground"
+          onClick={() => setExpanded(true)}
+        >
+          <span className="truncate">
+            {"Show selection colors" /* i18n-ignore Figma inspector label */}
           </span>
-        ) : null}
-      </div>
+          <div className="flex shrink-0 items-center -space-x-1">
+            {colors.slice(0, 3).map((color, index) => (
+              <span
+                key={`${color.value}-${index}`}
+                className="size-3.5 rounded-sm border border-[var(--design-editor-panel-bg)]"
+                style={swatchStyle(color.value)}
+              />
+            ))}
+          </div>
+        </button>
+      )}
     </PanelSection>
   );
 }
@@ -3362,6 +4115,7 @@ const TEXT_TAGS = new Set([
 export function EditPanel({
   selectedElement,
   pageStyles = {},
+  headerTrailing,
   width = 256,
   activeTab = "design",
   onActiveTabChange,
@@ -3381,6 +4135,7 @@ export function EditPanel({
     format: "png",
     suffix: "",
   });
+  const [showExportPreview, setShowExportPreview] = useState(false);
   const isTextElement = selectedElement
     ? TEXT_TAGS.has(selectedElement.tagName)
     : false;
@@ -3406,6 +4161,7 @@ export function EditPanel({
       <InspectorTabsHeader
         activeTab={activeTab}
         onActiveTabChange={handleActiveTabChange}
+        trailing={headerTrailing}
       />
 
       {activeTab === "design" ? (
@@ -3460,10 +4216,31 @@ export function EditPanel({
                   element={selectedElement}
                   onStyleChange={onStyleChange}
                 />
+                {isContainerElement(selectedElement) ? (
+                  <LayoutGuideProperties
+                    element={selectedElement}
+                    onStyleChange={onStyleChange}
+                  />
+                ) : null}
               </>
             )}
             {onExport ? (
-              <PanelSection title={t("editPanel.sections.export")}>
+              <PanelSection
+                title={t("editPanel.sections.export")}
+                actions={
+                  <SectionIconToggle
+                    label={
+                      showExportPreview
+                        ? "Hide preview" /* i18n-ignore Figma inspector action */
+                        : "Show preview" /* i18n-ignore Figma inspector action */
+                    }
+                    active={showExportPreview}
+                    onClick={() => setShowExportPreview((shown) => !shown)}
+                  >
+                    <IconPhoto className="size-3.5" />
+                  </SectionIconToggle>
+                }
+              >
                 <ExportSettingsPanel
                   value={exportSettings}
                   formats={["png", "svg"]}
@@ -3473,6 +4250,9 @@ export function EditPanel({
                   }
                   onExport={onExport}
                 />
+                {showExportPreview ? (
+                  <ExportPreview element={selectedElement} />
+                ) : null}
               </PanelSection>
             ) : null}
           </div>

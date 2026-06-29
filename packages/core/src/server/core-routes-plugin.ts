@@ -383,6 +383,31 @@ function parseBuilderCallbackBoolean(
 // inlines them in the DOM. Mirrors SAFE_DATA_IMAGE in sanitize-html.ts.
 export const AVATAR_RASTER_MIME = /^data:image\/(png|jpe?g|gif|webp);/i;
 
+export function resolveAvatarEmailParam(
+  pathname: string,
+  appBasePath = "",
+): string {
+  const base = appBasePath.replace(/\/+$/, "");
+  const avatarPaths = Array.from(
+    new Set([`${base}/_agent-native/avatar/`, "/_agent-native/avatar/"]),
+  );
+
+  for (const avatarPath of avatarPaths) {
+    const avatarIndex = pathname.indexOf(avatarPath);
+    if (avatarIndex >= 0) {
+      return pathname
+        .slice(avatarIndex + avatarPath.length)
+        .replace(/^\/+/, "")
+        .split("/")[0];
+    }
+  }
+
+  const firstSegment = pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+  if (!firstSegment || firstSegment === "_agent-native") return "";
+  if (base && firstSegment === base.replace(/^\/+/, "")) return "";
+  return firstSegment;
+}
+
 async function detectUsageEngineName(
   event: H3Event,
   userEmail: string | undefined,
@@ -3010,9 +3035,10 @@ export function createCoreRoutesPlugin(
         `${P}/avatar`,
         defineEventHandler(async (event: H3Event) => {
           const method = getMethod(event);
-          const emailParam = (event.url?.pathname || "")
-            .replace(/^\/+/, "")
-            .split("/")[0];
+          const emailParam = resolveAvatarEmailParam(
+            event.url?.pathname || "",
+            getConfiguredAppBasePath(),
+          );
 
           if (method === "GET") {
             if (!emailParam) {

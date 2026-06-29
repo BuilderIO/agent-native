@@ -10,17 +10,13 @@ describe("readFigImportResponse", () => {
   it("returns parsed fig import JSON", async () => {
     const body = {
       ok: true,
+      source: "builder",
       suggestedTitle: "Brand",
-      data: {},
-      customInstructions: "",
-      preview: {
-        gradients: [],
-        palette: [],
-        namedColors: {},
-        thumbnailDataUrl: null,
-        nodeCount: 0,
-        imageCount: 0,
-      },
+      projectId: "project-1",
+      jobId: "job-1",
+      designSystemId: "ds-1",
+      builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
+      status: "in-progress",
     };
 
     await expect(
@@ -38,15 +34,16 @@ describe("readFigImportResponse", () => {
       readFigImportResponse(
         new Response(
           JSON.stringify({
-            error: "That doesn't look like a Figma .fig file.",
+            error: "Connect Builder.io before indexing a design system.",
+            builderConnectUrl: "/_agent-native/builder/connect",
           }),
           {
-            status: 422,
+            status: 412,
             headers: { "Content-Type": "application/json" },
           },
         ),
       ),
-    ).rejects.toThrow("That doesn't look like a Figma .fig file.");
+    ).rejects.toThrow("Connect Builder.io before indexing a design system.");
   });
 
   it("turns non-JSON 413 responses into the expected file-size error", async () => {

@@ -1,5 +1,78 @@
 # @agent-native/core
 
+## 0.80.4
+
+### Patch Changes
+
+- fa56720: Fix video playback failing in workspace dev mode. When a browser requested video bytes (range/streaming requests), the dev server was stripping the app base path prefix before Nitro's media handler could run, causing Vite to return an error page instead of the video.
+
+## 0.80.3
+
+### Patch Changes
+
+- 995dd3b: Add an opt-in `maxBodyBytes` option to `defineAction`. When set, the action
+  HTTP route rejects oversize requests with 413 based on the declared
+  `Content-Length` BEFORE buffering or parsing the body.
+
+  This closes a gap for public, no-auth POST actions: previously the router parsed
+  the full JSON body before any in-`run()` size check, so a large anonymous
+  request could force parse work on an unauthenticated route. The check is
+  runtime-agnostic (header only), so it works on both the web-`Request.json()` and
+  Node `readBody` paths, and is unset by default so existing actions are
+  unaffected. The Plan template's public `validate-local-plan-source` action opts
+  in.
+
+- 995dd3b: Make `plan local verify` validate plan content against the real renderer
+  schema, and stop `plan local check` from reporting false greens.
+
+  Previously both headless commands could pass a plan the renderer later rejects:
+  `check` ran a hand-rolled regex lint (a subset of the schema that never
+  inspected blocks authored as JSON inside a container's `tabs={[…]}` /
+  `columns={[…]}` array), and `verify` only checked bridge/CORS transport, never
+  the content. The plan then got stuck on "Loading plan" when rendered.
+
+  Now:
+  - `verify` POSTs the MDX folder to the Plan app's new, public, no-DB
+    `validate-local-plan-source` action, which runs the renderer's own
+    `parsePlanMdxFolder` + `planContentSchema`. Its verdict gates `verify`'s
+    `ok`, and rejected plans surface the renderer's exact schema-path issue
+    (e.g. `blocks[1].data.tabs[0].blocks[0].data.items[0].id`). When the endpoint
+    is unavailable (older/unreachable Plan app), `verify` degrades to the
+    transport checks and warns that content was not validated, rather than
+    hard-failing.
+  - `check` now recurses into nested `tabs` block arrays so the common
+    nested-checklist / question-form / missing-`id` case is caught offline, and
+    it no longer reports `validation: "passed"`. It reports a clearly-scoped
+    `lint-passed` with a note pointing to `verify` for authoritative validation.
+
+## 0.80.2
+
+### Patch Changes
+
+- 7b44f20: Fix MCP App embeds never becoming visible in ChatGPT/Codex (stuck on "Loading
+  app", then the fallback panel). Two shell bugs in the inline-embed render path:
+  1. `launchEmbed` called `setMessage("Loading app")` before the dedupe check, so
+     the constant `openai:set_globals`-driven relaunches wiped the just-mounted
+     iframe out of the stage on every cycle — the app rendered and was instantly
+     blanked, never reaching its ready handshake. The loading message now only
+     shows when no frame is mounted.
+  2. The `openai:set_globals` handler re-synced unconditionally, and the sync
+     itself called `notifyHostHeight()`/`sendHostContext()`, which the host
+     reflected back as another `set_globals` — an infinite feedback storm that
+     starved the host into its sad-face placeholder. `syncOpenAiBridge` now
+     short-circuits when the relevant globals (tool input, open URLs, display
+     mode, theme, locale) are unchanged.
+
+  Bumps the embed shell version so hosts refetch the fixed shell.
+
+## 0.80.1
+
+### Patch Changes
+
+- 1d77419: Route design-system indexing through Builder-managed design-system APIs while preserving the public Figma parser export.
+- 1d77419: Fix avatar lookup routes so profile photos load for users signed in through legacy Google OAuth sessions.
+- 1d77419: Keep shared app shell outlines visible around the top corners when app content fills the main surface.
+
 ## 0.80.0
 
 ### Minor Changes

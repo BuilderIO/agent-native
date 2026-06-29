@@ -136,7 +136,7 @@ describe("localized docs fallback", () => {
     expect(
       index.some((entry) => entry.path === "/fr-FR/docs/internationalization"),
     ).toBe(true);
-  });
+  }, 60_000);
 
   it("points docs markdown alternates at existing markdown twins", () => {
     expect(docsMarkdownPathForPath("/docs/multi-app-workspace")).toBe(

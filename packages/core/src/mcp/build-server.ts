@@ -750,7 +750,7 @@ function safeUiSegment(value: string | undefined, fallback: string): string {
 
 // ChatGPT and Claude cache MCP App resource HTML by `ui://` URI. Bump this
 // when the shared shell changes in a way that must invalidate host caches.
-const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v53";
+const MCP_APP_RESOURCE_SHELL_VERSION = "shell-v54";
 
 function legacyDefaultMcpAppUri(config: MCPConfig, actionName: string): string {
   const app = safeUiSegment(config.appId ?? config.name, "agent-native");
@@ -1889,7 +1889,7 @@ async function isConnectTokenAllowed(
  */
 export async function verifyAuth(
   authHeader: string | undefined,
-  ownerEmailHeader?: string | undefined,
+  ownerEmailHeader?: string,
   options: { allowDevOpen?: boolean; resourceUrl?: string | string[] } = {},
 ): Promise<{
   authed: boolean;

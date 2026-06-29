@@ -849,6 +849,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     replyingTo: "Replying to",
     commentAt: "Comment at",
     writeReply: "Write a reply...",
+    commentButton: "Comment",
+    composerPlaceholder: "Add a comment…",
+    mentionSomeone: "Mention someone",
+    addEmoji: "Add emoji",
   },
   shareMeeting: {
     pageTitle: "Meeting notes · Clips",

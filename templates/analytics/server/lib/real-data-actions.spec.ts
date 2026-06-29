@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  failedDataQueryAttemptMessage,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
   hasDataQueryAttempt,
@@ -106,6 +107,48 @@ describe("real data action classification", () => {
         },
       ]),
     ).toBe(true);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query-agent-native-analytics",
+          content: JSON.stringify({ rows: [], schema: [] }),
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("normalizes data query action name variants from hosted tool surfaces", () => {
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query_agent_native_analytics",
+          content: JSON.stringify({ rows: [{ count: 1 }], schema: [] }),
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDataQueryAttempt([
+        {
+          name: "query agent native analytics",
+          content: JSON.stringify({ rows: [{ count: 1 }], schema: [] }),
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("summarizes failed data query attempts for the final guard", () => {
+    const message = failedDataQueryAttemptMessage([
+      {
+        name: "bigquery",
+        content: JSON.stringify({
+          error: "bigquery_query_failed",
+          message: "Unrecognized name: template",
+        }),
+      },
+    ]);
+
+    expect(message).toContain("I did try `bigquery`");
+    expect(message).toContain("bigquery_query_failed");
   });
 });
 

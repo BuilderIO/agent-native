@@ -1106,16 +1106,16 @@ const ptBR = {
   },
   skillsPage: {
     metaTitle:
-      "Skills de agente - Visual Plan e Visual Recap para agentes de codigo",
+      "Skills de agente - Visual Plan, Visual Recap e Visual Edit para agentes de codigo",
     metaDescription:
-      "Instale skills com apps Agent-Native para seu agente de codigo usar planejamento visual e recaps de PR.",
+      "Instale skills com apps Agent-Native para seu agente de codigo usar planejamento visual, recaps de PR e edicao visual local.",
     metaOgDescription:
       "De comandos slash ao seu agente de codigo com apps Agent-Native que voce pode hospedar, inspecionar e customizar.",
     metaKeywords:
-      "skills de agente, visual plan, visual recap, agente de codigo, Claude Code, Codex, revisao de PR, planejamento, agent-native",
+      "skills de agente, visual plan, visual recap, visual edit, agente de codigo, Claude Code, Codex, revisao de PR, planejamento, agent-native",
     heroTitle: "Dê novos superpoderes ao seu agente de codigo",
     heroBody:
-      "Instale skills com apps Agent-Native que voce pode customizar por completo: planejamento visual antes da implementacao e recaps visuais de PR depois das mudancas.",
+      "Instale skills com apps Agent-Native que voce pode customizar por completo: planejamento visual antes da implementacao, recaps visuais de PR depois das mudancas e edicao visual de fluxos UI locais.",
     sectionTitle: "Skills com apps para agentes de codigo",
     sectionBody:
       "Use links de apps hospedados e compartilháveis, arquivos locais ou um app auto-hospedado/customizado; seu agente recebe instrucoes e a superficie MCP correspondente quando ela e necessaria.",
@@ -1140,6 +1140,15 @@ const ptBR = {
       feature1: "Resume mudancas de schema, API e arquivos",
       feature2: "Opcionalmente publica um comentario fixo no PR",
       videoAriaLabel: "Video de demonstracao da skill Visual Recap",
+    },
+    visualEdit: {
+      name: "Edicao visual",
+      tagline: "Edite fluxos UI locais",
+      description:
+        "Abre um app localhost em execucao no Design como telas baseadas em URL para revisao e edicao visual.",
+      feature1: "Organize fluxos de varias telas a partir de URLs ordenadas",
+      feature2: "Inspecione, duplique e refine estados de rotas ao vivo",
+      videoAriaLabel: "Video de demonstracao da skill Visual Edit",
     },
   },
   downloadPage: {

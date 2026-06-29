@@ -534,6 +534,9 @@ export interface ActionEntry {
    *  Defaults to true; false lets safe metadata/read actions run with
    *  `ctx.userEmail` undefined when auth resolution returns 401/403. */
   requiresAuth?: boolean;
+  /** Max HTTP request body in bytes; the route 413s on `Content-Length` before
+   *  parsing. For public, no-auth POST actions. */
+  maxBodyBytes?: number;
   /** Whether the action is exposed to the agent as a callable tool. Only an
    *  explicit `false` hides it from every agent tool surface (in-app assistant,
    *  MCP, A2A, job/trigger runners) while leaving it frontend/HTTP-callable.

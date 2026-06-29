@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import { buildDashboardPanelGroups } from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
+import {
+  clampDashboardColumns,
+  type SqlPanel,
+} from "../app/pages/adhoc/sql-dashboard/types";
 import {
   applyDashboardMutationOperations,
   parseDashboardMutationScript,
@@ -38,6 +43,13 @@ function config() {
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function renderedRows(root: { columns?: number; panels: unknown[] }) {
+  return buildDashboardPanelGroups(
+    root.panels as SqlPanel[],
+    clampDashboardColumns(root.columns),
+  ).flatMap((group) => group.rows.map((row) => row.panels.map((p) => p.id)));
 }
 
 describe("dashboard mutation api", () => {
@@ -144,6 +156,68 @@ describe("dashboard mutation api", () => {
       "a-copy",
     ]);
     expect(result.insertedPanelIds).toEqual(["new", "a-copy"]);
+  });
+
+  it("inserts next to a panel in the same rendered row", () => {
+    const root = clone(config());
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.insertPanel({"id":"new","title":"New","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).nextTo("b");',
+    );
+
+    const result = applyDashboardMutationOperations(root, operations);
+
+    expect(root.panels.map((p) => p.id)).toEqual([
+      "a",
+      "b",
+      "new",
+      "c",
+      "section",
+      "d",
+    ]);
+    expect(root.columns).toBe(3);
+    expect(renderedRows(root)).toEqual([["a", "b", "new"], ["c"], ["d"]]);
+    expect(result.commandLog).toEqual(["insertPanel(new) -> index 2"]);
+  });
+
+  it("places inserted panels by 1-based visible row number", () => {
+    const root = clone(config());
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.insertPanel({"id":"new","title":"New","source":"first-party","chartType":"metric","width":1,"sql":"SELECT COUNT(*) AS value FROM analytics_events"}).atRow(2);',
+    );
+
+    applyDashboardMutationOperations(root, operations);
+
+    expect(root.panels.map((p) => p.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "new",
+      "section",
+      "d",
+    ]);
+    expect(renderedRows(root)).toEqual([["a", "b"], ["c", "new"], ["d"]]);
+  });
+
+  it("moves existing panels next to targets in the same rendered row", () => {
+    const root = clone(config());
+    const operations = parseDashboardMutationScript(
+      root,
+      'dashboard.panel("c").nextTo("b");',
+    );
+
+    applyDashboardMutationOperations(root, operations);
+
+    expect(root.panels.map((p) => p.id)).toEqual([
+      "a",
+      "b",
+      "c",
+      "section",
+      "d",
+    ]);
+    expect(root.columns).toBe(3);
+    expect(renderedRows(root)).toEqual([["a", "b", "c"], ["d"]]);
   });
 
   it("rejects arbitrary JavaScript-shaped code", () => {

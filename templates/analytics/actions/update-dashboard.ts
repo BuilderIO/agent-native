@@ -277,6 +277,14 @@ export function validateDashboardConfig(
   if (typeof config.name !== "string" || config.name.trim().length === 0) {
     return "config.name is required (non-empty string) — without it the dashboard renders as a blank row in the sidebar";
   }
+  if (config.parentId !== undefined && config.parentId !== null) {
+    if (
+      typeof config.parentId !== "string" ||
+      config.parentId.trim().length === 0
+    ) {
+      return "config.parentId must be a non-empty dashboard id (or omitted) — it nests this dashboard under that parent in the sidebar";
+    }
+  }
   // Filter ID collisions cause two controls to read/write the same URL param.
   // For paired start/end dates use a single date-range filter — the FilterBar
   // expands it to <id>Start / <id>End at runtime, so the SQL can still

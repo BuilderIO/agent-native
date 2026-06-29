@@ -338,7 +338,7 @@ Chaque opération appelable par un agent est un fichier TypeScript dans `templat
 - **Designs** — `create-design` (coque vide), `generate-design` (contenu HTML/JSX généré par écriture), `update-design`, `get-design`, `list-designs`, `duplicate-design`, `delete-design` et `apply-tweaks` pour conserver les valeurs du bouton de réglage en direct (couleur d'accent, densité, etc.).
 - **Fichiers** — `create-file`, `update-file`, `list-files`, `delete-file` pour les fichiers contenus dans un projet de conception.
 - **Systèmes de conception** : `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system` et `analyze-brand-assets` pour collecter des données de marque avant l'analyse.
-- **Importer** — `import-code`, `import-figma`, `import-github`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX) et `import-design-project` pour extraire un système de conception d'un projet existant.
+- **Importer** — `index-design-system-with-builder` for Builder-backed code/GitHub design-system indexing, plus `import-figma`, `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **Exportation et transfert** : `export-html`, `export-pdf`, `export-svg`, `export-zip` et `export-coding-handoff` pour transformer une conception en transfert d'outil de codage.
 - **Contexte et navigation** – `view-screen` (conception actuelle, fichier ouvert, vue, question en attente ou grille de variantes), `get-design-snapshot` (état actuel à partir duquel un agent externe peut continuer) et `navigate`.
 
@@ -360,6 +360,20 @@ Le mode écran unique sert à faire défiler, interagir avec le comportement du
 prototype et modifier les couches DOM/code dans un fichier rendu. Le panneau des
 couches reflète cette séparation : les écrans sont des cadres de niveau
 supérieur, avec les couches DOM/code imbriquées pour l'écran actif.
+
+Installez `/visual-edit` lorsqu'un agent de code doit ouvrir une app locale en
+cours d'exécution dans Design au lieu de générer du HTML de prototype autonome :
+
+```bash
+npx @agent-native/core@latest skills add visual-edit
+```
+
+Une fois le serveur dev de l'app cible lancé, `/visual-edit` utilise
+`npx @agent-native/core@latest design connect` avec `add-localhost-screens` pour
+placer chaque chemin ou URL demandé comme son propre écran iframe adossé à une
+URL. Les flows numérotés comme `localhost:1234/onboarding/1`,
+`/onboarding/2` et `/onboarding/3` restent des écrans séparés et ordonnés en
+mode overview.
 
 Pour des noms de couche stables, ajoutez `data-agent-native-layer-name` aux
 éléments importants. Design l'utilise avant les replis sémantiques/textuels et

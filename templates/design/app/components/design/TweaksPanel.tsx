@@ -56,11 +56,9 @@ export function TweaksPanelContent({
           />
         ))
       ) : (
-        <div className="flex flex-col items-center gap-2 py-4 text-center">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-muted/60">
-            <IconAdjustmentsHorizontal className="size-4 text-muted-foreground/70" />
-          </div>
-          <p className="text-[11px] leading-snug text-muted-foreground">
+        <div className="flex flex-col items-center gap-2 py-6 text-center">
+          <IconAdjustmentsHorizontal className="size-5 text-muted-foreground/40" />
+          <p className="text-[11px] leading-snug text-muted-foreground/70">
             {t("designEditor.noTweakControls")}
           </p>
           {onRequestTweaks && (
@@ -155,7 +153,7 @@ export function TweaksPanel({
             type="button"
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => setCollapsed((c) => !c)}
-            className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground"
+            className="cursor-pointer text-[11px] font-semibold text-foreground hover:text-foreground/80"
           >
             {t("designEditor.tweaks")}
           </button>
@@ -231,7 +229,7 @@ function TweakControl({
         <Switch
           checked={!!value}
           onCheckedChange={(checked) => onChange(checked)}
-          className="scale-75 origin-right"
+          className="scale-[0.7] origin-right"
         />
       </div>
     );
@@ -251,7 +249,7 @@ function TweakControl({
                   type="button"
                   onClick={() => onChange(opt.value)}
                   className={cn(
-                    "size-5 cursor-pointer rounded-full transition-all",
+                    "size-4 cursor-pointer rounded-sm transition-all",
                     value === opt.value
                       ? "ring-2 ring-foreground/80 ring-offset-1 ring-offset-card"
                       : "ring-1 ring-border/60 hover:ring-border",
@@ -286,7 +284,7 @@ function TweakControl({
       )}
 
       {tweak.type === "slider" && (
-        <div className="flex h-6 items-center gap-2">
+        <div className="flex h-6 items-center gap-1.5">
           <Slider
             min={tweak.min ?? 0}
             max={tweak.max ?? 100}

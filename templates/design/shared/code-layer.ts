@@ -153,6 +153,8 @@ export interface LayoutContext {
   width?: string;
   height?: string;
   flexDirection?: string;
+  alignItems?: string;
+  justifyContent?: string;
   gap?: string;
   padding?: string;
   parentDisplay?: string;
@@ -243,6 +245,15 @@ export interface CodeLayerTreeNode {
   tag: string;
   selector: string;
   detail: string;
+  layout?: Pick<
+    LayoutContext,
+    | "display"
+    | "flexDirection"
+    | "alignItems"
+    | "justifyContent"
+    | "isFlexContainer"
+    | "isGridContainer"
+  >;
   badge?: string;
   renamable: boolean;
   children: CodeLayerTreeNode[];
@@ -543,6 +554,8 @@ const NON_VISUAL_TAGS = new Set([
   "template",
   "noscript",
 ]);
+
+const RAW_TEXT_VISUAL_TAGS = new Set(["textarea"]);
 
 const DATA_SELECTOR_PRIORITY = [
   "data-agent-native-node-id",
@@ -967,6 +980,21 @@ function findHtmlTagEnd(html: string, start: number): number {
   return html.length;
 }
 
+function findClosingTag(
+  html: string,
+  tag: string,
+  from: number,
+): { closeStart: number; closeEnd: number } | null {
+  const closeRe = new RegExp(`<\\/\\s*${tag}\\s*>`, "gi");
+  closeRe.lastIndex = from;
+  const match = closeRe.exec(html);
+  if (!match) return null;
+  return {
+    closeStart: match.index,
+    closeEnd: match.index + match[0].length,
+  };
+}
+
 function parseHtmlElements(html: string): ParsedElement[] {
   const elements: ParsedElement[] = [];
   const stack: number[] = [];
@@ -1003,15 +1031,36 @@ function parseHtmlElements(html: string): ParsedElement[] {
     const nthOfType = (sameTypeCounts.get(parentKey) ?? 0) + 1;
     sameTypeCounts.set(parentKey, nthOfType);
     const selfClosing = raw.endsWith("/>") || VOID_TAGS.has(tag);
+
+    if (NON_VISUAL_TAGS.has(tag)) {
+      if (!selfClosing) {
+        const close = findClosingTag(html, tag, match.index + raw.length);
+        tagRe.lastIndex = close ? close.closeEnd : html.length;
+      }
+      continue;
+    }
+
     const index = elements.length;
+    const rawTextClose =
+      !selfClosing && RAW_TEXT_VISUAL_TAGS.has(tag)
+        ? findClosingTag(html, tag, match.index + raw.length)
+        : null;
     const element: ParsedElement = {
       index,
       tag,
       start: match.index,
       openEnd: match.index + raw.length,
-      end: selfClosing ? match.index + raw.length : html.length,
+      end: rawTextClose
+        ? rawTextClose.closeEnd
+        : selfClosing
+          ? match.index + raw.length
+          : html.length,
       contentStart: match.index + raw.length,
-      contentEnd: selfClosing ? match.index + raw.length : html.length,
+      contentEnd: rawTextClose
+        ? rawTextClose.closeStart
+        : selfClosing
+          ? match.index + raw.length
+          : html.length,
       selfClosing,
       attributes: parseAttributes(raw, match.index),
       parentIndex,
@@ -1025,6 +1074,12 @@ function parseHtmlElements(html: string): ParsedElement[] {
     elements.push(element);
     if (parentIndex !== undefined) {
       elements[parentIndex]?.childIndexes.push(index);
+    }
+    if (rawTextClose) {
+      element.closeStart = rawTextClose.closeStart;
+      element.closeEnd = rawTextClose.closeEnd;
+      tagRe.lastIndex = rawTextClose.closeEnd;
+      continue;
     }
     if (!selfClosing) stack.push(index);
   }
@@ -1284,6 +1339,34 @@ function layoutFor(
       : classes.has("flex-row")
         ? "row"
         : undefined);
+  const alignItems =
+    style["align-items"] ??
+    (classes.has("items-start")
+      ? "flex-start"
+      : classes.has("items-center")
+        ? "center"
+        : classes.has("items-end")
+          ? "flex-end"
+          : classes.has("items-stretch")
+            ? "stretch"
+            : classes.has("items-baseline")
+              ? "baseline"
+              : undefined);
+  const justifyContent =
+    style["justify-content"] ??
+    (classes.has("justify-start")
+      ? "flex-start"
+      : classes.has("justify-center")
+        ? "center"
+        : classes.has("justify-end")
+          ? "flex-end"
+          : classes.has("justify-between")
+            ? "space-between"
+            : classes.has("justify-around")
+              ? "space-around"
+              : classes.has("justify-evenly")
+                ? "space-evenly"
+                : undefined);
   const parentFlexDirection =
     parentStyle?.["flex-direction"] ??
     (parentClasses?.has("flex-col")
@@ -1300,6 +1383,8 @@ function layoutFor(
     width: style.width,
     height: style.height,
     flexDirection,
+    alignItems,
+    justifyContent,
     gap: style.gap,
     padding: style.padding,
     parentDisplay,
@@ -1620,6 +1705,14 @@ export function buildCodeLayerTree(
       tag: node.tag,
       selector: node.selector,
       detail: `<${node.tag}>`,
+      layout: {
+        display: node.layout.display,
+        flexDirection: node.layout.flexDirection,
+        alignItems: node.layout.alignItems,
+        justifyContent: node.layout.justifyContent,
+        isFlexContainer: node.layout.isFlexContainer,
+        isGridContainer: node.layout.isGridContainer,
+      },
       badge:
         node.layerNameSource === "attribute" && node.layerNameAttribute
           ? node.layerNameAttribute
@@ -1719,6 +1812,87 @@ function simpleSelectorMatches(node: CodeLayerNode, selector: string): boolean {
   return node.tag === selector.toLowerCase();
 }
 
+function unescapeCssAttributeValue(value: string): string {
+  return value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+}
+
+function simpleSelectorMatchesElement(
+  element: ParsedElement,
+  selector: string,
+): boolean {
+  let remaining = selector.trim();
+  if (!remaining) return false;
+
+  const nthMatch = remaining.match(/:nth-of-type\((\d+)\)$/);
+  if (nthMatch?.[1]) {
+    if (element.nthOfType !== Number(nthMatch[1])) return false;
+    remaining = remaining.slice(0, nthMatch.index).trim();
+  }
+
+  const tagMatch = remaining.match(/^([A-Za-z][A-Za-z0-9:-]*)/);
+  if (tagMatch?.[1] && element.tag !== tagMatch[1].toLowerCase()) {
+    return false;
+  }
+
+  const idMatch = remaining.match(/#([A-Za-z_][A-Za-z0-9_-]*)/);
+  if (idMatch?.[1] && attributeValue(element, "id") !== idMatch[1]) {
+    return false;
+  }
+
+  const attributes = Array.from(
+    remaining.matchAll(
+      /\[([A-Za-z_][A-Za-z0-9_:.-]*)=(?:"((?:\\"|[^"])*)"|'((?:\\'|[^'])*)')\]/g,
+    ),
+  );
+  for (const match of attributes) {
+    const name = match[1];
+    if (!name) return false;
+    const expected = unescapeCssAttributeValue(match[2] ?? match[3] ?? "");
+    if (attributeValue(element, name) !== expected) return false;
+  }
+
+  const classes = classList(element);
+  const requiredClasses = Array.from(
+    remaining.matchAll(/\.([A-Za-z_][A-Za-z0-9_-]*)/g),
+    (match) => match[1],
+  ).filter((value): value is string => Boolean(value));
+  if (requiredClasses.some((className) => !classes.includes(className))) {
+    return false;
+  }
+
+  return Boolean(
+    tagMatch ||
+    idMatch ||
+    attributes.length > 0 ||
+    requiredClasses.length > 0 ||
+    nthMatch,
+  );
+}
+
+function selectorPathMatchesElement(
+  element: ParsedElement | undefined,
+  selector: string,
+  elementByIndex: Map<number, ParsedElement>,
+): boolean {
+  const parts = normalizeSelectorForMatch(selector)
+    .split(" > ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length <= 1) return false;
+
+  let current: ParsedElement | undefined = element;
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const selectorPart = parts[index];
+    if (!current || !selectorPart) return false;
+    if (!simpleSelectorMatchesElement(current, selectorPart)) return false;
+    current =
+      current.parentIndex === undefined
+        ? undefined
+        : elementByIndex.get(current.parentIndex);
+  }
+  return true;
+}
+
 function nodeMatchesStableSourceId(
   node: CodeLayerNode,
   sourceId: string,
@@ -1731,7 +1905,12 @@ function nodeMatchesStableSourceId(
   return node.attributes.id === sourceId;
 }
 
-function selectorMatches(node: CodeLayerNode, selector: string): boolean {
+function selectorMatches(
+  node: CodeLayerNode,
+  selector: string,
+  element: ParsedElement | undefined,
+  elementByIndex: Map<number, ParsedElement>,
+): boolean {
   const normalizedSelector = normalizeSelectorForMatch(selector);
   const normalizedNodeSelectors = [
     node.selector,
@@ -1739,16 +1918,25 @@ function selectorMatches(node: CodeLayerNode, selector: string): boolean {
     ...node.selectors,
   ].map(normalizeSelectorForMatch);
   if (normalizedNodeSelectors.includes(normalizedSelector)) return true;
+  const selectorHasDirectPath = normalizedSelector.includes(" > ");
   if (
-    normalizedSelector.includes(" > ") &&
+    selectorHasDirectPath &&
     normalizedNodeSelectors.some(
       (candidate) =>
         candidate.endsWith(` > ${normalizedSelector}`) ||
-        normalizedSelector.endsWith(` > ${candidate}`),
+        (candidate.includes(" > ") &&
+          normalizedSelector.endsWith(` > ${candidate}`)),
     )
   ) {
     return true;
   }
+  if (
+    selectorHasDirectPath &&
+    selectorPathMatchesElement(element, normalizedSelector, elementByIndex)
+  ) {
+    return true;
+  }
+  if (selectorHasDirectPath) return false;
   if (simpleSelectorMatches(node, normalizedSelector)) return true;
   const lastPart = lastSelectorPart(normalizedSelector);
   return (
@@ -1757,9 +1945,16 @@ function selectorMatches(node: CodeLayerNode, selector: string): boolean {
 }
 
 function resolveTarget(
-  projection: CodeLayerProjection,
+  build: ProjectionBuild,
   target: EditIntentTarget,
 ): EditIntentResolution {
+  const { projection, elementByNodeId } = build;
+  const elementByIndex = new Map(
+    Array.from(elementByNodeId.values()).map((element) => [
+      element.index,
+      element,
+    ]),
+  );
   if (target.nodeId) {
     const matches = projection.nodes.filter((candidate) =>
       nodeMatchesStableSourceId(candidate, target.nodeId ?? ""),
@@ -1790,7 +1985,12 @@ function resolveTarget(
   }
 
   const matches = projection.nodes.filter((node) =>
-    selectorMatches(node, target.selector ?? ""),
+    selectorMatches(
+      node,
+      target.selector ?? "",
+      elementByNodeId.get(node.id),
+      elementByIndex,
+    ),
   );
   if (matches.length === 1 && matches[0]) {
     return { status: "resolved", node: matches[0] };
@@ -2086,7 +2286,7 @@ export function applyVisualEdit(
   }
 
   const initial = buildProjection(html, source);
-  const resolution = resolveTarget(initial.projection, intent.target);
+  const resolution = resolveTarget(initial, intent.target);
   if (resolution.status !== "resolved" || !resolution.node) {
     return {
       content: html,
@@ -2129,7 +2329,7 @@ export function applyVisualEdit(
   } else if (intent.kind === "textContent") {
     edit = applyTextEdit(html, element, intent);
   } else {
-    const anchorResolution = resolveTarget(initial.projection, intent.anchor);
+    const anchorResolution = resolveTarget(initial, intent.anchor);
     if (anchorResolution.status !== "resolved" || !anchorResolution.node) {
       return {
         content: html,

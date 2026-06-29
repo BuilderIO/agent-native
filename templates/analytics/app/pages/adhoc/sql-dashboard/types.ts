@@ -114,6 +114,13 @@ export interface SqlPanel {
 export interface SqlDashboardConfig {
   name: string;
   description?: string;
+  /**
+   * Optional id of another dashboard this one nests under. When set, the
+   * sidebar renders this dashboard indented beneath its parent instead of at
+   * the top level. Orphans (parent missing/inaccessible) fall back to the top
+   * level. Self-references and cycles are ignored by the renderer.
+   */
+  parentId?: string;
   catalog?: {
     templateId?: string;
     templateVersion?: string;

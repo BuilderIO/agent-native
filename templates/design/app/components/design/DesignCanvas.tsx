@@ -606,6 +606,16 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     return false;
   }
 
+  function matchesExactSelectorList(el, selectors) {
+    if (!el || !selectors || selectors.length === 0) return false;
+    for (var i = 0; i < selectors.length; i += 1) {
+      try {
+        if (el.matches(selectors[i])) return true;
+      } catch (_err) {}
+    }
+    return false;
+  }
+
   function isLayerInteractionBlocked(el) {
     return matchesSelectorList(el, lockedSelectors) || matchesSelectorList(el, hiddenSelectors);
   }
@@ -666,16 +676,30 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       var currentMatch = null;
       var nextMatch = null;
       var matchedSelector = '';
+      var fallbackCurrentMatch = null;
+      var fallbackSelector = '';
       for (var matchIndex = 0; matchIndex < activeCandidates.length; matchIndex += 1) {
         try {
-          currentMatch = document.querySelector(activeCandidates[matchIndex]);
-          nextMatch = nextDoc.querySelector(activeCandidates[matchIndex]);
-          matchedSelector = activeCandidates[matchIndex];
+          var currentCandidate = document.querySelector(activeCandidates[matchIndex]);
+          var nextCandidate = nextDoc.querySelector(activeCandidates[matchIndex]);
+          if (currentCandidate && !fallbackCurrentMatch) {
+            fallbackCurrentMatch = currentCandidate;
+            fallbackSelector = activeCandidates[matchIndex];
+          }
+          if (currentCandidate && nextCandidate) {
+            currentMatch = currentCandidate;
+            nextMatch = nextCandidate;
+            matchedSelector = activeCandidates[matchIndex];
+            break;
+          }
         } catch (_err) {
-          currentMatch = null;
-          nextMatch = null;
+          // Keep trying later aliases; bridge selectors can differ between
+          // runtime and DOMParser passes.
         }
-        if (currentMatch) break;
+      }
+      if (!currentMatch && fallbackCurrentMatch) {
+        currentMatch = fallbackCurrentMatch;
+        matchedSelector = fallbackSelector;
       }
       if (
         currentMatch &&
@@ -1018,7 +1042,13 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       });
     }
     if (selector && candidates.indexOf(selector) === -1) candidates.push(selector);
-    if (selectedEl && document.documentElement.contains(selectedEl)) return selectedEl;
+    if (
+      selectedEl &&
+      document.documentElement.contains(selectedEl) &&
+      (candidates.length === 0 || matchesExactSelectorList(selectedEl, candidates))
+    ) {
+      return selectedEl;
+    }
     for (var i = 0; i < candidates.length; i += 1) {
       try {
         var match = document.querySelector(candidates[i]);
@@ -1739,7 +1769,12 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       if (e.data.selector && candidates.indexOf(String(e.data.selector)) === -1) {
         candidates.push(String(e.data.selector));
       }
-      var target = null;
+      var target =
+        selectedEl &&
+        document.documentElement.contains(selectedEl) &&
+        matchesExactSelectorList(selectedEl, candidates)
+          ? selectedEl
+          : null;
       for (var i = 0; i < candidates.length && !target; i += 1) {
         try {
           var matches = document.querySelectorAll(candidates[i]);
@@ -1758,7 +1793,35 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       window.parent.postMessage({ type: 'element-select', payload: selectedInfo }, '*');
       return;
     }
-	    if (e.data.type === 'layer-states') {
+    if (e.data.type === 'hover-element') {
+      var hoverCandidates = [];
+      if (Array.isArray(e.data.selectorCandidates)) {
+        e.data.selectorCandidates.forEach(function(selector) {
+          if (typeof selector === 'string' && selector && hoverCandidates.indexOf(selector) === -1) {
+            hoverCandidates.push(selector);
+          }
+        });
+      }
+      if (e.data.selector && hoverCandidates.indexOf(String(e.data.selector)) === -1) {
+        hoverCandidates.push(String(e.data.selector));
+      }
+      if (hoverCandidates.length === 0) {
+        hoveredEl = null;
+        highlightOverlay.style.display = 'none';
+        hideMeasurements();
+        return;
+      }
+      var hoverTarget = findRuntimeTarget(String(e.data.selector || ''), hoverCandidates);
+      hoveredEl = hoverTarget;
+      if (hoveredEl && !isLayerInteractionBlocked(hoveredEl)) {
+        positionOverlay(highlightOverlay, hoveredEl);
+      } else {
+        highlightOverlay.style.display = 'none';
+        hideMeasurements();
+      }
+      return;
+    }
+    if (e.data.type === 'layer-states') {
       lockedSelectors = Array.isArray(e.data.lockedSelectors) ? e.data.lockedSelectors.filter(function(item) { return typeof item === 'string'; }) : [];
       hiddenSelectors = Array.isArray(e.data.hiddenSelectors) ? e.data.hiddenSelectors.filter(function(item) { return typeof item === 'string'; }) : [];
       if (selectedEl && isLayerInteractionBlocked(selectedEl)) {

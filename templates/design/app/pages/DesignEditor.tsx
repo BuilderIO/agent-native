@@ -5,11 +5,14 @@ import {
   useCollaborativeDoc,
   isReconcileLeadClient,
   generateTabId,
+  dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
   PresenceBar,
   AgentToggleButton,
   ShareButton,
+  agentNativePath,
+  ensureEmbedAuthFetchInterceptor,
   isEmbedAuthActive,
   sendToAgentChat,
   getBrowserTabId,
@@ -22,13 +25,13 @@ import {
   useT,
   useChangeVersion,
   useAgentChatContext,
+  useAvatarUrl,
   type CollabUser,
   type PromptComposerSubmitOptions,
 } from "@agent-native/core/client";
 import type { TweakDefinition } from "@shared/api";
 import {
   parseCanvasFrameGeometryById,
-  type CanvasFrameGeometry,
   type CanvasFrameGeometryById,
 } from "@shared/canvas-frames";
 import {
@@ -40,12 +43,14 @@ import {
   type CodeLayerNode,
   type CodeLayerTreeNode,
 } from "@shared/code-layer";
+import { shouldUseLiveFileContent } from "@shared/html-content";
 import {
   resolveTweaksToCssVars,
   type TweakSelections,
 } from "@shared/resolve-tweaks";
 import {
   IconArrowLeft,
+  IconArrowUpRight,
   IconPencil,
   IconMessage,
   IconBrush,
@@ -57,6 +62,7 @@ import {
   IconViewportWide,
   IconPlus,
   IconLayoutGrid,
+  IconFrame,
   IconX,
   IconPin,
   IconCode,
@@ -69,12 +75,19 @@ import {
   IconTypography,
   IconHandStop,
   IconSquare,
+  IconLine,
+  IconCircle,
+  IconTriangle,
+  IconStar,
+  IconPhotoVideo,
   IconVectorBezier,
   IconScale,
   IconScribble,
-  IconDiamonds,
+  IconHandClick,
+  IconTransformPoint,
   IconDownload,
   IconFileExport,
+  IconPlayerPlay,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -121,11 +134,13 @@ import { VariantGrid } from "@/components/design/VariantGrid";
 import { VariantHandoffCard } from "@/components/design/VariantHandoffCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
@@ -187,22 +202,60 @@ const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
 const MAX_DESIGN_UNDO_STACK = 50;
 const OVERVIEW_ZOOM_THRESHOLD = 60;
 const FOCUSED_SCREEN_ZOOM = 100;
+const KEEPALIVE_FILE_SAVE_MAX_BYTES = 60_000;
 // Higher than the toolbar presets so overview zooming still feels like canvas
 // work; trackpad/pinch zooming past this commits to editing that screen.
 const OVERVIEW_EDIT_ZOOM_THRESHOLD = 250;
+
+interface FileContentSaveRequest {
+  id: string;
+  content: string;
+  syncCollab: boolean;
+}
+
+function byteLength(value: string): number {
+  if (typeof TextEncoder === "undefined") return value.length;
+  return new TextEncoder().encode(value).length;
+}
+
+function sendFileContentSaveKeepalive(pending: FileContentSaveRequest): void {
+  if (typeof window === "undefined") return;
+  const body = JSON.stringify({
+    id: pending.id,
+    content: pending.content,
+    syncCollab: pending.syncCollab,
+  });
+  if (byteLength(body) > KEEPALIVE_FILE_SAVE_MAX_BYTES) return;
+  ensureEmbedAuthFetchInterceptor();
+  void fetch(agentNativePath("/_agent-native/actions/update-file"), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Agent-Native-Frontend": "1",
+    },
+    body,
+    cache: "no-store",
+    keepalive: true,
+  }).catch(() => {});
+}
 
 type EditorMode = "annotate" | "edit" | "interact";
 type DesignTool =
   | "move"
   | "frame"
   | "rect"
+  | "line"
+  | "arrow"
+  | "ellipse"
+  | "polygon"
+  | "star"
   | "text"
   | "pen"
   | "hand"
   | "comment"
   | "draw"
-  | "scale"
-  | "overview";
+  | "scale";
+type ShapeTool = "rect" | "line" | "arrow" | "ellipse" | "polygon" | "star";
 
 interface DesignFile {
   id: string;
@@ -422,7 +475,7 @@ function applyInlineStylesToHtml(
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(selector) as HTMLElement | null;
+    const element = queryUniqueSelector(doc, selector) as HTMLElement | null;
     if (!element) return null;
     Object.entries(styles).forEach(([property, value]) => {
       (element.style as any)[property] = value;
@@ -576,6 +629,16 @@ function primitiveLayerName(primitive: CanvasPrimitiveInsert): string {
   switch (primitive.kind) {
     case "frame":
       return "Frame";
+    case "line":
+      return "Line";
+    case "arrow":
+      return "Arrow";
+    case "ellipse":
+      return "Ellipse";
+    case "polygon":
+      return "Polygon";
+    case "star":
+      return "Star";
     case "path":
       return "Vector";
     case "text":
@@ -602,9 +665,14 @@ function appendCanvasPrimitiveToHtml(
     const nodeId = uniqueLayerId(primitive.kind);
     const layerName = primitiveLayerName(primitive);
 
-    if (primitive.kind === "path") {
+    if (
+      primitive.kind === "path" ||
+      primitive.kind === "line" ||
+      primitive.kind === "arrow"
+    ) {
       const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
       const path = doc.createElementNS("http://www.w3.org/2000/svg", "path");
+      const markerId = `${nodeId}-arrow`;
       const points = primitive.points?.length
         ? primitive.points
         : [
@@ -615,14 +683,15 @@ function appendCanvasPrimitiveToHtml(
       const originY = Math.min(...points.map((point) => point.y));
       path.setAttribute(
         "d",
-        points
-          .map((point, index) => {
-            const command = index === 0 ? "M" : "L";
-            return `${command} ${Math.round(point.x - originX)} ${Math.round(
-              point.y - originY,
-            )}`;
-          })
-          .join(" "),
+        primitive.pathData ??
+          points
+            .map((point, index) => {
+              const command = index === 0 ? "M" : "L";
+              return `${command} ${Math.round(point.x - originX)} ${Math.round(
+                point.y - originY,
+              )}`;
+            })
+            .join(" "),
       );
       path.setAttribute("fill", "none");
       path.setAttribute(
@@ -632,6 +701,33 @@ function appendCanvasPrimitiveToHtml(
       path.setAttribute("stroke-width", String(primitive.strokeWidth ?? 3));
       path.setAttribute("stroke-linecap", "round");
       path.setAttribute("stroke-linejoin", "round");
+      if (primitive.kind === "arrow") {
+        const defs = doc.createElementNS("http://www.w3.org/2000/svg", "defs");
+        const marker = doc.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "marker",
+        );
+        const arrowHead = doc.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "path",
+        );
+        marker.setAttribute("id", markerId);
+        marker.setAttribute("markerWidth", "10");
+        marker.setAttribute("markerHeight", "10");
+        marker.setAttribute("refX", "8");
+        marker.setAttribute("refY", "5");
+        marker.setAttribute("orient", "auto");
+        marker.setAttribute("markerUnits", "strokeWidth");
+        arrowHead.setAttribute("d", "M 0 0 L 10 5 L 0 10 z");
+        arrowHead.setAttribute(
+          "fill",
+          primitive.stroke ?? "var(--primary, #2563eb)",
+        );
+        marker.appendChild(arrowHead);
+        defs.appendChild(marker);
+        svg.appendChild(defs);
+        path.setAttribute("marker-end", `url(#${markerId})`);
+      }
       svg.setAttribute("data-agent-native-node-id", nodeId);
       svg.setAttribute("data-agent-native-layer-name", layerName);
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
@@ -654,14 +750,55 @@ function appendCanvasPrimitiveToHtml(
       return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
     }
 
+    if (primitive.kind === "polygon" || primitive.kind === "star") {
+      const svg = doc.createElementNS("http://www.w3.org/2000/svg", "svg");
+      const polygon = doc.createElementNS(
+        "http://www.w3.org/2000/svg",
+        "polygon",
+      );
+      polygon.setAttribute(
+        "points",
+        polygonPointsForHtmlShape(primitive.kind, width, height),
+      );
+      polygon.setAttribute("fill", primitive.fill ?? "rgba(37, 99, 235, 0.16)");
+      polygon.setAttribute("stroke", primitive.stroke ?? "rgb(37, 99, 235)");
+      polygon.setAttribute(
+        "stroke-width",
+        String(primitive.strokeWidth ?? 1.5),
+      );
+      polygon.setAttribute("stroke-linejoin", "round");
+      svg.setAttribute("data-agent-native-node-id", nodeId);
+      svg.setAttribute("data-agent-native-layer-name", layerName);
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.setAttribute(
+        "style",
+        [
+          "position:absolute",
+          `left:${left}px`,
+          `top:${top}px`,
+          `width:${width}px`,
+          `height:${height}px`,
+          "overflow:visible",
+          geometry.rotation ? `transform:rotate(${geometry.rotation}deg)` : "",
+        ]
+          .filter(Boolean)
+          .join(";"),
+      );
+      svg.appendChild(polygon);
+      doc.body.appendChild(svg);
+      return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
+    }
+
     const element = doc.createElement("div");
     element.setAttribute("data-agent-native-node-id", nodeId);
     element.setAttribute("data-agent-native-layer-name", layerName);
     element.style.position = "absolute";
     element.style.left = `${left}px`;
     element.style.top = `${top}px`;
-    element.style.width = `${width}px`;
-    element.style.height = `${height}px`;
+    if (!(primitive.kind === "text" && primitive.autoSize)) {
+      element.style.width = `${width}px`;
+      element.style.height = `${height}px`;
+    }
     if (geometry.rotation) {
       element.style.transform = `rotate(${geometry.rotation}deg)`;
     }
@@ -675,12 +812,20 @@ function appendCanvasPrimitiveToHtml(
       element.style.overflow = "hidden";
     } else if (primitive.kind === "text") {
       element.textContent = primitive.text ?? "Text";
-      element.style.display = "flex";
-      element.style.alignItems = "center";
+      element.style.display = primitive.autoSize ? "inline-block" : "flex";
+      if (!primitive.autoSize) {
+        element.style.alignItems = "center";
+      }
       element.style.color = primitive.fill ?? "currentColor";
       element.style.fontSize = "16px";
       element.style.lineHeight = "1.2";
       element.style.whiteSpace = "pre-wrap";
+    } else if (primitive.kind === "ellipse") {
+      element.style.background = primitive.fill ?? "rgba(37, 99, 235, 0.16)";
+      element.style.border = `${primitive.strokeWidth ?? 1}px solid ${
+        primitive.stroke ?? "rgb(37, 99, 235)"
+      }`;
+      element.style.borderRadius = "9999px";
     } else {
       element.style.background = primitive.fill ?? "rgba(37, 99, 235, 0.16)";
       element.style.border = `${primitive.strokeWidth ?? 1}px solid ${
@@ -694,6 +839,45 @@ function appendCanvasPrimitiveToHtml(
   } catch {
     return null;
   }
+}
+
+function polygonPointsForHtmlShape(
+  kind: "polygon" | "star",
+  width: number,
+  height: number,
+): string {
+  const safeWidth = Math.max(1, width);
+  const safeHeight = Math.max(1, height);
+  const cx = safeWidth / 2;
+  const cy = safeHeight / 2;
+  const radius = Math.max(1, Math.min(safeWidth, safeHeight) / 2);
+  const points: Array<{ x: number; y: number }> = [];
+
+  if (kind === "polygon") {
+    for (let index = 0; index < 3; index += 1) {
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / 3;
+      points.push({
+        x: cx + Math.cos(angle) * radius,
+        y: cy + Math.sin(angle) * radius,
+      });
+    }
+  } else {
+    for (let index = 0; index < 10; index += 1) {
+      const angle = -Math.PI / 2 + (index * Math.PI) / 5;
+      const pointRadius = index % 2 === 0 ? radius : radius * 0.45;
+      points.push({
+        x: cx + Math.cos(angle) * pointRadius,
+        y: cy + Math.sin(angle) * pointRadius,
+      });
+    }
+  }
+
+  return points
+    .map(
+      (point) =>
+        `${Math.round(point.x * 10) / 10},${Math.round(point.y * 10) / 10}`,
+    )
+    .join(" ");
 }
 
 function cloneHtmlLayerAtPosition(
@@ -758,6 +942,18 @@ function queryFirstSelector(
   return null;
 }
 
+function queryUniqueSelector(
+  root: ParentNode,
+  selector: string,
+): Element | null {
+  try {
+    const matches = root.querySelectorAll(selector);
+    return matches.length === 1 ? (matches[0] ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
 function insertClonedHtmlLayer(
   content: string,
   cloneHtml: string,
@@ -819,7 +1015,7 @@ function getElementOuterHtml(content: string, selector: string): string | null {
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    return doc.querySelector(selector)?.outerHTML ?? null;
+    return queryUniqueSelector(doc, selector)?.outerHTML ?? null;
   } catch {
     return null;
   }
@@ -832,7 +1028,7 @@ function removeElementFromHtml(
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(selector);
+    const element = queryUniqueSelector(doc, selector);
     if (!element) return null;
     element.remove();
     return `<!DOCTYPE html>\n${doc.documentElement.outerHTML}`;
@@ -892,7 +1088,7 @@ function updateElementContentInHtml(
   if (typeof window === "undefined") return null;
   try {
     const doc = new DOMParser().parseFromString(content, "text/html");
-    const element = doc.querySelector(selector);
+    const element = queryUniqueSelector(doc, selector);
     if (!element) return null;
     if (html !== undefined) {
       element.innerHTML = sanitizeEditableInnerHtml(html);
@@ -959,12 +1155,15 @@ function codeLayerSelectorMatches(
 ): boolean {
   if (!node || !selector) return false;
   const target = normalizeCodeLayerSelector(selector);
+  const targetHasDirectPath = target.includes(" > ");
   return codeLayerSelectorAliases(node).some((candidate) => {
     const normalized = normalizeCodeLayerSelector(candidate);
     return (
       normalized === target ||
       normalized.endsWith(` > ${target}`) ||
-      target.endsWith(` > ${normalized}`)
+      (targetHasDirectPath &&
+        normalized.includes(" > ") &&
+        target.endsWith(` > ${normalized}`))
     );
   });
 }
@@ -985,6 +1184,7 @@ function codeLayerTreeToPanelNodes(
       id: node.id,
       name: node.name,
       type: layerTypeForCodeLayer(node),
+      layout: node.layout,
       detail: node.detail,
       badge: node.badge,
       selectable: !locked && !hidden,
@@ -1070,6 +1270,30 @@ function resolveCodeLayerNodeFromBridge(
   );
 }
 
+function elementInfoExistsInContent(
+  content: string,
+  info: ElementInfo | null,
+): boolean {
+  if (!info) return false;
+  const projection = buildCodeLayerProjection(content);
+  if (
+    resolveCodeLayerNodeFromBridge(
+      projection,
+      info.selector,
+      info.sourceId ?? info.id,
+    )
+  ) {
+    return true;
+  }
+  if (!info.selector || typeof window === "undefined") return false;
+  try {
+    const doc = new DOMParser().parseFromString(content, "text/html");
+    return Boolean(queryUniqueSelector(doc, info.selector));
+  } catch {
+    return false;
+  }
+}
+
 function collectCodeLayerAncestors(
   nodes: CodeLayerTreeNode[],
   targetId: string,
@@ -1112,6 +1336,147 @@ function AgentNativeMenuMark({ className }: { className?: string }) {
   );
 }
 
+interface DesignCollaborator {
+  user: CollabUser;
+  image?: string;
+  isCurrent?: boolean;
+}
+
+function userInitial(nameOrEmail: string): string {
+  const trimmed = nameOrEmail.trim();
+  if (!trimmed) return "?";
+  return trimmed.charAt(0).toUpperCase();
+}
+
+function userColor(user: CollabUser): string {
+  return user.color || emailToColor(user.email);
+}
+
+function DesignCollaboratorAvatar({
+  collaborator,
+  className,
+}: {
+  collaborator: DesignCollaborator;
+  className?: string;
+}) {
+  const label = collaborator.user.name || emailToName(collaborator.user.email);
+  const storedAvatarUrl = useAvatarUrl(collaborator.user.email);
+  const avatarUrl = storedAvatarUrl ?? collaborator.image;
+
+  return (
+    <Avatar
+      className={cn(
+        "size-7 border-2 border-[var(--design-editor-panel-bg)] shadow-sm",
+        className,
+      )}
+    >
+      {avatarUrl ? <AvatarImage src={avatarUrl} alt={label} /> : null}
+      <AvatarFallback
+        className="text-[10px] font-semibold text-white"
+        style={{ backgroundColor: userColor(collaborator.user) }}
+      >
+        {userInitial(label || collaborator.user.email)}
+      </AvatarFallback>
+    </Avatar>
+  );
+}
+
+function DesignCollaboratorsMenu({
+  collaborators,
+  followingEmail,
+  label,
+  onAvatarClick,
+}: {
+  collaborators: DesignCollaborator[];
+  followingEmail?: string | null;
+  label: string;
+  onAvatarClick?: (user: CollabUser | null) => void;
+}) {
+  if (collaborators.length === 0) return null;
+
+  const visibleCollaborators = collaborators.slice(0, 3);
+  const hasMultipleCollaborators = collaborators.length > 1;
+  const followingLower = followingEmail?.trim().toLowerCase() ?? null;
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="flex h-8 min-w-0 cursor-pointer items-center rounded-md pr-1 text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          aria-label={label}
+        >
+          <span className="flex items-center">
+            {visibleCollaborators.map((collaborator, index) => (
+              <DesignCollaboratorAvatar
+                key={`${collaborator.user.email}:${index}`}
+                collaborator={collaborator}
+                className={index === 0 ? undefined : "-ml-2"}
+              />
+            ))}
+          </span>
+          {hasMultipleCollaborators ? (
+            <IconChevronDown className="ml-0.5 size-3 opacity-70" />
+          ) : null}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          {label}
+        </DropdownMenuLabel>
+        {collaborators.map((collaborator) => {
+          const user = collaborator.user;
+          const email = user.email.trim().toLowerCase();
+          const isFollowing =
+            followingLower != null && email === followingLower;
+          const name = user.name || emailToName(user.email);
+
+          return (
+            <DropdownMenuItem
+              key={user.email}
+              onSelect={() => {
+                if (!collaborator.isCurrent) onAvatarClick?.(user);
+              }}
+              className="gap-2"
+            >
+              <DesignCollaboratorAvatar collaborator={collaborator} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">
+                  {name}
+                </span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {user.email}
+                </span>
+              </span>
+              {isFollowing ? (
+                <IconCheck className="size-3.5 text-[var(--design-editor-accent-color)]" />
+              ) : null}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function externalPreviewUrlForContent(content: string): string | null {
+  const trimmed = content.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function fullPreviewHtml(content: string): string {
+  const trimmed = content.trim();
+  if (/<!doctype html|<html[\s>]/i.test(trimmed)) return content;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${content}</body></html>`;
+}
+
 type FigmaToolbarOption = {
   key: string;
   label: string;
@@ -1135,6 +1500,7 @@ function FigmaToolbarTool({
   options: FigmaToolbarOption[];
   onPrimary: () => void;
 }) {
+  const hasOptionsMenu = options.length > 1;
   return (
     <div
       className={cn(
@@ -1159,45 +1525,51 @@ function FigmaToolbarTool({
         <TooltipContent side="top">{label}</TooltipContent>
       </Tooltip>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "flex h-8 w-4 cursor-pointer items-center justify-center rounded-r-md transition-colors",
-              active ? "hover:bg-white/15" : "hover:bg-white/10",
-            )}
-            aria-label={`${label} options`}
-          >
-            <IconChevronDown className="size-3" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent
-          side="top"
-          align="center"
-          sideOffset={12}
-          className="w-56 rounded-2xl border-white/10 bg-neutral-950 p-2 text-neutral-50 shadow-[0_24px_70px_-24px_rgba(0,0,0,0.9)]"
-        >
-          {options.map((option) => (
-            <DropdownMenuItem
-              key={option.key}
-              disabled={option.disabled}
-              onSelect={option.onSelect}
-              className="h-10 rounded-lg text-sm text-neutral-100 focus:bg-white/10 focus:text-white disabled:text-neutral-500"
-            >
-              <span className="mr-2 flex size-5 items-center justify-center text-neutral-100">
-                {option.active ? <IconCheck className="size-4" /> : option.icon}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{option.label}</span>
-              {option.shortcut && (
-                <DropdownMenuShortcut className="ml-3 text-neutral-400">
-                  {option.shortcut}
-                </DropdownMenuShortcut>
+      {hasOptionsMenu ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                "flex h-8 w-4 cursor-pointer items-center justify-center rounded-r-md transition-colors",
+                active ? "hover:bg-white/15" : "hover:bg-white/10",
               )}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+              aria-label={`${label} options`}
+            >
+              <IconChevronDown className="size-3" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="top"
+            align="center"
+            sideOffset={12}
+            className="w-56 rounded-2xl border-white/10 bg-neutral-950 p-2 text-neutral-50 shadow-[0_24px_70px_-24px_rgba(0,0,0,0.9)]"
+          >
+            {options.map((option) => (
+              <DropdownMenuItem
+                key={option.key}
+                disabled={option.disabled}
+                onSelect={option.onSelect}
+                className="h-10 rounded-lg text-sm text-neutral-100 focus:bg-white/10 focus:text-white disabled:text-neutral-500"
+              >
+                <span className="mr-2 flex size-5 items-center justify-center text-neutral-100">
+                  {option.active ? (
+                    <IconCheck className="size-4" />
+                  ) : (
+                    option.icon
+                  )}
+                </span>
+                <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                {option.shortcut && (
+                  <DropdownMenuShortcut className="ml-3 text-neutral-400">
+                    {option.shortcut}
+                  </DropdownMenuShortcut>
+                )}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </div>
   );
 }
@@ -1245,25 +1617,22 @@ function FigmaBottomToolbar({
   activeTool,
   onMove,
   onFrame,
-  onRect,
+  onShape,
   onText,
   onPen,
   onHand,
   onDraw,
   onScale,
   onCommentPin,
-  overviewActive,
   onModeChange,
-  onScreensToggle,
 }: {
   mode: EditorMode;
   pinMode: boolean;
   drawMode: boolean;
   activeTool: DesignTool;
-  overviewActive: boolean;
   onMove: () => void;
   onFrame: () => void;
-  onRect: () => void;
+  onShape: (tool: ShapeTool) => void;
   onText: () => void;
   onPen: () => void;
   onHand: () => void;
@@ -1271,9 +1640,95 @@ function FigmaBottomToolbar({
   onScale: () => void;
   onCommentPin: () => void;
   onModeChange: (mode: EditorMode) => void;
-  onScreensToggle: () => void;
 }) {
   const t = useT();
+  const shapeTools = new Set<DesignTool>([
+    "rect",
+    "line",
+    "arrow",
+    "ellipse",
+    "polygon",
+    "star",
+  ]);
+  const activeShape = shapeTools.has(activeTool)
+    ? (activeTool as ShapeTool)
+    : "rect";
+  const shapeIcon = (tool: ShapeTool, className: string) => {
+    switch (tool) {
+      case "line":
+        return <IconLine className={className} />;
+      case "arrow":
+        return <IconArrowUpRight className={className} />;
+      case "ellipse":
+        return <IconCircle className={className} />;
+      case "polygon":
+        return <IconTriangle className={className} />;
+      case "star":
+        return <IconStar className={className} />;
+      case "rect":
+      default:
+        return <IconSquare className={className} />;
+    }
+  };
+  const shapeOptions: FigmaToolbarOption[] = [
+    {
+      key: "rect",
+      label: t("designEditor.tools.rect"),
+      icon: shapeIcon("rect", "size-4"),
+      shortcut: "R",
+      active: activeTool === "rect",
+      onSelect: () => onShape("rect"),
+    },
+    {
+      key: "line",
+      label: t("designEditor.tools.line"),
+      icon: shapeIcon("line", "size-4"),
+      shortcut: "L",
+      active: activeTool === "line",
+      onSelect: () => onShape("line"),
+    },
+    {
+      key: "arrow",
+      label: t("designEditor.tools.arrow"),
+      icon: shapeIcon("arrow", "size-4"),
+      shortcut: "⇧L",
+      active: activeTool === "arrow",
+      onSelect: () => onShape("arrow"),
+    },
+    {
+      key: "ellipse",
+      label: t("designEditor.tools.ellipse"),
+      icon: shapeIcon("ellipse", "size-4"),
+      shortcut: "O",
+      active: activeTool === "ellipse",
+      onSelect: () => onShape("ellipse"),
+    },
+    {
+      key: "polygon",
+      label: t("designEditor.tools.polygon"),
+      icon: shapeIcon("polygon", "size-4"),
+      active: activeTool === "polygon",
+      onSelect: () => onShape("polygon"),
+    },
+    {
+      key: "star",
+      label: t("designEditor.tools.star"),
+      icon: shapeIcon("star", "size-4"),
+      active: activeTool === "star",
+      onSelect: () => onShape("star"),
+    },
+    {
+      key: "image-video",
+      label: t("designEditor.tools.imageVideo"),
+      icon: <IconPhotoVideo className="size-4" />,
+      shortcut: "⇧⌘K",
+      disabled: true,
+      onSelect: () => {},
+    },
+  ];
+  const activeShapeOption =
+    shapeOptions.find((option) => option.key === activeShape) ??
+    shapeOptions[0]!;
   const tools: Array<{
     key: string;
     active: boolean;
@@ -1319,42 +1774,26 @@ function FigmaBottomToolbar({
       key: "frame",
       active: activeTool === "frame",
       label: t("designEditor.tools.frame"),
-      icon: <IconLayoutGrid className="size-[18px]" />,
+      icon: <IconFrame className="size-[18px]" />,
       onClick: onFrame,
       options: [
         {
           key: "frame",
           label: t("designEditor.tools.frame"),
-          icon: <IconLayoutGrid className="size-4" />,
+          icon: <IconFrame className="size-4" />,
           shortcut: "F",
           active: activeTool === "frame",
           onSelect: onFrame,
         },
-        {
-          key: "screens",
-          label: t("designEditor.modes.screens"),
-          icon: <IconLayoutGrid className="size-4" />,
-          active: overviewActive,
-          onSelect: onScreensToggle,
-        },
       ],
     },
     {
-      key: "rect",
-      active: activeTool === "rect",
-      label: t("designEditor.tools.rect"),
-      icon: <IconSquare className="size-[18px]" />,
-      onClick: onRect,
-      options: [
-        {
-          key: "rect",
-          label: t("designEditor.tools.rect"),
-          icon: <IconSquare className="size-4" />,
-          shortcut: "R",
-          active: activeTool === "rect",
-          onSelect: onRect,
-        },
-      ],
+      key: "shape",
+      active: shapeTools.has(activeTool),
+      label: activeShapeOption.label,
+      icon: shapeIcon(activeShape, "size-[18px]"),
+      onClick: () => onShape(activeShape),
+      options: shapeOptions,
     },
     {
       key: "text",
@@ -1424,7 +1863,7 @@ function FigmaBottomToolbar({
   ];
 
   const modes: Array<{
-    key: EditorMode | "screens";
+    key: EditorMode;
     active: boolean;
     label: string;
     icon: ReactNode;
@@ -1432,31 +1871,24 @@ function FigmaBottomToolbar({
   }> = [
     {
       key: "annotate",
-      active: mode === "annotate" && !overviewActive,
+      active: mode === "annotate",
       label: t("designEditor.modes.annotate"),
       icon: <IconScribble className="size-[18px]" />,
       onClick: () => onModeChange("annotate"),
     },
     {
       key: "edit",
-      active: mode === "edit" && !overviewActive,
+      active: mode === "edit",
       label: t("designEditor.modes.edit"),
-      icon: <IconPointer className="size-[18px]" />,
+      icon: <IconTransformPoint className="size-[18px]" />,
       onClick: () => onModeChange("edit"),
     },
     {
       key: "interact",
-      active: mode === "interact" && !overviewActive,
+      active: mode === "interact",
       label: t("designEditor.modes.interact"),
-      icon: <IconDiamonds className="size-[18px]" />,
+      icon: <IconHandClick className="size-[18px]" />,
       onClick: () => onModeChange("interact"),
-    },
-    {
-      key: "screens",
-      active: overviewActive,
-      label: t("designEditor.modes.screens"),
-      icon: <IconLayoutGrid className="size-[18px]" />,
-      onClick: onScreensToggle,
     },
   ];
 
@@ -2049,13 +2481,17 @@ export default function DesignEditor() {
   ]);
 
   // Current user info for collaborative presence
-  const currentUser: CollabUser | undefined = session?.email
-    ? {
-        name: emailToName(session.email),
-        email: session.email,
-        color: emailToColor(session.email),
-      }
-    : undefined;
+  const currentUser: CollabUser | undefined = useMemo(
+    () =>
+      session?.email
+        ? {
+            name: session.name?.trim() || emailToName(session.email),
+            email: session.email,
+            color: emailToColor(session.email),
+          }
+        : undefined,
+    [session?.email, session?.name],
+  );
 
   // Data fetching
   useEffect(() => {
@@ -2135,14 +2571,83 @@ export default function DesignEditor() {
   const exportHtmlMutation = useActionMutation("export-html");
   const exportZipMutation = useActionMutation("export-zip");
   const [, setPatchProof] = useState<PatchProofState | null>(null);
-  const pendingFileSaveRef = useRef<{ id: string; content: string } | null>(
-    null,
-  );
+  const pendingFileSaveRef = useRef<{
+    id: string;
+    content: string;
+    syncCollab: boolean;
+  } | null>(null);
+  const fileSaveChainsRef = useRef<Record<string, Promise<void>>>({});
+  const latestFileSaveForUnloadRef = useRef<
+    Record<string, FileContentSaveRequest>
+  >({});
   const fileSaveTimerRef = useRef<number | null>(null);
 
+  const saveFileContent = useCallback(
+    (pending: FileContentSaveRequest) => {
+      latestFileSaveForUnloadRef.current[pending.id] = pending;
+      const previous =
+        fileSaveChainsRef.current[pending.id] ?? Promise.resolve();
+      const current = previous
+        .catch(() => {})
+        .then(async () => {
+          try {
+            await updateFileMutation.mutateAsync({
+              id: pending.id,
+              content: pending.content,
+              syncCollab: pending.syncCollab,
+            } as any);
+            setPatchProof((prev) =>
+              prev && prev.fileId === pending.id && prev.status === "queued"
+                ? { ...prev, status: "applied" }
+                : prev,
+            );
+          } catch (error) {
+            setPatchProof((prev) =>
+              prev && prev.fileId === pending.id && prev.status === "queued"
+                ? {
+                    ...prev,
+                    status: "failed",
+                    error:
+                      error instanceof Error
+                        ? error.message
+                        : t("common.genericError"),
+                  }
+                : prev,
+            );
+          }
+        });
+      fileSaveChainsRef.current[pending.id] = current;
+      void current.finally(() => {
+        if (fileSaveChainsRef.current[pending.id] === current) {
+          delete fileSaveChainsRef.current[pending.id];
+        }
+      });
+    },
+    [t, updateFileMutation],
+  );
+
   const queueFileContentSave = useCallback(
-    (fileId: string, content: string) => {
-      pendingFileSaveRef.current = { id: fileId, content };
+    (
+      fileId: string,
+      content: string,
+      options: { syncCollab?: boolean; immediate?: boolean } = {},
+    ) => {
+      const pending = {
+        id: fileId,
+        content,
+        syncCollab: options.syncCollab ?? true,
+      };
+      latestFileSaveForUnloadRef.current[fileId] = pending;
+      if (options.immediate) {
+        if (fileSaveTimerRef.current) {
+          window.clearTimeout(fileSaveTimerRef.current);
+          fileSaveTimerRef.current = null;
+        }
+        pendingFileSaveRef.current = null;
+        saveFileContent(pending);
+        return;
+      }
+      pendingFileSaveRef.current = pending;
       if (fileSaveTimerRef.current) {
         window.clearTimeout(fileSaveTimerRef.current);
       }
@@ -2151,42 +2656,25 @@ export default function DesignEditor() {
         pendingFileSaveRef.current = null;
         fileSaveTimerRef.current = null;
         if (!pending) return;
-        updateFileMutation.mutate(
-          {
-            id: pending.id,
-            content: pending.content,
-          } as any,
-          {
-            onSuccess: () => {
-              setPatchProof((prev) =>
-                prev && prev.fileId === pending.id && prev.status === "queued"
-                  ? { ...prev, status: "applied" }
-                  : prev,
-              );
-            },
-            onError: (error) => {
-              setPatchProof((prev) =>
-                prev && prev.fileId === pending.id && prev.status === "queued"
-                  ? {
-                      ...prev,
-                      status: "failed",
-                      error:
-                        error instanceof Error
-                          ? error.message
-                          : t("common.genericError"),
-                    }
-                  : prev,
-              );
-            },
-          },
-        );
+        saveFileContent(pending);
       }, 400);
     },
-    [t, updateFileMutation],
+    [saveFileContent],
   );
 
   useEffect(() => {
+    const handlePageHide = () => {
+      if (pendingFileSaveRef.current) {
+        latestFileSaveForUnloadRef.current[pendingFileSaveRef.current.id] =
+          pendingFileSaveRef.current;
+      }
+      Object.values(latestFileSaveForUnloadRef.current).forEach(
+        sendFileContentSaveKeepalive,
+      );
+    };
+    window.addEventListener("pagehide", handlePageHide);
     return () => {
+      window.removeEventListener("pagehide", handlePageHide);
       if (fileSaveTimerRef.current) {
         window.clearTimeout(fileSaveTimerRef.current);
       }
@@ -2607,7 +3095,7 @@ export default function DesignEditor() {
         setPinMode(false);
         setMode("edit");
         setSelectedElement(null);
-        setActiveTool("overview");
+        setActiveTool("move");
         setViewMode("overview");
       } else if (editorView === "single") {
         viewModeRef.current = "single";
@@ -2688,7 +3176,7 @@ export default function DesignEditor() {
             });
             if (nextId) {
               setActiveFileId(nextId);
-              setActiveTool("overview");
+              setActiveTool("move");
               setViewMode("overview");
               if (request?.canvasPosition) {
                 queueFrameGeometrySave({
@@ -2759,6 +3247,63 @@ export default function DesignEditor() {
       },
     );
   }, [createFileMutation, files, id, queryClient, t]);
+
+  const handleCreateScreenFrame = useCallback(
+    (geometry: { x: number; y: number; width: number; height: number }) => {
+      if (!id) return;
+      const filename = nextBlankScreenFilename(files);
+      const nextGeometry = {
+        x: Math.round(geometry.x),
+        y: Math.round(geometry.y),
+        width: Math.max(64, Math.round(geometry.width)),
+        height: Math.max(64, Math.round(geometry.height)),
+      };
+      createFileMutation.mutate(
+        {
+          designId: id,
+          filename,
+          content: blankScreenHtml(prettyScreenName(filename)),
+          fileType: "html",
+        } as any,
+        {
+          onSuccess: (result: any) => {
+            const nextId = typeof result?.id === "string" ? result.id : null;
+            queryClient.invalidateQueries({
+              queryKey: ["action", "get-design"],
+            });
+            if (nextId) {
+              setActiveFileId(nextId);
+              setSelectedElement(null);
+              setSelectedLayerIdsState([nextId]);
+              setActiveTool("move");
+              setMode("edit");
+              setViewMode("overview");
+              writeFrameGeometrySnapshot({
+                ...canvasFrameGeometryById,
+                [nextId]: nextGeometry,
+              });
+            }
+          },
+          onError: (error) => {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t("designEditor.toasts.screenDuplicateError"),
+            );
+          },
+        },
+      );
+    },
+    [
+      canvasFrameGeometryById,
+      createFileMutation,
+      files,
+      id,
+      queryClient,
+      t,
+      writeFrameGeometrySnapshot,
+    ],
+  );
 
   // Collaborative editing for the active file
   const { ydoc, awareness, isSynced, activeUsers, agentActive } =
@@ -2836,13 +3381,30 @@ export default function DesignEditor() {
     const ytext = ydoc.getText("content");
     const text = ytext.toString();
     if (text.length > 0) {
+      const storedContent = activeFile?.content ?? "";
+      if (
+        !shouldUseLiveFileContent({
+          liveContent: text,
+          storedContent,
+          fileType: activeFile?.fileType ?? "html",
+        })
+      ) {
+        setCollabContent(storedContent);
+        lastLocalContentRef.current = storedContent;
+        setContentRenderRevision((revision) => revision + 1);
+        ydoc.transact(() => {
+          ytext.delete(0, ytext.length);
+          ytext.insert(0, storedContent);
+        }, TAB_ID);
+        return;
+      }
       // Y.Doc snapshots are a render seed, not the SQL source of truth; the
       // reconcile effect below advances the updatedAt watermark only after it
       // confirms or applies the current DB content.
       setCollabContent(text);
       setContentRenderRevision((revision) => revision + 1);
     }
-  }, [ydoc, isSynced, activeFileId]);
+  }, [ydoc, isSynced, activeFileId, activeFile?.content, activeFile?.fileType]);
 
   // Keep the freshest DB `updatedAt` in a ref the observe handler can read.
   useEffect(() => {
@@ -2887,34 +3449,11 @@ export default function DesignEditor() {
       if (!isLocalEdit) {
         setSelectedElement((prev) => {
           if (!prev) return prev;
-          try {
-            const iframe = document.querySelector<HTMLIFrameElement>(
-              "iframe[data-design-preview-iframe]",
-            );
-            const doc = iframe?.contentDocument;
-            if (doc && (!prev.selector || !doc.querySelector(prev.selector))) {
-              return null;
-            }
-          } catch {
-            // iframe not accessible yet — clear defensively
-            return null;
-          }
-          return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
         });
         setHoveredElement((prev) => {
           if (!prev) return prev;
-          try {
-            const iframe = document.querySelector<HTMLIFrameElement>(
-              "iframe[data-design-preview-iframe]",
-            );
-            const doc = iframe?.contentDocument;
-            if (doc && (!prev.selector || !doc.querySelector(prev.selector))) {
-              return null;
-            }
-          } catch {
-            return null;
-          }
-          return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
         });
       }
     };
@@ -2981,6 +3520,31 @@ export default function DesignEditor() {
     if (!activeFile || !isSynced) return;
     const dbContent = activeFile.content ?? "";
     const dbUpdatedAt = activeFile.updatedAt ?? null;
+    if (
+      typeof collabContent === "string" &&
+      !shouldUseLiveFileContent({
+        liveContent: collabContent,
+        storedContent: dbContent,
+        fileType: activeFile.fileType,
+      })
+    ) {
+      clearStaleAgentCollabRecovery();
+      setCollabContent(dbContent);
+      lastLocalContentRef.current = dbContent;
+      if (dbUpdatedAt) lastAppliedFileUpdatedAtRef.current = dbUpdatedAt;
+      setContentRenderRevision((revision) => revision + 1);
+
+      if (isLeadClient && ydoc) {
+        const ytext = ydoc.getText("content");
+        if (ytext.toString() !== dbContent) {
+          ydoc.transact(() => {
+            ytext.delete(0, ytext.length);
+            ytext.insert(0, dbContent);
+          }, TAB_ID);
+        }
+      }
+      return;
+    }
 
     // Already reflecting this exact content (our own echo or Yjs already
     // delivered it) — just advance the watermark and stop.
@@ -3174,6 +3738,29 @@ export default function DesignEditor() {
     [followingEmail, stopFollowing],
   );
 
+  const designCollaborators = useMemo<DesignCollaborator[]>(() => {
+    const currentEmail = currentUser?.email.trim().toLowerCase() ?? null;
+    const humans = dedupeCollabUsersByEmail([
+      ...(currentUser ? [currentUser] : []),
+      ...activeUsers,
+    ]).filter((user) => user.email.trim().toLowerCase() !== "agent@system");
+    const otherHumans = humans.filter(
+      (user) => user.email.trim().toLowerCase() !== currentEmail,
+    );
+    const collaborators = otherHumans.map((user) => ({ user }));
+
+    if (!currentUser) return collaborators;
+
+    return [
+      {
+        user: currentUser,
+        image: session?.image,
+        isCurrent: true,
+      },
+      ...collaborators,
+    ];
+  }, [activeUsers, currentUser, session?.image]);
+
   // Resolve the content to render: prefer collab content, fall back to DB
   const activeContent = collabContent ?? activeFile?.content ?? "";
   const pageStyles = useMemo(
@@ -3248,11 +3835,38 @@ export default function DesignEditor() {
   const applyLocalContentUpdate = useCallback(
     (
       nextContent: string,
-      options: { refreshPreview?: boolean; skipPreview?: boolean } = {},
+      options: {
+        refreshPreview?: boolean;
+        skipPreview?: boolean;
+        immediateSave?: boolean;
+      } = {},
     ) => {
       if (!activeFile) return;
       setCollabContent(nextContent);
       lastLocalContentRef.current = nextContent;
+      if (id) {
+        const optimisticUpdatedAt = new Date().toISOString();
+        queryClient.setQueryData(
+          ["action", "get-design", { id }],
+          (old: any) => {
+            if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
+              return old;
+            }
+            return {
+              ...old,
+              files: old.files.map((file: DesignFile) =>
+                file.id === activeFile.id
+                  ? {
+                      ...file,
+                      content: nextContent,
+                      updatedAt: optimisticUpdatedAt,
+                    }
+                  : file,
+              ),
+            };
+          },
+        );
+      }
       const forceRefresh = options.refreshPreview === true;
       const replacedPreview = options.skipPreview
         ? true
@@ -3271,9 +3885,20 @@ export default function DesignEditor() {
           }, LOCAL_EDIT_ORIGIN);
         }
       }
-      queueFileContentSave(activeFile.id, nextContent);
+      queueFileContentSave(activeFile.id, nextContent, {
+        syncCollab: !(ydoc && isSynced),
+        immediate: options.immediateSave,
+      });
     },
-    [activeFile, isSynced, queueFileContentSave, replacePreviewContent, ydoc],
+    [
+      activeFile,
+      id,
+      isSynced,
+      queryClient,
+      queueFileContentSave,
+      replacePreviewContent,
+      ydoc,
+    ],
   );
 
   const applyFileContentUpdate = useCallback(
@@ -3297,21 +3922,13 @@ export default function DesignEditor() {
           ),
         };
       });
-      updateFileMutation.mutate({ id: fileId, content: nextContent } as any, {
-        onError: () => {
-          queryClient.invalidateQueries({
-            queryKey: ["action", "get-design"],
-          });
-        },
+      saveFileContent({
+        id: fileId,
+        content: nextContent,
+        syncCollab: true,
       });
     },
-    [
-      activeFile?.id,
-      applyLocalContentUpdate,
-      id,
-      queryClient,
-      updateFileMutation,
-    ],
+    [activeFile?.id, applyLocalContentUpdate, id, queryClient, saveFileContent],
   );
 
   const handleCreatePrimitive = useCallback(
@@ -3319,7 +3936,11 @@ export default function DesignEditor() {
       const targetFile = files.find((file) => file.id === screenId);
       if (!targetFile) return false;
       const baseContent =
-        targetFile.id === activeFile?.id ? activeContent : targetFile.content;
+        targetFile.id === activeFile?.id
+          ? ydoc && isSynced
+            ? ydoc.getText("content").toString()
+            : (collabContentRef.current ?? activeContent)
+          : targetFile.content;
       const nextContent = appendCanvasPrimitiveToHtml(baseContent, primitive);
       if (!nextContent) {
         toast.error(t("designEditor.toasts.primitiveInsertFailed"));
@@ -3327,7 +3948,7 @@ export default function DesignEditor() {
       }
 
       if (targetFile.id === activeFile?.id) {
-        applyLocalContentUpdate(nextContent);
+        applyLocalContentUpdate(nextContent, { immediateSave: true });
       } else {
         queryClient.setQueryData(
           ["action", "get-design", { id }],
@@ -3345,16 +3966,11 @@ export default function DesignEditor() {
             };
           },
         );
-        updateFileMutation.mutate(
-          { id: targetFile.id, content: nextContent } as any,
-          {
-            onError: () => {
-              queryClient.invalidateQueries({
-                queryKey: ["action", "get-design"],
-              });
-            },
-          },
-        );
+        saveFileContent({
+          id: targetFile.id,
+          content: nextContent,
+          syncCollab: true,
+        });
       }
 
       return true;
@@ -3365,9 +3981,11 @@ export default function DesignEditor() {
       applyLocalContentUpdate,
       files,
       id,
+      isSynced,
       queryClient,
+      saveFileContent,
       t,
-      updateFileMutation,
+      ydoc,
     ],
   );
 
@@ -3396,14 +4014,18 @@ export default function DesignEditor() {
     setSelectedElement(null);
   }, []);
 
-  const handleRectTool = useCallback(() => {
-    setActiveTool("rect");
+  const handleShapeTool = useCallback((tool: ShapeTool) => {
+    setActiveTool(tool);
     setViewMode("overview");
     setMode("edit");
     setDrawMode(false);
     setPinMode(false);
     setSelectedElement(null);
   }, []);
+
+  const handleRectTool = useCallback(() => {
+    handleShapeTool("rect");
+  }, [handleShapeTool]);
 
   const handlePenTool = useCallback(() => {
     setActiveTool("pen");
@@ -3908,7 +4530,9 @@ export default function DesignEditor() {
           }, LOCAL_EDIT_ORIGIN);
         }
       }
-      queueFileContentSave(activeFile.id, resolvedNextContent);
+      queueFileContentSave(activeFile.id, resolvedNextContent, {
+        syncCollab: !(ydoc && isSynced),
+      });
       if (resolvedNode) setSelectedLayerIdsState([resolvedNode.id]);
       setSelectedElement((prev) => {
         if (options.elementInfo) return options.elementInfo;
@@ -4030,16 +4654,31 @@ export default function DesignEditor() {
         );
         return false;
       }
-      applyLocalContentUpdate(patch.content, { refreshPreview: false });
-      if (targetNode) setSelectedLayerIdsState([targetNode.id]);
+      const movedNode =
+        (patch.result.after?.nodeId
+          ? patch.projection.nodes.find(
+              (node) => node.id === patch.result.after?.nodeId,
+            )
+          : null) ??
+        resolveCodeLayerNodeFromBridge(
+          patch.projection,
+          selector,
+          details?.sourceId ??
+            elementInfo?.sourceId ??
+            (targetNode
+              ? bridgeSourceIdForCodeLayerNode(targetNode)
+              : undefined),
+        );
+      applyLocalContentUpdate(patch.content, { skipPreview: true });
+      if (movedNode) setSelectedLayerIdsState([movedNode.id]);
       if (elementInfo) {
         setSelectedElement({
           ...elementInfo,
-          sourceId: targetNode
-            ? bridgeSourceIdForCodeLayerNode(targetNode)
+          sourceId: movedNode
+            ? bridgeSourceIdForCodeLayerNode(movedNode)
             : elementInfo.sourceId,
-          selector: targetNode
-            ? preferredCodeLayerSelector(targetNode)
+          selector: movedNode
+            ? preferredCodeLayerSelector(movedNode)
             : elementInfo.selector,
         });
       }
@@ -4433,7 +5072,9 @@ export default function DesignEditor() {
       if (ydoc && activeFile) {
         const next = ydoc.getText("content").toString();
         lastLocalContentRef.current = next;
-        queueFileContentSave(activeFile.id, next);
+        queueFileContentSave(activeFile.id, next, {
+          syncCollab: !(ydoc && isSynced),
+        });
         if (!replacePreviewContent(next)) {
           setContentRenderRevision((revision) => revision + 1);
         }
@@ -4472,6 +5113,7 @@ export default function DesignEditor() {
   }, [
     ydoc,
     activeFile,
+    isSynced,
     queueFileContentSave,
     replacePreviewContent,
     syncUndoRedoState,
@@ -4486,7 +5128,9 @@ export default function DesignEditor() {
       if (ydoc && activeFile) {
         const next = ydoc.getText("content").toString();
         lastLocalContentRef.current = next;
-        queueFileContentSave(activeFile.id, next);
+        queueFileContentSave(activeFile.id, next, {
+          syncCollab: !(ydoc && isSynced),
+        });
         if (!replacePreviewContent(next)) {
           setContentRenderRevision((revision) => revision + 1);
         }
@@ -4525,6 +5169,7 @@ export default function DesignEditor() {
   }, [
     ydoc,
     activeFile,
+    isSynced,
     queueFileContentSave,
     replacePreviewContent,
     syncUndoRedoState,
@@ -4575,7 +5220,7 @@ export default function DesignEditor() {
       setPinMode(false);
       setMode("edit");
       setSelectedElement(null);
-      setActiveTool("overview");
+      setActiveTool("move");
       setViewMode("overview");
     });
   }, [runEditorViewTransition]);
@@ -4767,7 +5412,7 @@ export default function DesignEditor() {
     setDrawMode(false);
     setPinMode(false);
     setMode("edit");
-    setActiveTool("overview");
+    setActiveTool("move");
     setViewMode("overview");
     setOverviewSelectAllRequest((request) => request + 1);
   }, [files.length]);
@@ -4813,7 +5458,7 @@ export default function DesignEditor() {
     onZoomReset: () => setZoom(100),
     onZoomToFit: () => {
       setViewMode("overview");
-      setActiveTool("overview");
+      setActiveTool("move");
       setZoom(100);
     },
     onZoomToSelection: () => {
@@ -5514,6 +6159,32 @@ ${serializedHtml}
     });
   }, [designDataJson, files]);
 
+  const activeScreenPreviewUrl = useMemo(() => {
+    if (builderPreviewUrl) return builderPreviewUrl;
+    const screen = overviewScreens.find((item) => item.id === activeFile?.id);
+    return (
+      screen?.url ||
+      screen?.previewUrl ||
+      externalPreviewUrlForContent(activeContent)
+    );
+  }, [activeContent, activeFile?.id, builderPreviewUrl, overviewScreens]);
+
+  const handleOpenDesignPreview = useCallback(() => {
+    if (activeScreenPreviewUrl) {
+      window.open(activeScreenPreviewUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
+    const content = activeContent.trim();
+    if (!content) return;
+
+    const blobUrl = URL.createObjectURL(
+      new Blob([fullPreviewHtml(activeContent)], { type: "text/html" }),
+    );
+    window.open(blobUrl, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  }, [activeContent, activeScreenPreviewUrl]);
+
   const activeLayerId =
     selectedLayerIds[selectedLayerIds.length - 1] ??
     selectedElementLayerId ??
@@ -5571,7 +6242,9 @@ ${serializedHtml}
         moved = true;
       }
       if (!moved || nextContent === sourceContent) return;
-      applyFileContentUpdate(targetOwner.fileId, nextContent);
+      applyFileContentUpdate(targetOwner.fileId, nextContent, {
+        refreshPreview: targetOwner.fileId === activeFile?.id,
+      });
     },
     [
       activeContent,
@@ -5808,15 +6481,59 @@ ${serializedHtml}
 
   const deviceFrameIcon =
     deviceFrame === "desktop" ? (
-      <IconDeviceDesktop className="w-3.5 h-3.5" />
+      <IconDeviceDesktop className="size-3" />
     ) : deviceFrame === "tablet" ? (
-      <IconDeviceTablet className="w-3.5 h-3.5" />
+      <IconDeviceTablet className="size-3" />
     ) : deviceFrame === "mobile" ? (
-      <IconDeviceMobile className="w-3.5 h-3.5" />
+      <IconDeviceMobile className="size-3" />
     ) : (
-      <IconViewportWide className="w-3.5 h-3.5" />
+      <IconViewportWide className="size-3" />
     );
   const questionFlowActive = pendingQuestionsVisible;
+
+  const deviceFrameControl = (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 gap-0.5 px-1.5 cursor-pointer text-muted-foreground hover:text-foreground"
+              disabled={viewMode === "overview"}
+            >
+              {deviceFrameIcon}
+              <IconChevronDown className="size-2.5 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("designEditor.devicePreview")}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuRadioGroup
+          value={deviceFrame}
+          onValueChange={(v) => setDeviceFrame(v as DeviceFrameType)}
+        >
+          <DropdownMenuRadioItem value="none">
+            <IconViewportWide className="mr-2 h-4 w-4" />
+            {t("designEditor.devices.responsive")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="desktop">
+            <IconDeviceDesktop className="mr-2 h-4 w-4" />
+            {t("designEditor.devices.desktop")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="tablet">
+            <IconDeviceTablet className="mr-2 h-4 w-4" />
+            {t("designEditor.devices.tablet")}
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="mobile">
+            <IconDeviceMobile className="mr-2 h-4 w-4" />
+            {t("designEditor.devices.mobile")}
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   const projectMenu = (
     <DropdownMenu>
@@ -5966,7 +6683,7 @@ ${serializedHtml}
           setTitleEditing(false);
         }
       }}
-      className="h-7 min-w-0 flex-1 text-sm"
+      className="-mx-1 h-7 min-w-0 flex-1 border-transparent bg-[var(--design-editor-panel-raised-bg)] px-1 py-0 text-[13px] font-medium text-foreground shadow-none ring-offset-0 focus-visible:border-[var(--design-editor-control-border)] focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0"
     />
   ) : (
     <Tooltip>
@@ -5977,7 +6694,7 @@ ${serializedHtml}
             setTitleDraft(design.title);
             setTitleEditing(true);
           }}
-          className="-mx-1 min-w-0 flex-1 cursor-text truncate rounded px-1 text-left text-sm font-medium text-foreground/90 hover:bg-accent/50"
+          className="-mx-1 min-w-0 flex-1 cursor-text truncate rounded px-1 text-left text-[13px] font-medium text-foreground/90 hover:bg-accent/50"
         >
           {design.title}
         </button>
@@ -5986,111 +6703,84 @@ ${serializedHtml}
     </Tooltip>
   );
 
-  const rightSidebarActions = (
-    <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] p-2">
-      <div className="flex flex-wrap items-center justify-end gap-1">
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 px-2 cursor-pointer"
-                  disabled={viewMode === "overview"}
-                >
-                  {deviceFrameIcon}
-                  <IconChevronDown className="w-3 h-3 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{t("designEditor.devicePreview")}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuRadioGroup
-              value={deviceFrame}
-              onValueChange={(v) => setDeviceFrame(v as DeviceFrameType)}
+  const zoomControl = (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-0.5 px-1 text-[10px] tabular-nums text-muted-foreground cursor-pointer hover:text-foreground"
             >
-              <DropdownMenuRadioItem value="none">
-                <IconViewportWide className="mr-2 h-4 w-4" />
-                {t("designEditor.devices.responsive")}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="desktop">
-                <IconDeviceDesktop className="mr-2 h-4 w-4" />
-                {t("designEditor.devices.desktop")}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="tablet">
-                <IconDeviceTablet className="mr-2 h-4 w-4" />
-                {t("designEditor.devices.tablet")}
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="mobile">
-                <IconDeviceMobile className="mr-2 h-4 w-4" />
-                {t("designEditor.devices.mobile")}
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              {zoomLabel}
+              <IconChevronDown className="size-2.5 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("designEditor.zoom")}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuItem onClick={handleZoomOut}>
+          <IconZoomOut className="mr-2 h-4 w-4" />
+          {t("designEditor.zoomOut")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleZoomIn}>
+          <IconZoomIn className="mr-2 h-4 w-4" />
+          {t("designEditor.zoomIn")}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {ZOOM_PRESETS.map((preset) => (
+          <DropdownMenuItem
+            key={preset}
+            onClick={() => setZoom(preset)}
+            className="justify-between"
+          >
+            <span>{preset}%</span>
+            {Math.round(zoom) === preset && <IconCheck className="h-4 w-4" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
-        <DropdownMenu>
+  const rightSidebarActions = (
+    <div className="shrink-0 border-b border-border bg-[var(--design-editor-panel-bg)] px-2 py-1.5">
+      <div className="flex min-h-8 items-center justify-between gap-2">
+        <DesignCollaboratorsMenu
+          collaborators={designCollaborators}
+          followingEmail={followingEmail}
+          label={t("designEditor.collaborators")}
+          onAvatarClick={handleAvatarClick}
+        />
+
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1 px-2 text-xs tabular-nums text-muted-foreground cursor-pointer"
-                >
-                  {zoomLabel}
-                  <IconChevronDown className="w-3 h-3 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{t("designEditor.zoom")}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuItem onClick={handleZoomOut}>
-              <IconZoomOut className="mr-2 h-4 w-4" />
-              {t("designEditor.zoomOut")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleZoomIn}>
-              <IconZoomIn className="mr-2 h-4 w-4" />
-              {t("designEditor.zoomIn")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            {ZOOM_PRESETS.map((preset) => (
-              <DropdownMenuItem
-                key={preset}
-                onClick={() => setZoom(preset)}
-                className="justify-between"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 cursor-pointer rounded-md text-foreground hover:bg-accent hover:text-foreground"
+                onClick={handleOpenDesignPreview}
+                disabled={!activeScreenPreviewUrl && !activeContent.trim()}
+                aria-label={t("designEditor.designPreview")}
               >
-                <span>{preset}%</span>
-                {Math.round(zoom) === preset && (
-                  <IconCheck className="h-4 w-4" />
-                )}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+                <IconPlayerPlay className="size-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("designEditor.designPreview")}</TooltipContent>
+          </Tooltip>
 
-        <div className="mx-1 h-5 w-px bg-border" />
+          <ShareButton
+            resourceType="design"
+            resourceId={id}
+            resourceTitle={design.title}
+            hideTriggerIcon
+            triggerClassName="h-8 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
+          />
 
-        <PresenceBar
-          activeUsers={activeUsers}
-          agentActive={agentActive}
-          currentUserEmail={session?.email}
-          onAvatarClick={handleAvatarClick}
-          followingEmail={followingEmail}
-        />
-
-        <ShareButton
-          resourceType="design"
-          resourceId={id}
-          resourceTitle={design.title}
-          hideTriggerIcon
-          triggerClassName="h-7 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-2 text-xs !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)] [&_svg]:!text-[var(--design-editor-accent-contrast-color)]"
-        />
-
-        <AgentToggleButton />
+          <AgentToggleButton />
+        </div>
       </div>
     </div>
   );
@@ -6304,7 +6994,9 @@ ${serializedHtml}
               >
                 <TabsList className="pointer-events-auto h-8">
                   <TabsTrigger value="edit" className="h-6 gap-1 px-2 text-xs">
-                    {mode === "edit" && <IconPencil className="h-3 w-3" />}
+                    {mode === "edit" && (
+                      <IconTransformPoint className="h-3 w-3" />
+                    )}
                     {t("designEditor.modes.edit")}
                   </TabsTrigger>
                   <TabsTrigger
@@ -6312,7 +7004,9 @@ ${serializedHtml}
                     className="h-6 gap-1 px-2 text-xs"
                     disabled={!activeFile || viewMode === "overview"}
                   >
-                    {mode === "interact" && <IconPointer className="h-3 w-3" />}
+                    {mode === "interact" && (
+                      <IconHandClick className="h-3 w-3" />
+                    )}
                     {t("designEditor.modes.interact")}
                   </TabsTrigger>
                   <TabsTrigger
@@ -6328,31 +7022,6 @@ ${serializedHtml}
             </div>
           )}
           <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
-            {/* Overview / single-screen toggle. Clicking Overview shows every
-              file in the design as a Figma-style pannable lineup. */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={viewMode === "overview" ? "secondary" : "ghost"}
-                  size="icon"
-                  className="h-7 w-7 cursor-pointer"
-                  onClick={handleViewModeToggle}
-                  aria-label={
-                    viewMode === "overview"
-                      ? t("designEditor.returnToCurrentScreen")
-                      : t("designEditor.openScreenOverview")
-                  }
-                >
-                  <IconLayoutGrid className="w-3.5 h-3.5" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {viewMode === "overview"
-                  ? t("designEditor.currentScreen")
-                  : t("designEditor.screenOverview")}
-              </TooltipContent>
-            </Tooltip>
-
             {!embedded && (
               <>
                 {/* Device preview — collapsed into a single menu. */}
@@ -6488,9 +7157,10 @@ ${serializedHtml}
             className="relative flex min-h-0 shrink-0 flex-col bg-[var(--design-editor-panel-bg)]"
             style={{ width: leftSidebarWidth }}
           >
-            <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-2">
+            <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-2">
               {projectMenu}
               {projectTitleControl}
+              {deviceFrameControl}
             </div>
             <div className="min-h-0 flex-1">
               <LayersPanel
@@ -6617,10 +7287,9 @@ ${serializedHtml}
             pinMode={pinMode}
             drawMode={drawMode}
             activeTool={activeTool}
-            overviewActive={viewMode === "overview"}
             onMove={handleMoveTool}
             onFrame={handleFrameTool}
-            onRect={handleRectTool}
+            onShape={handleShapeTool}
             onText={handleTextTool}
             onPen={handlePenTool}
             onHand={handleHandTool}
@@ -6628,7 +7297,6 @@ ${serializedHtml}
             onScale={handleScaleTool}
             onCommentPin={handlePinToolToggle}
             onModeChange={handleModeChange}
-            onScreensToggle={handleViewModeToggle}
           />
         )}
 
@@ -6672,7 +7340,7 @@ ${serializedHtml}
             onSelectAll={handleSelectAllFrames}
             onZoomToFit={() => {
               setViewMode("overview");
-              setActiveTool("overview");
+              setActiveTool("move");
               setZoom(100);
             }}
             onZoomToSelection={() => setZoom(150)}
@@ -6721,12 +7389,13 @@ ${serializedHtml}
                     onGeometryChange={queueFrameGeometrySave}
                     onGeometryCommit={handleGeometryCommit}
                     onCreatePrimitive={handleCreatePrimitive}
+                    onCreateScreenFrame={handleCreateScreenFrame}
                     onDeleteSelection={handleDeleteOverviewSelection}
                     onPick={(id) => {
                       setSelectedElement(null);
                       setSelectedLayerIdsState([id]);
                       setActiveFileId(id);
-                      setActiveTool("overview");
+                      setActiveTool("move");
                       setMode("edit");
                     }}
                     onEdit={enterSingleScreen}
@@ -6935,6 +7604,7 @@ ${serializedHtml}
                   selectedElement={selectedElement}
                   pageStyles={pageStyles}
                   zoom={zoom}
+                  headerTrailing={zoomControl}
                   width={rightSidebarWidth}
                   activeTab={activeInspectorTab}
                   onActiveTabChange={setActiveInspectorTab}
