@@ -5,11 +5,20 @@ import {
 } from "@agent-native/core/server";
 import {
   defineEventHandler,
+  getRequestHeader,
   readMultipartFormData,
   setResponseStatus,
 } from "h3";
 
 const MAX_FIG_BYTES = 200 * 1024 * 1024;
+const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
+
+function requestContentLength(event: Parameters<typeof getRequestHeader>[0]) {
+  const raw = getRequestHeader(event, "content-length");
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
 
 /**
  * Builder-indexing endpoint: accepts a `.fig` upload (multipart field `file`)
@@ -23,6 +32,17 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
     if (!session?.email) {
       setResponseStatus(event, 401);
       return { error: "Unauthorized" };
+    }
+
+    const contentLength = requestContentLength(event);
+    if (
+      contentLength !== null &&
+      contentLength > MAX_FIG_BYTES + MULTIPART_OVERHEAD_BYTES
+    ) {
+      setResponseStatus(event, 413);
+      return {
+        error: `File too large (max ${Math.round(MAX_FIG_BYTES / 1024 / 1024)} MB).`,
+      };
     }
 
     let parts;
