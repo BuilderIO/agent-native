@@ -538,6 +538,9 @@ export function DrawOverlay({
             <Tooltip key={preset.color}>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  aria-label={preset.label}
+                  data-testid={`draw-color-${preset.label.toLowerCase()}`}
                   onClick={() => setColor(preset.color)}
                   className={cn(
                     "h-5 w-5 cursor-pointer rounded-full",
@@ -561,6 +564,9 @@ export function DrawOverlay({
             <Tooltip key={lw.value}>
               <TooltipTrigger asChild>
                 <button
+                  type="button"
+                  aria-label={lw.label}
+                  data-testid={`draw-line-width-${lw.label.toLowerCase()}`}
                   onClick={() => setLineWidth(lw.value)}
                   className={cn(
                     "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
@@ -586,6 +592,9 @@ export function DrawOverlay({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
+              aria-label={t("visualEditor.typeAnywhereOnCanvas")}
+              data-testid="draw-text-mode"
               onClick={() => setTextMode(!textMode)}
               className={cn(
                 "flex h-6 w-6 cursor-pointer items-center justify-center rounded",
@@ -606,6 +615,9 @@ export function DrawOverlay({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
+              aria-label={t("visualEditor.undoStroke")}
+              data-testid="draw-undo"
               onClick={undo}
               disabled={!canUndo}
               className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
@@ -620,6 +632,9 @@ export function DrawOverlay({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
+              aria-label={t("visualEditor.redoStroke")}
+              data-testid="draw-redo"
               onClick={redo}
               disabled={!canRedo}
               className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
@@ -634,6 +649,9 @@ export function DrawOverlay({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
+              aria-label={t("visualEditor.clearAll")}
+              data-testid="draw-clear-all"
               onClick={clear}
               disabled={strokes.length === 0 && textAnnotations.length === 0}
               className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-30"
@@ -661,6 +679,7 @@ export function DrawOverlay({
         {/* Send */}
         <Button
           size="sm"
+          data-testid="draw-send"
           className="h-7 gap-1 px-3 text-[11px] cursor-pointer"
           onClick={send}
           disabled={!hasContent}
@@ -673,6 +692,9 @@ export function DrawOverlay({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
+              type="button"
+              aria-label={t("visualEditor.exitDrawMode")}
+              data-testid="draw-exit"
               onClick={onClose}
               className="flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
             >
