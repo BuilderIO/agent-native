@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client";
+import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -868,7 +869,10 @@ export function SqlChart({
   const t = useT();
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
-  const shouldQuery = !isSection && loadData;
+  const isExtension = panel.chartType === "extension";
+  // Sections are pure layout and extensions render their own iframe — neither
+  // runs the SQL pipeline.
+  const shouldQuery = !isSection && !isExtension && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
   const {
     data: result,
@@ -916,6 +920,28 @@ export function SqlChart({
           </p>
         )}
       </div>
+    );
+  }
+
+  // Extension panels render a sandboxed extension iframe instead of querying a
+  // data source. The extension id lives in config.extensionId.
+  if (isExtension) {
+    const extensionId = panel.config?.extensionId;
+    if (!extensionId) {
+      return (
+        <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
+          <p className="text-sm text-muted-foreground text-center">
+            {t("sqlDashboard.extensionMissingId")}
+          </p>
+        </div>
+      );
+    }
+    return (
+      <EmbeddedExtension
+        extensionId={extensionId}
+        slotId={`dashboard-panel-${panel.id}`}
+        className="w-full"
+      />
     );
   }
   const colors = panel.config?.colors || DEFAULT_COLORS;

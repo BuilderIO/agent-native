@@ -392,6 +392,7 @@ const enUS = {
     off: "Off",
     since: "Since",
     sectionOptions: "Section options",
+    extensionMissingId: "This extension panel has no extension selected.",
     panelOptions: "Panel options",
     fullScreen: "Full screen",
     refresh: "Refresh",
