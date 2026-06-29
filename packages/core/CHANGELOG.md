@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.80.6
+
+### Patch Changes
+
+- f52eeb1: Pin the scaffolded workspace Nitro tracer dependency so fresh installs keep building reliably.
+- f52eeb1: Ignore shareable resource registrations that originate from test modules during app runtime.
+
 ## 0.80.5
 
 ### Patch Changes
