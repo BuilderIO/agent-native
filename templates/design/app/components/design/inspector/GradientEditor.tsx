@@ -459,7 +459,10 @@ export function GradientEditor({
             "absolute left-0 right-0 top-0 cursor-copy rounded-md border border-border/50",
             disabled && "cursor-not-allowed opacity-60",
           )}
-          style={{ height: BAR_HEIGHT, backgroundImage: stopsBarCss(value.stops) }}
+          style={{
+            height: BAR_HEIGHT,
+            backgroundImage: stopsBarCss(value.stops),
+          }}
         />
 
         {/* Stop handles — positioned below the bar */}
