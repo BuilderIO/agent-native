@@ -163,8 +163,11 @@ export function useNavigationState() {
         if (fileId) state.fileId = fileId;
         const filename = searchParams.get("filename");
         if (filename) state.filename = filename;
-        const zoom = Number(searchParams.get("zoom"));
-        if (Number.isFinite(zoom)) state.zoom = zoom;
+        const rawZoom = searchParams.get("zoom");
+        if (rawZoom !== null) {
+          const zoom = Number(rawZoom);
+          if (Number.isFinite(zoom)) state.zoom = zoom;
+        }
         const tool = normalizeDesignTool(searchParams.get("tool"));
         if (tool) state.tool = tool;
       } else if (pathname.startsWith("/design-systems")) {

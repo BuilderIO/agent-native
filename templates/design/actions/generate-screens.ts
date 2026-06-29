@@ -140,17 +140,29 @@ export default defineAction({
       path: `/design/${encodeURIComponent(designId)}?view=overview`,
     });
 
+    const seenFilenames = new Map<string, number>();
     const targets = frames.map((frame, index) => {
       const requested = screens[index]!;
-      const filename =
-        requested.filename ??
-        `${
+      let filename: string;
+      if (requested.filename) {
+        filename = requested.filename;
+      } else {
+        const slug =
           requested.title
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, "-")
             .replace(/^-+|-+$/g, "")
-            .slice(0, 48) || `screen-${index + 1}`
-        }.html`;
+            .slice(0, 48) || `screen-${index + 1}`;
+        const base = `${slug}.html`;
+        if (!seenFilenames.has(base)) {
+          seenFilenames.set(base, 1);
+          filename = base;
+        } else {
+          const count = seenFilenames.get(base)! + 1;
+          seenFilenames.set(base, count);
+          filename = `${slug}-${count}.html`;
+        }
+      }
       return {
         frameId: frame.frameId,
         title: requested.title,

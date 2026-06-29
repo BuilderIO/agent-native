@@ -127,7 +127,7 @@ interface EditPanelProps {
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
-  onExport?: (settings: ExportSettingsValue) => void;
+  onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
 }
 

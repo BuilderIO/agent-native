@@ -1,5 +1,5 @@
 import { IconDownload, IconPlus, IconX } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,7 @@ export interface ExportSettingsPanelLabels {
 export interface ExportSettingsPanelProps {
   value: ExportSettingsValue;
   onChange: (patch: Partial<ExportSettingsValue>) => void;
-  onExport: (settings: ExportSettingsValue) => void;
+  onExport: (settings: ExportSettingsValue[]) => void;
   formats?: ExportFormat[];
   labels?: Partial<ExportSettingsPanelLabels>;
   disabled?: boolean;
@@ -162,15 +162,7 @@ export function ExportSettingsPanel({
   // Multi-row internal state — primary row is kept in sync with the `value` prop
   const [rows, setRows] = useState<ExportRow[]>(() => [rowFromValue(value)]);
 
-  // Keep primary row in sync when the controlled value prop changes externally
-  const primaryValue = rows[0];
-  const needsSync =
-    !primaryValue.customScale &&
-    (primaryValue.scale !== value.scale ||
-      primaryValue.format !== value.format ||
-      primaryValue.suffix !== value.suffix);
-
-  if (needsSync) {
+  useEffect(() => {
     setRows((prev) => [
       {
         ...prev[0],
@@ -180,7 +172,7 @@ export function ExportSettingsPanel({
       },
       ...prev.slice(1),
     ]);
-  }
+  }, [value.format, value.scale, value.suffix]);
 
   function patchRow(id: number, patch: Partial<ExportRow>) {
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
@@ -226,14 +218,10 @@ export function ExportSettingsPanel({
   }
 
   function handleExport() {
-    // Pass the primary row's settings to onExport; rows array is internal
-    const primary = rows[0];
-    if (!primary) return;
-    onExport({
-      scale: primary.scale,
-      format: primary.format,
-      suffix: primary.suffix,
-    });
+    if (rows.length === 0) return;
+    onExport(
+      rows.map((r) => ({ scale: r.scale, format: r.format, suffix: r.suffix })),
+    );
   }
 
   return (

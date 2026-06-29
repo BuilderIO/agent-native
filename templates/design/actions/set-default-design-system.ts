@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -20,6 +23,7 @@ export default defineAction({
 
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("no authenticated user");
+    const orgId = getRequestOrgId();
 
     const [target] = await db
       .select({ ownerEmail: schema.designSystems.ownerEmail })
@@ -35,7 +39,17 @@ export default defineAction({
       await tx
         .update(schema.designSystems)
         .set({ isDefault: false, updatedAt: now })
-        .where(eq(schema.designSystems.ownerEmail, userEmail));
+        .where(
+          orgId
+            ? and(
+                eq(schema.designSystems.ownerEmail, userEmail),
+                eq(schema.designSystems.orgId, orgId),
+              )
+            : and(
+                eq(schema.designSystems.ownerEmail, userEmail),
+                isNull(schema.designSystems.orgId),
+              ),
+        );
 
       await tx
         .update(schema.designSystems)

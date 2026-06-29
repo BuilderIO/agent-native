@@ -453,7 +453,8 @@ function designEditorCommandFromSearchParams(
     searchParams.get("screen") ??
     searchParams.get("fileId") ??
     searchParams.get("filename");
-  const zoom = Number(searchParams.get("zoom"));
+  const rawZoom = searchParams.get("zoom");
+  const zoom = rawZoom !== null ? Number(rawZoom) : NaN;
   const tool = normalizeDesignTool(searchParams.get("tool"));
   if (
     editorView !== "overview" &&
@@ -1864,6 +1865,7 @@ function DesignBottomToolbar({
           label: t("designEditor.modes.draw"),
           icon: <IconBrush className="size-4" />,
           active: activeTool === "draw" && mode === "annotate" && drawMode,
+          disabled: !activeFile || viewMode === "overview",
           onSelect: onDraw,
         },
       ],
@@ -1881,6 +1883,7 @@ function DesignBottomToolbar({
           icon: <IconMessage className="size-4" />,
           shortcut: "C",
           active: activeTool === "comment" && mode === "annotate" && pinMode,
+          disabled: !activeFile || viewMode === "overview",
           onSelect: onCommentPin,
         },
         {
@@ -1888,6 +1891,7 @@ function DesignBottomToolbar({
           label: t("designEditor.modes.draw"),
           icon: <IconBrush className="size-4" />,
           active: activeTool === "draw" && mode === "annotate" && drawMode,
+          disabled: !activeFile || viewMode === "overview",
           onSelect: onDraw,
         },
       ],
@@ -2059,6 +2063,10 @@ export default function DesignEditor() {
   const [deviceFrame, setDeviceFrame] = useState<DeviceFrameType>("none");
   const [viewMode, setViewMode] = useState<"single" | "overview">("overview");
   const viewModeRef = useRef<"single" | "overview">("overview");
+  // Trusted parent origin captured from the first validated inbound message.
+  // Used to restrict outgoing postMessage calls that carry user data so they
+  // are never broadcast to an arbitrary embedding page.
+  const parentOriginRef = useRef<string | null>(null);
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
@@ -2099,7 +2107,8 @@ export default function DesignEditor() {
 
   useEffect(() => {
     if (!isBuilderDesignEmbed) return;
-    // Announce ready to Builder
+    // Announce ready to Builder. The trusted origin is not yet known at this
+    // point so we use "*" — this message carries no user data.
     window.parent.postMessage({ type: "agentNative.appReady" }, "*");
 
     function handleDesignHostMessage(event: MessageEvent) {
@@ -2123,6 +2132,12 @@ export default function DesignEditor() {
       if (!data || typeof data.type !== "string") return;
 
       if (data.type === "design:init") {
+        // Capture the trusted parent origin on the first validated message so
+        // outgoing postMessage calls that carry user data can restrict the
+        // target instead of broadcasting to "*".
+        if (!parentOriginRef.current) {
+          parentOriginRef.current = origin;
+        }
         const { previewUrl, themeVars } = data.data ?? {};
         // Apply theme vars
         if (themeVars && typeof themeVars === "object") {
@@ -2876,6 +2891,12 @@ export default function DesignEditor() {
     () => parseDesignDataJson(design?.data),
     [design?.data],
   );
+  // Keep a ref in sync so debounced timer callbacks can read the freshest
+  // designDataJson without closing over a stale snapshot from render time.
+  const designDataJsonRef = useRef(designDataJson);
+  useEffect(() => {
+    designDataJsonRef.current = designDataJson;
+  }, [designDataJson]);
   const canvasFrameGeometryById = useMemo(
     () => getCanvasFrameGeometry(designDataJson),
     [designDataJson],
@@ -2888,8 +2909,11 @@ export default function DesignEditor() {
       }
       frameGeometrySaveTimerRef.current = window.setTimeout(() => {
         frameGeometrySaveTimerRef.current = null;
+        // Read the freshest designDataJson from the ref so any concurrent
+        // server writes (e.g. apply-tweaks) that arrived during the 500 ms
+        // debounce window are not overwritten with stale closure data.
         const nextData = {
-          ...designDataJson,
+          ...designDataJsonRef.current,
           canvasFrames: geometryById,
         };
         updateDesignMutation.mutate(
@@ -2907,7 +2931,7 @@ export default function DesignEditor() {
         );
       }, 500);
     },
-    [designDataJson, id, queryClient, updateDesignMutation],
+    [id, queryClient, updateDesignMutation],
   );
 
   const writeFrameGeometrySnapshot = useCallback(
@@ -2919,7 +2943,7 @@ export default function DesignEditor() {
       }
       const snapshot = cloneCanvasFrameGeometry(geometryById);
       const nextData = {
-        ...designDataJson,
+        ...designDataJsonRef.current,
         canvasFrames: snapshot,
       };
       queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
@@ -2940,7 +2964,7 @@ export default function DesignEditor() {
         },
       );
     },
-    [designDataJson, id, queryClient, updateDesignMutation],
+    [id, queryClient, updateDesignMutation],
   );
 
   const handleGeometryCommit = useCallback(
@@ -5118,6 +5142,15 @@ export default function DesignEditor() {
         if (!replacePreviewContent(next)) {
           setContentRenderRevision((revision) => revision + 1);
         }
+        // Clear stale selection if the undo removed the selected element.
+        setSelectedElement((prev) => {
+          if (!prev) return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
+        });
       }
       redoOrderRef.current = [
         ...redoOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -5174,6 +5207,15 @@ export default function DesignEditor() {
         if (!replacePreviewContent(next)) {
           setContentRenderRevision((revision) => revision + 1);
         }
+        // Clear stale selection if the redo removed the selected element.
+        setSelectedElement((prev) => {
+          if (!prev) return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
+        });
+        setHoveredElement((prev) => {
+          if (!prev) return prev;
+          return elementInfoExistsInContent(next, prev) ? prev : null;
+        });
       }
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -5308,6 +5350,7 @@ export default function DesignEditor() {
       }
 
       if (activeFile && viewMode === "overview") {
+        viewModeRef.current = "single";
         setViewMode("single");
       }
       setMode(next);
@@ -5898,12 +5941,14 @@ ${serializedHtml}
   );
 
   const handleInspectorExport = useCallback(
-    (settings: ExportSettingsValue) => {
-      if (settings.format === "svg") {
-        void handleDownloadSvg(settings);
-        return;
+    (settingsList: ExportSettingsValue[]) => {
+      for (const settings of settingsList) {
+        if (settings.format === "svg") {
+          void handleDownloadSvg(settings);
+        } else {
+          void handleDownloadPng(settings);
+        }
       }
-      void handleDownloadPng(settings);
     },
     [handleDownloadPng, handleDownloadSvg],
   );
@@ -6532,10 +6577,14 @@ ${serializedHtml}
 
   const zoomLabel = `${Math.round(zoom)}%`;
 
-  if (!id) {
-    navigate("/");
-    return null;
-  }
+  // Hooks must not be called conditionally; keep navigate as an effect so the
+  // render phase stays pure. This branch is unreachable in practice because the
+  // design.$id.tsx route always supplies an id param.
+  useEffect(() => {
+    if (!id) navigate("/");
+  }, [id, navigate]);
+
+  if (!id) return null;
 
   if (designLoading || (!design && pendingGenerationActive)) {
     return <DesignEditorSkeleton embedded={embedded} />;
@@ -6880,7 +6929,10 @@ ${serializedHtml}
               size="icon"
               className="size-8 cursor-pointer"
               onClick={() => {
-                window.parent.postMessage({ type: "design:close" }, "*");
+                window.parent.postMessage(
+                  { type: "design:close" },
+                  parentOriginRef.current ?? window.location.origin,
+                );
               }}
             >
               <IconX className="size-4" />
@@ -7727,7 +7779,7 @@ ${serializedHtml}
                 type: "agentNative.submitChat",
                 data: { message: prompt, submit: true },
               },
-              "*",
+              parentOriginRef.current ?? window.location.origin,
             );
             handlePromptOpenChange(false);
             return;

@@ -20,6 +20,7 @@ export default defineAction({
       .describe("Updated project type"),
     designSystemId: z
       .string()
+      .min(1)
       .nullable()
       .optional()
       .describe("Design system ID to link, or null to unlink"),
@@ -41,7 +42,7 @@ export default defineAction({
     }
 
     await assertAccess("design", id, "editor");
-    if (designSystemId) {
+    if (designSystemId != null) {
       await assertAccess("design-system", designSystemId, "viewer");
     }
 

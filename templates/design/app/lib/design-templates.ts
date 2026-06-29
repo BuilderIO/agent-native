@@ -174,9 +174,21 @@ function sanitizeFontStack(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback;
   const cleaned = value.replace(/[;{}<>]/g, "").trim();
   if (!cleaned) return fallback;
-  if (cleaned.includes(",")) return cleaned;
-  const unquoted = cleaned.replace(/["']/g, "");
-  return `"${unquoted}", ${fallback}`;
+  // Accept only font stacks composed of quoted or unquoted font family names.
+  // Each family name may be a quoted string or unquoted alphanumeric words/hyphens/underscores.
+  // This rejects unbalanced parentheses, slashes, and other CSS-injection vectors.
+  const fontFamilyPattern =
+    /^"[^"]*"|'[^']*'|[a-zA-Z0-9 \-_]+(?:\s+[a-zA-Z0-9 \-_]+)*/;
+  const fontStackPattern = new RegExp(
+    `^(${fontFamilyPattern.source})(,\\s*(${fontFamilyPattern.source}))*$`,
+  );
+  if (fontStackPattern.test(cleaned)) return cleaned;
+  // Single unquoted name: wrap in quotes and append fallback.
+  const singleName = cleaned.replace(/["']/g, "").trim();
+  if (/^[a-zA-Z0-9 \-_]+$/.test(singleName)) {
+    return `"${singleName}", ${fallback}`;
+  }
+  return fallback;
 }
 
 function sanitizeRadius(value: unknown, fallback: number): number {

@@ -270,6 +270,19 @@ export default defineAction({
           agentLeaveDocument(fileId);
         }
 
+        // Update the in-memory map so a second entry with the same filename
+        // in the same `files` array hits the UPDATE branch instead of
+        // inserting a duplicate row.
+        existingByName.set(file.filename, {
+          id: fileId,
+          designId,
+          filename: file.filename,
+          fileType: file.fileType ?? "html",
+          content: file.content,
+          createdAt: now,
+          updatedAt: now,
+        });
+
         savedFiles.push({
           id: fileId,
           filename: file.filename,
@@ -290,31 +303,12 @@ export default defineAction({
     // Merge with existing data so tweak definitions survive content updates.
     // The data column is a free-form JSON blob; we own these keys here and
     // leave anything else intact.
-    const [existingDesign] = await db
-      .select({ data: schema.designs.data })
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId));
-    let prevData: Record<string, unknown> = {};
-    if (existingDesign?.data) {
-      try {
-        const parsed = JSON.parse(existingDesign.data);
-        if (parsed && typeof parsed === "object") prevData = parsed;
-      } catch {
-        // Stale or invalid JSON — start fresh.
-      }
-    }
-    const mergedData: Record<string, unknown> = {
-      ...prevData,
-      lastPrompt: prompt,
-      generatedAt: now,
-      fileCount: files.length,
-    };
-    if (tweaks !== undefined) {
-      mergedData.tweaks = tweaks.map((tweak) => ({
-        ...tweak,
-        type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
-      }));
-    }
+    //
+    // Wrapped in a transaction so that concurrent generate-design calls for the
+    // same design (e.g. the parallel fan-out from generate-screens) each read
+    // the latest canvasFrames and merge their own placement on top, rather than
+    // all reading the same stale snapshot and the last writer silently
+    // discarding the others' frame coordinates.
     let placedFrames:
       | Array<{
           fileId: string;
@@ -322,39 +316,68 @@ export default defineAction({
           frame: CanvasFramePlacement;
         }>
       | undefined;
-    if (canvasFrames !== undefined) {
-      const savedByFileId = new Map(savedFiles.map((file) => [file.id, file]));
-      const savedByFilename = new Map(
-        savedFiles.map((file) => [file.filename, file]),
-      );
-      const existingByFileId = new Map(
-        existingFiles.map((file) => [file.id, file]),
-      );
-      const merged = mergeCanvasFramePlacements({
-        existing: prevData.canvasFrames,
-        placements: canvasFrames,
-        resolveFileId: (placement) => {
-          if (placement.fileId) {
-            return savedByFileId.has(placement.fileId) ||
-              existingByFileId.has(placement.fileId)
-              ? placement.fileId
+    await db.transaction(async (tx) => {
+      const [existingDesign] = await tx
+        .select({ data: schema.designs.data })
+        .from(schema.designs)
+        .where(eq(schema.designs.id, designId));
+      let prevData: Record<string, unknown> = {};
+      if (existingDesign?.data) {
+        try {
+          const parsed = JSON.parse(existingDesign.data);
+          if (parsed && typeof parsed === "object") prevData = parsed;
+        } catch {
+          // Stale or invalid JSON — start fresh.
+        }
+      }
+      const mergedData: Record<string, unknown> = {
+        ...prevData,
+        lastPrompt: prompt,
+        generatedAt: now,
+        fileCount: files.length,
+      };
+      if (tweaks !== undefined) {
+        mergedData.tweaks = tweaks.map((tweak) => ({
+          ...tweak,
+          type: tweak.type === "color-swatches" ? "color-swatch" : tweak.type,
+        }));
+      }
+      if (canvasFrames !== undefined) {
+        const savedByFileId = new Map(
+          savedFiles.map((file) => [file.id, file]),
+        );
+        const savedByFilename = new Map(
+          savedFiles.map((file) => [file.filename, file]),
+        );
+        const existingByFileId = new Map(
+          existingFiles.map((file) => [file.id, file]),
+        );
+        const merged = mergeCanvasFramePlacements({
+          existing: prevData.canvasFrames,
+          placements: canvasFrames,
+          resolveFileId: (placement) => {
+            if (placement.fileId) {
+              return savedByFileId.has(placement.fileId) ||
+                existingByFileId.has(placement.fileId)
+                ? placement.fileId
+                : undefined;
+            }
+            return placement.filename
+              ? (savedByFilename.get(placement.filename)?.id ??
+                  existingByName.get(placement.filename)?.id)
               : undefined;
-          }
-          return placement.filename
-            ? (savedByFilename.get(placement.filename)?.id ??
-                existingByName.get(placement.filename)?.id)
-            : undefined;
-        },
-      });
-      mergedData.canvasFrames = merged.canvasFrames;
-      placedFrames = merged.placedFrames;
-    }
-    designUpdates.data = JSON.stringify(mergedData);
+          },
+        });
+        mergedData.canvasFrames = merged.canvasFrames;
+        placedFrames = merged.placedFrames;
+      }
+      designUpdates.data = JSON.stringify(mergedData);
 
-    await db
-      .update(schema.designs)
-      .set(designUpdates)
-      .where(eq(schema.designs.id, designId));
+      await tx
+        .update(schema.designs)
+        .set(designUpdates)
+        .where(eq(schema.designs.id, designId));
+    });
 
     return {
       designId,
