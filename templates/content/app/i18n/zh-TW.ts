@@ -142,6 +142,18 @@ const messages = {
       "還原會替所有人取代目前內容，且無法復原。不過目前狀態會先儲存為一個版本。",
     versionRestored: "版本已還原。",
     versionSavedAutomatically: "編輯時會自動儲存版本。",
+    reference: {
+      defaultTitle: "引用",
+      empty: "引用的文件是空的。",
+      loadError: "無法載入引用的文件。",
+      loading: "正在載入引用...",
+      missingPath: "引用路徑缺失或不受支援。",
+      nestedSkipped: "已略過巢狀引用預覽。",
+      notFound: "找不到引用的文件。",
+      open: "開啟",
+      pathMissing: "引用路徑缺失",
+      selfReference: "此引用指向目前文件。",
+    },
     media: {
       addAltTextDescription: "新增替代文字來描述該圖片。",
       addAudio: "新增音訊",

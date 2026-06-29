@@ -1,5 +1,5 @@
 import { IconPhotoPlus, IconX } from "@tabler/icons-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import {
@@ -104,6 +104,10 @@ export function ImageFillControls({
 }: ImageFillControlsProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [urlDraft, setUrlDraft] = useState(value.url);
+
+  useEffect(() => {
+    setUrlDraft(value.url);
+  }, [value.url]);
 
   const commitUrl = () => {
     onChange({ ...value, url: urlDraft.trim() });

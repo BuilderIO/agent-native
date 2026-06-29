@@ -3027,10 +3027,6 @@ export default function DesignEditor() {
   ]);
 
   useEffect(() => {
-    return () => clearPendingGeneration(id);
-  }, [id]);
-
-  useEffect(() => {
     return () => {
       if (frameGeometrySaveTimerRef.current !== null) {
         window.clearTimeout(frameGeometrySaveTimerRef.current);
@@ -5493,6 +5489,20 @@ export default function DesignEditor() {
       ].join("\n");
       clearGenerationCompleteTimer();
       setGenerationIssue(null);
+      const startedAt = Date.now();
+      patchPendingGeneration(id, {
+        prompt: promptState.prompt,
+        files: promptState.files,
+        title: design.title,
+        designSystemId: promptState.designSystemId,
+        model: promptState.model,
+        engine: promptState.engine,
+        effort: promptState.effort,
+        attempt,
+        startedAt,
+      });
+      setHasPendingGeneration(true);
+      setRetryablePrompt(null);
       const runTabId = agentSubmit(
         `Generate design for "${design.title}": ${promptState.prompt}`,
         context,
@@ -5514,10 +5524,8 @@ export default function DesignEditor() {
         effort: promptState.effort,
         attempt,
         runTabId,
-        startedAt: Date.now(),
+        startedAt,
       });
-      setHasPendingGeneration(true);
-      setRetryablePrompt(null);
     },
     [
       id,
@@ -7667,6 +7675,17 @@ ${serializedHtml}
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);
+          const startedAt = Date.now();
+          patchPendingGeneration(id, {
+            prompt,
+            files,
+            title: design.title,
+            designSystemId,
+            ...options,
+            attempt: 1,
+            startedAt,
+          });
+          setHasPendingGeneration(true);
           const runTabId = agentSubmit(
             `Prepare design questions for "${design.title}": ${prompt}`,
             context,
@@ -7681,9 +7700,8 @@ ${serializedHtml}
             ...options,
             runTabId,
             attempt: 1,
-            startedAt: Date.now(),
+            startedAt,
           });
-          setHasPendingGeneration(true);
           handlePromptOpenChange(false);
         }}
         loading={generating}

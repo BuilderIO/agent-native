@@ -9083,6 +9083,7 @@ function CreatePlanDialog({
               disabled={composerLocked}
               attachmentsEnabled={false}
               showModelSelector={false}
+              modelStatusChecksEnabled={false}
               placeholder={t("plansPage.create.placeholder")}
               draftScope="plans:create-plan"
               initialText={promptSeed}

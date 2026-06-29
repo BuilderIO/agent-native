@@ -166,7 +166,10 @@ export function parseGradientCss(
       stopStart = 1;
     }
   } else if (fn === "radial") {
-    kind = /ellipse/i.test(first) ? "diamond" : "radial";
+    kind =
+      /ellipse\s+closest-side/i.test(first) || fallbackKind === "diamond"
+        ? "diamond"
+        : "radial";
     if (/circle|ellipse|at\s/i.test(first)) stopStart = 1;
   } else if (fn === "conic") {
     kind = "angular";

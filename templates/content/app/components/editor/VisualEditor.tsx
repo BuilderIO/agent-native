@@ -748,6 +748,8 @@ interface VisualEditorProps {
   localFileMode?: boolean;
   /** Workspace-relative local artifact path for resolving inline references. */
   localFilePath?: string | null;
+  /** Current nested local-file reference preview depth. */
+  referenceDepth?: number;
   /** Called when user selects text and clicks "Comment" in bubble toolbar. */
   onComment?: (
     quotedText: string,
@@ -895,6 +897,7 @@ interface VisualEditorExtensionOptions {
   resolveNotionPageLink?: (notionPageId: string) => NotionPageLink | null;
   onOpenNotionPageLink?: (documentId: string) => void;
   localFilePath?: string | null;
+  referenceDepth?: number;
 }
 
 function hasAncestorType(
@@ -1219,6 +1222,7 @@ export function createVisualEditorExtensions({
   resolveNotionPageLink,
   onOpenNotionPageLink,
   localFilePath,
+  referenceDepth = 0,
 }: VisualEditorExtensionOptions = {}): Extensions {
   // Build on the SHARED editor core (StarterKit base + the Collaboration /
   // CollaborationCaret wiring + collab undo/redo gating + ordering), then inject
@@ -1303,7 +1307,10 @@ export function createVisualEditorExtensions({
       // `VisualEditor` below. Mounted after the Notion nodes and before the
       // Markdown extension so the NFM <-> doc round-trip recognizes the node.
       RegistryBlockNode,
-      ContentReferenceNode.configure({ currentPath: localFilePath ?? null }),
+      ContentReferenceNode.configure({
+        currentPath: localFilePath ?? null,
+        referenceDepth,
+      }),
       LocalMdxComponentNode,
       CommentHighlight,
       DragHandle,
@@ -1575,6 +1582,7 @@ export function VisualEditor({
   editable = true,
   localFileMode = false,
   localFilePath,
+  referenceDepth,
   onComment,
   commentThreads,
   activeThreadId,
@@ -1644,6 +1652,7 @@ export function VisualEditor({
         resolveNotionPageLink,
         onOpenNotionPageLink,
         localFilePath,
+        referenceDepth,
       }),
     [
       documentId,
@@ -1657,6 +1666,7 @@ export function VisualEditor({
       resolveNotionPageLink,
       onOpenNotionPageLink,
       localFilePath,
+      referenceDepth,
     ],
   );
 

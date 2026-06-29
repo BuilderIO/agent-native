@@ -221,6 +221,7 @@ function ColorInput({
   onBlendModeChange,
   supportsLayeredFills = false,
   documentColors,
+  pickerKey,
 }: {
   label: string;
   value: string;
@@ -232,6 +233,7 @@ function ColorInput({
   supportsLayeredFills?: boolean;
   /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
   documentColors?: string[];
+  pickerKey?: string;
 }) {
   const [draft, setDraft] = useState(value);
   const [selectedFillId, setSelectedFillId] = useState(SOLID_FILL_ID);
@@ -466,7 +468,6 @@ function ColorInput({
     selectedLayerIndex !== null
       ? (backgroundLayers[selectedLayerIndex] ?? draft ?? value ?? "#000000")
       : draft || "#000000";
-
   const handlePaintTypeChange = (type: DesignPaintType) => {
     const selectedLayer = fillLayerIndex(selectedFillId);
     if (type === "solid") {
@@ -519,6 +520,7 @@ function ColorInput({
 
   return (
     <DesignColorPicker
+      key={pickerKey}
       label={label}
       value={pickerValue}
       onChange={setNext}
@@ -3385,6 +3387,13 @@ function FillProperties({
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
                   documentColors={documentColors}
+                  pickerKey={[
+                    element.sourceId ??
+                      element.id ??
+                      element.selector ??
+                      element.tagName,
+                    fillProperty,
+                  ].join(":")}
                 />
               </div>
               <SectionIconButton

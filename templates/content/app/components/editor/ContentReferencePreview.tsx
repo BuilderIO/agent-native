@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconExternalLink, IconFileText } from "@tabler/icons-react";
 import { lazy, Suspense, useMemo } from "react";
 import { useNavigate } from "react-router";
@@ -10,6 +11,8 @@ const ReadonlyReferenceEditor = lazy(async () => {
   const module = await import("./VisualEditor");
   return { default: module.VisualEditor };
 });
+
+const MAX_CONTENT_REFERENCE_PREVIEW_DEPTH = 1;
 
 function trimSlashes(path: string) {
   return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/+$/, "");
@@ -54,12 +57,15 @@ export function ContentReferencePreview({
   currentPath,
   title,
   className,
+  referenceDepth = 0,
 }: {
   sourcePath?: string | null;
   currentPath?: string | null;
   title?: string | null;
   className?: string;
+  referenceDepth?: number;
 }) {
+  const t = useT();
   const navigate = useNavigate();
   const documentsQuery = useDocuments();
   const resolvedPath = useMemo(
@@ -80,7 +86,12 @@ export function ContentReferencePreview({
     title?.trim() ||
     documentQuery.data?.title ||
     document?.title ||
-    "Reference";
+    t("editor.reference.defaultTitle");
+  const isSelfReference =
+    !!resolvedPath &&
+    !!currentPath &&
+    resolvedPath === trimSlashes(currentPath);
+  const isNestedTooDeep = referenceDepth >= MAX_CONTENT_REFERENCE_PREVIEW_DEPTH;
 
   return (
     <section
@@ -97,7 +108,7 @@ export function ContentReferencePreview({
             {displayTitle}
           </div>
           <div className="truncate text-xs text-muted-foreground">
-            {resolvedPath ?? sourcePath ?? "Reference path missing"}
+            {resolvedPath ?? sourcePath ?? t("editor.reference.pathMissing")}
           </div>
         </div>
         {document ? (
@@ -111,36 +122,44 @@ export function ContentReferencePreview({
             }
           >
             <IconExternalLink className="size-3.5" />
-            Open
+            {t("editor.reference.open")}
           </Button>
         ) : null}
       </div>
       <div className="max-h-[520px] overflow-auto px-3 py-3">
         {!resolvedPath ? (
           <div className="text-sm text-muted-foreground">
-            Reference path missing or unsupported.
+            {t("editor.reference.missingPath")}
+          </div>
+        ) : isSelfReference ? (
+          <div className="text-sm text-muted-foreground">
+            {t("editor.reference.selfReference")}
           </div>
         ) : documentsQuery.isLoading ? (
           <div className="text-sm text-muted-foreground">
-            Loading reference...
+            {t("editor.reference.loading")}
           </div>
         ) : !document ? (
           <div className="text-sm text-muted-foreground">
-            Referenced document not found.
+            {t("editor.reference.notFound")}
           </div>
         ) : documentQuery.isLoading ? (
           <div className="text-sm text-muted-foreground">
-            Loading reference...
+            {t("editor.reference.loading")}
           </div>
         ) : documentQuery.isError ? (
           <div className="text-sm text-muted-foreground">
-            Could not load referenced document.
+            {t("editor.reference.loadError")}
+          </div>
+        ) : isNestedTooDeep ? (
+          <div className="text-sm text-muted-foreground">
+            {t("editor.reference.nestedSkipped")}
           </div>
         ) : body.trim() ? (
           <Suspense
             fallback={
               <div className="text-sm text-muted-foreground">
-                Loading reference...
+                {t("editor.reference.loading")}
               </div>
             }
           >
@@ -152,11 +171,12 @@ export function ContentReferencePreview({
               editable={false}
               localFileMode
               localFilePath={resolvedPath}
+              referenceDepth={referenceDepth + 1}
             />
           </Suspense>
         ) : (
           <div className="text-sm text-muted-foreground">
-            Referenced document is empty.
+            {t("editor.reference.empty")}
           </div>
         )}
       </div>

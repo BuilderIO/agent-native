@@ -394,11 +394,11 @@ function codexMcpHeader(name: string): string {
 
 /**
  * Parse a TOML table-header line such as `[mcp_servers."plan".http_headers]`
- * into its decoded dotted-key components
+ * or `[mcp_servers.plan] # local note` into its decoded dotted-key components
  * (`["mcp_servers", "plan", "http_headers"]`). Returns `null` when the line is
- * not a single `[table]` header — blank lines, key/value pairs, comments, and
- * `[[array-of-tables]]` headers all return `null`, so the result doubles as a
- * reliable "is this line a table boundary?" check.
+ * not a single `[table]` header — blank lines, key/value pairs, comments,
+ * invalid trailing content, and `[[array-of-tables]]` headers all return `null`,
+ * so the result doubles as a reliable "is this line a table boundary?" check.
  *
  * Handles bare keys (`A-Za-z0-9_-`) and quoted keys (basic `"..."` with `\`
  * escapes, and literal `'...'`), tolerating whitespace around the dot
@@ -407,16 +407,45 @@ function codexMcpHeader(name: string): string {
  */
 function parseTomlTableHeader(line: string): string[] | null {
   const trimmed = line.trim();
-  if (
-    trimmed.length < 2 ||
-    trimmed[0] !== "[" ||
-    trimmed[trimmed.length - 1] !== "]"
-  ) {
-    return null;
-  }
+  if (trimmed.length < 2 || trimmed[0] !== "[") return null;
   // `[[array-of-tables]]` is a different construct — leave it untouched.
   if (trimmed[1] === "[") return null;
-  const inner = trimmed.slice(1, -1);
+
+  let quote: '"' | "'" | null = null;
+  let escaped = false;
+  let closeIndex = -1;
+  for (let i = 1; i < trimmed.length; i++) {
+    const ch = trimmed[i];
+    if (quote === '"') {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') quote = null;
+      continue;
+    }
+    if (quote === "'") {
+      if (ch === "'") quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === "]") {
+      closeIndex = i;
+      break;
+    }
+  }
+  if (closeIndex < 0) return null;
+  const trailing = trimmed.slice(closeIndex + 1).trim();
+  if (trailing && !trailing.startsWith("#")) return null;
+
+  const inner = trimmed.slice(1, closeIndex);
   const keys: string[] = [];
   const isWs = (c: string) => c === " " || c === "\t";
   const isBare = (c: string) => /[A-Za-z0-9_-]/.test(c);

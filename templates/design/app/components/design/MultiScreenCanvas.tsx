@@ -3143,7 +3143,7 @@ function Screen({
         <ResizeHandles
           active={selectionOutlined}
           enabled={!penActive && !creationToolActive && handlesEnabled}
-          showRotate={false}
+          showRotate
           chromeScale={chromeScale}
           onStartResize={(handle, e) => onStartResize(screen.id, handle, e)}
           onStartRotate={(e) => onStartRotate(screen.id, e)}

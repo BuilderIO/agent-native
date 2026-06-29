@@ -714,6 +714,36 @@ describe("writeCodexBlock", () => {
     expect(content.match(/\[mcp_servers\."node_repl"\]/g)).toHaveLength(1);
   });
 
+  it("treats table headers with trailing comments as table boundaries", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(
+      file,
+      [
+        '[mcp_servers."plan"] # installed by hand',
+        `url = "${PLAN_URL}"`,
+        "",
+        "[mcp_servers.other] # keep this neighbor",
+        'url = "https://other.example.com/mcp"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    writeCodexBlock(
+      file,
+      "plan",
+      buildCodexHttpBlock("plan", PLAN_URL, "NEW-token"),
+    );
+
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content.match(/\[mcp_servers\."plan"\]/g)).toHaveLength(1);
+    expect(content).toContain("NEW-token");
+    expect(content).not.toContain("installed by hand");
+    expect(content).toContain("[mcp_servers.other] # keep this neighbor");
+    expect(content).toContain('url = "https://other.example.com/mcp"');
+  });
+
   it("repeated writes are idempotent (no accumulation)", () => {
     const dir = tmpDir();
     const file = path.join(dir, "config.toml");
