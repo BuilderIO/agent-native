@@ -5,7 +5,7 @@ import {
   isEmbedAuthActive,
 } from "@agent-native/core/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 
 export const DESIGN_VARIANT_PICKED_EVENT = "agent-native-design-variant-picked";
 
@@ -100,6 +100,13 @@ export function useVariantFlow(designId: string | undefined) {
   const [standalonePick, setStandalonePick] = useState<StandalonePick | null>(
     null,
   );
+  // Re-entry latch so a double-click on "Use this direction" can't fire two
+  // generate-design writes + two pick messages.
+  const pickingRef = useRef(false);
+  // Set once a pick commits; keeps the 2s poll from re-showing the grid in the
+  // window before the server DELETE lands. Cleared once the server state is gone
+  // so a later, genuinely new variant set can still appear.
+  const pickedRef = useRef(false);
 
   const { data } = useQuery({
     queryKey: ["design-variants"],
@@ -121,15 +128,17 @@ export function useVariantFlow(designId: string | undefined) {
   });
 
   useEffect(() => {
-    if (
-      data?.variants &&
-      data.variants.length > 0 &&
-      data.designId === designId
-    ) {
-      setState(data);
-    } else {
+    const hasVariants = Boolean(
+      data?.variants && data.variants.length > 0 && data.designId === designId,
+    );
+    // After a pick, keep the grid hidden until the server-side variant state is
+    // actually cleared (DELETE landed), then re-arm for any future variant set.
+    if (pickedRef.current) {
+      if (!hasVariants) pickedRef.current = false;
       setState(null);
+      return;
     }
+    setState(hasVariants && data ? data : null);
   }, [data, designId]);
 
   const clear = useCallback(() => {
@@ -147,88 +156,94 @@ export function useVariantFlow(designId: string | undefined) {
       if (!state || !designId) return;
       const chosen = state.variants.find((v) => v.id === variantId);
       if (!chosen) return;
-
-      // Persist the chosen variant as the design's primary file via the
-      // agent's own action endpoint so every host lands on the same design.
-      let persisted = false;
+      if (pickingRef.current) return;
+      pickingRef.current = true;
+      pickedRef.current = true;
       try {
-        await callAction(
-          "generate-design" as any,
-          {
-            designId,
-            prompt: `User picked variant "${chosen.label}"`,
-            files: [
-              {
-                filename: "index.html",
-                content: chosen.content,
-                fileType: "html",
-              },
-            ],
-          } as any,
-        );
-        await Promise.all([
-          qc.invalidateQueries({
-            queryKey: ["action", "get-design", { id: designId }],
-          }),
-          qc.invalidateQueries({ queryKey: ["action", "get-design"] }),
-          qc.invalidateQueries({ queryKey: ["action", "list-designs"] }),
-        ]);
-        persisted = true;
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent(DESIGN_VARIANT_PICKED_EVENT, {
-              detail: { designId, content: chosen.content },
-            }),
+        // Persist the chosen variant as the design's primary file via the
+        // agent's own action endpoint so every host lands on the same design.
+        let persisted = false;
+        try {
+          await callAction(
+            "generate-design" as any,
+            {
+              designId,
+              prompt: `User picked variant "${chosen.label}"`,
+              files: [
+                {
+                  filename: "index.html",
+                  content: chosen.content,
+                  fileType: "html",
+                },
+              ],
+            } as any,
           );
+          await Promise.all([
+            qc.invalidateQueries({
+              queryKey: ["action", "get-design", { id: designId }],
+            }),
+            qc.invalidateQueries({ queryKey: ["action", "get-design"] }),
+            qc.invalidateQueries({ queryKey: ["action", "list-designs"] }),
+          ]);
+          persisted = true;
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(
+              new CustomEvent(DESIGN_VARIANT_PICKED_EVENT, {
+                detail: { designId, content: chosen.content },
+              }),
+            );
+          }
+        } catch {
+          // Network error: report the choice below so the agent still records it;
+          // the grid still clears so the user isn't stuck.
         }
-      } catch {
-        // Network error: report the choice below so the agent still records it;
-        // the grid still clears so the user isn't stuck.
+
+        const refineHint = persisted
+          ? `Its content has been saved as index.html. Continue refining from there if the user asks.`
+          : `Saving the chosen variant did not complete. Ask the user whether to retry before refining it.`;
+        const guardHint = persisted
+          ? `Do not show further variants unless the user explicitly asks for "more options" or "alternatives".`
+          : `Do not claim the design file was updated until generate-design succeeds.`;
+
+        if (isEmbedAuthActive()) {
+          // Embedded MCP host (ChatGPT / Claude): the pick rides the host chat
+          // bridge straight into the conversation.
+          sendToAgentChat({
+            message: `I picked "${chosen.label}".`,
+            context: [
+              `The user chose variant "${chosen.label}" (id: ${chosen.id}) for design ${designId} inside the embedded Design app.`,
+              refineHint,
+              guardHint,
+            ].join("\n"),
+            submit: true,
+            openSidebar: false,
+          });
+        } else if (isLinkOnlyHandoff()) {
+          // Link-only host (CLI / Codex / Claude Code): no chat bridge — show a
+          // copyable summary the user pastes back into their coding agent. The
+          // card owns the clipboard write so its "Copied" state stays truthful.
+          setStandalonePick({
+            heading: "Direction selected",
+            label: chosen.label,
+            text: variantHandoffText(designId, chosen, persisted),
+          });
+        } else {
+          // First-party app: post the pick to its own agent sidebar composer.
+          sendToAgentChat({
+            message: `I picked "${chosen.label}".`,
+            context: [
+              `The user chose variant "${chosen.label}" (id: ${chosen.id}) for design ${designId}.`,
+              refineHint,
+              guardHint,
+            ].join("\n"),
+            submit: true,
+          });
+        }
+
+        clear();
+      } finally {
+        pickingRef.current = false;
       }
-
-      const refineHint = persisted
-        ? `Its content has been saved as index.html. Continue refining from there if the user asks.`
-        : `Saving the chosen variant did not complete. Ask the user whether to retry before refining it.`;
-      const guardHint = persisted
-        ? `Do not show further variants unless the user explicitly asks for "more options" or "alternatives".`
-        : `Do not claim the design file was updated until generate-design succeeds.`;
-
-      if (isEmbedAuthActive()) {
-        // Embedded MCP host (ChatGPT / Claude): the pick rides the host chat
-        // bridge straight into the conversation.
-        sendToAgentChat({
-          message: `I picked "${chosen.label}".`,
-          context: [
-            `The user chose variant "${chosen.label}" (id: ${chosen.id}) for design ${designId} inside the embedded Design app.`,
-            refineHint,
-            guardHint,
-          ].join("\n"),
-          submit: true,
-          openSidebar: false,
-        });
-      } else if (isLinkOnlyHandoff()) {
-        // Link-only host (CLI / Codex / Claude Code): no chat bridge — show a
-        // copyable summary the user pastes back into their coding agent. The
-        // card owns the clipboard write so its "Copied" state stays truthful.
-        setStandalonePick({
-          heading: "Direction selected",
-          label: chosen.label,
-          text: variantHandoffText(designId, chosen, persisted),
-        });
-      } else {
-        // First-party app: post the pick to its own agent sidebar composer.
-        sendToAgentChat({
-          message: `I picked "${chosen.label}".`,
-          context: [
-            `The user chose variant "${chosen.label}" (id: ${chosen.id}) for design ${designId}.`,
-            refineHint,
-            guardHint,
-          ].join("\n"),
-          submit: false,
-        });
-      }
-
-      clear();
     },
     [state, designId, qc, clear],
   );

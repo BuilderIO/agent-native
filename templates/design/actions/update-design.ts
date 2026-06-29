@@ -52,7 +52,40 @@ export default defineAction({
     const updates: Record<string, unknown> = { updatedAt: now };
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
-    if (data !== undefined) updates.data = data;
+    if (data !== undefined) {
+      // Merge into the existing data blob instead of replacing it wholesale, so
+      // a partial update (e.g. just `tweaks`) doesn't destroy framework-owned
+      // keys like `canvasFrames`. Mirrors generate-design's read-merge.
+      const [existing] = await db
+        .select({ data: schema.designs.data })
+        .from(schema.designs)
+        .where(eq(schema.designs.id, id));
+      const asRecord = (raw: string | null | undefined) => {
+        if (!raw) return {} as Record<string, unknown>;
+        try {
+          const parsed = JSON.parse(raw);
+          return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : ({} as Record<string, unknown>);
+        } catch {
+          return {} as Record<string, unknown>;
+        }
+      };
+      const incomingParsed = JSON.parse(data);
+      if (
+        incomingParsed &&
+        typeof incomingParsed === "object" &&
+        !Array.isArray(incomingParsed)
+      ) {
+        updates.data = JSON.stringify({
+          ...asRecord(existing?.data),
+          ...(incomingParsed as Record<string, unknown>),
+        });
+      } else {
+        // Non-object JSON (array/primitive): keep the original verbatim write.
+        updates.data = data;
+      }
+    }
     if (projectType !== undefined) updates.projectType = projectType;
     if (designSystemId !== undefined) updates.designSystemId = designSystemId;
 

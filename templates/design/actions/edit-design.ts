@@ -91,11 +91,14 @@ function findUniqueStableIdAgnosticSpan(
   }
   if (count !== 1) return null;
 
+  // Anchor `end` to one byte past the LAST matched stripped character rather than
+  // the mapped index of the NEXT character. Mapping the next index can land before
+  // a stripped node-id attribute that sits right after the match, so the splice
+  // would cross it and corrupt the file (e.g. duplicate/mangled tags).
+  const lastMatched = onlyIndex + strippedSearch.length - 1;
   return {
     start: strippedContent.indexMap[onlyIndex] ?? 0,
-    end:
-      strippedContent.indexMap[onlyIndex + strippedSearch.length] ??
-      content.length,
+    end: (strippedContent.indexMap[lastMatched] ?? content.length - 1) + 1,
   };
 }
 
