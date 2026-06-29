@@ -3,12 +3,13 @@
 // the actual migrations, seeds a 2-source row-union, and drives the bind action
 // through `run` (with an owner request context so assertAccess passes).
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rmSync } from "node:fs";
+
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -28,7 +29,8 @@ beforeAll(async () => {
   schema = dbModule.schema;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
-  bindAction = (await import("./bind-content-database-source-field.js")).default;
+  bindAction = (await import("./bind-content-database-source-field.js"))
+    .default;
 }, 60000);
 
 afterAll(() => {

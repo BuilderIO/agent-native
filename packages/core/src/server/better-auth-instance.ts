@@ -125,6 +125,8 @@ export async function trackSignupEvent({
 // Persistent auth secret
 // ---------------------------------------------------------------------------
 
+let inMemoryDevAuthSecret: string | undefined;
+
 /**
  * Resolve the Better Auth signing secret.
  *
@@ -133,13 +135,9 @@ export async function trackSignupEvent({
  *   2. Hosted workspace deploys can derive a per-purpose secret from the
  *      already-required `A2A_SECRET` root. This keeps fresh workspace branches
  *      bootable without reusing the raw A2A key as a cookie-signing key.
- *   3. `.env.local` in the template cwd — a per-workspace persistent secret
- *      that the framework writes once on first boot when no secret is set.
- *      Gitignored by convention (`.env*` in template .gitignore files), so
- *      it's safe to persist credentials here.
- *   4. Generate a new random 32-byte hex, write it to `.env.local`, and use
- *      it. Subsequent restarts re-read the same file — so session cookies
- *      signed by a previous boot remain valid across dev-server restarts.
+ *   3. Existing `.env.local` values in the template cwd — read-only
+ *      compatibility for projects that already configured this secret.
+ *   4. Generate a per-process in-memory random 32-byte hex in development.
  *
  * Why this matters: before this helper existed, missing `BETTER_AUTH_SECRET`
  * fell through to `GOOGLE_CLIENT_SECRET` / `ACCESS_TOKEN` / a hardcoded
@@ -147,8 +145,8 @@ export async function trackSignupEvent({
  * boot would re-fall back to the hardcoded value (still stable) — but
  * rotating Google credentials, toggling `ACCESS_TOKEN`, or churning the
  * fallback chain would invalidate every signed cookie and force everyone
- * to sign in again. Pinning the secret to `.env.local` on first boot
- * removes that footgun.
+ * to sign in again. We still read explicit env configuration, but never
+ * auto-write a generated secret into env files.
  */
 function resolveAuthSecret(): string {
   if (process.env.BETTER_AUTH_SECRET) return process.env.BETTER_AUTH_SECRET;
@@ -177,47 +175,26 @@ function resolveAuthSecret(): string {
     );
   }
 
-  // Dev: persist a generated secret to .env.local so sessions survive
-  // dev-server restarts. Falls back to an in-memory random secret only if
-  // the filesystem isn't writable (rare in dev, e.g. read-only mounts) —
-  // sessions reset on every dev-process restart in that case, which is
-  // fine.
-  //
   // SECURITY (audit 09 LOW-2): the previous fallback chain
   // (`GOOGLE_CLIENT_SECRET || ACCESS_TOKEN || hardcoded`) reused
   // cross-purpose secrets and a public hardcoded literal as the cookie
   // HMAC. Dropped entirely — better to mint an ephemeral secret than to
   // re-use a Google client secret or a known string.
-  try {
-    const envLocalPath = path.resolve(process.cwd(), ".env.local");
-    const existing = readEnvLocalSecret(envLocalPath);
-    if (existing) {
-      process.env.BETTER_AUTH_SECRET = existing; // guard:allow-env-mutation — boot-time secret resolution from .env.local, runs once at module init
-      return existing;
-    }
+  const existing = readEnvLocalSecret(
+    path.resolve(process.cwd(), ".env.local"),
+  );
+  if (existing) return existing;
 
-    const generated = crypto.randomBytes(32).toString("hex");
-    appendEnvLocalSecret(envLocalPath, generated);
-    process.env.BETTER_AUTH_SECRET = generated; // guard:allow-env-mutation — boot-time secret generation, runs once at module init before any request
-    console.log(
-      "[agent-native] Generated a persistent BETTER_AUTH_SECRET in .env.local. " +
-        "Sessions will now survive dev-server restarts. " +
-        "(Delete .env.local to rotate; set BETTER_AUTH_SECRET in .env to override.)",
-    );
-    return generated;
-  } catch {
-    // Filesystem unwritable (read-only mount, sandboxed test env, etc.).
-    // Mint a per-process random secret so cookies stay unique per boot.
-    // Sessions reset when the dev process restarts — acceptable for dev.
-    const ephemeral = crypto.randomBytes(32).toString("hex");
+  if (!inMemoryDevAuthSecret) {
+    inMemoryDevAuthSecret = crypto.randomBytes(32).toString("hex");
     console.warn(
-      "[agent-native] Could not persist BETTER_AUTH_SECRET to .env.local " +
-        "(filesystem unwritable). Using an ephemeral in-memory secret. " +
-        "Sessions will reset every time this process restarts. " +
-        "Set BETTER_AUTH_SECRET in your environment to keep sessions valid across restarts.",
+      "[agent-native] BETTER_AUTH_SECRET is not configured. Using an ephemeral " +
+        "in-memory development secret. Sessions will reset every time this " +
+        "process restarts. Set BETTER_AUTH_SECRET in your environment to keep " +
+        "sessions valid across restarts.",
     );
-    return ephemeral;
   }
+  return inMemoryDevAuthSecret;
 }
 
 function readEnvLocalSecret(envLocalPath: string): string | undefined {
@@ -231,26 +208,6 @@ function readEnvLocalSecret(envLocalPath: string): string | undefined {
     return m?.[1]?.trim() || undefined;
   } catch {
     return undefined;
-  }
-}
-
-function appendEnvLocalSecret(envLocalPath: string, secret: string): void {
-  const header =
-    "# Auto-generated by agent-native on first boot. Gitignored.\n" +
-    "# Keeps signed session cookies valid across dev-server restarts.\n" +
-    "# Delete this file (or this line) to rotate the secret.\n";
-  const line = `BETTER_AUTH_SECRET=${secret}\n`;
-
-  // If the file already exists, just append; otherwise create with header.
-  if (fs.existsSync(envLocalPath)) {
-    const existing = fs.readFileSync(envLocalPath, "utf8");
-    const needsLeadingNewline = existing.length > 0 && !existing.endsWith("\n");
-    fs.appendFileSync(
-      envLocalPath,
-      (needsLeadingNewline ? "\n" : "") + "\n" + header + line,
-    );
-  } else {
-    fs.writeFileSync(envLocalPath, header + line, { mode: 0o600 });
   }
 }
 
@@ -912,7 +869,7 @@ async function createBetterAuthInstance(
   const appUrl = getAppProductionUrl();
   const cookieNamespace = resolveAuthCookieNamespace();
   const requireEmailVerification =
-    isEmailConfigured() && !shouldSkipEmailVerification();
+    (await isEmailConfigured()) && !shouldSkipEmailVerification();
 
   const shouldMirrorGoogleAccountTokens =
     (config?.googleScopes?.length ?? 0) > 0;

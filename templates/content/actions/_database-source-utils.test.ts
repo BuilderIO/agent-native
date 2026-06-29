@@ -349,9 +349,7 @@ describe("database source helpers", () => {
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
     expect(pending.find((cs) => cs.documentId === "doc-mine")).toBeDefined();
-    expect(
-      pending.find((cs) => cs.documentId === "doc-other"),
-    ).toBeUndefined();
+    expect(pending.find((cs) => cs.documentId === "doc-other")).toBeUndefined();
   });
 
   it("a non-primary source adopts a row tagged for it via the Source property", () => {
@@ -388,7 +386,9 @@ describe("database source helpers", () => {
       rowRows: [],
       documentTitleById: new Map([["doc-local", "Unsourced local row"]]),
       storedChangeSets: [],
-      databaseItems: [{ databaseItemId: "item-local", documentId: "doc-local" }],
+      databaseItems: [
+        { databaseItemId: "item-local", documentId: "doc-local" },
+      ],
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0];
 
     // A non-primary source leaves an unsourced "Local" row alone.

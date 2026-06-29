@@ -13,6 +13,7 @@ import {
   SUPPORTED_LOCALES,
   type LocaleCode,
 } from "../packages/core/src/localization/shared.js";
+import { splitDocSegments } from "../packages/docs/lib/doc-block-segments";
 
 const rootDir = path.resolve(import.meta.dirname, "..");
 const pluralSuffixes = new Set(["zero", "one", "two", "few", "many", "other"]);
@@ -810,6 +811,8 @@ const rawLiteralAllowPatterns = [
   /^(?:GET|POST|PUT|PATCH|DELETE)\s+\/[^\s]+$/,
   /^\/[_a-zA-Z0-9./:$*?-]+$/,
   /^[$A-Z_a-z][$\w]*\(\)$/,
+  /^[\w.-]+:\s*\[[^\]]+\]$/,
+  /^"[^"]+"(?:\s+or\s+"[^"]+")+$/,
   /^(?=.*[a-z])(?=.*[A-Z])[$A-Z_a-z][$\w]*$/,
   /^[A-Z][a-zA-Z]+(?:\.[a-zA-Z]+)+$/,
   /^https?:\/\//,
@@ -1045,8 +1048,8 @@ function checkLocalizedDocsEmbeddedStrings(): {
     const localeDir = path.join(localizedDocsDir, locale);
     for (const file of collectMarkdownFiles(localeDir)) {
       const relWithinLocale = path.relative(localeDir, file);
-      const sourceFile = path.join(sourceDocsDir, relWithinLocale);
-      if (!existsSync(sourceFile)) continue;
+      const sourceFile = sourceDocFileForLocalized(relWithinLocale);
+      if (!sourceFile) continue;
       const localizedText = readFileSync(file, "utf8");
       if (localizedText.includes("i18n-docs-ignore")) continue;
 
@@ -1083,8 +1086,8 @@ function checkLocalizedDocsProtectedIdentifiers(): string[] {
     const localeDir = path.join(localizedDocsDir, locale);
     for (const file of collectMarkdownFiles(localeDir)) {
       const relWithinLocale = path.relative(localeDir, file);
-      const sourceFile = path.join(sourceDocsDir, relWithinLocale);
-      if (!existsSync(sourceFile)) continue;
+      const sourceFile = sourceDocFileForLocalized(relWithinLocale);
+      if (!sourceFile) continue;
 
       const sourceText = readFileSync(sourceFile, "utf8");
       const localizedText = readFileSync(file, "utf8");
@@ -1124,12 +1127,31 @@ function containsSourcePhrase(text: string, source: string) {
 function collectMarkdownFiles(entry: string): string[] {
   if (!existsSync(entry)) return [];
   const stat = readdirOrFile(entry);
-  if (stat.type === "file") return entry.endsWith(".md") ? [entry] : [];
+  if (stat.type === "file") return isDocSourceFile(entry) ? [entry] : [];
   const out: string[] = [];
   for (const child of safeReadDir(entry)) {
     out.push(...collectMarkdownFiles(path.join(entry, child)));
   }
   return out;
+}
+
+function isDocSourceFile(file: string): boolean {
+  return file.endsWith(".mdx") || file.endsWith(".md");
+}
+
+function docSourcePathWithoutExtension(file: string): string {
+  return file.replace(/\.(?:mdx|md)$/, "");
+}
+
+function sourceDocFileForLocalized(
+  relWithinLocale: string,
+): string | undefined {
+  const sourceStem = docSourcePathWithoutExtension(relWithinLocale);
+  for (const extension of [".mdx", ".md"]) {
+    const candidate = path.join(sourceDocsDir, `${sourceStem}${extension}`);
+    if (existsSync(candidate)) return candidate;
+  }
+  return undefined;
 }
 
 function extractEmbeddedDocsStrings(text: string): string[] {
@@ -1149,27 +1171,7 @@ function extractEmbeddedDocsStrings(text: string): string[] {
         }
       }
 
-      const propertyPattern = new RegExp(
-        `"(${localizedDocsStringProperties.join(
-          "|",
-        )})"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`,
-        "g",
-      );
-      for (const propMatch of body.matchAll(propertyPattern)) {
-        addLikelyTranslatableDocsString(
-          strings,
-          unescapeJsonString(propMatch[2] ?? ""),
-        );
-      }
-
-      const htmlPattern = /"html"\s*:\s*"((?:\\.|[^"\\])*)"/g;
-      for (const htmlMatch of body.matchAll(htmlPattern)) {
-        for (const htmlString of extractVisibleHtmlStrings(
-          unescapeJsonString(htmlMatch[1] ?? ""),
-        )) {
-          addLikelyTranslatableDocsString(strings, htmlString);
-        }
-      }
+      collectEmbeddedDocsBlockStrings(strings, body);
     }
 
     for (const line of body.split(/\r?\n/)) {
@@ -1177,7 +1179,39 @@ function extractEmbeddedDocsStrings(text: string): string[] {
       if (comment) addLikelyTranslatableDocsString(strings, comment);
     }
   }
+
+  for (const segment of splitDocSegments(text)) {
+    if (segment.kind !== "block" || segment.source !== "mdx") continue;
+    addLikelyTranslatableDocsString(strings, segment.title ?? "");
+    addLikelyTranslatableDocsString(strings, segment.summary ?? "");
+    collectEmbeddedDocsBlockStrings(strings, JSON.stringify(segment.data));
+  }
+
   return [...strings].sort();
+}
+
+function collectEmbeddedDocsBlockStrings(out: Set<string>, source: string) {
+  const propertyPattern = new RegExp(
+    `"(${localizedDocsStringProperties.join(
+      "|",
+    )})"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`,
+    "g",
+  );
+  for (const propMatch of source.matchAll(propertyPattern)) {
+    addLikelyTranslatableDocsString(
+      out,
+      unescapeJsonString(propMatch[2] ?? ""),
+    );
+  }
+
+  const htmlPattern = /"html"\s*:\s*"((?:\\.|[^"\\])*)"/g;
+  for (const htmlMatch of source.matchAll(htmlPattern)) {
+    for (const htmlString of extractVisibleHtmlStrings(
+      unescapeJsonString(htmlMatch[1] ?? ""),
+    )) {
+      addLikelyTranslatableDocsString(out, htmlString);
+    }
+  }
 }
 
 function addLikelyTranslatableDocsString(out: Set<string>, value: string) {

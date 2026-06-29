@@ -1,6 +1,5 @@
 export {
   createServer,
-  upsertEnvFile,
   type CreateServerOptions,
   type EnvKeyConfig,
 } from "./create-server.js";
@@ -325,6 +324,7 @@ export {
   unregisterFileUploadProvider,
   listFileUploadProviders,
   getActiveFileUploadProvider,
+  getActiveFileUploadProviderForRequest,
   uploadFile,
   builderFileUploadProvider,
   type FileUploadInput,
@@ -381,6 +381,7 @@ export {
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredential,
+  readDeployCredentialEnv,
   writeBuilderCredentials,
   deleteBuilderCredentials,
   resolveSecret,

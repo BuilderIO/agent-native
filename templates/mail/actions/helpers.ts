@@ -148,6 +148,7 @@ import {
   createOAuth2Client,
   gmailListLabels,
 } from "../server/lib/google-api.js";
+import { getOAuth2Credentials } from "../server/lib/google-auth.js";
 
 interface TokenRecord {
   access_token: string;
@@ -169,8 +170,7 @@ async function resolveAccessToken(
     tokens.expiry_date &&
     tokens.expiry_date < now + 60_000
   ) {
-    const clientId = process.env.GOOGLE_CLIENT_ID!;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+    const { clientId, clientSecret } = await getOAuth2Credentials(accountId);
     const oauth = createOAuth2Client(clientId, clientSecret, "");
     const refreshed = await oauth.refreshToken(tokens.refresh_token);
     const updated = {

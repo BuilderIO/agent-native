@@ -98,6 +98,7 @@ fn install_panic_hook() {
             append_line(&path, &format!("[clips-tray] panic: {info}"));
         }
         prev(info);
+        crate::sentry_report::flush(std::time::Duration::from_secs(2));
     }));
 }
 

@@ -179,6 +179,7 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
     return (
       url.href === BUILDER_SPACE_SETTINGS_URL ||
       url.pathname === "/account/billing" ||
+      url.pathname === "/account/subscription" ||
       /^\/app\/organizations\/[^/]+\/billing$/.test(url.pathname)
     );
   } catch {

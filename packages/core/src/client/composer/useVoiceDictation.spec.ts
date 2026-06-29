@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { voiceDictationStartErrorMessage } from "./useVoiceDictation.js";
+import {
+  providerForTextCleanup,
+  voiceDictationStartErrorMessage,
+} from "./useVoiceDictation.js";
 
 describe("voiceDictationStartErrorMessage", () => {
   afterEach(() => {
@@ -27,5 +30,16 @@ describe("voiceDictationStartErrorMessage", () => {
         message: "Permission denied",
       }),
     ).toContain("site controls icon");
+  });
+});
+
+describe("providerForTextCleanup", () => {
+  it("keeps browser-only dictation on the browser provider", () => {
+    expect(providerForTextCleanup("browser")).toBe("browser");
+  });
+
+  it("uses auto cleanup only for realtime providers without a cleanup endpoint", () => {
+    expect(providerForTextCleanup("google-realtime")).toBe("auto");
+    expect(providerForTextCleanup("openai")).toBe("openai");
   });
 });

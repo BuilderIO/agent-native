@@ -59,6 +59,38 @@ function titleFromBody(body: string): string | null {
   return heading?.[1]?.trim() || null;
 }
 
+function isDocSourceFile(filename: string): boolean {
+  return filename.endsWith(".mdx") || filename.endsWith(".md");
+}
+
+function docSourcePathWithoutExtension(filename: string): string {
+  return filename.replace(/\.(?:mdx|md)$/, "");
+}
+
+function docSourceSlugFromFilename(filename: string): string {
+  return docSourcePathWithoutExtension(
+    filename.split(/[\\/]/).pop() ?? filename,
+  );
+}
+
+function preferMdxDocSourceFiles(files: string[]): string[] {
+  const byPath = new Map<string, string>();
+  for (const file of [...files].sort()) {
+    if (!isDocSourceFile(file)) continue;
+
+    const pathWithoutExtension = docSourcePathWithoutExtension(file);
+    const existing = byPath.get(pathWithoutExtension);
+    if (!existing || file.endsWith(".mdx")) {
+      byPath.set(pathWithoutExtension, file);
+    }
+  }
+  return Array.from(byPath.values()).sort((a, b) =>
+    docSourcePathWithoutExtension(a).localeCompare(
+      docSourcePathWithoutExtension(b),
+    ),
+  );
+}
+
 function loadMarkdownDoc(filePath: string, slug: string): DocFull {
   const raw = fs.readFileSync(filePath, "utf-8");
   const { data, body } = parseFrontmatter(raw);
@@ -87,10 +119,14 @@ function loadFilesystemDocs(): DocFull[] {
   const docsDir = getDocsDir();
   if (!fs.existsSync(docsDir)) return docs;
 
-  const files = fs.readdirSync(docsDir).filter((f) => f.endsWith(".md"));
+  const files = preferMdxDocSourceFiles(
+    fs
+      .readdirSync(docsDir)
+      .filter((file) => fs.statSync(path.join(docsDir, file)).isFile()),
+  );
   docs.push(
     ...files.map((file) => {
-      const slug = file.replace(/\.md$/, "");
+      const slug = docSourceSlugFromFilename(file);
       return loadMarkdownDoc(path.join(docsDir, file), slug);
     }),
   );

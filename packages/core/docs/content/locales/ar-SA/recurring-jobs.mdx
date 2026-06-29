@@ -1,0 +1,217 @@
+---
+title: "الوظائف المتكررة"
+description: "تعمل المطالبات المجدولة بواسطة Cron على تشغيل الوكيل من تلقاء نفسه - الملخصات اليومية والتقارير الأسبوعية والاستقصاء كل ساعة."
+---
+
+# الوظائف المتكررة
+
+**المهمة المتكررة** هي مطالبة يتم تشغيلها وفقًا لجدول cron. إنها الطريقة التي يقوم بها الوكيل بالأشياء من تلقاء نفسه: "كل صباح في الساعة 7، قم بتلخيص رسائل البريد الإلكتروني الليلية الخاصة بي،" "كل يوم اثنين أنشر أرقام الاشتراك الأسبوع الماضي في Slack،" "كل ساعة ابحث عن المسودات القديمة وقم بحذفها."
+
+يتم تشغيل المهام المتكررة على مدار الساعة. للتفاعل مع _events_ (تم إنشاء الحجز، واستلام بريد إلكتروني) - نفس تنسيق ملف `jobs/` بالإضافة إلى الشروط - راجع [Automations](/docs/automations).
+
+توجد الوظائف في [workspace](/docs/workspace) في `jobs/<name>.md` - مجرد ملف Markdown مع المادة الأمامية YAML. لا يوجد تسجيل، لا الأسلاك. قم بإسقاط الملف وسيلتقطه إطار العمل.
+
+## ملف الوظيفة {#job-file}
+
+<AnnotatedCode
+  id="doc-block-1xuuw14"
+  title="jobs/morning-digest.md"
+  filename="jobs/morning-digest.md"
+  language="markdown"
+  code={
+    '---\nschedule: "0 7 * * *"\nenabled: true\nrunAs: creator\n---\n\n# الملخص الصباحي\n\nتلخيص رسائل البريد الإلكتروني المستلمة خلال الليل. التجميع حسب مجال المرسل.\nقم بتثبيت أهم 3 سلاسل رسائل تبدو وكأنها تحتاج إلى رد اليوم في التصنيف\n"يلزم الرد". مسودة ردود على أي ردود واضحة.'
+  }
+  annotations={[
+    {
+      lines: "2",
+      label: "متى",
+      note: "كرون قياسي ذو 5 حقول — `0 7 * * *` كل يوم في الساعة 07:00.",
+    },
+    {
+      lines: "3",
+      label: "مفتاح الإيقاف المؤقت",
+      note: "Flip to `false` to stop the job without deleting it.",
+    },
+    {
+      lines: "4",
+      label: "الهوية",
+      note: "`creator` runs with the owner's identity and `ANTHROPIC_API_KEY`; `shared` uses the org's key.",
+    },
+    {
+      lines: "7-12",
+      label: "الموجه",
+      note: "النص هو مجرد موجه — يقوم الوكيل بتشغيله عند كل إطلاق بكل أدواته العادية وسياق مساحة العمل.",
+    },
+  ]}
+/>
+
+هذا كل شيء. الجسم عبارة عن موجه يقوم العميل بتشغيله عند كل إطلاق مجدول. يتمتع الوكيل بحق الوصول إلى نفس الأدوات وسياق مساحة العمل الموجود في الدردشة التفاعلية — actions، skills، الذاكرة، خوادم MCP المتصلة، الوكلاء الفرعيون.
+
+## المهمه الاماميه {#frontmatter}
+
+| الحقل        | اكتب                          | الافتراضي   | الوصف                                                                                                   |
+| ------------ | ----------------------------- | ----------- | ------------------------------------------------------------------------------------------------------- |
+| `schedule`   | تعبير كرون                    | _(مطلوب)_   | كرون قياسي ذو 5 حقول. `"0 7 * * *"` = كل يوم الساعة 07:00؛ `"0 */4 * * *"` = كل 4 ساعات.                |
+| `enabled`    | منطقية                        | `true`      | انتقل إلى `false` للإيقاف مؤقتًا دون حذف المهمة.                                                        |
+| `runAs`      | `"creator"` \| `"shared"`     | `"creator"` | يتم تشغيل `"creator"` باستخدام هوية مالك الوظيفة و`ANTHROPIC_API_KEY`. يستخدم `"shared"` مفتاح المؤسسة. |
+| `createdBy`  | البريد الإلكتروني             | _(تلقائي)_  | يتم نشره عند إنشاء الوظيفة من خلال مساحة العمل UI أو بواسطة الوكيل.                                     |
+| `orgId`      | سلسلة                         | _(تلقائي)_  | نطاق المؤسسة؛ موروثة من مؤسسة المنشئ النشطة.                                                            |
+| `lastRun`    | الطابع الزمني ISO             | _(مُدار)_   | يكتبه المجدول بعد كل تشغيل.                                                                             |
+| `lastStatus` | `"success"` \| `"error"` \| … | _(مُدار)_   | أحدث النتائج.                                                                                           |
+| `lastError`  | سلسلة                         | _(مُدار)_   | رسالة خطأ في حالة فشل التشغيل الأخير.                                                                   |
+| `nextRun`    | الطابع الزمني ISO             | _(مُدار)_   | محسوب من `schedule`؛ يستخدمه المجدول لتحديد موعد الإطلاق التالي.                                        |
+
+تتم كتابة الحقول `last*` و`nextRun` بواسطة المجدول. يمكنك قراءتها لرؤية السجل، لكن لا تقم بتحريرها يدويًا - سيتم استبدالها في المرة التالية.
+
+## بناء جملة كرون {#cron}
+
+كرون قياسي ذو 5 حقول (الدقيقة، الساعة، يوم من الشهر، شهر، يوم من الأسبوع):
+
+| كرون           | المعنى                    |
+| -------------- | ------------------------- |
+| `*/5 * * * *`  | كل 5 دقائق                |
+| `0 * * * *`    | كل ساعة على مدار الساعة   |
+| `0 */4 * * *`  | كل 4 ساعات                |
+| `0 7 * * *`    | كل يوم الساعة 07:00       |
+| `0 9 * * 1`    | كل يوم اثنين الساعة 09:00 |
+| `0 17 * * 1-5` | أيام الأسبوع الساعة 17:00 |
+| `0 0 1 * *`    | اليوم الأول من كل شهر     |
+
+يتضمن إطار العمل أدوات مساعدة cron (`isValidCron()` و`describeCron()`) للتحقق من صحة وعرض سلاسل cron، المستخدمة داخليًا بواسطة طبقات الموارد والمجدولة.
+
+## إنشاء وظيفة {#creating}
+
+### من علامة التبويب "مساحة العمل"
+
+`+` → **المهمة المجدولة** في لوحة مساحة العمل. املأ المطالبة والجدول الزمني. يتم الحفظ باسم `jobs/<slug>.md` ويبدأ التشغيل عند علامة الاختيار المطابقة التالية.
+
+### من خلال سؤال الوكيل
+
+> "قم بإنشاء مهمة مجدولة تلخص رسائل البريد الإلكتروني غير المقروءة كل صباح الساعة 7."
+
+يقوم الوكيل بكتابة الملف نيابةً عنك.
+
+### باليد
+
+أسقط ملف Markdown في `jobs/` عبر مورد إطار العمل APIs:
+
+```ts
+import { resourcePut } from "@agent-native/core/resources";
+
+await resourcePut(
+  ownerEmail,
+  "jobs/morning-digest.md",
+  `---
+schedule: "0 7 * * *"
+enabled: true
+---
+Summarize overnight emails.`,
+);
+```
+
+## كيفية تشغيل المجدول {#how-scheduler-runs}
+
+المجدول هو مكون إضافي لإطار العمل (روتين `processRecurringJobs()` الداخلي) يتم تشغيله أثناء العملية: يتم تنشيط `setInterval` كل 60 ثانية (مع تأخير بدء التشغيل لمدة 10 ثوانٍ) داخل المكون الإضافي لدردشة الوكيل، أينما كان الخادم قيد التشغيل.
+
+<Diagram id="doc-block-1y301ov" title={"علامة جدولة واحدة"} summary={"كل ستينيات القرن الماضي، يجد المجدول المهام المستحقة، ويقوم بتشغيل كل منها كسلسلة وكيل جديدة، ويكتب النتيجة مرة أخرى إلى ملف المهمة."}>
+
+```html
+<div class="sched">
+  <div class="diagram-box accent">
+    <code>setInterval</code> &bull; 60s &#8635;
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">1 &middot; scan</span
+    ><small class="diagram-muted"
+      >list every enabled <code>jobs/*.md</code> across all owners</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2 &middot; due?</span
+    ><small class="diagram-muted">compare <code>nextRun</code> to now</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">3 &middot; run</span
+    ><small class="diagram-muted"
+      >fresh agent thread, job body as the user message &mdash; actions, SQL,
+      A2A, email</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">4 &middot; record</span
+    ><small class="diagram-muted"
+      >write <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code>, recompute <code>nextRun</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.sched {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 520px;
+}
+.sched .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.sched .diagram-box {
+  align-self: flex-start;
+}
+.sched .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
+}
+```
+
+</Diagram>
+
+<Callout id="doc-block-j6yn07" tone="risk">
+
+**Scale-to-zero caveat.** The scheduler is in-process, so on serverless hosts jobs only fire while an instance is warm. If reliable scheduling matters, keep an instance warm with keep-alive pings or use an always-on host (Fly, Render, a VPS).
+
+</Callout>
+
+## تصحيح أخطاء المهمة {#debugging}
+
+- افتح `jobs/<name>.md` في مساحة العمل - تعرض المادة الأمامية `lastRun`، `lastStatus`، `lastError`، `nextRun`.
+- **اختبره دون انتظار:** لا توجد أداة للقوة. لممارسة نفس العمل عند الطلب، قم إما بلصق مطالبة الوظيفة في دردشة الوكيل والسماح لها بالعمل هناك، أو قم بتعيين الجدول مؤقتًا على الدقيقة التالية حتى يلتقطها المجدول في العلامة التالية (ثم قم باستعادة cron الحقيقي).
+- **إيقاف مؤقت:** اقلب `enabled: false`. يبقى الملف في مكانه، ويتوقف عن التشغيل.
+
+## أداة الوكيل {#agent-tool}
+
+يتم تسجيل أداة `manage-jobs` واحدة في كل قالب. تحدد المعلمة `action` العملية:
+
+| الإجراء  | المعلمات                                                       | الغرض                                                           |
+| -------- | -------------------------------------------------------------- | --------------------------------------------------------------- |
+| `create` | `name`، `schedule`، `instructions` (مطلوب)؛ `scope`، `runAs`   | إنشاء مهمة متكررة جديدة                                         |
+| `list`   | `scope` (`personal`، `shared`، أو الكل)                        | سرد كافة المهام ذات الحالة (جدول، ممكّن، التشغيل الأخير/التالي) |
+| `update` | `name` (مطلوب)؛ `schedule`، `instructions`، `enabled`، `runAs` | تحرير مهمة موجودة                                               |
+| `delete` | `name` (مطلوب)                                                 | حذف مهمة - قم دائمًا بالتأكيد مع المستخدم أولاً                 |
+
+**النطاق الشخصي مقابل النطاق المشترك.** توجد كل وظيفة إما في النطاق الشخصي (يتم تشغيله ويكون مرئيًا للمنشئ فقط) أو النطاق المشترك/المؤسسي (يتم تشغيله نيابة عن المنشئ ولكنه مرئي لأعضاء المؤسسة). تتحكم المعلمات `scope` و`runAs` في ذلك في وقت الإنشاء. يمكن لمسؤولي المؤسسة تحديث أو حذف أي مهمة مشتركة؛ يمكن للأعضاء غير الإداريين إدارة أعضاءهم فقط.
+
+## تختلف عن حزمة الجدولة {#vs-scheduling-package}
+
+لا تخلط بين المهام المتكررة و`@agent-native/scheduling`:
+
+- **المهام المتكررة (هذه الصفحة)** — _prompts_ المجدولة لـ cron التي يقوم الوكيل بتشغيلها في الخلفية. مستوى الإطار. يعيش في مساحة العمل. يعمل على أي تطبيق أصلي للوكيل.
+- **`@agent-native/scheduling`** — حزمة نطاق قابلة لإعادة الاستخدام لإنشاء ميزات التقويم/الحجز (أنواع الأحداث، ونوافذ التوفر، والحجوزات). لتشغيل قالب `calendar` وأسطح الجدولة المخصصة.
+
+المهام المتكررة هي "كيف أجعل الوكيل يتصرف من تلقاء نفسه؟" حزمة الجدولة هي "كيف يمكنني إنشاء تطبيق تقويم؟" مخاوف مختلفة.
+
+## ما هي الخطوة التالية
+
+- [**Automations**](/docs/automations) - إضافة مشغلات وشروط الأحداث إلى تنسيق `jobs/` نفسه
+- [**Workspace**](/docs/workspace) — حيث توجد الوظائف جنبًا إلى جنب مع skills والذاكرة والوكلاء المخصصين
+- [**Actions**](/docs/actions) — الأدوات التي تتطلبها الوظيفة
+- [**Agent Teams**](/docs/agent-teams) — غالبًا ما تنتج الوظائف وكلاء فرعيين للقيام بأعمال موازية

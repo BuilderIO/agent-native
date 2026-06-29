@@ -79,10 +79,6 @@ const CODE_AGENT_PROVIDER_KEYS = CODE_AGENT_PROVIDER_DEFINITIONS.flatMap(
   (provider) => provider.keys,
 );
 
-const INITIAL_CODE_AGENT_PROVIDER_ENV = new Map(
-  CODE_AGENT_PROVIDER_KEYS.map((key) => [key, process.env[key]]),
-);
-
 export type { FrameSettings };
 
 export interface RemoteConnectorSettings {
@@ -398,8 +394,17 @@ export function saveCodeAgentProviderCredentials(
     }
   }
   saveCodeAgentProviderStore(store);
-  applyCodeAgentProviderCredentialsToEnv();
   return getCodeAgentProviderSettingsStatus();
+}
+
+export function getCodeAgentProviderProcessEnv(
+  baseEnv: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const credentials = loadCodeAgentProviderCredentials();
+  return {
+    ...baseEnv,
+    ...credentials,
+  };
 }
 
 export function applyCodeAgentProviderCredentialsToEnv(): CodeAgentProviderCredentialApplyResult {
@@ -408,15 +413,10 @@ export function applyCodeAgentProviderCredentialsToEnv(): CodeAgentProviderCrede
   const appliedKeys: CodeAgentProviderCredentialKey[] = [];
   const failedKeys: CodeAgentProviderCredentialKey[] = [];
   for (const key of CODE_AGENT_PROVIDER_KEYS) {
-    const value = credentials[key] ?? INITIAL_CODE_AGENT_PROVIDER_ENV.get(key);
-    if (value) {
-      process.env[key] = value;
-      if (credentials[key]) appliedKeys.push(key);
-    } else {
-      delete process.env[key];
-      if (hasStoredProviderSecretBlob(store.credentials[key])) {
-        failedKeys.push(key);
-      }
+    if (credentials[key]) {
+      appliedKeys.push(key);
+    } else if (hasStoredProviderSecretBlob(store.credentials[key])) {
+      failedKeys.push(key);
     }
   }
   return {

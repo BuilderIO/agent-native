@@ -1687,9 +1687,7 @@ export function App() {
   const openVideoStorageSetup = useCallback(
     (targetServerUrl?: string) => {
       const base = (targetServerUrl?.trim() || serverUrl).replace(/\/+$/, "");
-      setRecError(
-        "Connect storage before recording from desktop: Builder.io (free tier storage + AI) or S3-compatible storage. Opening storage setup...",
-      );
+      setRecError(STORAGE_SETUP_HELP_TEXT);
       void openExternal(`${base}/record`).catch((err) => {
         setRecError(
           err instanceof Error
@@ -1922,6 +1920,11 @@ export function App() {
     }
     if (isHardCapturePermissionError(message)) {
       setRecError(MACOS_CAPTURE_PERMISSION_MESSAGE);
+      return;
+    }
+    if (isStorageSetupFailureMessage(message)) {
+      setRecError(STORAGE_SETUP_HELP_TEXT);
+      openVideoStorageSetup();
       return;
     }
     setRecError(message);
@@ -2306,6 +2309,8 @@ export function App() {
             panes={["speech", "microphone"]}
             onRetry={handleStartRecording}
           />
+        ) : isStorageSetupFailureMessage(recError) ? (
+          <StorageConnectionBanner onConnect={() => openVideoStorageSetup()} />
         ) : (
           <div className="error-banner">{recError}</div>
         )
@@ -2446,6 +2451,30 @@ function PermissionRecoveryBanner({
           Try again
         </button>
       </div>
+    </div>
+  );
+}
+
+function StorageConnectionBanner({ onConnect }: { onConnect: () => void }) {
+  return (
+    <div className="storage-flow-banner">
+      <div className="storage-flow-icon" aria-hidden>
+        <IconUpload size={17} stroke={1.8} />
+      </div>
+      <div className="storage-flow-copy">
+        <div className="storage-flow-title">
+          Connect storage to keep recording
+        </div>
+        <div className="storage-flow-sub">{STORAGE_SETUP_HELP_TEXT}</div>
+      </div>
+      <button
+        type="button"
+        className="storage-flow-connect"
+        onClick={onConnect}
+      >
+        <IconExternalLink size={14} stroke={2} />
+        Connect
+      </button>
     </div>
   );
 }

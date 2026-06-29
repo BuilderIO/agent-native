@@ -11,7 +11,7 @@ description: >-
 
 ## Rule
 
-Every AI feature in Clips goes through the agent chat unless it is the narrow media-pipeline exception below. The UI and server should not add broad shadow agents or inline chat workflows. **Exception:** transcription. Transcription takes audio, not prompts — the `request-transcript` action calls the transcription API directly. Provider priority for transcription: **native** first (browser Web Speech API / desktop macOS SFSpeech, saved via `save-browser-transcript`, no key required) → **cloud fallback** when native text is missing: **Builder.io managed** Gemini (via `BUILDER_PRIVATE_KEY` or a connected Builder account, no extra key needed) → **Groq** `whisper-large-v3-turbo` via `GROQ_API_KEY` (fast, ~$0.04/hr). Clips never routes recording/meeting audio to OpenAI for transcription.
+Every AI feature in Clips goes through the agent chat unless it is the narrow media-pipeline exception below. The UI and server should not add broad shadow agents or inline chat workflows. **Exception:** transcription. Transcription takes audio, not prompts — the `request-transcript` action calls the transcription API directly. Provider priority for transcription: **native** first (browser Web Speech API, desktop local Whisper/macOS SFSpeech when available, and desktop Web Speech fallback on non-mac, saved via `save-browser-transcript`, no key required) → **cloud fallback** when native text is missing: **Builder.io managed** Gemini (via `BUILDER_PRIVATE_KEY` or a connected Builder account, no extra key needed) → **Groq** `whisper-large-v3-turbo` via `GROQ_API_KEY` (fast, ~$0.04/hr). Clips never routes recording/meeting audio to OpenAI for transcription.
 
 Builder.io is the primary setup path: it brings managed AI credits, object
 storage, uploads, and transcription together. Bring-your-own-key setup belongs
@@ -99,13 +99,18 @@ Transcription takes an audio file and returns text + segments. That's not a prom
 
 **Provider priority:**
 
-1. **Native (highest priority).** The browser's Web Speech API and desktop macOS SFSpeech capture run during recording and save results via `save-browser-transcript`. This gives an instant transcript with no API key. When `request-transcript` runs afterward, it preserves the ready native transcript and only falls back to a cloud provider if native text is missing.
+1. **Native (highest priority).** The browser's Web Speech API, desktop local Whisper/macOS SFSpeech when available, and desktop Web Speech fallback on non-mac run during recording and save results via `save-browser-transcript`. This gives an instant transcript with no API key when the local/browser recognizer is available. When `request-transcript` runs afterward, it preserves the ready native transcript and only falls back to a cloud provider if native text is missing.
 2. **Cloud fallback — Builder.io managed (Gemini).** When a Builder account is connected (`BUILDER_PRIVATE_KEY` or per-user OAuth, no separate API key needed), `request-transcript` calls `transcribeWithBuilder()`, which routes audio to Builder.io's managed Gemini transcription. Returns text plus timestamped segments.
 3. **Cloud fallback — Groq Whisper.** `GROQ_API_KEY` → `https://api.groq.com/openai/v1/audio/transcriptions`, model `whisper-large-v3-turbo`. Fast (~$0.04/hour of audio) Whisper-compatible speech-to-text used when Builder is unavailable.
 
 Clips never routes recording/meeting audio to OpenAI for transcription. (Groq's endpoint is OpenAI-_compatible_ in request shape only — the audio goes to Groq, not OpenAI.)
 
 If no native transcript exists and no cloud fallback is available (no Builder connection and no Groq key), the action writes `status="failed"` so the UI can show a friendly prompt.
+
+If Builder transcription fails because credits are exhausted, explain that
+Builder.io credits/upgrade or a Groq key are the supported speech-to-text
+fallbacks. Generic OpenAI or Anthropic chat keys power chat, but they do not
+transcribe Clips recordings.
 
 ### Secret registration
 

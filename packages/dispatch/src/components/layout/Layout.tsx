@@ -33,10 +33,11 @@ import {
   IconBroadcast,
   IconFingerprint,
   IconHistory,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
   IconPuzzle,
   IconSettings,
   IconShieldCheck,
-  IconUsersGroup,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -215,18 +216,12 @@ const OPERATIONS_NAV_ITEMS = [
     icon: IconSettings,
     section: "operations",
   },
-  {
-    id: "team",
-    to: "/team",
-    label: "Team",
-    icon: IconUsersGroup,
-    section: "operations",
-  },
 ] as const satisfies readonly DispatchNavItem[];
 
 const EMPTY_NAV_ITEMS: readonly DispatchNavItem[] = [];
 
 const CHROMELESS_PATHS = ["/approval"];
+const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 
 // Routes whose page renders its own toolbar (with NotificationsBell + AgentToggleButton).
 // Layout still mounts the sidebar + AgentSidebar, but skips its own Header so
@@ -581,9 +576,15 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
 export function NavContent({
   onNavigate,
   extensions,
+  collapsed = false,
+  collapsible = false,
+  onCollapsedChange,
 }: {
   onNavigate?: () => void;
   extensions?: DispatchExtensionConfig;
+  collapsed?: boolean;
+  collapsible?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
 }) {
   const t = useT();
   const location = useLocation();
@@ -624,45 +625,91 @@ export function NavContent({
     const label = navLabel(item);
     return (
       <li key={item.id}>
-        <NavLink
-          to={dispatchNavLinkTarget(item.to)}
-          onClick={(event) => {
-            if (
-              item.id === "chat" &&
-              localPathname !== "/chat" &&
-              !event.metaKey &&
-              !event.ctrlKey &&
-              !event.shiftKey &&
-              !event.altKey
-            ) {
-              event.preventDefault();
-              navigateWithAgentChatViewTransition(
-                navigate,
-                dispatchNavLinkTarget("/chat"),
-              );
+        {collapsed ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <NavLink
+                to={dispatchNavLinkTarget(item.to)}
+                onClick={(event) => {
+                  if (
+                    item.id === "chat" &&
+                    localPathname !== "/chat" &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    navigateWithAgentChatViewTransition(
+                      navigate,
+                      dispatchNavLinkTarget("/chat"),
+                    );
+                    onNavigate?.();
+                    return;
+                  }
+                  onNavigate?.();
+                }}
+                aria-label={label}
+                className={({ isActive }) => {
+                  const active = isActive || itemMatchesLocalPath;
+                  return cn(
+                    "flex h-10 w-10 items-center justify-center rounded-md text-sm",
+                    active
+                      ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  );
+                }}
+              >
+                {Icon ? (
+                  <Icon size={16} className="shrink-0" />
+                ) : (
+                  <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+                )}
+              </NavLink>
+            </TooltipTrigger>
+            <TooltipContent side="right">{label}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <NavLink
+            to={dispatchNavLinkTarget(item.to)}
+            onClick={(event) => {
+              if (
+                item.id === "chat" &&
+                localPathname !== "/chat" &&
+                !event.metaKey &&
+                !event.ctrlKey &&
+                !event.shiftKey &&
+                !event.altKey
+              ) {
+                event.preventDefault();
+                navigateWithAgentChatViewTransition(
+                  navigate,
+                  dispatchNavLinkTarget("/chat"),
+                );
+                onNavigate?.();
+                return;
+              }
               onNavigate?.();
-              return;
-            }
-            onNavigate?.();
-          }}
-          className={({ isActive }) => {
-            const active = isActive || itemMatchesLocalPath;
-            return cn(
-              "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
-              active
-                ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
-                : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-            );
-          }}
-        >
-          {Icon ? (
-            <Icon size={16} className="shrink-0" />
-          ) : (
-            <span className="h-4 w-4 shrink-0" aria-hidden="true" />
-          )}
-          <span className="truncate">{label}</span>
-        </NavLink>
-        {item.id === "chat" && itemMatchesLocalPath ? (
+            }}
+            className={({ isActive }) => {
+              const active = isActive || itemMatchesLocalPath;
+              return cn(
+                "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+                active
+                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                  : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+              );
+            }}
+          >
+            {Icon ? (
+              <Icon size={16} className="shrink-0" />
+            ) : (
+              <span className="h-4 w-4 shrink-0" aria-hidden="true" />
+            )}
+            <span className="truncate">{label}</span>
+          </NavLink>
+        )}
+        {!collapsed && item.id === "chat" && itemMatchesLocalPath ? (
           <DispatchChatsSection onNavigate={onNavigate} />
         ) : null}
       </li>
@@ -671,70 +718,118 @@ export function NavContent({
 
   return (
     <>
-      <div className="border-b px-4 py-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl border bg-card text-foreground">
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
-              aria-hidden="true"
-              className="block h-4 w-auto shrink-0 dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              className="hidden h-4 w-auto shrink-0 dark:block"
-            />
-          </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-foreground">
-              {workspaceLabel ?? "Dispatch"}
-            </div>
-            <div className="truncate text-xs text-muted-foreground">
-              {workspaceLabel
-                ? t("dispatch.sidebar.workspaceSubtitle", {
-                    count: ws?.appCount ?? 0,
-                  })
-                : t("dispatch.sidebar.workspaceControlPlane")}
-            </div>
-          </div>
+      <div className={cn("border-b py-3", collapsed ? "px-1" : "px-4")}>
+        <div
+          className={cn(
+            "flex items-center",
+            collapsed ? "justify-center" : "gap-3",
+          )}
+        >
+          {!collapsed && (
+            <>
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl border bg-card text-foreground">
+                <img
+                  src={appPath("/agent-native-icon-light.svg")}
+                  alt=""
+                  aria-hidden="true"
+                  className="block h-4 w-auto shrink-0 dark:hidden"
+                />
+                <img
+                  src={appPath("/agent-native-icon-dark.svg")}
+                  alt=""
+                  aria-hidden="true"
+                  className="hidden h-4 w-auto shrink-0 dark:block"
+                />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold text-foreground">
+                  {workspaceLabel ?? "Dispatch"}
+                </div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {workspaceLabel
+                    ? t("dispatch.sidebar.workspaceSubtitle", {
+                        count: ws?.appCount ?? 0,
+                      })
+                    : t("dispatch.sidebar.workspaceControlPlane")}
+                </div>
+              </div>
+            </>
+          )}
+          {collapsible ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => onCollapsedChange?.(!collapsed)}
+                  aria-label={
+                    collapsed
+                      ? t("sidebar.expandSidebar")
+                      : t("sidebar.collapseSidebar")
+                  }
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                >
+                  {collapsed ? (
+                    <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+                  ) : (
+                    <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {collapsed
+                  ? t("sidebar.expandSidebar")
+                  : t("sidebar.collapseSidebar")}
+              </TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <nav className="px-2 py-3">
-          <ul className="space-y-0.5">{primaryNavItems.map(renderNavItem)}</ul>
+        <nav className={cn("py-3", collapsed ? "px-1" : "px-2")}>
+          <ul
+            className={cn(
+              "space-y-0.5",
+              collapsed && "flex flex-col items-center",
+            )}
+          >
+            {(collapsed
+              ? [...primaryNavItems, ...operationsNavItems]
+              : primaryNavItems
+            ).map(renderNavItem)}
+          </ul>
         </nav>
 
-        <div className="mt-auto shrink-0">
-          <div className="border-t px-2 py-2">
-            <details className="group" open={operationsOpen}>
-              <summary className="flex h-8 cursor-pointer list-none items-center justify-between rounded-md px-2 text-xs font-medium uppercase text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&::-webkit-details-marker]:hidden">
-                <span>{t("dispatch.nav.operations")}</span>
-                <IconChevronDown
-                  size={14}
-                  className="transition-transform group-open:rotate-180"
-                />
-              </summary>
-              <ul className="mt-1 space-y-0.5">
-                {operationsNavItems.map(renderNavItem)}
-              </ul>
-            </details>
-          </div>
+        {!collapsed ? (
+          <div className="mt-auto shrink-0">
+            <div className="px-2 py-2">
+              <details className="group" open={operationsOpen}>
+                <summary className="flex h-8 cursor-pointer list-none items-center justify-between rounded-md px-2 text-xs font-medium uppercase text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&::-webkit-details-marker]:hidden">
+                  <span>{t("dispatch.nav.operations")}</span>
+                  <IconChevronDown
+                    size={14}
+                    className="transition-transform group-open:rotate-180"
+                  />
+                </summary>
+                <ul className="mt-1 space-y-0.5">
+                  {operationsNavItems.map(renderNavItem)}
+                </ul>
+              </details>
+            </div>
 
-          <div className="border-t px-2 py-1">
-            <ExtensionsSidebarSection />
-          </div>
+            <div className="px-2 py-1">
+              <ExtensionsSidebarSection />
+            </div>
 
-          <div className="border-t px-3 py-2">
-            <OrgSwitcher />
-          </div>
+            <div className="px-3 py-2">
+              <OrgSwitcher />
+            </div>
 
-          <div className="border-t px-3 py-2">
-            <FeedbackButton />
+            <div className="px-3 py-2">
+              <FeedbackButton />
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
     </>
   );
@@ -751,6 +846,14 @@ export function Layout({
   const location = useLocation();
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const localPathname = localDispatchPath(location.pathname);
   const isChatRoute =
     localPathname === "/chat" || localPathname.startsWith("/chat/");
@@ -765,6 +868,18 @@ export function Layout({
       pathname === "/chat" || pathname.startsWith("/chat/"),
   };
   useAgentChatHomeHandoffLinks(chatHandoffLinkOptions);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_COLLAPSE_KEY,
+        sidebarCollapsed ? "1" : "0",
+      );
+    } catch {
+      // Ignore storage failures; the in-memory preference still works.
+    }
+  }, [sidebarCollapsed]);
 
   if (CHROMELESS_PATHS.some((path) => localPathname === path)) {
     return <>{children}</>;
@@ -825,8 +940,19 @@ export function Layout({
   return (
     <HeaderActionsProvider>
       <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background">
-        <aside className="agent-layout-left-drawer hidden lg:flex w-64 shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground">
-          <NavContent extensions={extensions} />
+        <aside
+          data-collapsed={sidebarCollapsed ? "true" : "false"}
+          className={cn(
+            "agent-layout-left-drawer hidden shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
+            sidebarCollapsed ? "w-12" : "w-64",
+          )}
+        >
+          <NavContent
+            extensions={extensions}
+            collapsed={sidebarCollapsed}
+            collapsible
+            onCollapsedChange={setSidebarCollapsed}
+          />
         </aside>
 
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
@@ -843,6 +969,7 @@ export function Layout({
             <div className="flex h-full w-full flex-col">
               <NavContent
                 extensions={extensions}
+                collapsed={false}
                 onNavigate={() => setMobileOpen(false)}
               />
             </div>

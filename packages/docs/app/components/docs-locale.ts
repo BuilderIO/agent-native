@@ -1,7 +1,6 @@
 import {
   DEFAULT_LOCALE,
   LOCALE_METADATA,
-  SUPPORTED_LOCALES,
   localeDirection,
   normalizeLocaleCode,
   resolveLocaleFromCandidates,
@@ -11,7 +10,19 @@ import {
 export type DocsLocale = LocaleCode;
 
 export const DEFAULT_DOCS_LOCALE = DEFAULT_LOCALE;
-export const DOCS_LOCALES = SUPPORTED_LOCALES;
+export const DOCS_LOCALES = [
+  "en-US",
+  "es-ES",
+  "fr-FR",
+  "de-DE",
+  "pt-BR",
+  "zh-CN",
+  "zh-TW",
+  "ja-JP",
+  "ko-KR",
+  "hi-IN",
+  "ar-SA",
+] as const satisfies readonly DocsLocale[];
 export const DOCS_LOCALE_METADATA = LOCALE_METADATA;
 export { localeDirection };
 
@@ -80,6 +91,16 @@ export function docsPathForSlug(
   return slug === "getting-started"
     ? `/${locale}/docs`
     : `/${locale}/docs/${slug}`;
+}
+
+export function docsMarkdownPathForSlug(
+  slug: string,
+  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+) {
+  const docsPath = docsPathForSlug(slug, locale);
+  return slug === "getting-started"
+    ? `${docsPath}/getting-started.md`
+    : `${docsPath}.md`;
 }
 
 export function comparableDocsPath(pathname: string) {

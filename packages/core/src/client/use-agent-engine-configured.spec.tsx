@@ -3,7 +3,10 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useAgentEngineConfigured } from "./use-agent-engine-configured.js";
+import {
+  fetchAgentEngineConfiguredState,
+  useAgentEngineConfigured,
+} from "./use-agent-engine-configured.js";
 
 function jsonResponse(data: unknown): Response {
   return new Response(JSON.stringify(data), {
@@ -30,6 +33,7 @@ describe("useAgentEngineConfigured", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -115,5 +119,52 @@ describe("useAgentEngineConfigured", () => {
 
     expect(container.textContent).toBe("configured");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns missing immediately from the shared status fetch helper", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const href = String(url);
+        if (href.includes("/_agent-native/builder/status")) {
+          return jsonResponse({ configured: false });
+        }
+        if (href.includes("/_agent-native/agent-engine/status")) {
+          return jsonResponse({ configured: false });
+        }
+        return jsonResponse([]);
+      }),
+    );
+
+    await expect(fetchAgentEngineConfiguredState()).resolves.toBe("missing");
+  });
+
+  it("returns unknown when every status check times out", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
+
+    const status = fetchAgentEngineConfiguredState(true, { timeoutMs: 25 });
+
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(status).resolves.toBe("unknown");
+  });
+
+  it("honors missing fallback when timed-out status checks follow a missing-key event", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
+
+    const status = fetchAgentEngineConfiguredState(true, {
+      missingFallback: true,
+      timeoutMs: 25,
+    });
+
+    await vi.advanceTimersByTimeAsync(25);
+    await expect(status).resolves.toBe("missing");
   });
 });

@@ -14,6 +14,11 @@ import {
   isLocaleCode,
 } from "../../core/src/localization/shared";
 import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
+import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
+import {
+  docSourceSlugFromFilename,
+  preferMdxDocSourceFiles,
+} from "../lib/docs-source";
 import enUS from "./i18n/en-US";
 
 export const SITE_URL = "https://www.agent-native.com";
@@ -73,23 +78,24 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
   );
   const docsLastmod = gitLastmod(docsDir);
 
-  const docsPages = fs
-    .readdirSync(docsDir)
-    .filter((name) => name.endsWith(".md"))
-    .map((name) => {
-      const slug = name.replace(/\.md$/, "");
-      const filePath = path.join(docsDir, name);
-      const raw = fs.readFileSync(filePath, "utf8");
-      const { data, body } = parseFrontmatter(raw);
-      return {
-        path: slug === "getting-started" ? "/docs" : `/docs/${slug}`,
-        title: data.title || titleFromSlug(slug),
-        description: data.description,
-        markdown: body.trim() + "\n",
-        markdownPath: `/docs/${slug}.md`,
-        lastmod: docsLastmod,
-      } satisfies AgentWebPage;
-    });
+  const docsPages = preferMdxDocSourceFiles(
+    fs
+      .readdirSync(docsDir)
+      .filter((name) => fs.statSync(path.join(docsDir, name)).isFile()),
+  ).map((name) => {
+    const slug = docSourceSlugFromFilename(name);
+    const filePath = path.join(docsDir, name);
+    const raw = fs.readFileSync(filePath, "utf8");
+    const { data, body } = parseFrontmatter(raw);
+    return {
+      path: slug === "getting-started" ? "/docs" : `/docs/${slug}`,
+      title: data.title || titleFromSlug(slug),
+      description: data.description,
+      markdown: docsBodyToMarkdownMirror(body),
+      markdownPath: `/docs/${slug}.md`,
+      lastmod: docsLastmod,
+    } satisfies AgentWebPage;
+  });
 
   const localizedDocsRoot = path.join(docsDir, "locales");
   const localizedDocsPages = fs.existsSync(localizedDocsRoot)
@@ -98,26 +104,29 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
         .filter((locale) => isLocaleCode(locale) && locale !== DEFAULT_LOCALE)
         .flatMap((locale) => {
           const localeDir = path.join(localizedDocsRoot, locale);
-          return fs
-            .readdirSync(localeDir)
-            .filter((name) => name.endsWith(".md"))
-            .map((name) => {
-              const slug = name.replace(/\.md$/, "");
-              const filePath = path.join(localeDir, name);
-              const raw = fs.readFileSync(filePath, "utf8");
-              const { data, body } = parseFrontmatter(raw);
-              return {
-                path:
-                  slug === "getting-started"
-                    ? `/${locale}/docs`
-                    : `/${locale}/docs/${slug}`,
-                title: data.title || titleFromSlug(slug),
-                description: data.description,
-                markdown: body.trim() + "\n",
-                markdownPath: `/${locale}/docs/${slug}.md`,
-                lastmod: docsLastmod,
-              } satisfies AgentWebPage;
-            });
+          return preferMdxDocSourceFiles(
+            fs
+              .readdirSync(localeDir)
+              .filter((name) =>
+                fs.statSync(path.join(localeDir, name)).isFile(),
+              ),
+          ).map((name) => {
+            const slug = docSourceSlugFromFilename(name);
+            const filePath = path.join(localeDir, name);
+            const raw = fs.readFileSync(filePath, "utf8");
+            const { data, body } = parseFrontmatter(raw);
+            return {
+              path:
+                slug === "getting-started"
+                  ? `/${locale}/docs`
+                  : `/${locale}/docs/${slug}`,
+              title: data.title || titleFromSlug(slug),
+              description: data.description,
+              markdown: docsBodyToMarkdownMirror(body),
+              markdownPath: `/${locale}/docs/${slug}.md`,
+              lastmod: docsLastmod,
+            } satisfies AgentWebPage;
+          });
         })
     : [];
 

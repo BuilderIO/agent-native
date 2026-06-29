@@ -144,6 +144,7 @@ async function main() {
       publicKey,
       replayId: `seed-${seed.app}-${started}`,
       sessionId: `seed-session-${seed.app}-${started}`,
+      userId: `seed-user-${index + 1}@example.com`,
       anonymousId: `seed-anon-${index + 1}`,
       url: `http://localhost:8080${seed.path}`,
       app: seed.app,

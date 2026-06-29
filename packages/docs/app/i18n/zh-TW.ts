@@ -41,6 +41,9 @@ const messages = {
   docs: {
     navigateAria: "瀏覽檔案",
     onThisPage: "本頁面內容",
+    copyMarkdown: "將文件複製為 Markdown",
+    copiedMarkdown: "已複製 Markdown",
+    copyMarkdownError: "無法複製 Markdown",
     previous: "上一頁面",
     next: "下一頁面",
   },
@@ -524,7 +527,7 @@ const messages = {
       s004: "口授",
       s005: "能看到+聽到",
       s006: "所有範本",
-      s007: "Loom 和 Jam 的開放原始碼替代方案",
+      s007: "Loom 的開放原始碼替代方案",
       s008: "將 Clips 連結貼上到代理中，即使其模型無法攝取原始影片或音訊，它也可以聽到文字紀錄、讀取摘要並檢視帶時間戳的幀。",
       s009: "試用",
       s010: "你能做什麼",

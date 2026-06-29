@@ -1,4 +1,7 @@
 const messages = {
+  root: {
+    whatsNew: "最新消息",
+  },
   navigation: {
     brand: "Analytics",
     ask: "提問",
@@ -22,6 +25,8 @@ const messages = {
     created: "建立於 {{date}}",
   },
   sidebar: {
+    collapseSidebar: "收合側邊欄",
+    expandSidebar: "展開側邊欄",
     collapseDashboards: "收起儀表板",
     expandDashboards: "展開儀表板",
     collapseAnalyses: "收起分析",
@@ -102,6 +107,9 @@ const messages = {
     credentials: "資料來源憑證",
     credentialsDescription: "API 金鑰和憑證在資料來源頁面管理。",
     manageDataSources: "管理資料來源",
+    dashboardTemplates: "儀表板範本",
+    dashboardTemplatesDescription: "需要起點時，可安裝來源程式碼控制的儀表板。",
+    openDashboardTemplates: "開啟目錄",
     languageTitle: "語言",
     languageLabel: "介面語言",
     about: "關於",
@@ -155,6 +163,7 @@ const messages = {
     untitledDashboard: "未命名儀表板",
   },
   common: {
+    docs: "檔案",
     noData: "無資料",
     noDataAvailable: "無可用資料",
     rowsPerPage: "每頁行數：",
@@ -795,7 +804,7 @@ const messages = {
     time: "時間",
   },
   catalog: {
-    description: "來源程式碼控制的儀表板可隨時安裝到您的工作空間中。",
+    description: "需要起點時，可安裝儀表板範本。",
     noTemplatesFound: "沒有找到範本",
     tryDifferentCategory: "嘗試不同的目錄類別。",
     templatesCount: "{{count}} 個範本",

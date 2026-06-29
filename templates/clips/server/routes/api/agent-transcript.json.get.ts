@@ -20,6 +20,7 @@ import {
   loadAgentTranscript,
   loadPublicAgentAccess,
   queryString,
+  transcriptStatusInstructions,
 } from "../../lib/public-agent-context.js";
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -58,6 +59,7 @@ export default defineEventHandler(async (event: H3Event) => {
     },
     apis: {
       context: { method: "GET", url: api.contextUrl },
+      transcript: { method: "GET", url: api.transcriptUrl },
       ...(isLoomEmbedBacked
         ? {}
         : {
@@ -70,9 +72,12 @@ export default defineEventHandler(async (event: H3Event) => {
     transcript: {
       status: transcript?.status ?? "missing",
       language: transcript?.language ?? null,
+      failureReason: transcript?.failureReason ?? null,
+      retryAfterSeconds: transcript?.status === "pending" ? 15 : null,
       fullText: transcript?.fullText ?? "",
       segments: agentSegments,
       segmentCount: agentSegments.length,
     },
+    instructions: transcriptStatusInstructions(transcript),
   };
 });

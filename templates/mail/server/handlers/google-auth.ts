@@ -35,6 +35,7 @@ import {
   getAuthStatus,
   disconnect,
   getClient,
+  getOAuth2Credentials,
   setAccountDisplayName,
 } from "../lib/google-auth.js";
 
@@ -103,14 +104,6 @@ function googleOAuthErrorResponse(
 }
 
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
-  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    setResponseStatus(event, 422);
-    return {
-      error: "missing_credentials",
-      message:
-        "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
-    };
-  }
   try {
     const q = getQuery(event);
     const redirectUri = resolveOAuthRedirectUri(event);
@@ -123,6 +116,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     }
     const session = await getSession(event);
     const owner = session?.email;
+    await getOAuth2Credentials(owner);
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
@@ -141,12 +135,20 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       returnUrl,
       flowId,
     });
-    const url = getAuthUrl(undefined, redirectUri, state);
+    const url = await getAuthUrl(undefined, redirectUri, state, owner);
     if (q.redirect === "1") {
       return oauthRedirectResponse(url);
     }
     return { url };
   } catch (error: any) {
+    if (/GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET/.test(error?.message || "")) {
+      setResponseStatus(event, 422);
+      return {
+        error: "missing_credentials",
+        message:
+          "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
+      };
+    }
     setResponseStatus(event, 500);
     return { error: error.message };
   }
@@ -279,12 +281,12 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       setResponseStatus(event, 401);
       return { error: "Must be logged in to add an account" };
     }
-    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    if (!(await getOAuth2Credentials(session.email).catch(() => null))) {
       setResponseStatus(event, 422);
       return {
         error: "missing_credentials",
         message:
-          "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+          "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
       };
     }
     try {
@@ -308,7 +310,12 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         app: OAUTH_STATE_APP_ID,
         flowId,
       });
-      const url = getAuthUrl(undefined, redirectUri, state);
+      const url = await getAuthUrl(
+        undefined,
+        redirectUri,
+        state,
+        session.email,
+      );
       if (q.redirect === "1") {
         return oauthRedirectResponse(url);
       }

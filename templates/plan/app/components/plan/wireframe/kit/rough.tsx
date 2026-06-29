@@ -6,10 +6,10 @@ import rough from "roughjs";
  *
  * The content is laid out with crisp flex/HTML (real labels, legible). The
  * hand-drawn look comes from rough.js: this overlay MEASURES the laid-out
- * elements (the kit's `[data-rough]` nodes, or — for HTML mockups — a broader
- * selector of bordered boxes) and redraws their outline as a hand-drawn stroke
- * into one SVG per frame. The element's own CSS border is hidden once we're
- * ready (`data-rough-ready`), so there is never a doubled border.
+ * elements (the kit's `[data-rough]` nodes, or — for HTML mockups — controls
+ * plus explicit `data-rough` opt-ins) and redraws their outline as a hand-drawn
+ * stroke into one SVG per frame. The element's own CSS border is hidden once
+ * we're ready (`data-rough-ready`), so there is never a doubled border.
  *
  * Crucially this works on ANY rendered DOM, not just the kit — which is what
  * lets HTML/Tailwind mockups get the same sketch treatment as the kit.
@@ -19,9 +19,9 @@ const gen = rough.generator();
 
 type RoughPath = { d: string; stroke: string; strokeWidth: number };
 
-/** The default selector used for HTML mockups: bordered/box-like elements. */
+/** The default selector used for HTML mockups: controls plus explicit opt-ins. */
 export const HTML_ROUGH_SELECTOR =
-  "[data-rough],button,input,textarea,select,.wf-card,.wf-box,hr,.wf-frame-target";
+  "[data-rough],button,input,textarea,select,hr";
 
 /** Stable per-element seed so a frame doesn't re-wobble on every measure. */
 function seedFrom(...parts: Array<string | number>): number {

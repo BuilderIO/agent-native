@@ -10,6 +10,10 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  BUILDER_CREDITS_UPGRADE_URL,
+  type BuilderCreditsStatus,
+} from "@shared/builder-credits";
+import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "@shared/loom";
@@ -24,6 +28,8 @@ import {
   IconClipboardCopy,
   IconFileText,
   IconSparkles,
+  IconExternalLink,
+  IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -33,7 +39,7 @@ import { toast } from "sonner";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { CommentsPanel } from "@/components/player/comments-panel";
-import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
+import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
@@ -54,6 +60,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -100,6 +112,20 @@ interface GeneratedWorkflowState {
   error?: string;
 }
 
+function useIsCompactRecordingLayout() {
+  const [isCompact, setIsCompact] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1279px)");
+    const update = () => setIsCompact(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return isCompact;
+}
+
 function isNativeSaveFailureReason(reason: string | null | undefined): boolean {
   return /native recording upload|native fullscreen|screencapture|avconvert/i.test(
     reason ?? "",
@@ -129,6 +155,7 @@ function nativeSaveFailureMessage(reason: string | null | undefined): string {
 
 function InsightsUnavailableState() {
   const t = useT();
+
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
       <p className="text-sm font-medium text-foreground">
@@ -179,15 +206,18 @@ export default function RecordingPage() {
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
   const [panel, setPanel] = useState<SidePanel>("agent");
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
+  const isCompactLayout = useIsCompactRecordingLayout();
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
   // can retry or report the issue instead of staring at a spinner.
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (
@@ -246,8 +276,19 @@ export default function RecordingPage() {
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
   const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
+  const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const builderCredits =
+    (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
+  const titleGenerationPaused = Boolean(
+    canEdit &&
+    builderCredits?.exhausted === true &&
+    recording &&
+    isDefaultTitle(recording.title),
+  );
   const showTitleSkeleton = recording
-    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
+    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus, {
+        titleGenerationPaused,
+      })
     : false;
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
@@ -277,11 +318,34 @@ export default function RecordingPage() {
       ? generatedWorkflowQ.data
       : null;
 
-  const canEdit = role === "owner" || role === "admin" || role === "editor";
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
   const canDelete = role === "owner";
+  const canDownloadRecording = Boolean(
+    recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
+  );
+  const downloadRecording = useCallback(async () => {
+    if (!recording?.videoUrl) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(recording.videoUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sanitizeFilename(recording.title || "clip")}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setDownloading(false);
+    }
+  }, [recording?.title, recording?.videoUrl]);
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -359,6 +423,10 @@ export default function RecordingPage() {
     onSuccess: (result: any) => {
       if (result?.updated) {
         toast.success(t("recordingPage.titleUpdated"));
+      } else if (result?.reason === "builder_credits_paused") {
+        toast.message(t("builderCredits.pausedTitle"), {
+          description: t("builderCredits.titleDescription"),
+        });
       } else if (result?.skipped) {
         toast.message(t("recordingPage.transcriptNotReady"), {
           description: t("recordingPage.tryAfterTranscription"),
@@ -412,6 +480,10 @@ export default function RecordingPage() {
   useEffect(() => {
     if (!canUseNativeEditor && editing) setEditing(false);
   }, [canUseNativeEditor, editing]);
+
+  useEffect(() => {
+    if (editing || !isCompactLayout) setSidePanelOpen(false);
+  }, [editing, isCompactLayout]);
 
   useEffect(() => {
     if (!recording) return;
@@ -647,6 +719,158 @@ export default function RecordingPage() {
     );
   }
 
+  const renderSidePanel = (compact = false) => (
+    <Tabs
+      value={panel}
+      onValueChange={(v) => setPanel(v as SidePanel)}
+      className={cn("flex h-full flex-col", compact && "pt-8")}
+    >
+      <TabsList
+        className={cn(
+          "mx-3 mt-3 grid w-auto",
+          canEdit ? "grid-cols-5" : "grid-cols-4",
+        )}
+      >
+        <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.agent")}
+        </TabsTrigger>
+        <TabsTrigger value="comments" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.activity")}
+        </TabsTrigger>
+        <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.transcript")}
+        </TabsTrigger>
+        <TabsTrigger value="insights" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.insights")}
+        </TabsTrigger>
+        {canEdit ? (
+          <TabsTrigger value="settings" className="min-w-0 px-2 text-xs">
+            {t("recordingPage.settings")}
+          </TabsTrigger>
+        ) : null}
+      </TabsList>
+
+      <TabsContent
+        value="agent"
+        className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+      >
+        <AgentPanel
+          browserTabId={getBrowserTabId()}
+          emptyStateText={t("recordingPage.askAboutClip")}
+          dynamicSuggestions={false}
+          chatNotice={
+            generatedWorkflow ? (
+              <GeneratedWorkflowNotice workflow={generatedWorkflow} />
+            ) : null
+          }
+          suggestions={
+            canEdit
+              ? [
+                  t("recordingPage.summarizeClip"),
+                  t("recordingPage.generateChapters"),
+                  t("recordingPage.findActionItems"),
+                  t("recordingPage.draftRecap"),
+                ]
+              : [
+                  t("recordingPage.summarizeClip"),
+                  t("recordingPage.findKeyMoments"),
+                  t("recordingPage.listFollowUpActions"),
+                  t("recordingPage.draftQuestions"),
+                ]
+          }
+        />
+      </TabsContent>
+      <TabsContent
+        value="transcript"
+        className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+      >
+        <TranscriptPanel
+          segments={transcriptSegments}
+          fullText={transcriptFullText}
+          durationMs={recording.durationMs}
+          currentMs={currentMs}
+          onSeek={(ms) => playerRef.current?.seek(ms)}
+          status={transcriptStatus}
+          failureReason={transcriptFailureReason}
+          cleanup={transcriptCleanup}
+          recordingTitle={recording.title}
+          onRetry={() => {
+            // Force a fresh transcript job, then let polling swap the panel
+            // back to the pending state while it runs.
+            fetch(
+              agentNativePath("/_agent-native/actions/request-transcript"),
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  recordingId: recording.id,
+                  force: true,
+                }),
+              },
+            )
+              .then((res) => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              })
+              .catch((err) =>
+                toast.error(
+                  t("recordingPage.retryFailed", {
+                    message: err?.message ?? t("recordingPage.networkError"),
+                  }),
+                ),
+              )
+              .finally(() => playerDataQ.refetch());
+          }}
+        />
+      </TabsContent>
+      <TabsContent
+        value="comments"
+        className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+      >
+        <CommentsPanel
+          recordingId={recording.id}
+          comments={comments}
+          currentMs={currentMs}
+          currentUserEmail={session?.email}
+          enableComments={recording.enableComments}
+          onSeek={(ms) => playerRef.current?.seek(ms)}
+          queryKey={[
+            "action",
+            "get-recording-player-data",
+            { recordingId: recordingId ?? "" },
+          ]}
+        />
+      </TabsContent>
+      <TabsContent
+        value="insights"
+        className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
+      >
+        {canEdit ? (
+          <InsightsPanel
+            recordingId={recording.id}
+            durationMs={recording.durationMs}
+          />
+        ) : (
+          <InsightsUnavailableState />
+        )}
+      </TabsContent>
+      {canEdit ? (
+        <TabsContent
+          value="settings"
+          className="mt-3 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+        >
+          <SettingsPanel
+            recording={recording}
+            visibility={recording.visibility}
+            ctas={ctas}
+            onClose={() => setPanel("agent")}
+            onRefetch={() => playerDataQ.refetch()}
+            showHeader={false}
+          />
+        </TabsContent>
+      ) : null}
+    </Tabs>
+  );
+
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
       {/* Main video column */}
@@ -677,6 +901,9 @@ export default function RecordingPage() {
                 <> · {capitalize(recording.visibility)}</>
               ) : null}
             </p>
+            {titleGenerationPaused ? (
+              <BuilderCreditsTitleNotice className="mt-2" />
+            ) : null}
           </div>
 
           {canUseNativeEditor ? (
@@ -797,6 +1024,23 @@ export default function RecordingPage() {
             </DropdownMenu>
           ) : null}
 
+          {!editing ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="xl:hidden"
+                  onClick={() => setSidePanelOpen(true)}
+                  aria-label={t("recordingPage.details")}
+                >
+                  <IconLayoutSidebarRightExpand className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("recordingPage.details")}</TooltipContent>
+            </Tooltip>
+          ) : null}
+
           <ShareRecordingPopover
             recordingId={recording.id}
             recordingTitle={recording.title}
@@ -814,9 +1058,15 @@ export default function RecordingPage() {
             </Button>
           </ShareRecordingPopover>
 
-          {canDelete ? (
-            <DeleteRecordingMenu
+          {canDelete || canDownloadRecording ? (
+            <RecordingOptionsMenu
               recordingId={recording.id}
+              canDelete={canDelete}
+              canDownload={canDownloadRecording}
+              downloadPending={downloading}
+              onDownload={() => {
+                void downloadRecording();
+              }}
               onDeleted={() => navigate("/library", { replace: true })}
             />
           ) : null}
@@ -935,162 +1185,29 @@ export default function RecordingPage() {
 
       {/* Side panel */}
       {!editing ? (
-        <aside className="w-[380px] border-s border-border flex flex-col shrink-0 bg-background">
-          <Tabs
-            value={panel}
-            onValueChange={(v) => setPanel(v as SidePanel)}
-            className="flex flex-col h-full"
-          >
-            <TabsList
-              className={cn(
-                "mx-3 mt-3 grid w-auto",
-                canEdit ? "grid-cols-5" : "grid-cols-4",
-              )}
-            >
-              <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
-                {t("recordingPage.agent")}
-              </TabsTrigger>
-              <TabsTrigger value="comments" className="min-w-0 px-2 text-xs">
-                {t("recordingPage.activity")}
-              </TabsTrigger>
-              <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
-                {t("recordingPage.transcript")}
-              </TabsTrigger>
-              <TabsTrigger value="insights" className="min-w-0 px-2 text-xs">
-                {t("recordingPage.insights")}
-              </TabsTrigger>
-              {canEdit ? (
-                <TabsTrigger value="settings" className="min-w-0 px-2 text-xs">
-                  {t("recordingPage.settings")}
-                </TabsTrigger>
-              ) : null}
-            </TabsList>
-
-            <TabsContent
-              value="agent"
-              className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
-            >
-              <AgentPanel
-                browserTabId={getBrowserTabId()}
-                emptyStateText={t("recordingPage.askAboutClip")}
-                dynamicSuggestions={false}
-                chatNotice={
-                  generatedWorkflow ? (
-                    <GeneratedWorkflowNotice workflow={generatedWorkflow} />
-                  ) : null
-                }
-                suggestions={
-                  canEdit
-                    ? [
-                        t("recordingPage.summarizeClip"),
-                        t("recordingPage.generateChapters"),
-                        t("recordingPage.findActionItems"),
-                        t("recordingPage.draftRecap"),
-                      ]
-                    : [
-                        t("recordingPage.summarizeClip"),
-                        t("recordingPage.findKeyMoments"),
-                        t("recordingPage.listFollowUpActions"),
-                        t("recordingPage.draftQuestions"),
-                      ]
-                }
-              />
-            </TabsContent>
-            <TabsContent
-              value="transcript"
-              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-            >
-              <TranscriptPanel
-                segments={transcriptSegments}
-                fullText={transcriptFullText}
-                durationMs={recording.durationMs}
-                currentMs={currentMs}
-                onSeek={(ms) => playerRef.current?.seek(ms)}
-                status={transcriptStatus}
-                failureReason={transcriptFailureReason}
-                cleanup={transcriptCleanup}
-                recordingTitle={recording.title}
-                onRetry={() => {
-                  // Re-run transcription now that the user may have connected
-                  // Builder/Gemini or after a one-off network error. The action
-                  // flips the row to 'pending' first, so the UI swaps back to
-                  // "Transcribing…".
-                  fetch(
-                    agentNativePath(
-                      "/_agent-native/actions/request-transcript",
-                    ),
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        recordingId: recording.id,
-                        force: true,
-                      }),
-                    },
-                  )
-                    .then((res) => {
-                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    })
-                    .catch((err) =>
-                      toast.error(
-                        t("recordingPage.retryFailed", {
-                          message:
-                            err?.message ?? t("recordingPage.networkError"),
-                        }),
-                      ),
-                    )
-                    .finally(() => playerDataQ.refetch());
-                }}
-              />
-            </TabsContent>
-            <TabsContent
-              value="comments"
-              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-            >
-              <CommentsPanel
-                recordingId={recording.id}
-                comments={comments}
-                currentMs={currentMs}
-                currentUserEmail={session?.email}
-                enableComments={recording.enableComments}
-                onSeek={(ms) => playerRef.current?.seek(ms)}
-                queryKey={[
-                  "action",
-                  "get-recording-player-data",
-                  { recordingId: recordingId ?? "" },
-                ]}
-              />
-            </TabsContent>
-            <TabsContent
-              value="insights"
-              className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
-            >
-              {canEdit ? (
-                <InsightsPanel
-                  recordingId={recording.id}
-                  durationMs={recording.durationMs}
-                />
-              ) : (
-                <InsightsUnavailableState />
-              )}
-            </TabsContent>
-            {canEdit ? (
-              <TabsContent
-                value="settings"
-                className="mt-3 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+        <>
+          {isCompactLayout ? (
+            <Sheet open={sidePanelOpen} onOpenChange={setSidePanelOpen}>
+              <SheetContent
+                side="right"
+                className="flex h-full w-[calc(100vw-24px)] max-w-[420px] flex-col gap-0 p-0 sm:max-w-[420px]"
               >
-                <SettingsPanel
-                  recording={recording}
-                  visibility={recording.visibility}
-                  ctas={ctas}
-                  onClose={() => setPanel("agent")}
-                  onRefetch={() => playerDataQ.refetch()}
-                  showHeader={false}
-                />
-              </TabsContent>
-            ) : null}
-          </Tabs>
-        </aside>
+                <SheetTitle className="sr-only">
+                  {t("recordingPage.details")}
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  {t("recordingPage.askAboutClip")}
+                </SheetDescription>
+                {renderSidePanel(true)}
+              </SheetContent>
+            </Sheet>
+          ) : null}
+          {!isCompactLayout ? (
+            <aside className="hidden w-[380px] shrink-0 flex-col border-s border-border bg-background xl:flex">
+              {renderSidePanel()}
+            </aside>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -1220,10 +1337,22 @@ function displayRecordingTitle(title: string | null | undefined): string {
   return isDefaultTitle(title) ? "Untitled Clip" : (title ?? "").trim();
 }
 
+function sanitizeFilename(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "clip"
+  );
+}
+
 function shouldShowGeneratedTitleSkeleton(
   recording: { title: string | null | undefined; createdAt?: string | null },
   transcriptStatus?: string,
+  options: { titleGenerationPaused?: boolean } = {},
 ): boolean {
+  if (options.titleGenerationPaused) return false;
   if (!isDefaultTitle(recording.title)) return false;
   if (transcriptStatus === "failed") return false;
 
@@ -1237,4 +1366,30 @@ function shouldShowGeneratedTitleSkeleton(
   }
 
   return true;
+}
+
+function BuilderCreditsTitleNotice({ className }: { className?: string }) {
+  const t = useT();
+  return (
+    <div
+      className={cn(
+        "inline-flex max-w-full items-center gap-2 rounded-md border border-amber-300/70 bg-amber-50/80 px-2 py-1 text-[11px] leading-4 text-amber-950 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-100",
+        className,
+      )}
+    >
+      <IconSparkles className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-200" />
+      <span className="min-w-0 truncate">
+        {t("builderCredits.titleDescription")}
+      </span>
+      <a
+        href={BUILDER_CREDITS_UPGRADE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex shrink-0 items-center gap-1 font-medium underline-offset-2 hover:underline"
+      >
+        {t("builderCredits.upgrade")}
+        <IconExternalLink className="h-3 w-3" />
+      </a>
+    </div>
+  );
 }

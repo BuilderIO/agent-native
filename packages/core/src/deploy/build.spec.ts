@@ -775,6 +775,10 @@ describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
     expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.fs).toContain(
       "existsSync",
     );
+    expect(
+      CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES["fs/promises"],
+    ).toContain("mkdtemp");
+    expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.net).toContain("isIP");
     expect(CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES.module).toContain(
       "createRequire",
     );

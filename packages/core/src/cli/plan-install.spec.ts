@@ -35,8 +35,10 @@ import {
 import {
   addAgentNativeSkill,
   CANVAS_REFERENCE_MD,
+  CONNECTION_REFERENCE_MD,
   DOCUMENT_QUALITY_REFERENCE_MD,
   EXEMPLAR_REFERENCE_MD,
+  LOCAL_FILES_REFERENCE_MD,
   parseSkillsArgs,
   VISUAL_PLANS_SKILL_MD,
   VISUAL_RECAP_SKILL_MD,
@@ -58,10 +60,14 @@ const PLANS_INSTALL_REFERENCES: Record<string, Record<string, string>> = {
   "visual-plan": {
     "references/wireframe.md": WIREFRAME_REFERENCE_MD,
     "references/canvas.md": CANVAS_REFERENCE_MD,
+    "references/connection.md": CONNECTION_REFERENCE_MD,
     "references/document-quality.md": DOCUMENT_QUALITY_REFERENCE_MD,
     "references/exemplar.md": EXEMPLAR_REFERENCE_MD,
+    "references/local-files.md": LOCAL_FILES_REFERENCE_MD,
   },
   "visual-recap": {
+    "references/connection.md": CONNECTION_REFERENCE_MD,
+    "references/local-files.md": LOCAL_FILES_REFERENCE_MD,
     "references/wireframe.md": WIREFRAME_REFERENCE_MD,
   },
 };

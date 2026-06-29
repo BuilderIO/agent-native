@@ -31,6 +31,8 @@ const messages = {
     toggleTheme: "切換主題",
   },
   navigation: {
+    collapseSidebar: "收合側邊欄",
+    expandSidebar: "展開側邊欄",
     brand: "Brain",
     ask: "提問",
     askBrain: "詢問 Brain",

@@ -1,0 +1,387 @@
+---
+title: "MCP协议"
+description: "将您的代理原生应用公开为远程 MCP 服务器，以便 Claude、ChatGPT、Claude 代码、光标和其他 AI 工具可以直接调用您应用的 actions。"
+---
+
+# MCP协议
+
+**此页面：较低级别的 MCP 服务器参考。** 每个代理本机应用程序如何通过 MCP 公开其 actions — 自动安装的端点、身份验证模式、`tools/call` / `ask-agent` 表面和自定义安装。当您需要服务器内部结构时，可以使用它；要连接主机，请从 [External Agents](/docs/external-agents) 开始。
+
+| 如果你想……                                              | 阅读                                     |
+| ------------------------------------------------------- | ---------------------------------------- |
+| 将外部代理/主机连接到您的应用                           | [External Agents](/docs/external-agents) |
+| 为您的代理提供更多工具（使用其他 MCP 服务器）           | [MCP Clients](/docs/mcp-clients)         |
+| 构建在 Claude/ChatGPT 中渲染的内联 UI                   | [MCP Apps](/docs/mcp-apps)               |
+| 较低级别的 MCP 服务器参考（身份验证、工具、自定义挂载） | **此页** — MCP 协议                      |
+
+每个代理本机应用程序都会自动公开远程 MCP（模型上下文协议）服务器，因此 Claude、ChatGPT 自定义 MCP 应用程序、Claude Code、Cursor、Codex 和 VS Code GitHub Copilot 等外部 AI 工具可以直接发现并调用应用程序的 actions - 无需额外代码需要。如果您的目标是将其中一台主机连接到托管应用程序，[External Agents](/docs/external-agents) 涵盖建议的单个调度连接器、每个应用程序 URL、OAuth、MCP 应用内联 UI 和深层链接。此页面记录了其下方的内容。
+
+## 概述 {#overview}
+
+MCP 是用于将 AI 工具连接到外部功能的标准协议。当您部署代理本机应用程序时，它会自动安装 MCP 端点以及现有的 A2A 端点。任何与 MCP 兼容的客户端都可以连接并使用您应用的工具。
+
+关键概念：
+
+- **自动安装** — 每个应用都免费获得 `/_agent-native/mcp`，无需设置
+- **Streamable HTTP** — 在标准 HTTP (POST + SSE) 上使用现代 MCP 传输
+- **相同的 actions** — 为代理聊天和 A2A 提供支持的完全相同的操作注册表
+- **`ask-agent` 工具** — 一种元工具，可委托给完整代理循环来执行复杂任务
+- **MCP 应用程序** — actions 可以通过官方 `io.modelcontextprotocol/ui` 扩展来宣传交互式 UI 资源
+- **标准远程 MCP OAuth** — OAuth 2.1 发现、动态客户端注册、授权代码 + PKCE、刷新令牌轮换
+- **承载身份验证回退** - 对于无法运行 OAuth 的客户端使用 `ACCESS_TOKEN`、`ACCESS_TOKENS` 或 connect-minted JWT
+
+<Diagram id="doc-block-jea5wu" title={"您的应用程序作为 MCP 服务器"} summary={"外部主机通过 Streamable HTTP 连接。每个动作都是一个工具； Ask-agent 委托给完整的代理循环。"}>
+
+```html
+<div class="diagram-mcp">
+  <div class="diagram-col">
+    <div class="diagram-node">Claude</div>
+    <div class="diagram-node">ChatGPT</div>
+    <div class="diagram-node">Cursor · Codex</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    ><small class="diagram-muted">Streamable HTTP</small
+    ><small class="diagram-muted"
+      >initialize &rarr; tools/list &rarr; tools/call</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box" data-rough>
+      each action<br /><small class="diagram-muted">= one tool</small>
+    </div>
+    <div class="diagram-box" data-rough>
+      ask-agent<br /><small class="diagram-muted">&rarr; full agent loop</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mcp {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-mcp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-mcp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-mcp .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## MCP vs A2A {#mcp-vs-a2a}
+
+两种协议都是自动安装的。使用适合您的用例的选项：
+
+|              | MCP                                                                 | A2A                                    |
+| ------------ | ------------------------------------------------------------------- | -------------------------------------- |
+| **最适合**   | 调用您的应用的外部工具                                              | 代理间通信                             |
+| **协议**     | MCP 可流式传输 HTTP                                                 | JSON-RPC 2.0                           |
+| **工具发现** | `tools/list`                                                        | `/.well-known/agent-card.json`的代理卡 |
+| **端点**     | `/_agent-native/mcp`                                                | `/_agent-native/a2a`                   |
+| **支持**     | Claude、ChatGPT、Claude Code、Cursor、Codex、Cowork 和其他 MCP 主机 | 其他代理本机应用                       |
+| **执行**     | 直接工具调用（无需额外的LLM）                                       | 完整代理循环（LLM 推理）               |
+
+您还可以使用 `ask-agent` MCP 工具来获得两全其美的效果 - 从 Claude 代码中调用它，并让您的应用的代理通过复杂的任务进行推理。
+
+## 手动 MCP 客户端配置 {#manual-config}
+
+对于建议的单命令设置，请使用 [External Agents](/docs/external-agents)。如果您为支持 OAuth 的客户端手写 MCP 配置，请将您的应用添加为不带静态标头的远程 MCP 服务器：
+
+```bash
+claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
+```
+
+或者在 `.mcp.json`（项目范围）或 `~/.claude.json`（用户范围）中手动写入条目：
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "mail": {
+      "type": "http",
+      "url": "https://mail.example.com/_agent-native/mcp",
+    },
+  },
+}
+```
+
+然后在Claude代码中运行`/mcp`并选择**验证**。对于无法执行远程 MCP OAuth 的客户端，请使用“连接”页面或带有 `headers.Authorization` 的静态承载令牌条目。经过身份验证后，您可以自然地使用应用程序的工具：
+
+```
+> draft an email to John about the Q3 report
+
+Claude Code calls: draft-email(to: "john@example.com", subject: "Q3 Report", body: "...")
+```
+
+## 从其他MCP客户端连接 {#other-clients}
+
+任何支持 Streamable HTTP 传输的 MCP 客户端都可以连接。端点是：
+
+```
+POST https://your-app.example.com/_agent-native/mcp
+```
+
+服务器支持标准MCP握手：`initialize`→`initialized`→`tools/list`→`tools/call`。
+
+<Endpoint id="doc-block-1mrk9b2" title={"MCP端点"} summary={"每个代理本机应用程序都会公开自动安装的 Streamable HTTP 端点。"} method="POST" path="/_agent-native/mcp" summary={"MCP 可流式 HTTP 端点"} auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
+  {
+    "name": "Authorization",
+    "in": "header",
+    "type": "string",
+    "required": false,
+    "description": "Bearer access token. Required except for loopback local-dev probes."
+  },
+  {
+    "name": "method",
+    "in": "body",
+    "type": "string",
+    "required": true,
+    "description": "MCP method, e.g. initialize, tools/list, tools/call."
+  }
+]} request={{
+  "contentType": "application/json",
+  "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"ask-agent\",\n    \"arguments\": { \"message\": \"Summarize Q3 signups by source\" }\n  }\n}"
+}} responses={[
+  {
+    "status": "200",
+    "description": "MCP result (POST + SSE)."
+  },
+  {
+    "status": "401",
+    "description": "Unauthenticated — responds with a WWW-Authenticate header pointing at OAuth discovery."
+  }
+]}>
+
+Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `initialized` → `tools/list` → `tools/call`) plus `resources/list`, `resources/templates/list`, and `resources/read` when an action declares `mcpApp`. Each action maps to one tool; `ask-agent` delegates to the full agent loop.
+
+</Endpoint>
+
+如果操作声明 `mcpApp`，服务器还会通告官方 MCP 应用扩展 (`io.modelcontextprotocol/ui`)，并支持应用资源的 `resources/list`、`resources/templates/list` 和 `resources/read`。渲染 MCP 应用程序的主机可以内联显示 UI；不这样做的主机仍然可以调用该工具并使用深层链接后备。产品 UI 应使用 `embedApp()`，因此内联表面是真正的 React 应用程序路由，或者呈现共享 React 组件（例如 Analytics 图表）的集中路由，而不是单独的普通 HTML 实现。服务器发出标准 MCP 应用元数据和 ChatGPT 应用 SDK 兼容性元数据，以便支持应用程序的主机可以找到相同的 `ui://` 资源。目前官方扩展矩阵包括Claude、Claude Desktop、VS Code GitHub Copilot、Goose、Postman、MCPJam、ChatGPT、Cursor；主机支持因版本和计划而异，因此请使用 [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) 来获取面向用户的指导。
+
+### MCP 应用嵌入桥 {#mcp-app-embed-bridge}
+
+`embedApp()` 是低级 URL-first MCP 应用程序助手：它启动签名的应用程序
+通过移植 (Claude)、受控帧 (ChatGPT) 或直接进行内联路由
+导航，通过 `ui/*` JSON-RPC 桥（以及
+`agentNative.mcpHost.*` postMessage 中继用于受控帧路径），以及
+限制资源外壳高度，因此完整应用程序路由不会呈现为
+超大的聊天神器。
+
+有关完整嵌入桥的详细信息，请参阅 [MCP Apps](/docs/mcp-apps#mcp-app-bridge) - 移植与受控框架、`ui/*` 和 postMessage 表、`create_embed_session` / `embedStartUrl`、CSP 和域规则、扩展 `srcDoc` 嵌入、高度限制和主桥客户端 API。
+
+## 工具 {#tools}
+
+每个调用者默认都会获得一个**紧凑目录**（模板声明的应用程序 actions 加上跨应用程序内置），完整的操作界面仅在明确选择加入时提供，并且 `tool-search` 始终可用于到达其余部分。完整解释请参见 [External Agents → Catalog tiers](/docs/external-agents#catalog-tiers)。
+
+每个操作都直接映射到一个 MCP 工具：
+
+| 操作属性           | MCP工具属性   |
+| ------------------ | ------------- |
+| `tool.description` | `description` |
+| `tool.parameters`  | `inputSchema` |
+| 操作名称           | 工具名称      |
+
+当存在`mcpApp`时，工具条目还包括`_meta.ui.resourceUri`、`_meta["ui/resourceUri"]`和`_meta["openai/outputTemplate"]`，并且相应的`ui://`资源返回为`text/html;profile=mcp-app`。
+
+### `ask-agent` 工具 {#ask-agent}
+
+除了单独的操作工具外，每个 MCP 服务器还包含一个 `ask-agent` 元工具。这会向应用程序的 AI 代理发送一条自然语言消息并返回响应。
+
+使用 `ask-agent` 执行复杂任务，受益于代理的推理和上下文：
+
+```json
+{
+  "name": "ask-agent",
+  "arguments": {
+    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed"
+  }
+}
+```
+
+代理运行与交互式聊天相同的循环 - 它可以调用多个工具、推理上下文并生成深思熟虑的响应。
+
+## 身份验证 {#authentication}
+
+MCP 端点支持标准远程 MCP OAuth 以及现有的不记名令牌后备：
+
+| 模式                 | 它是如何工作的                                                                                       |
+| -------------------- | ---------------------------------------------------------------------------------------------------- |
+| 标准MCP OAuth        | 客户端从`WWW-Authenticate`发现身份验证，注册，运行PKCE，并发送`Authorization: Bearer <access-token>` |
+| 连接铸造JWT          | `npx @agent-native/core@latest connect` / Connect 页面铸造一个每用户、可撤销的 JWT                   |
+| `ACCESS_TOKEN`       | 静态不记名令牌 - 客户端发送 `Authorization: Bearer <token>`                                          |
+| `ACCESS_TOKENS`      | 以逗号分隔的有效静态不记名令牌列表                                                                   |
+| `A2A_SECRET`         | 基于 JWT 的身份验证 - 令牌通过加密方式进行验证                                                       |
+| _（未设置，仅环回）_ | 本地开发探针不需要身份验证                                                                           |
+
+对于支持 OAuth 的 MCP 主机，配置不带静态标头的远程服务器 URL：
+
+```bash
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
+```
+
+第一个未经身份验证的 MCP 请求收到：
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+```
+
+发现端点：
+
+| 端点                                      | 目的                      |
+| ----------------------------------------- | ------------------------- |
+| `/.well-known/oauth-protected-resource`   | RFC 9728 受保护资源元数据 |
+| `/.well-known/oauth-authorization-server` | OAuth 授权服务器元数据    |
+| `/_agent-native/mcp/oauth/register`       | 动态公共客户端注册        |
+| `/_agent-native/mcp/oauth/authorize`      | 浏览器授权+同意           |
+| `/_agent-native/mcp/oauth/token`          | 授权代码和刷新令牌授予    |
+
+<Diagram id="doc-block-bp55uo" title={"OAuth 发现流程"} summary={"401 启动发现、注册和 PKCE 授权 → 令牌交换。不记名令牌是受受众限制和范围的。"}>
+
+```html
+<div class="diagram-oauth">
+  <div class="diagram-box" data-rough>
+    first request<br /><small class="diagram-muted">no token</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill warn">401 · WWW-Authenticate</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill">/.well-known/oauth-protected-resource</span
+    ><span class="diagram-pill">/.well-known/oauth-authorization-server</span
+    ><small class="diagram-muted">discover</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">register</div>
+    <div class="diagram-pill">authorize (PKCE)</div>
+    <div class="diagram-pill">token</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Bearer access token<br /><small class="diagram-muted"
+      >绑定 audience · mcp:read / write / apps</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-oauth {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-oauth .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-oauth .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-oauth .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+访问令牌是经过签名的 JWT，其受众是确切的 MCP 资源 URL。服务器仅接受为其自身颁发的令牌，并在列出/调用工具之前应用范围：
+
+| 范围        | 允许                              |
+| ----------- | --------------------------------- |
+| `mcp:read`  | 只读 actions                      |
+| `mcp:write` | 突变 actions 和 `ask-agent`       |
+| `mcp:apps`  | MCP 应用资源（`ui://` HTML 资源） |
+
+刷新令牌仅存储为哈希值，并在每次刷新时轮换。默认情况下，`npx @agent-native/core@latest connect` 为 Claude 代码客户端写入仅 URL 的 OAuth 条目；保留连接页面、`npx @agent-native/core@latest connect --token <token>` 和静态承载配置以用于本地 stdio 代理、旧客户端和紧急/调试流程。
+
+## 自定义 MCP 设置 {#custom-setup}
+
+MCP 服务器由代理聊天插件自动安装。对于大多数应用程序，无需配置。如果您需要自定义行为，您可以在服务器插件中手动安装它：
+
+```ts
+// server/plugins/mcp.ts
+import { mountMCP } from "@agent-native/core/mcp";
+import { autoDiscoverActions } from "@agent-native/core/server";
+
+export default defineNitroPlugin(async (nitro) => {
+  const actions = await autoDiscoverActions(import.meta.url);
+
+  mountMCP(nitro, {
+    name: "My App",
+    description: "Custom MCP server",
+    actions,
+    // Optional: provide ask-agent handler
+    askAgent: async (message) => {
+      // Your custom agent logic
+      return "Response";
+    },
+    // Optional: override the route prefix (default "/_agent-native")
+    // routePrefix: "/_agent-native",
+  });
+});
+```
+
+## 示例：来自 Claude 代码的分析 {#example}
+
+您在 `analytics.example.com` 部署了分析应用程序。来自Claude代码：
+
+```bash
+claude mcp add --transport http analytics https://analytics.example.com/_agent-native/mcp
+```
+
+或者在`.mcp.json`中手动添加：
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "analytics": {
+      "type": "http",
+      "url": "https://analytics.example.com/_agent-native/mcp",
+    },
+  },
+}
+```
+
+现在在 Claude 代码中：
+
+```
+> How many signups did we get last week?
+
+Claude Code calls: run-query(sql: "SELECT count(*) FROM signups WHERE created_at > now() - interval '7 days'")
+→ "1,247 signups last week"
+```
+
+对于更复杂的分析：
+
+```
+> Ask the analytics agent to prepare a full breakdown of Q3 signups by source, with trends
+
+Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
+→ The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
+```

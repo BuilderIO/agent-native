@@ -57,7 +57,7 @@ async function notifyOwner(input: {
   requesterEmail: string;
   requesterName: string;
 }): Promise<boolean> {
-  if (!isEmailConfigured()) return false;
+  if (!(await isEmailConfigured())) return false;
   if (!input.ownerEmail || input.ownerEmail === input.requesterEmail) {
     return false;
   }

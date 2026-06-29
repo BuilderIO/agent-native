@@ -64,9 +64,9 @@ export interface OrgSwitcherProps {
   reserveSpace?: boolean;
   /**
    * Path to navigate to when the user clicks "Organization settings".
-   * Defaults to `/team`, the standard organization-management route. Templates
-   * with an established org surface can pass their own path; pass `null` to
-   * only open the in-sidebar settings panel.
+   * Defaults to the standard Team tab inside Settings. Templates with an
+   * established org surface can pass their own path; pass `null` to only open
+   * the in-sidebar settings panel.
    */
   settingsPath?: string | null;
 }
@@ -97,7 +97,7 @@ const SECTION_LABEL_CLASS =
 const APP_SUBMENU_CONTENT_CLASS =
   "z-50 w-72 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2";
 
-const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/team";
+const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#team";
 
 const APP_ICON_MAP: Record<string, typeof IconApps> = {
   Mail: IconMail,
@@ -131,7 +131,7 @@ function appMenuIcon(app: OrgSwitcherAppLink): typeof IconApps {
 }
 
 function organizationSettingsPath(path: string): string {
-  return `${path.replace(/#.*$/, "")}#workspace-settings`;
+  return path.includes("#") ? path : `${path}#team`;
 }
 
 function AppMenuLink({

@@ -1,10 +1,11 @@
 import {
   ChangelogSettingsCard,
   LanguagePicker,
+  SettingsTabsPage,
   openAgentSettings,
   useT,
 } from "@agent-native/core/client";
-import { Link } from "react-router";
+import { TeamPage } from "@agent-native/core/client/org";
 
 import { useSetPageTitle } from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
@@ -29,80 +30,81 @@ export default function SettingsRoute() {
   useSetPageTitle(t("settings.title"));
 
   return (
-    <main className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 sm:px-6 sm:py-10">
-      <div className="space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {t("settings.title")}
-        </h1>
-        <p className="text-sm leading-6 text-muted-foreground">
-          {t("settings.description")}
-        </p>
-      </div>
+    <SettingsTabsPage
+      teamLabel={t("header.team")}
+      general={
+        <div className="mx-auto w-full max-w-3xl space-y-6">
+          <p className="text-sm leading-6 text-muted-foreground">
+            {t("settings.description")}
+          </p>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t("settings.languageTitle")}
-          </CardTitle>
-          <CardDescription>{t("settings.languageDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent className="max-w-xs space-y-1.5">
-          <Label>{t("settings.languageLabel")}</Label>
-          <LanguagePicker label={t("settings.languageLabel")} />
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("settings.languageTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("settings.languageDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="max-w-xs space-y-1.5">
+              <Label>{t("settings.languageLabel")}</Label>
+              <LanguagePicker label={t("settings.languageLabel")} />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t("settings.workspaceTitle")}
-          </CardTitle>
-          <CardDescription>
-            {t("settings.workspaceDescription")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" asChild>
-            <Link to="/team">{t("settings.openTeamSettings")}</Link>
-          </Button>
-        </CardContent>
-      </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("settings.agentTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("settings.agentDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" onClick={() => openAgentSettings()}>
+                {t("settings.openAgentSettings")}
+              </Button>
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t("settings.agentTitle")}
-          </CardTitle>
-          <CardDescription>{t("settings.agentDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" onClick={() => openAgentSettings()}>
-            {t("settings.openAgentSettings")}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t("settings.editorTitle")}
-          </CardTitle>
-          <CardDescription>{t("settings.editorDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" asChild>
-            <a
-              href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              {t("settings.openEditorExtension")}
-            </a>
-          </Button>
-        </CardContent>
-      </Card>
-
-      <ChangelogSettingsCard markdown={changelog} />
-    </main>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("settings.editorTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("settings.editorDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button variant="outline" asChild>
+                <a
+                  href="https://marketplace.visualstudio.com/items?itemName=Builder.agent-native"
+                  target="_blank"
+                  rel="noreferrer noopener"
+                >
+                  {t("settings.openEditorExtension")}
+                </a>
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      }
+      team={
+        <div className="mx-auto w-full max-w-3xl">
+          <TeamPage
+            showTitle={false}
+            createOrgDescription="Set up a team to share this app with your colleagues."
+          />
+        </div>
+      }
+      whatsNew={
+        <div className="mx-auto w-full max-w-3xl">
+          <ChangelogSettingsCard markdown={changelog} />
+        </div>
+      }
+    />
   );
 }

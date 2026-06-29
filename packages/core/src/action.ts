@@ -334,7 +334,7 @@ interface DefineActionWithSchema<
    *  this for UI-only or purely programmatic actions you want behind the
    *  framework's auth + action surface WITHOUT spending a slot in the model's
    *  tool list. Distinct from `toolCallable`, which only governs the sandboxed
-   *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.md`. */
+   *  extension ("tools") iframe bridge. See `packages/core/docs/content/actions.mdx`. */
   agentTool?: boolean;
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`.
@@ -347,7 +347,7 @@ interface DefineActionWithSchema<
    *  and order-independent for same-turn execution. */
   parallelSafe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
-   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.md`
+   *  via `appAction(name, params)` — see `packages/core/docs/content/actions.mdx`
    *  ("Tools Callability"). **Default-allow opt-out**: undefined / `true` both
    *  allow tool-iframe calls; only an explicit `false` returns 403. Set to
    *  `false` for high-blast-radius admin operations (account deletion, org

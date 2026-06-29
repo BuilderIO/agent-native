@@ -1174,8 +1174,7 @@ const databaseMessagesByLocale = {
       "लाइव राइट केवल Agent Native टेस्ट संग्रह के लिए उपलब्ध हैं।",
     builderWriteMode: "Builder राइट मोड",
     builderWriteModeUpdated: "Builder राइट मोड अपडेट किया गया",
-    allowPublishUnpublishPerItem:
-      "प्रति आइटम प्रकाशित/अप्रकाशित करने की अनुमति दें",
+    allowPublishUnpublishPerItem: "प्रति आइटम प्रकाशित/अप्रकाशित करने की अनुमति दें",
     builderChanges: "Builder परिवर्तन",
     reviewLocalEditsBeforeBuilder:
       "Builder तक पहुँचने से पहले स्थानीय संपादन की समीक्षा करें।",
@@ -1207,8 +1206,7 @@ const databaseMessagesByLocale = {
     thisUnpublishesTheLiveEntry:
       "यह Builder में लाइव प्रविष्टि को अप्रकाशित कर देता है।",
     needsAttentionBeforeFinish: "समाप्त होने से पहले ध्यान देने की आवश्यकता है",
-    noPendingLocalBuilderChanges:
-      "अभी तक कोई लंबित स्थानीय Builder परिवर्तन नहीं।",
+    noPendingLocalBuilderChanges: "अभी तक कोई लंबित स्थानीय Builder परिवर्तन नहीं।",
     needsAttention: "ध्यान देने की आवश्यकता है",
     failedYouCanRetry: "विफल — आप पुनः प्रयास कर सकते हैं",
     needsAFreshReview: "एक नई समीक्षा की आवश्यकता है",
@@ -1234,8 +1232,7 @@ const databaseMessagesByLocale = {
       "डेटाबेस पंक्तियां और स्थानीय प्रॉपर्टीज़ सुरक्षित रहीं।",
     failedToDeleteRow: "पंक्ति हटाने में विफल",
     failedToDeleteSelectedRows: "चुनी गई पंक्तियां हटाने में विफल",
-    failedToDuplicateEverySelectedRow:
-      "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",
+    failedToDuplicateEverySelectedRow: "हर चुनी गई पंक्ति डुप्लिकेट नहीं हो सकी",
     failedToDuplicateRow: "पंक्ति डुप्लिकेट करने में विफल",
     failedToMoveCard: "कार्ड ले जाने में विफल",
     failedToMoveRow: "पंक्ति ले जाने में विफल",
@@ -3843,8 +3840,7 @@ const databaseExactEnglishMessagesByLocale = {
     noMatchingOptions: "कोई मेल खाते विकल्प नहीं",
     noMatchingPages: "कोई मेल खाते पेज नहीं",
     noMatchingProperties: "कोई मेल खाते गुण नहीं",
-    noOtherDatabasesAvailableToAdd:
-      "जोड़ने के लिए कोई अन्य डेटाबेस उपलब्ध नहीं है।",
+    noOtherDatabasesAvailableToAdd: "जोड़ने के लिए कोई अन्य डेटाबेस उपलब्ध नहीं है।",
     noPropertiesFound: "कोई गुण नहीं मिले",
     notMappedToBuilder: "Builder से मैप नहीं है।",
     openPagesIn: "पेज इसमें खोलें",
@@ -6171,8 +6167,7 @@ const editorMessagesByLocale = {
       addImage: "एक छवि जोड़ें",
       addVideo: "एक वीडियो जोड़ें",
       altText: "वैकल्पिक पाठ",
-      altTextGenerationFailed:
-        "वैकल्पिक टेक्स्ट जनरेशन प्रारंभ नहीं किया जा सका.",
+      altTextGenerationFailed: "वैकल्पिक टेक्स्ट जनरेशन प्रारंभ नहीं किया जा सका.",
       assets: "संपत्ति",
       assetsImagePicker: "संपत्ति छवि चयनकर्ता",
       assetsMissingImageUrl: "एसेट ने कोई छवि URL नहीं लौटाया.",
@@ -6183,8 +6178,7 @@ const editorMessagesByLocale = {
       audioPreview: "ऑडियो पूर्वावलोकन",
       audioView: "ऑडियो दृश्य",
       chooseFromAssets: "संपत्तियों में से चुनें",
-      clickToEditAltText:
-        "वैकल्पिक टेक्स्ट देखने और संपादित करने के लिए क्लिक करें",
+      clickToEditAltText: "वैकल्पिक टेक्स्ट देखने और संपादित करने के लिए क्लिक करें",
       closeAltTextEditor: "वैकल्पिक टेक्स्ट संपादक बंद करें",
       closeAudioPreview: "ऑडियो पूर्वावलोकन बंद करें",
       closeImagePreview: "छवि पूर्वावलोकन बंद करें",
@@ -6451,8 +6445,7 @@ const editorMessagesByLocale = {
       notionSync: "धारणा सिंक",
       openInNotion: "धारणा में खोलें",
       orgCanFindAndView: "आपके संगठन का कोई भी व्यक्ति ढूंढ और देख सकता है",
-      orgLinkCanView:
-        "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
+      orgLinkCanView: "आपके संगठन का कोई भी व्यक्ति जिसके पास लिंक है, देख सकता है",
       printDialogOpened: "प्रिंट संवाद खोला गया",
       printDialogOpenedDescription:
         "निर्यात समाप्त करने के लिए पीडीएफ के रूप में सहेजें चुनें।",
@@ -6466,8 +6459,7 @@ const editorMessagesByLocale = {
       revealedLocalFile: "स्थानीय फ़ाइल का खुलासा",
       searchNotionPages: "धारणा पृष्ठ खोजें...",
       setUpNotion: "धारणा स्थापित करें",
-      setUpNotionFirst:
-        "सबसे पहले साइडबार में नोशन सेट करें - नोशन आइकन पर क्लिक करें।",
+      setUpNotionFirst: "सबसे पहले साइडबार में नोशन सेट करें - नोशन आइकन पर क्लिक करें।",
       setUpNotionToSync: "इस दस्तावेज़ को सिंक करने के लिए नोशन सेट करें।",
       share: "साझा करें",
       shareableCopyReady: "साझा करने योग्य प्रति तैयार",
@@ -7801,12 +7793,10 @@ export const messagesByLocale = {
       title: "सेटिंग्स",
       description: "Content के लिए भाषा और कार्यस्थान प्राथमिकताएं।",
       languageTitle: "भाषा",
-      languageDescription:
-        "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
+      languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
       languageLabel: "इंटरफ़ेस भाषा",
       workspaceTitle: "कार्यस्थान",
-      workspaceDescription:
-        "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
+      workspaceDescription: "सहयोगियों और साझा दस्तावेज़ पहुंच को प्रबंधित करें।",
       openTeamSettings: "कार्यस्थान पहुंच खोलें",
       agentTitle: "एजेंट सेटिंग्स",
       agentDescription:
@@ -8114,8 +8104,7 @@ const contentExactEnglishTranslations = {
         copiedPageLink: "पेज लिंक कॉपी किया गया",
         copyPageLink: "पेज लिंक कॉपी करें",
         couldNotCopyLink: "लिंक कॉपी नहीं किया जा सका",
-        clipboardAccessUnavailable:
-          "इस ब्राउज़र में क्लिपबोर्ड एक्सेस उपलब्ध नहीं है।",
+        clipboardAccessUnavailable: "इस ब्राउज़र में क्लिपबोर्ड एक्सेस उपलब्ध नहीं है।",
         pageBreadcrumb: "पेज ब्रेडक्रंब",
       },
       versionRestoreQuestion: "यह संस्करण पुनर्स्थापित करें?",

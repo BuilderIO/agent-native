@@ -9,17 +9,22 @@
  * and the docs light/dark theme, so a diagram in the docs looks identical to one
  * in the Plan app.
  *
- * Authoring: blocks are embedded in the markdown docs as fenced code blocks whose
- * info string names a block type, e.g.
+ * Authoring: blocks are embedded in the markdown docs as standard MDX
+ * components, e.g.
  *
- *     ```diagram title="Request lifecycle"
- *     { "html": "<div class='diagram-row'>…</div>" }
+ *     <Diagram title="Request lifecycle">
+ *
+ *     ```html
+ *     <div class="diagram-row">…</div>
  *     ```
  *
- * The fence body is JSON for the block's `data` (mermaid takes raw text). The
- * renderer ({@link DocContent}) splits the markdown into prose runs and block
- * runs, rendering prose through the existing markdown pipeline and blocks through
- * the shared `BlockView`.
+ *     </Diagram>
+ *
+ * Legacy `an-*` JSON fences are still parseable for migration compatibility,
+ * and mermaid stays as ordinary `mermaid` fences. The renderer
+ * ({@link DocContent}) splits the markdown into prose runs and block runs,
+ * rendering prose through the existing markdown pipeline and blocks through the
+ * shared `BlockView`.
  */
 
 import {
@@ -34,7 +39,20 @@ import {
 import { useT } from "@agent-native/core/client";
 import { useMemo, type ReactNode } from "react";
 
+import {
+  resolveDocBlockType,
+  type DocSegment,
+} from "../../lib/doc-block-segments";
 import { renderMarkdownToHtml } from "./MarkdownRenderer";
+
+export {
+  DOC_BLOCK_LANGUAGES,
+  resolveDocBlockType,
+  splitDocSegments,
+  validateDocBlock,
+  validateDocSegment,
+  type DocSegment,
+} from "../../lib/doc-block-segments";
 
 /* -------------------------------------------------------------------------- */
 /* Registry                                                                    */
@@ -53,194 +71,6 @@ function getDocBlockRegistry(): BlockRegistry {
   registerLibraryBlocks(registry);
   cachedRegistry = registry;
   return registry;
-}
-
-/**
- * Visual block aliases for fenced doc blocks. Every name is namespaced with an
- * `an-` prefix so a doc block fence can NEVER collide with an ordinary code fence
- * (```json, ```diff, ```ts …) — those keep rendering as syntax-highlighted code.
- * The alias maps to the canonical block `type` registered in the shared library.
- *
- * Authoring: ```an-diagram, ```an-api, ```an-schema, ```an-annotated-code, etc.
- */
-const BLOCK_TYPE_ALIASES: Record<string, string> = {
-  "an-diagram": "diagram",
-  "an-wireframe": "wireframe",
-  "an-api": "api-endpoint",
-  "an-api-endpoint": "api-endpoint",
-  "an-endpoint": "api-endpoint",
-  "an-openapi": "openapi-spec",
-  "an-openapi-spec": "openapi-spec",
-  "an-schema": "data-model",
-  "an-data-model": "data-model",
-  "an-model": "data-model",
-  "an-annotated-code": "annotated-code",
-  "an-walkthrough": "annotated-code",
-  "an-file-tree": "file-tree",
-  "an-files": "file-tree",
-  "an-tree": "file-tree",
-  "an-callout": "callout",
-  "an-note": "callout",
-  "an-columns": "columns",
-  "an-tabs": "tabs",
-  "an-diff": "diff",
-  "an-table": "table",
-  "an-checklist": "checklist",
-  "an-json": "json-explorer",
-  "an-json-explorer": "json-explorer",
-  "an-mermaid": "mermaid",
-};
-
-/** The fence languages that should render as a visual block, not a code block. */
-export const DOC_BLOCK_LANGUAGES = new Set(Object.keys(BLOCK_TYPE_ALIASES));
-
-export function resolveDocBlockType(alias: string): string | undefined {
-  return BLOCK_TYPE_ALIASES[alias.trim().toLowerCase()];
-}
-
-/* -------------------------------------------------------------------------- */
-/* Segment parsing                                                             */
-/* -------------------------------------------------------------------------- */
-
-export type DocSegment =
-  | { kind: "markdown"; text: string }
-  | {
-      kind: "block";
-      alias: string;
-      attrs: Record<string, string>;
-      body: string;
-    };
-
-/** Parse `title="Foo" id="bar"` style attributes from a fence info string. */
-function parseFenceAttrs(rest: string): Record<string, string> {
-  const attrs: Record<string, string> = {};
-  const pattern = /([\w-]+)\s*=\s*"([^"]*)"|([\w-]+)\s*=\s*'([^']*)'/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(rest)) !== null) {
-    const key = match[1] ?? match[3];
-    const value = match[2] ?? match[4] ?? "";
-    if (key) attrs[key] = value;
-  }
-  return attrs;
-}
-
-/**
- * Split a markdown document into ordered prose and block segments. A block
- * segment is a top-level fenced code block (``` at column 0) whose first info
- * token resolves to a registered block type. Everything else — including normal
- * code fences — stays in markdown segments so the existing renderer handles it.
- */
-export function splitDocSegments(markdown: string): DocSegment[] {
-  const lines = markdown.split("\n");
-  const segments: DocSegment[] = [];
-  let prose: string[] = [];
-
-  const flushProse = () => {
-    if (prose.length === 0) return;
-    const text = prose.join("\n");
-    if (text.trim().length > 0) segments.push({ kind: "markdown", text });
-    prose = [];
-  };
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    // A fenced code block opener: 3+ backticks then an info string. The info may
-    // contain backticks (e.g. an inline-code attribute value like
-    // `summary="uses \`appFetch\`"`), so don't ban them.
-    const open = /^(`{3,})([^\n]*)$/.exec(line);
-    if (open) {
-      const fence = open[1];
-      const info = open[2] ?? "";
-      const alias = /^\s*([\w-]+)/.exec(info)?.[1]?.toLowerCase();
-      // Per CommonMark a fence is closed by a line of >= as many of the same
-      // fence char (plus optional trailing spaces). Matching the length means a
-      // ```block that closes with ```` is handled, and we step over normal code
-      // fences as a unit instead of scanning their contents for `an-*` openers.
-      const closeRe = new RegExp(`^${fence}\`*\\s*$`);
-      const bodyLines: string[] = [];
-      let j = i + 1;
-      let closed = false;
-      for (; j < lines.length; j++) {
-        if (closeRe.test(lines[j])) {
-          closed = true;
-          break;
-        }
-        bodyLines.push(lines[j]);
-      }
-      if (!closed) {
-        // Unterminated fence — emit the opener as prose and keep scanning the
-        // rest line by line so nothing is dropped.
-        prose.push(line);
-        continue;
-      }
-      if (alias && DOC_BLOCK_LANGUAGES.has(alias)) {
-        flushProse();
-        segments.push({
-          kind: "block",
-          alias,
-          attrs: parseFenceAttrs(info),
-          body: bodyLines.join("\n"),
-        });
-      } else {
-        // A normal code fence — keep it verbatim in the prose stream so the
-        // markdown renderer handles it (and an `an-*` line inside a code example
-        // is never mistaken for a block).
-        prose.push(line, ...bodyLines, lines[j]);
-      }
-      i = j; // skip past the closing fence
-      continue;
-    }
-    prose.push(line);
-  }
-
-  flushProse();
-  return segments;
-}
-
-/**
- * Validate a single embedded block's source without rendering it. Resolves the
- * type, parses the body (JSON, or raw text for mermaid), and runs the block's zod
- * schema. Returns a precise error string instead of throwing so the build-time
- * test can report every broken block across all docs at once.
- */
-export function validateDocBlock(
-  alias: string,
-  body: string,
-): { ok: true } | { ok: false; error: string } {
-  const type = resolveDocBlockType(alias);
-  if (!type) return { ok: false, error: `unknown block type "${alias}"` };
-  const spec = getDocBlockRegistry().get(type);
-  if (!spec) return { ok: false, error: `no registered spec for "${type}"` };
-
-  let data: unknown;
-  if (type === "mermaid") {
-    data = { code: body.trim() };
-  } else {
-    const trimmed = body.trim();
-    if (!trimmed) {
-      data = spec.empty?.() ?? {};
-    } else {
-      try {
-        data = JSON.parse(trimmed);
-      } catch (error) {
-        return {
-          ok: false,
-          error: `invalid JSON — ${(error as Error).message}`,
-        };
-      }
-    }
-  }
-
-  const parsed = spec.schema.safeParse(data);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const path = issue?.path?.length ? `${issue.path.join(".")}: ` : "";
-    return {
-      ok: false,
-      error: `schema — ${path}${issue?.message ?? "invalid"}`,
-    };
-  }
-  return { ok: true };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -337,34 +167,45 @@ function hashDocBlockSource(source: string): string {
 
 /** Render one embedded block from a parsed {@link DocSegment}. */
 export function DocBlock({
-  alias,
-  attrs,
-  body,
+  segment,
   index,
 }: {
-  alias: string;
-  attrs: Record<string, string>;
-  body: string;
+  segment:
+    | Extract<DocSegment, { kind: "block" }>
+    | Extract<DocSegment, { kind: "invalid-block" }>;
   /** Stable position of this block within its doc. Used to derive a fallback id
    * so SSR and client hydration agree (no module-level mutable counter). */
   index?: number;
 }) {
   const { registry, ctx } = useBlockRegistry();
   const t = useT();
-  const type = resolveDocBlockType(alias);
+
+  if (segment.kind === "invalid-block") {
+    return <DocBlockError alias={segment.tag} message={segment.message} />;
+  }
+
+  const type =
+    segment.source === "mdx"
+      ? segment.type
+      : resolveDocBlockType(segment.alias);
   const spec = type ? registry.get(type) : undefined;
 
   if (!spec) {
     return (
-      <DocBlockError alias={alias} message={t("docBlocks.unknownBlockType")} />
+      <DocBlockError
+        alias={segment.source === "mdx" ? segment.type : segment.alias}
+        message={t("docBlocks.unknownBlockType")}
+      />
     );
   }
 
   let data: unknown;
-  if (type === "mermaid") {
-    data = { code: body.trim() };
+  if (segment.source === "mdx") {
+    data = segment.data;
+  } else if (type === "mermaid") {
+    data = { code: segment.body.trim() };
   } else {
-    const trimmed = body.trim();
+    const trimmed = segment.body.trim();
     if (!trimmed) {
       data = spec.empty?.() ?? {};
     } else {
@@ -373,7 +214,7 @@ export function DocBlock({
       } catch (error) {
         return (
           <DocBlockError
-            alias={alias}
+            alias={segment.alias}
             message={`invalid JSON — ${(error as Error).message}`}
           />
         );
@@ -385,7 +226,7 @@ export function DocBlock({
   if (!parsed.success) {
     return (
       <DocBlockError
-        alias={alias}
+        alias={segment.source === "mdx" ? segment.type : segment.alias}
         message={parsed.error.issues[0]?.message ?? "invalid block data"}
       />
     );
@@ -394,13 +235,33 @@ export function DocBlock({
   const generatedId =
     index == null
       ? `doc-block-${hashDocBlockSource(
-          JSON.stringify([alias, attrs.title ?? "", attrs.summary ?? "", body]),
+          JSON.stringify(
+            segment.source === "mdx"
+              ? [
+                  segment.type,
+                  segment.title ?? "",
+                  segment.summary ?? "",
+                  segment.data,
+                ]
+              : [
+                  segment.alias,
+                  segment.attrs.title ?? "",
+                  segment.attrs.summary ?? "",
+                  segment.body,
+                ],
+          ),
         )}`
       : `doc-block-${index}`;
   const block = {
-    id: attrs.id || generatedId,
-    title: attrs.title || undefined,
-    summary: attrs.summary || undefined,
+    id:
+      (segment.source === "mdx" ? segment.id : segment.attrs.id) || generatedId,
+    title:
+      (segment.source === "mdx" ? segment.title : segment.attrs.title) ||
+      undefined,
+    summary:
+      (segment.source === "mdx" ? segment.summary : segment.attrs.summary) ||
+      undefined,
+    editable: segment.source === "mdx" ? segment.editable : undefined,
     data: parsed.data,
   };
 

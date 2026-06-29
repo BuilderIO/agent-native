@@ -64,6 +64,27 @@ themes. For any inline border, background, or text color, reference a token:
 and `--wf-radius`. Never hard-code a hex color and never set `font-family` — the
 renderer owns the sketch/clean font.
 
+**Never use host/Tailwind theme classes in wireframe HTML.** Classes such as
+`bg-white`, `bg-zinc-50`, `bg-slate-950`, `text-zinc-950`,
+`text-slate-400`, `border-zinc-200`, `hover:bg-slate-800`, `shadow-xl`,
+or arbitrary color utilities like `bg-[#fff]` leak the host app's CSS into the
+mockup and can make dark-mode canvas frames unreadable. Use bare semantic
+elements, `.wf-*` helper classes, and `--wf-*` color tokens instead. Before
+publishing, scan every wireframe `class` and `style` attribute: if a class sets
+background, text, border, ring, fill, stroke, gradient, placeholder, decoration,
+or shadow color, rewrite it to renderer tokens or remove it. Layout-only classes
+are still discouraged; inline flex/grid styles are safer and easier to review.
+
+**Keep Rough.js sparse.** `.wf-card` and `.wf-box` already render with
+theme-safe filled backgrounds (`--wf-card`) and soft tokenized borders that work
+in both light and dark mode. Do not add `data-rough` to broad root wrappers,
+dialog shells, page panels, grid cells, or nested containers unless that single
+container is the visual point. The renderer sketches the outer frame and
+standard controls by default; use `data-rough` only for a deliberate one-off
+shape. If a mockup starts looking like stacked/overlapping sketch lines, remove
+rough targets from parent containers and let backgrounds plus spacing separate
+the surfaces.
+
 **Use literal CSS lengths for spacing.** The `--wf-*` tokens are for colors and
 renderer-owned visual styling, not layout spacing. Do not use guessed spacing
 tokens such as `var(--wf-space-4)`, Tailwind spacing classes, or theme spacing

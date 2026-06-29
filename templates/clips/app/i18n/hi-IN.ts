@@ -20,6 +20,24 @@ const messages = {
       "रिकॉर्डिंग शुरू करने के लिए Clips एक्सटेंशन फिर से खोलें।",
     gotIt: "समझ गया",
   },
+  builderCredits: {
+    pausedTitle: "Builder.io क्रेडिट रुके हुए हैं",
+    transcriptionDescription:
+      "बैकअप ट्रांसक्रिप्शन फिर शुरू करने के लिए Builder.io अपग्रेड करें। मौजूदा नेटिव ट्रांसक्रिप्ट दिखाई देते रहेंगे।",
+    cleanupDescription:
+      "ट्रांसक्रिप्ट क्लीनअप, सारांश और AI शीर्षक फिर शुरू करने के लिए Builder.io अपग्रेड करें। नेटिव ट्रांसक्रिप्ट सुरक्षित रखा गया।",
+    settingsDescription:
+      "बैकअप ट्रांसक्रिप्शन, ट्रांसक्रिप्ट क्लीनअप, सारांश और AI शीर्षक फिर शुरू करने के लिए Builder.io अपग्रेड करें। मौजूदा नेटिव ट्रांसक्रिप्ट दिखाई देते रहेंगे।",
+    titleDescription:
+      "AI शीर्षक जनरेशन रुका हुआ है। आपका ट्रांसक्रिप्ट अब भी काम करता है।",
+    upgrade: "Builder.io अपग्रेड करें",
+    retryAfterUpgrade: "अपग्रेड के बाद फिर कोशिश करें",
+    openAiSetup: "AI सेटअप",
+    featureBackupTranscription: "बैकअप ट्रांसक्रिप्शन",
+    featureCleanup: "ट्रांसक्रिप्ट क्लीनअप",
+    featureSummaries: "सारांश",
+    featureTitles: "AI शीर्षक",
+  },
   recorder: {
     cameraBlurTitle: "बैकग्राउंड धुंधला करें",
     cameraBlurDescription: "खुद को साफ रखें और पीछे की चीज़ें धुंधली करें",
@@ -326,6 +344,13 @@ const messages = {
       "इस रिकॉर्डिंग में हमें कोई भाषण नहीं मिला. यदि यह जानबूझकर किया गया था, तो आप पूरी तरह तैयार हैं। यदि नहीं, तो अपने माइक्रोफ़ोन और भाषण अनुमतियों की जाँच करें, फिर प्रतिलेखन का पुनः प्रयास करें।",
     retry: "पुन: प्रयास करें",
     transcriptUnavailable: "प्रतिलेख अनुपलब्ध: {{reason}}",
+    transcriptUnavailableTitle: "ट्रांसक्रिप्ट उपलब्ध नहीं है",
+    providerNeedsAttention: "प्रदाता पर ध्यान चाहिए",
+    providerNeedsAttentionDescription:
+      "मौजूदा प्रदाता ने यह अनुरोध रोक दिया है। Builder.io पर जाएँ या कुंजी अपडेट करें, फिर दोबारा कोशिश करें।",
+    enableTranscriptionTitle: "ट्रांसक्रिप्शन चालू करें",
+    enableTranscriptionDescription:
+      "इस Clip के लिए कैप्शन, ट्रांसक्रिप्ट खोज और सारांश चालू करें।",
     searchPlaceholder: "प्रतिलेख खोजें",
     copyTranscript: "प्रतिलेख कॉपी करें",
     downloadSrt: "डाउनलोड .srt",

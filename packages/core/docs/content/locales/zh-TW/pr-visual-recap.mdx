@@ -1,0 +1,499 @@
+---
+title: "PR 視覺回顧"
+description: "GitHub 操作，在每個 PR 上執行儲存庫的視覺回顧技能。 LLM 編碼代理讀取差異，發布互動式回顧計畫，顯示資訊檢查，並發布帶有行內螢幕截圖的置頂 PR 評論。資訊性和非阻塞。"
+---
+
+# PR 視覺回顧
+
+PR Visual Recap 是一個 GitHub 操作，它將每個 pull request 轉變為**視覺化程式碼審查**。每次推送時，LLM 編碼代理都會根據 PR 差異執行最新的捆綁 [`visual-recap`](/docs/template-plan) 技能（或者 `VISUAL_RECAP_SKILL_SOURCE=repo` 時您的儲存庫的提交副本），向託管計畫應用程式發布結構化回顧計畫，在執行時顯示資訊性 `Visual Recap` 檢查，並更新插入**一條置頂 PR 評論**，該評論連結到互動式計畫，並在評論中嵌入**行內螢幕截圖**。
+
+這不是確定性差異渲染器。該操作呼叫真正的編碼代理（預設情況下為 Claude 程式碼 CLI，或 OpenAI Codex CLI），該代理讀取更改，決定重要內容，並透過呼叫計畫 MCP 工具 `create-visual-recap`（與 `/visual-recap` 斜線指令使用的工具相同）來編寫概要。您將獲得變化的高空模式/API/前後檢視，而不是原始差異牆。
+
+回顧是**資訊性且非阻塞**。它建立一個檢查行，以便審閱者可以看到生成正在進行中，但這不是必需的檢查，它永遠不會阻止 PR，也永遠不會取代讀取實際的差異。置頂評論是一種審閱輔助工具，而不是簽字。
+
+## 它的作用
+
+每次 PR 推送時，工作流程：
+
+1. 收集 PR 基礎和頭部之間的有界差異。
+2. 使用 `Visual recap in progress` 建立資訊性 `Visual Recap` GitHub 檢查。
+3. 針對該差異執行設定的編碼代理。代理會讀取捆綁的 `visual-recap` 技能指南（或您的儲存庫固定副本）並撰寫回顧，並透過 `create-visual-recap` 發布。
+4. 讀取代理寫給 `recap-url.txt` 的已發布計畫 URL。
+5. 在無頭 Chrome 中開啟 URL 並截取明暗模式下渲染的平面圖。
+6. 將 PNG 上傳到“計畫”應用上已簽名的公開圖片路由。
+7. 在互動式回顧的連結旁邊插入一條置頂 PR 評論，將螢幕截圖**行內**嵌入到 `<picture>` 元素（透過 GitHub 的camo 圖片代理提供）。
+8. 以成功、跳過或中立的方式完成 `Visual Recap` 檢查。
+
+<Diagram id="doc-block-141novq" title={"每次 PR 推送都會發生什麼"} summary={"有界差異為真正的編碼代理提供資訊，該代理編寫了回顧；工作流程會對其進行螢幕截圖並插入一條置頂評論。"}>
+
+```html
+<div class="diagram-recap">
+  <div class="diagram-node">
+    PR 推送<br /><small class="diagram-muted"
+      >bounded base&hellip;head diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    編碼 Agent<br /><small class="diagram-muted"
+      >Claude Code / Codex 讀取 diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-visual-recap</span
+    ><small class="diagram-muted">publishes recap plan</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    無頭 Chrome<br /><small class="diagram-muted"
+      >light + dark screenshots</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    一條置頂 PR 評論<br /><small class="diagram-muted"
+      >inline screenshot + plan link</small
+    >
+  </div>
+</div>
+<div class="diagram-foot diagram-muted">
+  Plus an informational <span class="diagram-pill">Visual Recap</span> check
+  &mdash; non-blocking, never required.
+</div>
+```
+
+```css
+.diagram-recap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-recap .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-recap .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-recap .diagram-foot {
+  flex-basis: 100%;
+  margin-top: 10px;
+  font-size: 13px;
+}
+```
+
+</Diagram>
+
+重新推送會更新相同的計畫和相同的置頂評論 - 沒有孤立的計畫，沒有垃圾評論。
+
+## 安裝
+
+互動安裝套餐時，Agent-Native CLI 詢問是否新增
+自動 PR 視覺回顧。同意寫入 GitHub 操作，或新增它
+隨時明確：
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --with-github-action
+```
+
+這將安裝 `visual-plan` 技能（其中包括操作執行的 `visual-recap` 技能）並將 `.github/workflows/pr-visual-recap.yml` 寫入您的儲存庫。工作流程透過 `npx @agent-native/core@latest recap <subcommand>` 呼叫**發布的 CLI 子指令** — 包括 `gate`、`collect-diff`、`block-reference`、`scan`、`build-prompt`、`publish`、`shot`、`comment`、`check` 和`usage` - 因此沒有任何內容作為幫助程式指令碼複製到您的儲存庫中。 `setup`和`doctor`是您本機執行的互動式助手； `gate` 是工作流程在每次回顧之前執行的安全門步驟。
+
+然後執行引導設定幫助程式：
+
+```bash
+npx @agent-native/core@latest recap setup
+npx @agent-native/core@latest recap doctor
+```
+
+`recap setup`重新整理工作流程，使用`gh`設定GitHub Actions
+當值可從 env 或本機計畫獲得時的秘密/變數
+發布權杖儲存，並列印任何它無法列印的確切缺失指令
+設定。秘密值透過標準輸入傳送到 `gh`，而不是指令參數。提交
+產生的工作流程檔案並開啟 PR 以檢視其執行。
+
+預設情況下，工作流程根據最新捆綁的內容建置其代理提示
+`@agent-native/core@latest` 中的 `visual-recap` 指導，包括任何同級
+技能附帶的參考檔案。如果您的儲存庫有意定制並且
+固定其提交的`visual-recap`資料夾，設定儲存庫變數
+`VISUAL_RECAP_SKILL_SOURCE=repo`.
+
+## 後端選取
+
+選取哪個編碼代理使用 `VISUAL_RECAP_AGENT` 儲存庫變數執行技能：
+
+| `VISUAL_RECAP_AGENT` | 編碼劑            | 所需的 API 金鑰     |
+| -------------------- | ----------------- | ------------------- |
+| `claude`_（預設）_   | Claude 程式碼 CLI | `ANTHROPIC_API_KEY` |
+| `codex`              | OpenAI Codex CLI  | `OPENAI_API_KEY`    |
+
+如果變數未設定，則操作使用 `claude`。
+
+## 模型和推理
+
+除了後端之外，兩個儲存庫變數還可以調整代理的執行方式：
+
+- **`VISUAL_RECAP_MODEL`** 固定傳遞給 CLI (`--model`) 的模型 — 例如 `gpt-5.5` 用於 Codex，或 Claude 模型 ID。保留其未設定以使用 CLI 自己的預設模型。
+- **`VISUAL_RECAP_REASONING`** 設定推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。適用於Codex後端； Claude 的推理是模型驅動的，因此該變數被忽略。
+- **`VISUAL_RECAP_SKILL_SOURCE`** 控制提示新鮮度：`auto`/unset 使用最新的捆綁技能指南，而 `repo` 固定到已提交的儲存庫本機 `visual-recap` 技能資料夾。
+
+例如，要在 Codex 和 GPT-5.5 上以高推理執行回顧，請設定儲存庫變數 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.5` 和 `VISUAL_RECAP_REASONING=high`。
+
+## 秘密和變數
+
+在儲存庫的 **設定 → 秘密和變數 → Actions** 中設定這些內容。
+
+### 秘密（只需兩個）
+
+| 秘密                | 目的                                                                                      |
+| ------------------- | ----------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`  | 由 `npx @agent-native/core@latest connect` 鑄造的可撤銷代幣。授權發布回顧計畫和截圖上傳。 |
+| `ANTHROPIC_API_KEY` | 預設 Claude 程式碼後端的 LLM 金鑰。                                                       |
+
+**團隊：使用組織服務權杖。**個人權杖與人員綁定
+誰鑄造了它 - 如果他們離開組織或撤銷他們的代幣，每個儲存庫都會使用
+該秘密開始失敗並出現 401，並且 CI 建立的計畫歸其所有
+個人而不是團隊。組織服務權杖歸您所有
+**組織**：它充當服務主體 (`svc-<name>@service.<orgId>`)，
+在任何個人離開後仍然存在，其發布的摘要對組織可見，並且
+任何組織所有者或管理員都可以列出或撤銷它。建立一個（僅限組織所有者/管理員）：
+
+```bash
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+```
+
+該指令在瀏覽器中對您進行驗證，然後列印服務權杖
+僅一次 - 將其儲存為 `PLAN_RECAP_TOKEN` 秘密。稍後使用
+`list-org-service-tokens` 和 `revoke-org-service-token` actions
+計畫應用程式。
+
+**Solo：個人代幣仍然有效。**用 `npx @agent-native/core@latest connect` 鑄造它
+針對您的計畫應用程式。對於託管應用程式，這還會寫入本機
+`npx @agent-native/core@latest recap setup`可以讀取的發布權杖檔案：
+
+```bash
+npx @agent-native/core@latest connect https://plan.agent-native.com --client codex
+npx @agent-native/core@latest recap setup
+```
+
+如果您更喜歡手動設定，請將權杖貼上到 GitHub 金鑰中。使用
+像 `plan_recap_xxxxxxxxxxxxxxxx` 這樣的預留位置僅用於範例 - 切勿提交
+真實代幣。
+
+### 可選（僅當您更改預設值時）
+
+| 秘密/變數                | 預設                            | 當你需要的時候                                                                                                               |
+| ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                               | 秘密。與 `VISUAL_RECAP_AGENT=codex` 一起設定以使用 Codex 執行回顧。                                                          |
+| `VISUAL_RECAP_AGENT`     | `claude`                        | 變數。選取編碼代理後端（`claude` 或 `codex`）。                                                                              |
+| `VISUAL_RECAP_MODEL`     | 每個 CLI 的預設值               | 變數。固定模型 - 例如`gpt-5.5` 表示 Codex，或 Claude 型號 ID。取消設定使用 CLI 自己的預設值。                                |
+| `VISUAL_RECAP_REASONING` | 每個模型的預設值                | 變數。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。適用於Codex後端。                                     |
+| `RECAP_CLI_VERSION`      | `latest`                        | 變數。固定工作流程安裝的 `@agent-native/core` CLI 版本 - 例如`1.5.0`。參見[Version pinning](#version-pinning-copy-variant)。 |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。僅當在不同來源自行託管計畫應用時。                                                                                     |
+
+工作流自動偵測如何呼叫其助手 CLI（此 monorepo 內的本機來源，在其他地方發布的 `@agent-native/core`），因此無需設定 `RECAP_CLI` 變數。
+
+## 評論內嵌截圖
+
+代理發布概要後，工作流程會在無頭 Chrome 中以淺色和深色模式對渲染的計畫進行螢幕截圖，並將 PNG 上傳到計畫應用程式上已簽名的公開圖片路徑。然後，置頂 PR 評論將這些螢幕截圖**內嵌**與 `<picture>` 元素一起嵌入 - GitHub 透過其迷彩代理重新提供它們，因此審閱者可以直接在評論中看到與其 GitHub 主題匹配的預覽，而無需開啟任何內容。當他們想要探索、評論或註解時，完整互動計畫的連結就位於其旁邊。
+
+## 分叉 PR
+
+### 預設行為（無需執行任何操作）
+
+主要的 `pr-visual-recap.yml` 工作流程在普通的 `pull_request` 觸發器上觸發，**不是** `pull_request_target`。因此，分叉 PR 執行時**無法存取儲存庫機密**，因此工作流程不會發現 `PLAN_RECAP_TOKEN` 並且完全無操作 - 不會發布失敗，不會暴露憑證。對於來自同一儲存庫中的分支的 PR，自動執行 Recaps，其中機密可用。
+
+這也意味著您可以在秘密存在之前\*\*合併工作流檔案：在沒有設定權杖的情況下，每次執行都是安靜的無操作，直到您設定秘密為止。 `gate` 步驟還會自動跳過草稿 PR 和機器人編寫的 PR，因此預設情況下不會執行觸發器回顧。
+
+### 選取加入標籤門控分叉工作流程
+
+如果您想生成分叉 PR 的摘要，可以使用第二個工作流程檔案：`.github/workflows/pr-visual-recap-fork.yml`。它使用 `pull_request_target`（使用基本儲存庫機密執行），但從不簽出或執行分叉程式碼。具有 GitHub 作者關聯 `OWNER`、`MEMBER` 或 `COLLABORATOR` 的可信分叉作者會自動執行。外部分叉 PR 需要在 recap 代理執行之前透過新的 `recap` 標籤事件明確的**每頭維護者選取加入**。
+
+要安裝它，請將檔案從 [BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) 與現有的 `pr-visual-recap.yml` 一起複製到儲存庫的 `.github/workflows/` 目錄中。相同的秘密（`PLAN_RECAP_TOKEN`、`ANTHROPIC_API_KEY`）適用。
+
+<Diagram id="doc-block-175407u" title={"分叉 PR 同意門"} summary={"預設情況下，分叉 PR 沒有任何秘密；受信任的作者自動執行，外部貢獻者需要新的維護者回顧標籤。"}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-node">
+    Fork PR 已開啟<br /><small class="diagram-muted"
+      >main workflow has no secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">可信作者</span
+    ><small class="diagram-muted">OWNER、MEMBER 或 COLLABORATOR 自動執行</small>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">外部貢獻者</span
+    ><small class="diagram-muted"
+      >維護者審核 diff 後再應用 <code>recap</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    門禁檢查<br /><small class="diagram-muted"
+      >fork PR? &amp; trusted or fresh label?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">
+    回顧執行<br /><small class="diagram-muted"
+      >僅基礎 repo 程式碼 · fork diff 作為文字輸入</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-fork .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+```
+
+</Diagram>
+
+### 標籤門如何工作
+
+1. 分叉貢獻者建立了一個 PR。由於 GitHub 保留了分叉執行的秘密，因此會跳過正常的 `pull_request` 工作流程。
+2. fork 工作流程檢查 PR 作者關聯。受信任的作者（`OWNER`、`MEMBER` 或 `COLLABORATOR`）會在開啟、同步、重新開啟和準備審閱事件時自動執行。
+3. 外部貢獻者要求維護人員檢查目前的差異（特別是對於提示注入型內容 - 見下文），然後將 `recap` 標籤應用於 PR。
+4. 外部貢獻者標籤門是每個頭 SHA：如果貢獻者推送更多提交，則下一個同步事件將跳過，直到維護者在檢查新差異後刪除並重新應用 `recap`。
+
+### fork 工作流程做什麼以及 NOT 做什麼
+
+| 工作流程DOES                                                                                         | 工作流程執行 NOT                                             |
+| ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 在**基本分支引用**處簽出**基本儲存庫** - 僅受信任的程式碼                                            | 從 fork 中簽出或執行任何程式碼                               |
+| 取得fork head作為遠端引用（`git fetch origin pull/<n>/head:refs/recap/fork-head`）——取得提交是安全的 | 從 fork 安裝套件、執行 fork 指令碼或將 fork 內容評估為程式碼 |
+| 執行 `git diff base...refs/recap/fork-head` — 兩個已取得物件的純文字差異                             | 將差異用作 LLM 文字輸入之外的任何內容                        |
+| 執行**基礎儲存庫的**視覺回顧技能和代理設定                                                           | 從 fork 載入任何技能或設定                                   |
+| 透過與第一方 PR 相同的秘密掃描步驟（失敗關閉）傳遞差異                                               | 跳過秘密掃描                                                 |
+| 向代理提示新增明確的提示強化註解，將差異內容標記為不受信任                                           | 授予代理除正常回顧代理之外的任何其他權限                     |
+
+### 為什麼在標記之前必須檢查差異
+
+fork diff 是攻擊者控制的文字，recap 代理將其讀取為輸入。精心設計的 diff 可能包含提示注入內容 - 例如，看起來像代理指令的 diff 行 - 旨在使 recap 代理採取非預期的 actions （例如，外洩發布權杖或產生誤導性的 recap 內容）。
+
+在應用 `recap` 標籤之前，瀏覽差異：
+
+- 讀起來像直接指令或角色指令的行（“忽略先前的指令...”、“您現在...”、“將權杖寫入...”）。
+- 不尋常的檔名可能會在系統提示時被誤讀。
+- 新增的檔案中的編碼內容可能會解碼為指令。
+
+這些緩解措施已經在工作流程中分層（秘密掃描、敏感路徑門控、提示強化註解、受限代理工具允許清單），但標籤審查是主要防線。
+
+### 與主工作流程的關系
+
+這兩個工作流程檔案是獨立的。對於非分叉 PR 更新，`pr-visual-recap.yml` 是唯一執行的工作流程。對於分叉 PR，正常工作流程在其分叉門處退出，`pr-visual-recap-fork.yml` 會為受信任的同一組織作者自動執行，或者在外部貢獻者的新維護者 `recap` 標籤之後自動執行。它們共用相同的置頂評論標記和計畫 ID 對話串，因此 PR 和分支 PR 都會對同一 PR 生成單一更新插入的評論。
+
+### 自修改守衛 {#self-modifying-guard}
+
+當 PR 觸及以下任何路徑時，`gate` 步驟會完全跳過回顧，因此 PR 永遠無法重寫可信回顧作業載入並外洩機密的工作流程、技能或代理設定：
+
+| 路徑模式                                   | 原因                                     |
+| ------------------------------------------ | ---------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | 工作流程本身                             |
+| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows |
+| `**/.claude/**`                            | 執行程式載入的代理設定                   |
+| `**/CLAUDE.md`                             | 執行程式載入的代理指令                   |
+| `**/AGENTS.md`                             | 執行程式載入的代理指令                   |
+| `**/.mcp.json`                             | 執行器載入的 MCP 伺服器設定              |
+
+在 `BuilderIO/agent-native` monorepo 中，工作流程從受信任的基本分支來源而不是 PR 頭來源執行回顧 CLI。這使得正常的包更改（包括 `packages/core/**`）可以進行回顧，而無需執行 PR 修改的 CLI 程式碼。
+
+## 本機檔案隱私模式
+
+GitHub 操作專為託管、可共用的 PR 審核而設計。如果你想要一個
+回顧而不將回顧內容傳送到 Agent-Native 計畫資料庫，執行
+相同的幫助程式在本機檔案模式下本機流動：
+
+```bash
+npx @agent-native/core@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+npx @agent-native/core@latest recap scan --diff recap.diff
+npx @agent-native/core@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+```
+
+將產生的 `recap-prompt.md` 交給您的編碼代理。在本機檔案模式
+提示指示代理寫入 `plans/pr-123-visual-recap/plan.mdx`
+加上可選的視覺檔案，然後執行：
+
+```bash
+npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap --kind recap --open
+```
+
+返回的 URL 開啟託管計畫 UI，同時瀏覽器讀取回顧 MDX
+來自本機主機橋。回顧內容未寫入託管計畫
+資料庫，URL 僅適用於執行網橋的機器。如果你執行
+本機計畫應用程式具有相同的 `PLAN_LOCAL_DIR`，
+`/local-plans/pr-123-visual-recap` 路由也有效。儲存庫支援的資料夾可以
+以 `/local-plans/pr-123-visual-recap?path=plans%2Fpr-123-visual-recap` 的形式開啟。
+此模式停用託管的置頂 PR 評論、內嵌螢幕截圖上傳，
+使用附件和瀏覽器評論，直到您明確發布為止。
+
+## 它是資訊性的，而不是門
+
+概述是在正常 PR 流程之上的複習輔助工具：
+
+- 它顯示 `Visual Recap` 檢查行以提高可見性，但它**不是必需的檢查**並且永遠不會阻止合併。
+- 生成或發布失敗會中立地完成，並顯示為解釋性置頂註解，而不是不相關程式碼上的紅色 X。
+- 回顧及其螢幕截圖**並不意味著差異已被審查**。審閱者仍然需要閱讀實際更改的行。
+
+## 版本固定（複製變體） {#version-pinning-copy-variant}
+
+預設情況下，複製變體工作流程在執行時安裝 `@agent-native/core@latest`，因此每次回顧執行都會自動選取最新的 CLI。如果您的 CI 需要可重現的工具，請設定 **`RECAP_CLI_VERSION`** 儲存庫變數來固定已安裝的版本：
+
+1. 轉到您的儲存庫的**設定 → 秘密和變數 → Actions → 變數**。
+2. 建立一個名為 `RECAP_CLI_VERSION` 的變數，其值類似於 `1.5.0`。
+
+該變數是可選的。保持未設定（或將其設定為 `latest`）以跟蹤最新版本。
+
+對於可重用呼叫程式變體，請使用 `cli-version` 輸入（請參閱可重用部分中的 [Version pinning](#version-pinning)）。
+
+## 秘密掃描允許清單
+
+在發布回顧之前，工作流程執行 `npx @agent-native/core@latest recap scan` 以偵測差異中可能的秘密。任何其 diff 與已知秘密模式匹配的 PR 都會被阻止並帶有解釋性註解 - 不會發布摘要，並且不會將 diff 內容傳送到編碼代理。
+
+在極少數情況下，儲存庫具有故意的測試裝置或表面上類似於秘密模式的非秘密字串（例如，測試檔案中的裝置金鑰）。要抑制誤報，請在儲存庫的根目錄中建立 `.github/recap-scan-allowlist`。
+
+### 格式
+
+每個非空白、非註解行都是一個 **文字子字串** 或 **`/regex/flags`** 模式：
+
+```
+# 以 # 開頭的行是註解。
+
+# 文字子字串 — 允許包含該字串的任何 diff 行。
+sk-test-fixture1234567890abcdef
+
+# Regex pattern — written as /pattern/flags (JS syntax).
+/^.STRIPE_KEY=sk-test-/i
+
+# 又一個字面意思。
+EXAMPLE_API_KEY=placeholder-value
+```
+
+規則：
+
+- 當一行包含文字或整行與正則表達式匹配時，該行將被**抑制**（允許）。
+- 檔案是**失敗關閉**：如果不存在，則不應用任何抑制 - 掃描器的行為與以前一樣。
+- 空檔案相當於沒有檔案。
+- 格式錯誤的正則表達式行被視為文字字串。
+
+允許清單僅由秘密掃描門查閱。它不會影響編碼代理可以讀取的內容 - 如果門透過，代理無論如何都會收到完整的差異。
+
+## 采用可重複使用的工作流程
+
+### 為什麼使用可重用變體？
+
+預設安裝程式將完整的約 360 行工作流程 YAML 複製到您的儲存庫中（**複製**選項）。對於氣隙儲存庫或需要審核每一行執行內容的儲存庫來說，這是正確的選取。缺點是錯誤修復和改進永遠不會到達您的手中 - 您需要在每次發布後手動重新執行 `npx @agent-native/core@latest recap setup`。
+
+**可重用**選項改為編寫一個精簡的約 20 行呼叫程式。它透過`uses:`委托給`BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml`。當工作流程執行時，每個呼叫者都會自動取得最新邏輯，無需本機更新。
+
+|                        | 複製（預設）                | 可重複使用                       |
+| ---------------------- | --------------------------- | -------------------------------- |
+| 儲存庫中的工作流程大小 | ~360 行                     | ~20 行                           |
+| 自動修復               | 否 — 重新執行 `recap setup` | 是                               |
+| 氣隙/完全可審計性      | 是                          | 否                               |
+| 可固定到特定版本       | 僅透過本機編輯              | 是 - 將 `@v1.2.3` 設定為 `uses:` |
+
+### 呼叫者片段
+
+這是`npx @agent-native/core@latest recap setup --reusable`寫的（或者你可以手動貼上）：
+
+```yaml
+name: PR Visual Recap
+
+# 瘦呼叫者 — 完整的工作流邏輯位於 BuilderIO/agent-native 中。
+# 修復和改進會在每次執行時自動到達此儲存庫。
+# 要固定特定版本以實現可重複性，請將 '@main' 替換為
+# 標籤或 SHA、e.g。 '@<x2/>' 或 '@abc1234'。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+
+jobs:
+  visual-recap:
+    permissions:
+      actions: write
+      contents: read
+      checks: write
+      issues: write
+      pull-requests: write
+    uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main
+    secrets:
+      PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
+    with:
+      agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
+      model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
+      reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
+      skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      # cli-version: "latest"  # pin to a specific @agent-native/core version
+```
+
+適用 [Secrets and variables](#secrets-and-variables) 中描述的相同秘密和變數 - 在儲存庫設定中以與複製變體相同的方式設定它們。
+
+### 透過 CLI 安裝
+
+```bash
+# 編寫瘦呼叫者而不是完整副本：
+npx @agent-native/core@latest recap setup --reusable
+
+# 或者使用固定參考來實現可重複性：
+npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
+```
+
+兩種變體都將工作流程寫入 `.github/workflows/pr-visual-recap.yml`。如果現有工作流程已存在且有所不同，則該指令會拒絕並告訴您傳遞 `--force` 進行覆蓋。
+
+寫入後，照常執行 `npx @agent-native/core@latest recap doctor` 以確認機密已設定。
+
+### 版本固定
+
+預設情況下，呼叫者引用 `@main`，它始終使用可重用工作流程的最新發布版本。對於需要可重現 CI 的正式環境儲存庫，請固定到標籤或 SHA：
+
+```yaml
+uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@v1.2.3
+```
+
+`cli-version` 輸入控制工作流程中執行的 `@agent-native/core` CLI 版本 - 將其保留在 `"latest"` 以跟蹤最新版本，或將其固定到版本字串（例如 `"1.5.0"`）以實現完全可重複性。
+
+### workflow_call事件脈絡
+
+`workflow_call` 工作流程繼承**呼叫者的**事件脈絡。可重用工作流程使用 `github.event.pull_request.*` 表達式來讀取 PR 編號、頭 SHA、基礎 SHA、合併時間戳和 PR 中繼資料 - 僅當呼叫者在 `pull_request` 上觸發時，這些才能正常工作。上面的呼叫者程式碼片段已經包含正確的事件型別。包含 `closed` 事件，因此合併的 PR 回顧可以用 `merged_at` 標記，並在以後作為已發布的工作進行搜尋。
+
+不要在 `workflow_dispatch` 或 `push` 上觸發呼叫者 - 這些事件不攜帶 `pull_request` 負載，並且門將跳過“無 pull_request 負載”的回顧。
+
+## 相關
+
+- [Visual Plans](/docs/template-plan) — `/visual-plan` 和 `/visual-recap` skills、託管計畫連線器以及此操作發布到的互動式審核介面。
+- [Skills](/docs/skills-guide) — 將 Agent-Native skills 安裝到您的編碼代理中。

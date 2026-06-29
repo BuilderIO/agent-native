@@ -2,6 +2,7 @@ import type { H3Event } from "h3";
 import { getHeader } from "h3";
 
 import type { EnvKeyConfig } from "../../server/create-server.js";
+import { resolveSecret } from "../../server/credential-provider.js";
 import { readBody } from "../../server/h3-helpers.js";
 import type {
   PlatformAdapter,
@@ -86,7 +87,7 @@ export function telegramAdapter(): PlatformAdapter {
     },
 
     async verifyWebhook(event: H3Event): Promise<boolean> {
-      const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+      const secret = await resolveSecret("TELEGRAM_WEBHOOK_SECRET");
       if (!secret) {
         if (shouldRefuseWhenSecretMissing()) {
           if (!_telegramUnverifiedWarned) {
@@ -105,7 +106,7 @@ export function telegramAdapter(): PlatformAdapter {
           );
         }
         // Dev mode: still require the bot token to be configured at all.
-        return !!process.env.TELEGRAM_BOT_TOKEN;
+        return !!(await resolveSecret("TELEGRAM_BOT_TOKEN"));
       }
 
       const headerSecret = getHeader(event, "x-telegram-bot-api-secret-token");
@@ -172,7 +173,7 @@ export function telegramAdapter(): PlatformAdapter {
       message: OutgoingMessage,
       context: IncomingMessage,
     ): Promise<void> {
-      const token = process.env.TELEGRAM_BOT_TOKEN;
+      const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
       if (!token) {
         console.error("[telegram] TELEGRAM_BOT_TOKEN not configured");
         return;
@@ -224,7 +225,7 @@ export function telegramAdapter(): PlatformAdapter {
       message: OutgoingMessage,
       target: OutboundTarget,
     ): Promise<void> {
-      const token = process.env.TELEGRAM_BOT_TOKEN;
+      const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
       if (!token) {
         console.error("[telegram] TELEGRAM_BOT_TOKEN not configured");
         return;
@@ -272,14 +273,13 @@ export function telegramAdapter(): PlatformAdapter {
     },
 
     async getStatus(_baseUrl?: string): Promise<IntegrationStatus> {
-      const hasToken = !!process.env.TELEGRAM_BOT_TOKEN;
+      const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
+      const hasToken = !!token;
 
       let botName: string | undefined;
       if (hasToken) {
         try {
-          const res = await fetch(
-            `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getMe`,
-          );
+          const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
           const data = (await res.json()) as {
             ok: boolean;
             result?: { username?: string };
@@ -299,9 +299,7 @@ export function telegramAdapter(): PlatformAdapter {
           hasToken,
           botUsername: botName,
         },
-        error: !hasToken
-          ? "Set TELEGRAM_BOT_TOKEN in your environment"
-          : undefined,
+        error: !hasToken ? "Save TELEGRAM_BOT_TOKEN in settings" : undefined,
       };
     },
   };

@@ -1,0 +1,316 @@
+---
+title: "Sharing & Privacy"
+description: "Google-Docs-style sharing, built into the framework. Every user-created resource — docs, dashboards, designs, decks, clips, recordings, forms — gets the same private-by-default model with one consistent share UI."
+---
+
+# Sharing & Privacy
+
+Every resource a user creates in an agent-native app — a document, a dashboard, a design, a deck, a video edit, a screen recording, a meeting transcript, a form, a booking link — is **private to the creator by default**. Other people see it only when the creator explicitly shares it, or changes its visibility to `org` or `public`.
+
+It looks and works like Google Docs. The same share button, the same dialog, the same three-tier visibility model, the same per-user/per-org grants — across every template, with no per-app reinvention.
+
+## Why one model {#why}
+
+Most app frameworks make sharing a per-feature project. The result: every doc-like surface ends up with its own share dialog, its own permissions schema, its own access-check bugs. In agent-native, sharing is a **framework primitive**. The schema columns, the access-check helpers, the share popover, and the agent-callable share actions all ship with the core. A new template gets the full sharing story by adding two columns and one line of registration.
+
+This also means the agent never has to learn a new sharing model per app. Tell the agent "share this with Alice as an editor" in any template and the same `share-resource` action fires.
+
+## The three visibility levels {#visibility}
+
+Coarse visibility lives on the resource itself; fine-grained grants live in a companion shares table.
+
+| Visibility | Who can see it                                                                                      |
+| ---------- | --------------------------------------------------------------------------------------------------- |
+| `private`  | Owner + people explicitly granted. **Default for every new resource.**                              |
+| `org`      | Owner + explicit grants + anyone in the same organization (read-only).                              |
+| `public`   | Owner + explicit grants + anyone with the link (read-only). Doesn't appear in others' lists/search. |
+
+`public` is a deliberately quiet level: a public resource is reachable by direct link, but it does **not** show up in other users' sidebars, lists, or search. That keeps "public for sharing the URL" separate from "public for cross-user discovery." Galleries and template catalogs that genuinely want cross-user discovery opt in explicitly.
+
+<Diagram id="doc-block-ajfbtl" title="Visibility, widening outward" summary={"Coarse visibility on the resource sets the floor; explicit share grants in the companion table add named people on top."}>
+
+```html
+<div class="share-tiers">
+  <div class="diagram-card">
+    <span class="diagram-pill">private</span
+    ><small class="diagram-muted"
+      >owner + explicit grants only &middot; <strong>default</strong></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">org</span
+    ><small class="diagram-muted">+ anyone in the same org (read-only)</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">public</span
+    ><small class="diagram-muted"
+      >+ anyone with the link (read-only) &middot; hidden from others'
+      lists/search</small
+    >
+  </div>
+</div>
+```
+
+```css
+.share-tiers {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.share-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.share-tiers .diagram-arrow {
+  text-align: center;
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Roles on a share grant {#roles}
+
+When you share with a specific user or org, you pick a role:
+
+- **Viewer** — read only.
+- **Editor** — read + write.
+- **Admin** — read + write + manage shares (can add/remove other people).
+
+`admin` does NOT change ownership — there's still exactly one owner per resource, distinct from the share grants.
+
+## What's covered {#covered}
+
+Every template that stores user-authored work uses this model. Concretely:
+
+- **Content** — documents
+- **Slides** — decks
+- **Design** — designs and assets
+- **Video** — compositions
+- **Clips** — screen recordings (Loom-style)
+- **Forms** — form definitions
+- **Calendar** — events and booking links
+- **Analytics** — dashboards (rolling out — see the analytics template's `AGENTS.md`)
+- **Extensions** — sandboxed mini-apps (see [Extensions](/docs/extensions#sharing))
+
+Every one of these uses the same `ownableColumns()` schema helper, the same `share-resource` action, and the same `<ShareButton>` UI. Move from one template to another and the share dialog looks identical.
+
+## What's not covered {#not-covered}
+
+A few areas are intentionally outside the sharing system:
+
+- **Personal-data apps** (Mail, Macros) — user-scoped by design. There's no "share my inbox" concept.
+- **External source-of-truth apps** — access control lives in the upstream system, not the agent-native app.
+- **Anonymous public URLs** — form publish slugs and booking-link slugs that expose a URL to logged-out users are a separate axis. They live alongside the sharing system, not on top of it.
+
+## The share UI {#share-ui}
+
+Every shareable resource gets a share button in its header. Clicking it opens a popover anchored to the button (not a modal) with:
+
+- Visibility selector (`Private` / `Organization` / `Public link`).
+- "Add people or teams" autocomplete — search users in the org or paste an email.
+- A Google Docs-style `Notify people` checkbox for individual email grants.
+- A list of current grants with role pickers and a remove control.
+- A copy-link button that respects the current visibility.
+
+The share button is a single import:
+
+```tsx
+import { ShareButton } from "@agent-native/core/client";
+
+<ShareButton
+  resourceType="deck"
+  resourceId={deck.id}
+  resourceTitle={deck.title}
+/>;
+```
+
+For lists, drop a `<VisibilityBadge visibility={row.visibility} />` next to each row so users can see at a glance what's private vs. shared.
+
+## Same model, agent and UI {#agent-and-ui}
+
+The framework auto-mounts these actions in every template — the agent calls them as tools, and the UI calls them through `useActionQuery` / `useActionMutation`:
+
+| Action                    | What it does                                                                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------------- |
+| `share-resource`          | Grant a user or org access at a specific role. Optional `notify` controls email notifications. |
+| `unshare-resource`        | Revoke access for a user or org.                                                               |
+| `list-resource-shares`    | Show current visibility plus all explicit grants.                                              |
+| `set-resource-visibility` | Change to `private`, `org`, or `public`.                                                       |
+
+Tell the agent "share this design with the marketing team as editors" and it calls `share-resource` against the same endpoint the UI uses. The result shows up in the share dialog the next render.
+
+## Building it into a new template {#building}
+
+If you're creating a template (see [Creating Templates](/docs/creating-templates)), wiring sharing in is short. Two additions to your schema:
+
+```ts
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  data: text("data").notNull(),
+  ...ownableColumns(), // adds owner_email, org_id, visibility
+});
+
+export const deckShares = createSharesTable("deck_shares");
+```
+
+<DataModel
+  id="doc-block-1wo5mhr"
+  title="Resource + companion shares table"
+  summary={
+    "Coarse visibility lives on the resource; each fine-grained grant is a row in the shares table."
+  }
+  entities={[
+    {
+      id: "deck",
+      name: "decks",
+      note: "...ownableColumns()",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "The single source of truth for ownership.",
+        },
+        {
+          name: "org_id",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "visibility",
+          type: "enum",
+          nullable: false,
+          note: "private | org | public",
+        },
+      ],
+    },
+    {
+      id: "deckShare",
+      name: "deck_shares",
+      note: "createSharesTable() — one row per grant",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "resource_id",
+          type: "text",
+          fk: "decks.id",
+          nullable: false,
+        },
+        {
+          name: "principal_type",
+          type: "enum",
+          note: "user | org",
+        },
+        {
+          name: "principal_id",
+          type: "text",
+          note: "email (user) or org id (org)",
+        },
+        {
+          name: "role",
+          type: "enum",
+          note: "viewer | editor | admin",
+        },
+        {
+          name: "created_by",
+          type: "text",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "deckShare",
+      to: "deck",
+      kind: "n-n",
+      label: "grants access to",
+    },
+  ]}
+/>
+
+One registration call in `server/db/index.ts`:
+
+```ts
+import { registerShareableResource } from "@agent-native/core/sharing";
+
+registerShareableResource({
+  type: "deck",
+  resourceTable: schema.decks,
+  sharesTable: schema.deckShares,
+  displayName: "Deck",
+  titleColumn: "title",
+  getResourcePath: (deck) => `/deck/${deck.id}`,
+  getDb,
+});
+```
+
+After that, list/read queries pass through `accessFilter()` and write actions use `assertAccess()` to enforce roles.
+
+### Optional hardening flags {#hardening-flags}
+
+`registerShareableResource` accepts two security flags for resources that execute code or carry elevated trust:
+
+```ts
+registerShareableResource({
+  type: "extension",
+  resourceTable: schema.extensions,
+  sharesTable: schema.extensionShares,
+  // ...
+  allowPublic: false, // Reject set-resource-visibility → "public"
+  requireOrgMemberForUserShares: true, // Reject user grants to non-org emails
+});
+```
+
+`allowPublic: false` prevents any caller — agent or UI — from setting the resource's visibility to `public`. `requireOrgMemberForUserShares: true` rejects individual user grants to email addresses outside the resource owner's org. Extensions set both: an extension's HTML runs inside an iframe that calls actions and DB as the _viewer_, so public access would be arbitrary code with the viewer's credentials.
+
+<Callout id="doc-block-1ehh444" tone="risk">
+
+For resources that execute code or carry elevated trust (like extensions), set `allowPublic: false` and `requireOrgMemberForUserShares: true`. Otherwise a public share becomes arbitrary code running with the _viewer's_ credentials.
+
+</Callout>
+
+`getResourcePath` gives notification emails a direct fallback link when a share is created by the agent or another non-UI caller. The full pattern (including create-action ownership stamping and the migration recipe for existing tables) lives in the `sharing` agent skill — the agent reads it on demand when building a sharing-aware feature.
+
+## Security guarantees {#security}
+
+Sharing rides on the framework's broader data-scoping model — list/read/write access to ownable tables goes through `accessFilter()` / `resolveAccess()` / `assertAccess()`, and `org_id`-tagged resources are invisible across orgs. See [Security → Data Scoping](/docs/security#data-scoping) for the full pipeline, the CI guard, and the threat surface.
+
+## See also {#see-also}
+
+- [Security & Data Scoping](/docs/security) — the access-filter and ownership model that sharing rides on.
+- [Authentication](/docs/authentication) — sessions, organizations, and how identity flows into the request context.
+- [Extensions](/docs/extensions#sharing) — sharing in the sandboxed mini-app surface.
+- [Creating Templates](/docs/creating-templates) — wiring `ownableColumns` into a new template's schema.

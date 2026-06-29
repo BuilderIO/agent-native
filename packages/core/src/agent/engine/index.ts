@@ -30,6 +30,7 @@ export {
   isAgentEnginePackageInstalled,
   isStoredEngineUsable,
   isStoredEngineUsableForRequest,
+  isResolvedEngineUsableForRequest,
   type AgentEngineEntry,
   type ResolveEngineConfig,
 } from "./registry.js";

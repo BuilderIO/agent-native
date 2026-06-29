@@ -1,5 +1,17 @@
 # @agent-native/dispatch
 
+## 0.13.3
+
+### Patch Changes
+
+- aa345cc: App shells use an outline-style raised surface ring and Dispatch left navigation can collapse to an animated icon rail.
+
+## 0.13.2
+
+### Patch Changes
+
+- a6492db: Read Dispatch integration credentials from scoped secrets and move team management into Settings tabs.
+
 ## 0.13.1
 
 ### Patch Changes

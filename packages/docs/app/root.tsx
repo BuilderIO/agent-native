@@ -31,6 +31,7 @@ import {
 import {
   canonicalPathForPath,
   docsAlternateLinksForPath,
+  docsMarkdownPathForPath,
 } from "./components/docs-seo";
 import Footer from "./components/Footer";
 import Header from "./components/Header";
@@ -198,9 +199,17 @@ function SeoLinks() {
   const canonicalPath = canonicalPathForPath(location.pathname);
   const canonical = `${SITE_URL}${canonicalPath}`;
   const alternates = docsAlternateLinksForPath(location.pathname);
+  const markdownPath = docsMarkdownPathForPath(location.pathname);
   return (
     <>
       <link rel="canonical" href={canonical} />
+      {markdownPath ? (
+        <link
+          rel="alternate"
+          type="text/markdown"
+          href={`${SITE_URL}${markdownPath}`}
+        />
+      ) : null}
       {alternates.map((alternate) => (
         <link
           key={alternate.hrefLang}

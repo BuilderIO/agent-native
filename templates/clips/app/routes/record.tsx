@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
+import { chunkUploadUrl } from "@shared/recording-core";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -1320,10 +1321,22 @@ export default function RecordRoute() {
           URL.revokeObjectURL(url);
         };
         video.onloadedmetadata = () => {
+          const durationMs =
+            Number.isFinite(video.duration) && video.duration > 0
+              ? Math.round(video.duration * 1000)
+              : 0;
+          const width =
+            Number.isFinite(video.videoWidth) && video.videoWidth > 0
+              ? Math.round(video.videoWidth)
+              : 0;
+          const height =
+            Number.isFinite(video.videoHeight) && video.videoHeight > 0
+              ? Math.round(video.videoHeight)
+              : 0;
           resolve({
-            durationMs: Math.round((video.duration || 0) * 1000),
-            width: video.videoWidth || 0,
-            height: video.videoHeight || 0,
+            durationMs,
+            width,
+            height,
           });
           cleanup();
         };
@@ -1527,20 +1540,18 @@ export default function RecordRoute() {
           const end = Math.min(start + UPLOAD_CHUNK_BYTES, uploadBlob.size);
           const slice = uploadBlob.slice(start, end, uploadMimeType);
           const isFinal = i === totalChunks - 1;
-          const params = new URLSearchParams({
-            index: String(i),
-            total: String(totalChunks),
-            isFinal: isFinal ? "1" : "0",
+          const chunkUrl = chunkUploadUrl(uploadBase, {
+            index: i,
+            total: totalChunks,
+            isFinal,
             mimeType: uploadMimeType,
+            durationMs: isFinal ? meta.durationMs : undefined,
+            width: isFinal ? meta.width : undefined,
+            height: isFinal ? meta.height : undefined,
+            hasAudio: isFinal ? true : undefined,
+            hasCamera: isFinal ? false : undefined,
           });
-          if (isFinal) {
-            params.set("durationMs", String(meta.durationMs));
-            params.set("width", String(meta.width));
-            params.set("height", String(meta.height));
-            params.set("hasAudio", "1");
-            params.set("hasCamera", "0");
-          }
-          const chunkRes = await fetch(`${uploadBase}?${params.toString()}`, {
+          const chunkRes = await fetch(chunkUrl, {
             method: "POST",
             headers: { "Content-Type": uploadMimeType },
             body: await slice.arrayBuffer(),

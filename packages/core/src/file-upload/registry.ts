@@ -54,6 +54,24 @@ export function getActiveFileUploadProvider(): FileUploadProvider | null {
   return null;
 }
 
+export async function getActiveFileUploadProviderForRequest(): Promise<FileUploadProvider | null> {
+  for (const provider of providers.values()) {
+    if (provider.isConfigured()) return provider;
+    if (provider.isConfiguredForRequest) {
+      try {
+        if (await provider.isConfiguredForRequest()) return provider;
+      } catch {
+        // Treat failed scoped credential lookups as unavailable. The upload
+        // call will surface real provider errors after a provider is selected.
+      }
+    }
+  }
+  if (builderFileUploadProvider.isConfigured()) {
+    return builderFileUploadProvider;
+  }
+  return null;
+}
+
 /**
  * Upload a file via the active provider, or `null` if no provider is
  * configured. Callers use `null` as the signal to fall back to SQL
@@ -63,12 +81,10 @@ export function getActiveFileUploadProvider(): FileUploadProvider | null {
 export async function uploadFile(
   input: FileUploadInput,
 ): Promise<FileUploadResult | null> {
-  const provider = getActiveFileUploadProvider();
-  // Only trust user-registered providers (S3, etc.) from the sync check.
-  // The builder builtin's isConfigured() only checks process.env, which causes
-  // hard failures for authenticated non-local users on multi-tenant deployments
-  // where BUILDER_PRIVATE_KEY is set at the deploy level but the user has no
-  // personal credentials. Always resolve builder credentials asynchronously.
+  const provider = await getActiveFileUploadProviderForRequest();
+  // User-registered providers (S3, etc.) may be configured by sync runtime
+  // state or request-scoped DB secrets. Builder still gets an explicit async
+  // credential check below because its sync isConfigured() only checks env.
   if (provider && provider !== builderFileUploadProvider) {
     return provider.upload(input);
   }

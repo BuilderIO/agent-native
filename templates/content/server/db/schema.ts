@@ -78,6 +78,18 @@ export const documentSyncLinks = table("document_sync_links", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+export const builderDocSidecars = table("builder_doc_sidecars", {
+  id: text("id").primaryKey(),
+  ownerEmail: text("owner_email").notNull().default("local@localhost"),
+  orgId: text("org_id"),
+  documentId: text("document_id").notNull(),
+  path: text("path").notNull(),
+  content: text("content").notNull(),
+  contentHash: text("content_hash").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+  updatedAt: text("updated_at").notNull().default(now()),
+});
+
 export const documentPropertyDefinitions = table(
   "document_property_definitions",
   {

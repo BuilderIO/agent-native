@@ -1,4 +1,4 @@
-import * as SelectPrimitive from "@radix-ui/react-select";
+import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { IconCheck, IconChevronDown, IconLanguage } from "@tabler/icons-react";
 import i18next, { type i18n as I18nInstance } from "i18next";
 import React, {
@@ -34,6 +34,7 @@ import {
 } from "../localization/shared.js";
 import { setClientAppState } from "./application-state.js";
 import { callAction } from "./use-action.js";
+import { cn } from "./utils.js";
 
 export {
   DEFAULT_LOCALE,
@@ -676,6 +677,7 @@ export function LanguagePicker({
   variant?: "select" | "icon";
 }) {
   const { locale, preference, setPreference } = useLocale();
+  const [open, setOpen] = useState(false);
   const copy =
     LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
   const resolvedLabel = label ?? copy.label;
@@ -691,84 +693,94 @@ export function LanguagePicker({
       : []),
     ...SUPPORTED_LOCALES.map((code) => ({
       value: code,
-      label:
-        LOCALE_METADATA[code].nativeName === LOCALE_METADATA[code].englishName
-          ? LOCALE_METADATA[code].nativeName
-          : `${LOCALE_METADATA[code].nativeName} (${LOCALE_METADATA[code].englishName})`,
+      label: `${LOCALE_METADATA[code].nativeName} (${code})`,
       description: code,
     })),
   ];
   const selected = options.find((option) => option.value === preference);
+  const selectedLabel = selected?.label ?? preference;
+  const triggerLabel = `${resolvedLabel}: ${selectedLabel}`;
+
+  function handleOptionClick(value: LocalePreference) {
+    setOpen(false);
+    void setPreference(normalizeLocalizationPreference(value).locale);
+  }
 
   return (
     <div className={className}>
-      <SelectPrimitive.Root
-        value={preference}
-        onValueChange={(value) =>
-          void setPreference(normalizeLocalizationPreference(value).locale)
-        }
-      >
-        <SelectPrimitive.Trigger
-          className={
-            variant === "icon"
-              ? "flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
-              : "flex h-9 w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-[12px] text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground"
-          }
-          aria-label={resolvedLabel}
-          title={selected?.label ?? resolvedLabel}
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <IconLanguage className="h-4 w-4 shrink-0 text-muted-foreground" />
-            {variant === "select" ? (
-              <SelectPrimitive.Value>
-                <span className="truncate">
-                  {selected?.label ?? preference}
-                </span>
-              </SelectPrimitive.Value>
-            ) : null}
-          </span>
-          {variant === "select" ? (
-            <SelectPrimitive.Icon asChild>
-              <IconChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-            </SelectPrimitive.Icon>
-          ) : null}
-        </SelectPrimitive.Trigger>
-        <SelectPrimitive.Portal>
-          <SelectPrimitive.Content
-            position="popper"
-            sideOffset={6}
-            className={
+      <PopoverPrimitive.Root open={open} onOpenChange={setOpen}>
+        <PopoverPrimitive.Trigger asChild>
+          <button
+            type="button"
+            aria-label={triggerLabel}
+            title={triggerLabel}
+            data-language-picker-trigger
+            className={cn(
+              "shrink-0 rounded-md border border-border bg-background text-foreground outline-none transition-colors hover:border-foreground/30 hover:bg-accent/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:border-foreground/30 data-[state=open]:bg-accent/40",
               variant === "icon"
-                ? "z-[9999] min-w-56 overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
-                : "z-[9999] w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-border bg-popover shadow-lg"
-            }
+                ? "flex h-8 w-8 items-center justify-center"
+                : "flex h-9 w-full items-center justify-between gap-2 px-3 text-start text-sm",
+            )}
           >
-            <SelectPrimitive.Viewport className="p-1">
-              {options.map((option) => (
-                <SelectPrimitive.Item
+            <span className="flex min-w-0 items-center gap-2">
+              <IconLanguage className="h-4 w-4 shrink-0 text-muted-foreground" />
+              {variant === "select" ? (
+                <span className="truncate">{selectedLabel}</span>
+              ) : (
+                <span className="sr-only">{triggerLabel}</span>
+              )}
+            </span>
+            {variant === "select" ? (
+              <IconChevronDown
+                className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+            ) : null}
+          </button>
+        </PopoverPrimitive.Trigger>
+        <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content
+            align={variant === "icon" ? "end" : "start"}
+            sideOffset={6}
+            role="menu"
+            className={cn(
+              "z-[9999] max-h-[min(20rem,var(--radix-popover-content-available-height))] overflow-y-auto rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none will-change-[transform,opacity] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:duration-100 data-[state=open]:duration-150 data-[state=closed]:ease-in data-[state=open]:ease-out data-[side=bottom]:slide-in-from-top-1 data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1 data-[side=top]:slide-in-from-bottom-1",
+              variant === "icon"
+                ? "min-w-56"
+                : "w-[min(20rem,calc(100vw-2rem))] min-w-[var(--radix-popover-trigger-width)]",
+            )}
+          >
+            {options.map((option) => {
+              const optionSelected = option.value === preference;
+              return (
+                <button
                   key={option.value}
-                  value={option.value}
-                  className="relative flex w-full cursor-pointer select-none items-start gap-2 rounded-md px-8 py-2.5 text-[12px] outline-none data-[highlighted]:bg-accent/60 data-[state=checked]:bg-accent/40"
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={optionSelected}
+                  title={option.description}
+                  onClick={() => handleOptionClick(option.value)}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-start text-sm outline-none transition-colors hover:bg-accent/60 hover:text-foreground focus-visible:bg-accent/60 focus-visible:text-foreground",
+                    optionSelected
+                      ? "bg-accent/40 text-foreground"
+                      : "text-muted-foreground",
+                  )}
                 >
-                  <span className="absolute start-2 top-2.5 flex h-4 w-4 items-center justify-center text-muted-foreground">
-                    <SelectPrimitive.ItemIndicator>
-                      <IconCheck className="h-3.5 w-3.5" />
-                    </SelectPrimitive.ItemIndicator>
-                  </span>
-                  <div className="flex min-w-0 flex-col">
-                    <SelectPrimitive.ItemText>
-                      <span className="text-foreground">{option.label}</span>
-                    </SelectPrimitive.ItemText>
-                    <span className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                      {option.description}
-                    </span>
-                  </div>
-                </SelectPrimitive.Item>
-              ))}
-            </SelectPrimitive.Viewport>
-          </SelectPrimitive.Content>
-        </SelectPrimitive.Portal>
-      </SelectPrimitive.Root>
+                  <IconCheck
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0",
+                      optionSelected ? "opacity-100" : "opacity-0",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <span className="truncate">{option.label}</span>
+                </button>
+              );
+            })}
+          </PopoverPrimitive.Content>
+        </PopoverPrimitive.Portal>
+      </PopoverPrimitive.Root>
     </div>
   );
 }

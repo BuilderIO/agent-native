@@ -44,7 +44,7 @@ function readFile(root: string, filePath: string) {
   return fs.readFileSync(path.join(root, filePath), "utf8");
 }
 
-function setupLocalContentRepo() {
+function setupLocalContentRepo(options: { profile?: string } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-content-local-"));
   tmpRoots.push(root);
   const manifestPath = path.join(root, "agent-native.json");
@@ -52,6 +52,7 @@ function setupLocalContentRepo() {
     mode: "local-files",
     apps: {
       content: {
+        profile: options.profile,
         roots: [
           { name: "Docs", path: "docs", extensions: [".md", ".mdx"] },
           { name: "Blog", path: "blog", extensions: [".md", ".mdx"] },
@@ -181,5 +182,47 @@ describe("content local file documents", () => {
         parentId: null,
       }),
     ).rejects.toThrow("not supported");
+  });
+
+  it("keeps default local file edits on the existing bookkeeping frontmatter path", async () => {
+    const root = setupLocalContentRepo();
+    writeFile(root, "docs/plain.mdx", "# Plain\n\nOld body");
+
+    await updateLocalFileDocument(localFileDocumentId("docs/plain.mdx"), {
+      content: "New body",
+    });
+
+    const written = readFile(root, "docs/plain.mdx");
+    expect(written).toContain('title: "Plain"');
+    expect(written).toContain("icon: null");
+    expect(written).toContain("isFavorite: false");
+    expect(written).toContain("updatedAt:");
+    expect(written).toContain("New body");
+  });
+
+  it("does not add bookkeeping frontmatter for docs profile content-only edits", async () => {
+    const root = setupLocalContentRepo({ profile: "docs/no-bookkeeping" });
+    writeFile(root, "docs/plain.mdx", "# Plain\n\nOld body");
+
+    await updateLocalFileDocument(localFileDocumentId("docs/plain.mdx"), {
+      content: "# Plain\n\nNew body",
+    });
+
+    expect(readFile(root, "docs/plain.mdx")).toBe("# Plain\n\nNew body");
+  });
+
+  it("writes explicit metadata changes for docs profile local files", async () => {
+    const root = setupLocalContentRepo({ profile: "docs/no-bookkeeping" });
+    writeFile(root, "docs/plain.mdx", "# Plain\n\nBody");
+
+    await updateLocalFileDocument(localFileDocumentId("docs/plain.mdx"), {
+      icon: "book",
+      isFavorite: true,
+    });
+
+    const written = readFile(root, "docs/plain.mdx");
+    expect(written).toContain('icon: "book"');
+    expect(written).toContain("isFavorite: true");
+    expect(written).not.toContain("updatedAt:");
   });
 });

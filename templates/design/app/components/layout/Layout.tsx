@@ -99,7 +99,9 @@ export function Layout({ children }: LayoutProps) {
 
   return (
     <HeaderActionsProvider>
-      <MobileSidebarContext.Provider value={openMobileSidebar}>
+      <MobileSidebarContext.Provider
+        value={isDesignEditor ? null : openMobileSidebar}
+      >
         <AgentSidebar
           position="right"
           emptyStateText={t("chat.emptyState")}
@@ -112,22 +114,24 @@ export function Layout({ children }: LayoutProps) {
           browserTabId={getBrowserTabId()}
         >
           <div className="agent-layout-shell flex h-screen w-full overflow-hidden bg-background text-foreground">
-            {mobileSidebarOpen && (
+            {!isDesignEditor && mobileSidebarOpen && (
               <div
                 className="fixed inset-0 z-40 bg-black/50 md:hidden"
                 onClick={() => setMobileSidebarOpen(false)}
               />
             )}
-            <div
-              className={cn(
-                "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 md:static md:z-auto",
-                mobileSidebarOpen
-                  ? "translate-x-0"
-                  : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
-              )}
-            >
-              <Sidebar />
-            </div>
+            {!isDesignEditor && (
+              <div
+                className={cn(
+                  "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
+                  mobileSidebarOpen
+                    ? "translate-x-0"
+                    : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",
+                )}
+              >
+                <Sidebar />
+              </div>
+            )}
             <div className="agent-layout-main-surface flex h-full flex-1 flex-col overflow-hidden">
               {/* Mobile-only top bar with hamburger */}
               {showMobileTopBar && (
@@ -145,7 +149,14 @@ export function Layout({ children }: LayoutProps) {
                 </div>
               )}
               {!hideHeader && <Header />}
-              <main className="flex-1 overflow-y-auto">{children}</main>
+              <main
+                className={cn(
+                  "flex-1",
+                  isDesignEditor ? "overflow-hidden" : "overflow-y-auto",
+                )}
+              >
+                {children}
+              </main>
             </div>
           </div>
         </AgentSidebar>

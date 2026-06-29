@@ -20,7 +20,6 @@ const pageTitles: Record<string, string> = {
   "/approvals": "Approvals",
   "/audit": "Audit",
   "/settings": "Settings",
-  "/team": "Team",
 };
 
 function resolveTitle(pathname: string): string {

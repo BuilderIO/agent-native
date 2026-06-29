@@ -34,7 +34,7 @@
 }
 
 .dark {
-  --background: 0 0% 4%;
+  --background: 0 0% 0%;
   --foreground: 0 0% 93%;
   --card: 0 0% 4%;
   --card-foreground: 0 0% 93%;
@@ -670,6 +670,78 @@ h4 {
   position: relative;
 }
 
+.code-block-scroll {
+  position: relative;
+  max-width: 100%;
+  min-width: 0;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.code-block[data-collapsed="true"] .code-block-scroll {
+  max-height: calc(var(--code-block-max-lines, 30) * 1lh + 32px);
+  overflow: hidden;
+}
+
+.code-block-fade {
+  display: none;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 56px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--code-bg) 92%);
+}
+
+.code-block[data-collapsed="true"] .code-block-fade {
+  display: block;
+}
+
+.code-block-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  padding: 7px 14px;
+  border: 1px solid var(--code-border);
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
+  background: var(--code-bg);
+  color: color-mix(in srgb, var(--fg-secondary) 84%, transparent);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  cursor: pointer;
+}
+
+.code-block-toggle::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.8;
+  transform: rotate(45deg);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+.code-block-toggle[aria-expanded="true"]::after {
+  margin-top: 3px;
+  transform: rotate(225deg);
+}
+
+.code-block-toggle:hover {
+  color: var(--fg-secondary);
+  background: color-mix(in srgb, var(--fg-secondary) 8%, var(--code-bg));
+}
+
 /* Copy button injected by MarkdownRenderer into .code-block wrappers */
 .code-copy-btn {
   position: absolute;
@@ -709,6 +781,12 @@ h4 {
   line-height: 1.7;
   overflow-x: auto;
   background: var(--code-bg);
+}
+
+.code-block[data-collapsed] pre,
+.code-block[data-collapsed] .shiki {
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
 }
 
 /* Token colors come from shiki's per-theme CSS vars; the block background
@@ -1312,6 +1390,10 @@ html.dark .shiki span {
     font-size: 12px;
     padding: 12px;
     border-radius: 6px;
+  }
+
+  .code-block-scroll {
+    font-size: 12px;
   }
 }
 

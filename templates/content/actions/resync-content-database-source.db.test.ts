@@ -4,11 +4,12 @@
 // A against a mocked live Builder read and asserts the self-heal: A keeps only
 // its own remote-backed rows and never re-claims B's row.
 
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rmSync } from "node:fs";
+
+import { eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 // Mock the Builder read client so resync runs "live" with deterministic entries
 // (no network). Real exports are preserved; only the two reads are overridden.
@@ -19,32 +20,34 @@ vi.mock("./_builder-cms-read-client.js", async () => {
   return {
     ...actual,
     readBuilderCmsModelFields: vi.fn(async () => []),
-    readBuilderCmsContentEntries: vi.fn(async ({ model }: { model: string }) => ({
-      state: model === "collection-a" ? "live" : "unconfigured",
-      entries:
-        model === "collection-a"
-          ? [
-              {
-                id: "entry-a1",
-                model: "collection-a",
-                title: "A One",
-                urlPath: "/a-one",
-                updatedAt: "2026-01-01T00:00:00.000Z",
-                sourceValues: { "data.title": "A One" },
-              },
-              {
-                id: "entry-a2",
-                model: "collection-a",
-                title: "A Two",
-                urlPath: "/a-two",
-                updatedAt: "2026-01-01T00:00:00.000Z",
-                sourceValues: { "data.title": "A Two" },
-              },
-            ]
-          : [],
-      fetchedAt: "2026-01-01T00:00:00.000Z",
-      message: null,
-    })),
+    readBuilderCmsContentEntries: vi.fn(
+      async ({ model }: { model: string }) => ({
+        state: model === "collection-a" ? "live" : "unconfigured",
+        entries:
+          model === "collection-a"
+            ? [
+                {
+                  id: "entry-a1",
+                  model: "collection-a",
+                  title: "A One",
+                  urlPath: "/a-one",
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                  sourceValues: { "data.title": "A One" },
+                },
+                {
+                  id: "entry-a2",
+                  model: "collection-a",
+                  title: "A Two",
+                  urlPath: "/a-two",
+                  updatedAt: "2026-01-01T00:00:00.000Z",
+                  sourceValues: { "data.title": "A Two" },
+                },
+              ]
+            : [],
+        fetchedAt: "2026-01-01T00:00:00.000Z",
+        message: null,
+      }),
+    ),
   };
 });
 
@@ -168,11 +171,13 @@ it("resync re-links only the source's own rows, never another collection's (self
     .insert(schema.contentDatabaseSourceRows)
     .values(srcRow("row-b1", "src-b", "doc-b1", "entry-b1"));
   // PRE-FIX over-claim: source A claims ALL THREE docs, including B's row.
-  await db.insert(schema.contentDatabaseSourceRows).values([
-    srcRow("row-a1", "src-a", "doc-a1", "entry-a1"),
-    srcRow("row-a2", "src-a", "doc-a2", "entry-a2"),
-    srcRow("row-a-bogus", "src-a", "doc-b1", "bogus-claim"),
-  ]);
+  await db
+    .insert(schema.contentDatabaseSourceRows)
+    .values([
+      srcRow("row-a1", "src-a", "doc-a1", "entry-a1"),
+      srcRow("row-a2", "src-a", "doc-a2", "entry-a2"),
+      srcRow("row-a-bogus", "src-a", "doc-b1", "bogus-claim"),
+    ]);
 
   const [database] = await db
     .select()

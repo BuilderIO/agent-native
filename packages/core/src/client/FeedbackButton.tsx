@@ -20,6 +20,12 @@ import { cn } from "./utils.js";
 const DEFAULT_FEEDBACK_URL =
   "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
 
+function isSyntheticAgentNativeAnonymousEmail(
+  value: string | null | undefined,
+): boolean {
+  return /^anon-[^\s@]+@agent-native\.com$/i.test(value ?? "");
+}
+
 interface ParsedTarget {
   endpoint: string;
   slug: string;
@@ -342,7 +348,11 @@ export function FeedbackButton({
       try {
         const resolvedSchema = schema ?? (await loadSchema(target));
         if (!schema) setSchema(resolvedSchema);
-        const submitterEmail = session?.email;
+        const submitterEmail = isSyntheticAgentNativeAnonymousEmail(
+          session?.email,
+        )
+          ? null
+          : session?.email;
         const feedbackContext = getFeedbackClientContext({
           chatSessionId,
           storageKey: chatStorageKey,

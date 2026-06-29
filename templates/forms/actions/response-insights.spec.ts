@@ -82,11 +82,13 @@ const responses = [
   },
 ];
 
-async function runInsights(displayMode?: "chart" | "table" | "insights") {
+async function runInsights(
+  displayMode?: "chart" | "table" | "insights",
+  responseRows = responses,
+) {
   dbMock.setResults([
-    [form],
-    responses,
-    [{ formId: "form_1", count: responses.length }],
+    responseRows,
+    [{ formId: "form_1", count: responseRows.length }],
   ]);
 
   return responseInsights.run({
@@ -139,6 +141,31 @@ describe("response-insights action", () => {
     expect(result.table).toBeDefined();
     expect("chartSeries" in result).toBe(false);
     expect(result.display?.primaryAction?.href).toBe("/forms/form_1/responses");
+  });
+
+  it("does not add an email column for synthetic anonymous submitters", async () => {
+    const result = await runInsights("table", [
+      {
+        ...responses[0]!,
+        submitterEmail:
+          "anon-ee79aaee-98e2-452a-9476-5205713803c0@agent-native.com",
+      },
+    ]);
+
+    expect(result.table?.columns.map((column) => column.key)).not.toContain(
+      "submitterEmail",
+    );
+  });
+
+  it("keeps the email column for real submitters", async () => {
+    const result = await runInsights("table", [
+      { ...responses[0]!, submitterEmail: "user@example.com" },
+    ]);
+
+    expect(result.table?.columns.map((column) => column.key)).toContain(
+      "submitterEmail",
+    );
+    expect(result.table?.rows[0]?.submitterEmail).toBe("user@example.com");
   });
 
   it("keeps the combined insights widget as the default", async () => {

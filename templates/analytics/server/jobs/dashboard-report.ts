@@ -11,6 +11,7 @@ const DEFAULT_MAX_REPORTS_PER_SWEEP = 5;
 
 function maxReportsPerSweep(): number {
   const raw = process.env.DASHBOARD_REPORT_SWEEP_LIMIT?.trim();
+  if (!raw && process.env.NETLIFY === "true") return 1;
   if (!raw) return DEFAULT_MAX_REPORTS_PER_SWEEP;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0

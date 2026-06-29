@@ -27,25 +27,25 @@
 }
 
 :root {
-  --background: 40 23% 97%;
-  --foreground: 30 5% 10%;
-  --card: 40 23% 99%;
-  --card-foreground: 30 5% 10%;
-  --popover: 40 23% 99%;
-  --popover-foreground: 30 5% 10%;
-  --primary: 30 5% 13%;
+  --background: 0 0% 100%;
+  --foreground: 220 10% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 220 10% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 10% 10%;
+  --primary: 220 10% 15%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 45 14% 94%;
-  --secondary-foreground: 30 5% 13%;
-  --muted: 45 14% 94%;
-  --muted-foreground: 30 6% 43%;
-  --accent: 45 14% 94%;
-  --accent-foreground: 30 5% 13%;
+  --secondary: 220 10% 95%;
+  --secondary-foreground: 220 10% 15%;
+  --muted: 220 10% 95%;
+  --muted-foreground: 220 5% 45%;
+  --accent: 220 10% 95%;
+  --accent-foreground: 220 10% 15%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
-  --border: 36 10% 86%;
-  --input: 36 10% 86%;
-  --ring: 218 85% 57%;
+  --border: 220 10% 90%;
+  --input: 220 10% 90%;
+  --ring: 220 10% 40%;
   --radius: 0.5rem;
   /* Callout tone accents — info/decision/risk/warning/success. */
   --plan-tone-info: 218 85% 57%;
@@ -53,14 +53,14 @@
   --plan-tone-risk: 0 84% 60%;
   --plan-tone-warning: 25 95% 48%;
   --plan-tone-success: 142 71% 38%;
-  --sidebar-background: 42 18% 96%;
-  --sidebar-foreground: 30 6% 43%;
-  --sidebar-primary: 30 5% 13%;
+  --sidebar-background: 220 10% 97%;
+  --sidebar-foreground: 220 5% 45%;
+  --sidebar-primary: 220 10% 15%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 45 14% 93%;
-  --sidebar-accent-foreground: 30 5% 13%;
-  --sidebar-border: 36 10% 86%;
-  --sidebar-ring: 218 85% 57%;
+  --sidebar-accent: 220 10% 95%;
+  --sidebar-accent-foreground: 220 10% 15%;
+  --sidebar-border: 220 10% 90%;
+  --sidebar-ring: 220 10% 40%;
   /* ── Plan document font sizes — edit here to resize globally ──────────────
      --plan-code-size  : general monospace code surfaces and editors
      --plan-doc-code-size: dense read-only code surfaces such as diffs,
@@ -72,25 +72,25 @@
 }
 
 .dark {
-  --background: 30 4% 11%;
-  --foreground: 40 9% 95%;
-  --card: 30 5% 13%;
-  --card-foreground: 40 9% 95%;
-  --popover: 30 5% 13%;
-  --popover-foreground: 40 9% 95%;
-  --primary: 40 9% 92%;
-  --primary-foreground: 30 4% 11%;
-  --secondary: 36 5% 16%;
-  --secondary-foreground: 40 9% 95%;
-  --muted: 36 5% 16%;
-  --muted-foreground: 38 7% 63%;
-  --accent: 36 5% 17%;
-  --accent-foreground: 40 9% 95%;
+  --background: 220 6% 6%;
+  --foreground: 0 0% 90%;
+  --card: 220 5% 6%;
+  --card-foreground: 0 0% 90%;
+  --popover: 220 5% 6%;
+  --popover-foreground: 0 0% 90%;
+  --primary: 0 0% 75%;
+  --primary-foreground: 220 6% 6%;
+  --secondary: 220 4% 12%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 220 4% 10%;
+  --muted-foreground: 220 4% 60%;
+  --accent: 220 4% 13%;
+  --accent-foreground: 0 0% 90%;
   --destructive: 0 63% 51%;
   --destructive-foreground: 0 0% 98%;
-  --border: 35 5% 21%;
-  --input: 35 5% 21%;
-  --ring: 218 85% 67%;
+  --border: 220 4% 14%;
+  --input: 220 4% 14%;
+  --ring: 0 0% 60%;
   --radius: 0.5rem;
   /* Callout tone accents — brighter so they read on the dark surface. */
   --plan-tone-info: 218 85% 67%;
@@ -98,14 +98,14 @@
   --plan-tone-risk: 0 84% 67%;
   --plan-tone-warning: 28 96% 60%;
   --plan-tone-success: 142 60% 52%;
-  --sidebar-background: 30 5% 10%;
-  --sidebar-foreground: 38 7% 63%;
-  --sidebar-primary: 40 9% 92%;
-  --sidebar-primary-foreground: 30 4% 11%;
-  --sidebar-accent: 36 5% 16%;
-  --sidebar-accent-foreground: 40 9% 95%;
-  --sidebar-border: 35 5% 18%;
-  --sidebar-ring: 218 85% 67%;
+  --sidebar-background: 220 6% 4%;
+  --sidebar-foreground: 220 4% 60%;
+  --sidebar-primary: 0 0% 75%;
+  --sidebar-primary-foreground: 220 6% 6%;
+  --sidebar-accent: 220 4% 10%;
+  --sidebar-accent-foreground: 0 0% 90%;
+  --sidebar-border: 220 4% 10%;
+  --sidebar-ring: 0 0% 60%;
 }
 
 @layer base {
@@ -129,37 +129,20 @@
 
 @layer utilities {
   .plan-content-surface {
-    --plan-document: hsl(42 18% 97%);
+    --plan-document: hsl(var(--background));
     --plan-canvas: color-mix(in srgb, var(--plan-document) 96%, black);
-    --plan-block: hsl(42 16% 94%);
-    --plan-chrome: hsl(42 15% 96% / 0.92);
-    --plan-line: hsl(36 9% 82%);
-    --plan-grid-line: hsl(36 9% 70% / 0.08);
-    --plan-text: hsl(30 5% 11%);
-    --plan-muted: hsl(30 5% 45%);
-    --plan-wireframe: hsl(42 16% 98%);
-    --plan-sketch-line: hsl(28 4% 20%);
-    --plan-muted-line: hsl(36 6% 78%);
-    --plan-placeholder-line: hsl(36 5% 72% / 0.72);
-    --plan-code: hsl(40 12% 96%);
-    --plan-code-text: hsl(28 5% 14%);
-  }
-
-  .dark .plan-content-surface {
-    --plan-document: hsl(32 3% 13%);
-    --plan-canvas: color-mix(in srgb, var(--plan-document) 80%, black);
-    --plan-block: hsl(32 3% 15.5%);
-    --plan-chrome: hsl(32 3% 15.5% / 0.92);
-    --plan-line: hsl(34 4% 24%);
-    --plan-grid-line: hsl(34 4% 36% / 0.08);
-    --plan-text: hsl(40 8% 94%);
-    --plan-muted: hsl(36 5% 65%);
-    --plan-wireframe: hsl(34 3% 13.4%);
-    --plan-sketch-line: hsl(38 5% 84%);
-    --plan-muted-line: hsl(36 4% 44%);
-    --plan-placeholder-line: hsl(36 4% 54% / 0.62);
-    --plan-code: hsl(32 4% 9.8%);
-    --plan-code-text: hsl(40 9% 92%);
+    --plan-block: hsl(var(--secondary));
+    --plan-chrome: hsl(var(--background) / 0.92);
+    --plan-line: hsl(var(--border));
+    --plan-grid-line: hsl(var(--foreground) / 0.08);
+    --plan-text: hsl(var(--foreground));
+    --plan-muted: hsl(var(--muted-foreground));
+    --plan-wireframe: hsl(var(--card));
+    --plan-sketch-line: hsl(var(--foreground) / 0.86);
+    --plan-muted-line: hsl(var(--border));
+    --plan-placeholder-line: hsl(var(--muted-foreground) / 0.42);
+    --plan-code: hsl(var(--muted));
+    --plan-code-text: hsl(var(--foreground));
   }
 
   .plan-content-surface[data-recap-screenshot-theme="light"] {
@@ -255,13 +238,21 @@
   touch-action: none;
 }
 
-/* Infinite low-contrast grid (slightly darker than the document bg) that
- * moves on pan via background-position and scales with zoom — both driven
- * inline by CanvasArea. */
 .plan-canvas-viewport {
+  background-color: var(--plan-canvas);
+  isolation: isolate;
+}
+
+.plan-canvas-grid {
+  pointer-events: none;
   background-image:
     linear-gradient(var(--plan-grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--plan-grid-line) 1px, transparent 1px);
+}
+
+.plan-canvas-world {
+  isolation: isolate;
+  transform-style: flat;
 }
 
 /* Fixed-size static artboard frame. No border / shadow / box around the

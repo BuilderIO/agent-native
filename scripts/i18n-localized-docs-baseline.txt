@@ -1,3 +1,103 @@
 # Existing localized docs strings that still match English source.
 # Keep this file sorted. Remove entries as translated docs improve.
 # Format: relative/localized/path.md|English source string
+packages/core/docs/content/locales/ar-SA/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/ar-SA/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/ar-SA/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/ar-SA/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/ar-SA/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/ar-SA/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/ar-SA/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/ar-SA/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/de-DE/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/de-DE/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/de-DE/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/de-DE/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/de-DE/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/de-DE/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/de-DE/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/de-DE/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/es-ES/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/es-ES/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/es-ES/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/es-ES/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/es-ES/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/es-ES/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/es-ES/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/es-ES/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/fr-FR/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/fr-FR/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/fr-FR/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/fr-FR/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/fr-FR/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/fr-FR/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/fr-FR/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/fr-FR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/hi-IN/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/hi-IN/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/hi-IN/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/hi-IN/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/hi-IN/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/hi-IN/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/hi-IN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/ja-JP/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/ja-JP/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/ja-JP/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/ja-JP/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/ja-JP/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/ja-JP/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/ja-JP/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/ja-JP/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/ko-KR/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/ko-KR/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/ko-KR/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/ko-KR/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/ko-KR/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/ko-KR/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/ko-KR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/pt-BR/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/pt-BR/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/pt-BR/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/pt-BR/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/pt-BR/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/pt-BR/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/pt-BR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/zh-CN/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/zh-CN/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/zh-CN/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/zh-CN/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/zh-CN/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/zh-CN/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/zh-CN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/zh-TW/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/zh-TW/frames.mdx|type: \"code\"
+packages/core/docs/content/locales/zh-TW/migration-workbench.mdx|--describe \"...\"
+packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|, recompute
+packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|A2A, email
+packages/core/docs/content/locales/zh-TW/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/zh-TW/template-forms.mdx|"add an NPS question"
+packages/core/docs/content/locales/zh-TW/template-slides.mdx|"10-slide pitch deck"
+packages/core/docs/content/locales/zh-TW/template-videos.mdx|"fade in at 2s"
+packages/core/docs/content/locales/zh-TW/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.

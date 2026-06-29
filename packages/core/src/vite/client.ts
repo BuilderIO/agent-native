@@ -22,6 +22,10 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import {
+  normalizeMcpIntegrationsConfig,
+  type McpIntegrationsConfigInput,
+} from "../shared/mcp-integration-config.js";
+import {
   normalizeAgentNativeRouteWarmupConfig,
   type AgentNativeRouteWarmupConfigInput,
 } from "../shared/route-warmup-config.js";
@@ -457,6 +461,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/notifications",
   "@agent-native/core/client/progress",
   "@agent-native/core/client/transcription/use-live-transcription",
+  "@agent-native/core/voice",
 ];
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -765,6 +770,7 @@ function getCoreSourceAliases(
       coreSrc,
       "client/transcription/use-live-transcription.ts",
     ),
+    "@agent-native/core/voice": path.join(coreSrc, "voice/index.ts"),
     "@agent-native/core/db": path.join(coreSrc, "db/index.ts"),
     "@agent-native/core/db/schema": path.join(coreSrc, "db/schema.ts"),
     "@agent-native/core/shared": path.join(coreSrc, "shared/index.ts"),
@@ -881,6 +887,16 @@ export interface ClientConfigOptions {
    * ordinary fetches for `.data` and `modulepreload` for route JS by default.
    */
   routeWarmup?: AgentNativeRouteWarmupConfigInput;
+  /**
+   * Controls the MCP integrations catalog exposed from the composer + menu.
+   *
+   * - `false` hides the whole MCP integrations entry.
+   * - `{ defaults: false }` hides all bundled provider presets but still
+   *   allows custom MCP servers.
+   * - `{ defaults: { include: ["context7"] } }` allows only those preset ids.
+   * - `{ defaults: { exclude: ["stripe"] } }` hides specific preset ids.
+   */
+  mcpIntegrations?: McpIntegrationsConfigInput;
   /**
    * Whether to auto-inject the Tailwind v4 Vite plugin (`@tailwindcss/vite`).
    * Defaults to true — set to `false` if a template wants to manage Tailwind
@@ -2062,6 +2078,9 @@ function createAgentNativeConfig(
       // authoritative even if app config provides its own `define` entries.
       __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify(
         normalizeAgentNativeRouteWarmupConfig(options.routeWarmup),
+      ),
+      __AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__: JSON.stringify(
+        normalizeMcpIntegrationsConfig(options.mcpIntegrations),
       ),
     },
     server: {

@@ -94,7 +94,7 @@ mod macos {
 
     use crate::native_speech::macos::{start_raw_mic_capture, RawMicCapture};
     use crate::system_audio::macos::{start_raw_system_capture, RawSystemCapture};
-    use crate::whisper_model::{custom_model_override, ensure_model, model_file};
+    use crate::whisper_model::{ensure_model, model_file};
 
     /// One transcript segment with real timestamps from whisper, already
     /// offset onto the meeting timeline (ms since capture start).
@@ -537,24 +537,11 @@ mod macos {
             msg
         })?;
 
-        // Custom/multilingual models always get auto-detect regardless of the
-        // supplied locale — forcing "en" onto a multilingual model when the
-        // meeting is in another language produces poor transcripts. The bundled
-        // ggml-base.en ignores the language field entirely, so forcing "en" is
-        // only useful for it (and harmless for other en-only models).
-        let lang: Option<String> = if custom_model_override() {
-            None
-        } else {
-            match language.as_deref() {
-                Some(l) if !l.trim().is_empty() => Some(
-                    l.split(['-', '_'])
-                        .next()
-                        .unwrap_or("en")
-                        .to_ascii_lowercase(),
-                ),
-                _ => Some("en".to_string()),
-            }
-        };
+        // Recording language should follow the spoken audio, not the UI/browser
+        // locale. The bundled ggml-base model is multilingual, so let
+        // whisper.cpp detect the language for every recording/meeting stream.
+        let _ = language;
+        let lang: Option<String> = None;
 
         // Mic stream + capture. The real hardware rate is read back from the
         // capture handle and pushed into the stream (default 48 kHz until then).

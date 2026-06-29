@@ -21,7 +21,6 @@ const pageTitleKeys: Record<string, string> = {
   "/analyses": "navigation.analyses",
   "/sessions": "navigation.sessions",
   "/dashboards/explorer": "navigation.explorer",
-  "/team": "navigation.team",
   "/settings": "navigation.settings",
 };
 

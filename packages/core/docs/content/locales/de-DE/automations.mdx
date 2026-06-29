@@ -1,0 +1,387 @@
+---
+title: "Automatisierungen"
+description: "Ereignisausgelöste und geplante Automatisierungen mit Bedingungen in natürlicher Sprache"
+---
+
+# Automatisierungen
+
+Eine **Automatisierung** ist eine Regel: _Wenn X passiert, mache Y_ – beschrieben in natürlicher Sprache. Der Agent führt die Anweisungen aus, sodass Automatisierungen Zugriff auf alle Aktionen, Tools und MCP-Server haben, die der Agent in einem interaktiven Chat verwenden kann.
+
+Automatisierungen erweitern [recurring jobs](/docs/recurring-jobs) mit **Ereignisauslösern**, **Bedingungen in natürlicher Sprache** und **ausgehendem HTTP** über das `web-request`-Tool. Sie verwenden dasselbe `jobs/<name>.md`-Dateiformat, denselben Speicher und denselben „Drei-Wege-erstellen“-Workflow wie wiederkehrende Aufträge – siehe [Recurring Jobs](/docs/recurring-jobs#job-file) für das gemeinsame Format. Auf dieser Seite werden nur die Neuerungen bei ereignisgesteuerten Automatisierungen behandelt.
+
+<Diagram id="doc-block-1cpvlda" title="Wenn X passiert, mache Y" summary={"Ein Ereignis wird auf dem Bus ausgelöst, eine optionale Bedingung in natürlicher Sprache löst es aus und der Agent führt den Automatisierungskörper mit vollem Werkzeugzugriff aus."}>
+
+```html
+<div class="auto-flow">
+  <div class="diagram-card">
+    <span class="diagram-pill">Event</span
+    ><small class="diagram-muted"><code>calendar.booking.created</code></small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">Condition</span
+    ><small class="diagram-muted"
+      >Haiku checks: &ldquo;email ends with @builder.io&rdquo;</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">Agent führt den Body aus</span
+    ><small class="diagram-muted"
+      >actions &middot; web-request &middot; MCP &middot; sub-agents</small
+    >
+  </div>
+</div>
+```
+
+```css
+.auto-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.auto-flow .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.auto-flow .diagram-arrow {
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+## Zwei Triggertypen {#trigger-types}
+
+| Typ        | Wird ausgelöst, wenn                                                 | Schlüsselfeld     |
+| ---------- | -------------------------------------------------------------------- | ----------------- |
+| `schedule` | Ein Cron-Ausdruck stimmt überein (wie bei wiederkehrenden Jobs)      | `schedule` (cron) |
+| `event`    | Ein passendes Ereignis wird auf dem Framework-Ereignisbus ausgegeben | `event` (Name)    |
+
+Ereignisauslöser können einen `condition` enthalten – eine Zeichenfolge in natürlicher Sprache, die von Haiku vor dem Versand anhand der Ereignisnutzlast ausgewertet wird. Wenn die Bedingung nicht zutrifft, wird die Automatisierung stillschweigend übersprungen.
+
+## Automatisierungen erstellen {#creating}
+
+### Indem Sie den Agenten fragen
+
+> „Wenn jemand ein Meeting mit einer @builder.io-E-Mail bucht, senden Sie mir eine Nachricht in Slack.“
+
+Der Agent erkennt verfügbare Ereignisse, bestätigt den Plan und schreibt die Automatisierung für Sie.
+
+### Aus den Einstellungen UI
+
+Automatisierungen werden im Einstellungsfeld angezeigt. Benutzer können sie dort anzeigen, aktivieren/deaktivieren und löschen.
+
+Der dritte Pfad – das manuelle Schreiben der `jobs/<name>.md`-Datei über `resourcePut` – funktioniert genauso wie für [recurring jobs](/docs/recurring-jobs#creating). Für eine ereignisgesteuerte Automatisierung fügen Sie der folgenden Datei den Event-Trigger-Frontmatter hinzu. Ein durch ein Ereignis ausgelöster Job legt `schedule: ""` fest und liefert `triggerType: event`, einen `event`-Namen und optional einen `condition`:
+
+<AnnotatedCode
+  id="doc-block-1p8j436"
+  title="Eine ereignisgesteuerte Automatisierung"
+  filename="jobs/slack-on-builder-booking.md"
+  language="markdown"
+  code={
+    '---\nschedule: ""\nenabled: true\ntriggerType: event\nevent: calendar.booking.created\ncondition: "attendee email ends with @builder.io"\nmode: agentic\ndomain: calendar\nrunAs: creator\n---\nSend a Slack message to #sales with the booking details.\nUse the web-request tool to POST to ${keys.SLACK_WEBHOOK}.'
+  }
+  annotations={[
+    {
+      lines: "2",
+      label: "Kein Cron",
+      note: 'Ereignisauslöser setzen `schedule` auf `""` – das Cron-Feld bleibt leer.',
+    },
+    {
+      lines: "4-5",
+      label: "Der Auslöser",
+      note: "`triggerType: event` plus der Name `event` abonniert diese Automatisierung am Bus.",
+    },
+    {
+      lines: "6",
+      label: "Tor",
+      note: "Ein optionaler `condition` in natürlicher Sprache, der von Haiku vor dem Versand anhand der Nutzlast ausgewertet wird.",
+    },
+    {
+      lines: "12",
+      label: "Serverseitiges Geheimnis",
+      note: "`${keys.SLACK_WEBHOOK}` is resolved server-side — the raw value never enters the agent's context.",
+    },
+  ]}
+/>
+
+## Automatisierungsthema {#frontmatter}
+
+Automatisierungen teilen sich jedes Feld im [recurring-jobs frontmatter table](/docs/recurring-jobs#frontmatter). Diese zusätzlichen Felder steuern Ereignisauslöser, Bedingungen und den Ausführungsmodus:
+
+| Feld          | Typ                              | Standard     | Beschreibung                                                                                                                                                                                                                |
+| ------------- | -------------------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `triggerType` | `"schedule"` \| `"event"`        | `"schedule"` | Wie die Automatisierung ausgelöst wird                                                                                                                                                                                      |
+| `event`       | Zeichenfolge                     | _(optional)_ | Ereignisname zum Abonnieren (nur Ereignisauslöser)                                                                                                                                                                          |
+| `condition`   | Zeichenfolge                     | _(optional)_ | Zustand in natürlicher Sprache wird vor dem Versand ausgewertet                                                                                                                                                             |
+| `mode`        | `"agentic"` \| `"deterministic"` | `"agentic"`  | Vollständige Agentenschleife. (`"deterministic"` ist reserviert, aber noch nicht implementiert – Automatisierungen, die es festlegen, werden übersprungen. Verwenden Sie `"agentic"` für alle aktuellen Automatisierungen.) |
+| `domain`      | Zeichenfolge                     | _(optional)_ | Gruppierungs-Tag (E-Mail, Kalender, Clips usw.)                                                                                                                                                                             |
+
+Für einen Ereignisauslöser ist `schedule` `""` (leer); Für einen Zeitplanauslöser trägt es den Cron-Ausdruck. Der Dispatcher schreibt außerdem dieselben verwalteten `lastRun`-/`lastStatus`-/`lastError`-Felder wie der Scheduler, plus einen `"skipped"`-Status, wenn eine Bedingung als „falsch“ ausgewertet wird.
+
+## Der Eventbus {#event-bus}
+
+Integrationen registrieren Ereignisse zur Modulladezeit. Der Bus validiert Nutzdaten anhand der [Standard Schema](https://standardschema.dev)-Definitionen und sendet sie an Abonnenten.
+
+### Eingebaute Ereignisse {#built-in-events}
+
+| Ereignis               | Quelle                                           |
+| ---------------------- | ------------------------------------------------ |
+| `test.event.fired`     | Handbuch / `manage-automations` action=fire-test |
+| `agent.turn.completed` | Agenten-Chat                                     |
+| `calendar.*`           | Kalenderintegration                              |
+| `clip.*`               | Clips-Integration                                |
+| `mail.*`               | Mail-Integration                                 |
+
+Rufen Sie `manage-automations` mit `action=list-events` vom Agenten auf, um alle registrierten Ereignisse mit Beschreibungen und Nutzlastschemata für die aktuelle Vorlage anzuzeigen.
+
+### Benutzerdefinierte Ereignisse ausgeben {#emitting-events}
+
+Registrieren Sie einen Ereignistyp in einem Server-Plugin und geben Sie ihn dann von actions oder Webhook-Handlern aus:
+
+```ts
+import { registerEvent, emit } from "@agent-native/core/event-bus";
+import { z } from "zod";
+
+// Register the event type (once, at module load)
+registerEvent({
+  name: "order.completed",
+  description: "A customer completed an order",
+  payloadSchema: z.object({
+    orderId: z.string(),
+    customerEmail: z.string(),
+    total: z.number(),
+  }),
+  example: {
+    orderId: "ord_123",
+    customerEmail: "jane@example.com",
+    total: 49.99,
+  },
+});
+
+// Emit the event (from an action, webhook handler, etc.)
+emit(
+  "order.completed",
+  {
+    orderId: "ord_123",
+    customerEmail: "jane@example.com",
+    total: 49.99,
+  },
+  { owner: "steve@builder.io" },
+);
+```
+
+Die `owner` in den Emissionsmetadatenbereichen, die Automatisierungen auslösen – nur Automatisierungen, die demselben Benutzer gehören (oder freigegebene Automatisierungen), werden ausgewertet.
+
+## Bedingungen {#conditions}
+
+Bedingungen sind Zeichenfolgen in natürlicher Sprache, die von Claude Haiku anhand der Ereignisnutzlast ausgewertet werden. Dies ist eine Ja/Nein-Klassifizierung, keine Generierungsaufgabe.
+
+- **Leere oder fehlende Bedingung** = unbedingt (wird immer ausgelöst).
+- Ergebnisse werden gespeichert (SHA-256 der Bedingung + Nutzlast) mit einem 5-Minuten-TTL- und 500-Eintrags-LRU-Cache.
+- Die Nutzlast wird vor dem Senden an Haiku auf 4000 Zeichen gekürzt.
+- Bei einem API-Fehler wird die Bedingung zu `false` ausgewertet (sichere Standardeinstellung – die Automatisierung wird übersprungen).
+
+Beispiele für Bedingungen:
+
+- `"attendee email ends with @builder.io"`
+- `"the order total is greater than $100"`
+- `"the message contains the word 'urgent'"`
+
+## Das Web-Anfrage-Tool {#web-request}
+
+Automatisierungen verwenden das `web-request`-Tool für ausgehende HTTP. Es unterstützt `${keys.NAME}`-Platzhalter im URL, in Headern und im Text:
+
+```
+POST to ${keys.SLACK_WEBHOOK}
+
+Headers: {"Authorization": "Bearer ${keys.API_TOKEN}"}
+
+Body: {"text": "New booking from ${attendeeEmail}"}
+```
+
+Platzhalter werden **serverseitig** aufgelöst, nachdem der Agent den Tool-Aufruf ausgibt – der rohe geheime Wert gelangt nie in den Kontext des Agenten.
+
+### Parameter {#web-request-params}
+
+| Parameter    | Typ          | Standard | Beschreibung                                               |
+| ------------ | ------------ | -------- | ---------------------------------------------------------- |
+| `url`        | Zeichenfolge | —        | Vollständig URL. Kann `${keys.NAME}`-Referenzen enthalten. |
+| `method`     | Zeichenfolge | `GET`    | HTTP-Methode (GET, POST, PUT, PATCH, DELETE, HEAD).        |
+| `headers`    | Zeichenfolge | `{}`     | JSON-Objekt der Header. Kann `${keys.NAME}` enthalten.     |
+| `body`       | Zeichenfolge | —        | Anforderungstext. Kann `${keys.NAME}` enthalten.           |
+| `timeout_ms` | Nummer       | 15000    | Timeout in Millisekunden (max. 30.000).                    |
+
+## Schlüssel {#keys}
+
+Schlüssel sind Ad-hoc-Geheimnisse, die von Benutzern oder dem Agenten zur Automatisierung erstellt werden (z. B. `SLACK_WEBHOOK`, `HUBSPOT_API_KEY`). Sie unterscheiden sich von registrierten Geheimnissen (`registerRequiredSecret`) dadurch, dass sie keine vorlagendefinierten Metadaten oder Onboarding-Schritte haben.
+
+- Erstellt über die Einstellungen UI oder `/_agent-native/secrets/adhoc` API.
+- Jeder Schlüssel kann eine **URL-Zulassungsliste** haben, die einschränkt, an welche Ursprünge der Schlüssel gesendet werden kann (Abgleich auf Ursprungsebene).
+- Der Rohwert wird niemals der KI angezeigt – im Kontext des Agenten werden nur `${keys.NAME}`-Platzhalter angezeigt.
+- Die Auflösung fällt vom Benutzerbereich auf den Arbeitsbereichsbereich zurück, sodass Benutzer gemeinsame Schlüssel überschreiben können.
+
+## Agent-Tools {#agent-tools}
+
+Der Zugriff auf alle Automatisierungsvorgänge erfolgt über ein einziges `manage-automations`-Tool mit einem `action`-Parameter:
+
+| Aktion        | Zweck                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------- |
+| `list-events` | Erkennen Sie alle registrierten Ereignisse mit Beschreibungen und Nutzlastschemata    |
+| `list`        | Alle Automatisierungen mit Status auflisten; Nach Domäne filtern oder aktiviert       |
+| `define`      | Erstellen Sie eine neue Automatisierung (Name, Triggertyp, Ereignis, Bedingung, Text) |
+| `update`      | Aktualisieren Sie eine vorhandene Automatisierung (aktiviert, Bedingung, Text)        |
+| `delete`      | Eine Automatisierung löschen (immer zuerst mit dem Benutzer bestätigen)               |
+| `fire-test`   | Ein `test.event.fired`-Ereignis ausgeben, um Automatisierungen zu validieren          |
+
+Zusätzliches Tool: `web-request` – ausgehender HTTP mit `${keys.NAME}`-Ersetzung.
+
+## API-Endpunkte {#api}
+
+| Endpunkt                               | Methode | Beschreibung                                            |
+| -------------------------------------- | ------- | ------------------------------------------------------- |
+| `/_agent-native/automations`           | GET     | Alle Automatisierungen auflisten (geparst)              |
+| `/_agent-native/automations/fire-test` | POST    | Ein `test.event.fired`-Ereignis ausgeben                |
+| `/_agent-native/secrets/adhoc`         | GET     | Ad-hoc-Schlüssel auflisten (keine Werte)                |
+| `/_agent-native/secrets/adhoc`         | POST    | Erstellen oder aktualisieren Sie einen Ad-hoc-Schlüssel |
+| `/_agent-native/secrets/adhoc/:name`   | DELETE  | Einen Ad-hoc-Schlüssel löschen                          |
+
+<Endpoint id="doc-block-21763k" title={"Lösen Sie ein Testereignis aus"} method="POST" path="/_agent-native/automations/fire-test" summary="Geben Sie ein test.event.fired-Ereignis aus, um ereignisgesteuerte Automatisierungen zu validieren" responses={[
+  {
+    "status": "200",
+    "description": "Event emitted; matching automations are dispatched through the normal condition + ownership path."
+  }
+]}>
+
+Confirm an automation's wiring and condition without waiting for a real provider event. Equivalent to the `manage-automations` action `fire-test`.
+
+</Endpoint>
+
+## So funktioniert der Versand {#dispatch}
+
+<Diagram id="doc-block-5qy708" title="Der Versandpfad" summary={"Von einem ausgelösten Ereignis bis zu einem abgeschlossenen Agentenlauf, abhängig vom Besitzumfang und der Bedingung der natürlichen Sprache."}>
+
+```html
+<div class="disp">
+  <div class="diagram-box accent">event fired on the bus</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">match</span
+    ><small class="diagram-muted"
+      >load enabled automations subscribed to this event name</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">scope</span
+    ><small class="diagram-muted"
+      >keep only those owned by the event's owner (or shared)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">condition</span
+    ><small class="diagram-muted"
+      >Haiku yes/no on the payload &mdash; false &rarr;
+      <code>skipped</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card accent">
+    <span class="diagram-pill accent">run</span
+    ><small class="diagram-muted"
+      ><code>runAgentLoop</code> mit Body als Prompt, Payload als Kontext,
+      5-Minuten-Timeout</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-card ok">
+    <span class="diagram-pill ok">record</span
+    ><small class="diagram-muted"
+      >write <code>lastRun</code> / <code>lastStatus</code> /
+      <code>lastError</code></small
+    >
+  </div>
+</div>
+```
+
+```css
+.disp {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 540px;
+}
+.disp .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.disp .diagram-box {
+  align-self: flex-start;
+}
+.disp .diagram-arrow {
+  font-size: 18px;
+  align-self: center;
+}
+```
+
+</Diagram>
+
+## Beispiel {#example}
+
+**Benutzer:** „Wenn jemand mit einer @builder.io-E-Mail bucht, senden Sie mir eine Nachricht in Slack.“
+
+**Agent-Flow:**
+
+1. Ruft `manage-automations` mit `action=list-events` auf – findet `calendar.booking.created`.
+2. Bestätigt den Plan mit dem Benutzer.
+3. Ruft `manage-automations` mit `action=define` auf:
+   - `name`: `slack-on-builder-booking`
+   - `trigger_type`: `event`
+   - `event`: `calendar.booking.created`
+   - `condition`: `attendee email ends with @builder.io`
+   - `mode`: `agentic`
+   - `domain`: `calendar`
+   - `body`: `Send a Slack message to #sales with the booking details. Use the web-request tool to POST to ${keys.SLACK_WEBHOOK}.`
+4. Die Automatisierung wird als `jobs/slack-on-builder-booking.md` gespeichert und beginnt sofort mit dem Abhören.
+
+## Weitere Beispiele {#more-examples}
+
+### Über Webhook benachrichtigen, wenn ein Plan kommentiert wird
+
+Fragen Sie den Planagenten: _„Wenn jemand einen menschlichen Kommentar zu einem Plan hinzufügt, POST a
+Benachrichtigung an meinen Webhook."_
+
+```yaml
+---
+triggerType: event
+event: plan.commented
+condition: "resolutionTarget is human or resolutionTarget is null"
+mode: agentic
+domain: plan
+enabled: true
+---
+
+POST to ${keys.NOTIFY_WEBHOOK} with a JSON body:
+{"title": "<plan title>", "excerpt": "<comment excerpt>", "author": "<author email or null>", "url": "<app base url + path>"}
+```
+
+Legen Sie `NOTIFY_WEBHOOK` auf einen beliebigen HTTP-Endpunkt fest – einen eingehenden Slack-Webhook, einen generischen
+Benachrichtigungsdienst oder ein benutzerdefinierter Empfänger. Das `web-request`-Tool löst
+`${keys.NOTIFY_WEBHOOK}` serverseitig; Das rohe URL erscheint nie im Agenten
+Kontext. Siehe [Visual Plans — Events and notifications](/docs/template-plan#events)
+für die vollständige `plan.commented`-Nutzlastreferenz und alle vier Planereignisse.
+
+## Was kommt als nächstes?
+
+- [**Recurring Jobs**](/docs/recurring-jobs) – durch einen Zeitplan ausgelöste Automatisierungen verwenden denselben Planer wieder
+- [**Actions**](/docs/actions) – Automatisierungen können jede registrierte Aktion über die Agentenschleife aufrufen
+- [**Security**](/docs/security) – Eingabevalidierung und Geheimbehandlung
+- [**Visual Plans — Events**](/docs/template-plan#events) – Referenz für Planungsereignisse und Automatisierungsrezepte

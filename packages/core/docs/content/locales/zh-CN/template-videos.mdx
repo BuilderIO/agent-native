@@ -1,0 +1,334 @@
+---
+title: "视频"
+description: "用于动态图形、产品演示和动态文本的程序化视频工作室。根据提示生成动画并在时间轴上调整它们。"
+---
+
+# 视频
+
+一个程序化视频工作室，用于制作动态图形、产品演示和动态文本视频，这些视频很难手动设置关键帧。要求代理“显示 6 秒的徽标，并在 2 秒后淡入”，它就会构建动画。调整时间、缓动和相机在时间轴上的移动，然后渲染到 MP4 或 WebM。
+
+<WireframeBlock id="doc-block-1s0qknv">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:12px;padding:16px;min-height:530px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Logo 展示</h1><span class='wf-pill accent'>6 seconds</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Render</button></div><div class='wf-card' style='flex:1;display:flex;align-items:center;justify-content:center;min-height:250px'><div style='text-align:center'><strong>Remotion 预览</strong><br/><small class='wf-muted'>logo scales in as the title fades</small></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><div style='display:flex;gap:8px;align-items:center'><span class='wf-pill'>0s</span><span class='wf-pill'>2s</span><span class='wf-pill'>4s</span><span class='wf-pill'>6s</span><div style='flex:1'></div><button>新轨道</button></div><div class='wf-box'>标题淡入 · 0-48 帧</div><div class='wf-box'>Logo 缩放 · 48-120 帧</div><div class='wf-box'>镜头推进 · 72-144 帧</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+当您打开工作室时，您将在主屏幕上看到作品列表。单击其中一个，您会在顶部看到一个播放器，在底部看到一个时间线，在右侧看到一个属性面板。代理始终知道您打开了哪个组合。
+
+<Diagram id="doc-block-1o9ao3j" title={"动画作为数据"} summary={"组合物是 React 组件；每个动画都从轨道读取，因此代理和时间线编辑相同的数据。"}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-col">
+    <div class="diagram-node">
+      Timeline<br /><small class="diagram-muted"
+        >拖动、调整大小、拖动时间轴</small
+      >
+    </div>
+    <div class="diagram-node">
+      Agent<br /><small class="diagram-muted">"fade in at 2s"</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">AnimationTrack</span
+    ><small class="diagram-muted">startFrame / easing / animatedProps</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    React 合成<br /><small class="diagram-muted">Remotion &lt;Player&gt;</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">MP4 / WebM</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 你可以用它做什么
+
+- **根据提示生成动画。**“添加一张在 2 秒后淡入并保持到 5 秒的标题卡。”代理编辑构图。
+- **调整时间轴上的时间。**拖动动画轨道并调整其大小、浏览帧、直观地设置缓动曲线。
+- **为相机设置动画。** 使用屏幕工具进行平移、缩放和倾斜。单击该工具，在预览中拖动，就会自动创建关键帧。
+- **从空白合成或示例开始。** 该模板提供了一个代码内合成 (`BlankComposition`) 来开始；示例作品 - 动态文本、徽标显示、粒子爆发、交互式 UI 演示、幻灯片 - 从数据库加载，您可以添加自己的。
+- **以可视方式编辑缓动曲线。** 提供 30 多条曲线 - 功率、后退、弹跳、循环、弹性、expo、正弦以及弹簧物理特性。
+- **以 1x、2x 或 3x 超级采样渲染到 MP4 或 WebM**，在相机变焦期间获得清晰的文本和矢量。
+
+与其他模板相比，这更像是一种开发人员风格的工具 - 组合是 React 组件，因此高级用户（或代理）可以从头开始编写全新的动画类型。但日常调整（“让打字速度变慢”、“将粒子数降低到 12”）只是闲聊。
+
+## 开始使用
+
+现场演示：[videos.agent-native.com](https://videos.agent-native.com)。
+
+当您打开工作室时：
+
+1. 从主屏幕中选择一个作品。
+2. 尝试代理：“添加一个在 2 秒后淡入的徽标显示。”观看时间线更新。
+3. 拖动曲目以重新定时，单击相机工具，擦洗播放器。
+
+### 有用的提示
+
+- “添加一张在 2 秒后淡入并持续到 5 秒的标题卡。”
+- “将相机更改为在第 60 帧和第 90 帧之间将徽标放大 2 倍。”
+- “让输入显示速度变慢 — 时间延长 40%。”
+- “粒子爆发太密集。将计数降至 12。”
+- “创建一个名为 intro-loop 的新合成，1080x1080，6 秒。”
+- “在按钮区域添加点击动画并将光标动画设置到它。”
+- “给这个轨道一个弹簧缓动而不是缓出。”
+
+如果您在时间轴中选择一个曲目并按 Cmd+I，代理会选择该选择 - “让这个曲目变得更快”就可以了。
+
+## 对于开发者
+
+本文档的其余部分适用于任何分叉视频模板或扩展它的人。该模板比其他模板更具代码前向性 - 每个合成都是 React 组件，每个动画都是轨道上的数据。
+
+### 架构
+
+你在工作室看到的一切都是代码。组合是 `app/remotion/registry.ts` 中的 `CompositionEntry`，它指向 `app/remotion/compositions/` 中的 React 组件。该组件中的每个动画都从 `AnimationTrack` 读取，因此用户可以在时间轴 UI 中拖动它、调整其大小并重新计时。该代理可以创建新的作品、添加曲目、调整缓动以及编写插入注册表的整个 React 组件。
+
+工作室在 Remotion 的 `<Player>` 上运行进行预览，在 Remotion CLI 上运行进行最终渲染。输出默认为 1920x1080、30fps。
+
+### 快速入门
+
+从 CLI 搭建新的视频应用程序：
+
+```bash
+npx @agent-native/core@latest create my-video-app --standalone --template videos
+cd my-video-app
+pnpm install
+pnpm dev
+```
+
+在浏览器中打开工作室，创建一个作品，然后从空白开始。向代理询问诸如“添加一个在 2 秒后淡入的徽标显示”之类的问题，它就会为您编辑构图。
+
+### 主要功能
+
+**基于 React 的组合。**视频是 Remotion 支持的 React 组件，具有 SQL 支持的用户组合和本地默认值的可选代码注册表。
+
+**时间轴优先动画。**持续时间轨道、关键帧、缓动曲线、相机移动和编程表达式轨道都编辑相同的合成数据。
+
+**可调节的运动系统。**参数、光标轨迹、交互式悬停区域、范围导航和重复播放使生成的动画无需代码即可调节。
+
+**渲染和持久性。**合成设置、质量、fps、跟踪值和覆盖会保留每个合成，并通过 Remotion 渲染到 MP4 或 WebM。
+
+### 与代理合作
+
+代理始终知道您打开了哪个组合。导航状态 (`{ view, compositionId }`) 写入框架的 `application_state` 表，`view-screen` 操作返回它以及指向 `app/remotion/registry.ts` 的提示。您不必告诉代理您正在使用哪种组合 - 要求它对“这个”采取行动，它就会这样做。
+
+在底层，代理将 actions 称为 `navigate`、`save-composition` 和 `generate-animated-component`。 SQL支持的作曲记录通过`save-composition`创建或更新；代码支持的 Remotion 组件仍然存在于 `app/remotion/compositions/*.tsx` 中，并在 `app/remotion/registry.ts` 中注册。
+
+### 数据模型
+
+服务器端架构位于 `templates/videos/server/db/schema.ts` 中：
+
+<DataModel
+  id="doc-block-xr3usw"
+  title={"视频数据模型"}
+  summary={
+    "SQL支持的组合以及设计系统和可嵌套文件夹，每个文件夹都有一个框架共享表。"
+  }
+  entities={[
+    {
+      id: "compositions",
+      name: "compositions",
+      note: "User-created compositions and overrides; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "type",
+          type: "text",
+        },
+        {
+          name: "data",
+          type: "text",
+          note: "完整组合 JSON 斑点",
+        },
+        {
+          name: "created_at",
+          type: "text",
+        },
+        {
+          name: "updated_at",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "design_systems",
+      name: "design_systems",
+      note: "Reusable brand tokens; ownableColumns",
+      fields: [
+        {
+          name: "data",
+          type: "text",
+          note: "colors / typography / spacing",
+        },
+        {
+          name: "assets",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "custom_instructions",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "is_default",
+          type: "boolean",
+        },
+      ],
+    },
+    {
+      id: "folders",
+      name: "folders",
+      note: "Nestable folders; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "name",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "folder_memberships",
+      name: "folder_memberships",
+      note: "多对多加入",
+      fields: [
+        {
+          name: "folder_id",
+          type: "text",
+          fk: "folders.id",
+        },
+        {
+          name: "composition_id",
+          type: "text",
+          fk: "compositions.id",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "folders",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "members",
+    },
+    {
+      from: "compositions",
+      to: "folder_memberships",
+      kind: "1-n",
+      label: "in folders",
+    },
+  ]}
+/>
+
+每个表还有一个由 `createSharesTable()` 生成的匹配框架份额表（`composition_shares`、`design_system_shares`、`folder_shares`）。
+
+- `compositions` — id、标题、类型、`data`（完整组合 JSON blob）、所有权列、时间戳。
+- `composition_shares` — `createSharesTable()` 产生的标准股票授予。
+- `design_systems` — 可重复使用的品牌标记（颜色、排版、间距、资产、自定义指令、`is_default` 标志）和 `ownableColumns`。
+- `design_system_shares` — 设计系统的份额赠款。
+- `folders` — 用于库组织的可嵌套文件夹，带有 `ownableColumns`。
+- `folder_shares` — 文件夹的共享授权。
+- `folder_memberships` — `folder_id` 和 `composition_id` 之间的多对多连接。
+
+### 文件夹和设计系统
+
+可以将作品组织到文件夹中并使用设计系统进行样式设置。 Actions：`create-folder`、`rename-folder`、`delete-folder`、`move-composition-to-folder`。设计系统actions：`create-design-system`、`update-design-system`、`get-design-system`、`list-design-systems`、`set-default-design-system`、`apply-design-system`、`analyze-brand-assets`。导入actions：`import-github`、`import-from-url`、`import-document`（DOCX/PPTX/PDF）。
+
+`app/remotion/registry.ts` 中的注册表是模板附带内容的真实代码来源。 SQL 表存储用户创建的合成和覆盖。工作室状态（每个合成轨道编辑、道具覆盖、合成设置）会镜像到 `videos-tracks:<id>`、`videos-props:<id>` 和 `videos-comp-settings:<id>` 下的 `localStorage`，并在加载时深度合并回注册表默认值。
+
+核心TypeScript形状（`app/types.ts`）：
+
+- `AnimationTrack` — `id`, `label`, `startFrame`, `endFrame`, `easing`, `animatedProps[]`.
+- `AnimatedProp` — `property`、`from`、`to`、`unit`，以及可选的 `keyframes`、`programmatic`、`description`、`codeSnippet`、`parameters`、`parameterValues`。
+- `CompositionEntry` — `id`, `title`, `description`, `component`, `durationInFrames`, `fps`, `width`, `height`, `defaultProps`, `tracks`.
+
+默认情况下，作品是私有的。可见性可以是 `private`、`org` 或 `public`，共享授予赋予 `viewer`、`editor` 或 `admin` 角色 - 通过框架的共享原语连接。
+
+### 自定义它
+
+模板文件夹是`templates/videos/`（面向用户的slug是`video`，但文件夹是复数）。
+
+**Actions** — `templates/videos/actions/`
+
+- `view-screen.ts` — 返回代理的当前导航状态。
+- `navigate.ts` — 导航到合成 (`--compositionId <id>`) 或主视图 (`--view home`)。
+- `save-composition.ts` — 创建或更新 SQL 支持的合成记录。
+- `generate-animated-component.ts` — 生成带有样板的新 Remotion 组件文件。
+- `validate-compositions.ts` — 检查所有已注册的作品是否存在结构问题。
+- `list-compositions.ts`、`get-composition.ts`、`update-composition.ts`、`delete-composition.ts` — 读取、更新和删除 SQL 支持的合成记录。
+
+**路线** — `templates/videos/app/routes/`
+
+- `_index.tsx` — 工作室之家；渲染外壳和组合列表。
+- `c.$compositionId.tsx` - 合成编辑器（时间轴、播放器、属性面板）。
+- `components.tsx` — 组件库浏览器。
+- `team.tsx` — 团队管理。
+
+**远程内部结构** — `templates/videos/app/remotion/`
+
+- `registry.ts` — 权威作文列表。
+- `compositions/` — 每个组合一个 `.tsx`，加上一个 `index.ts` 枪管。
+- `trackAnimation.ts` — `trackProgress`, `getPropValue`, `findTrack`, `getPropValueKeyframed`.
+- `CameraHost.tsx` — 使用相机变换包装合成内容。
+- `hooks/`、`ui-components/`、`components/` - 交互式元素助手、光标渲染、动画元素包装器。
+
+**工作室 UI** — `templates/videos/app/components/`
+
+- `Timeline.tsx` — 完全控制的时间线（`viewStart` / `viewEnd` 内部没有状态）。
+- `VideoPlayer.tsx` - 具有范围限制播放的 Remotion `<Player>` 包装器。
+- `TrackPropertiesPanel.tsx`、`CompSettingsEditor.tsx`、`PropsEditor.tsx` — 右侧面板。
+- `CameraToolbar.tsx`、`CameraControls.tsx` - 相机工具和数字控件。
+
+**代理说明** — `templates/videos/AGENTS.md` 是代理阅读的长格式指南。它涵盖了动画轨道规则、相机系统、光标系统、CSS 过滤器单元、交互式组件注册、UI 间距以及用于创建或编辑合成的清单。
+
+**Skills** — `templates/videos/.agents/skills/`
+
+- `composition-management/SKILL.md` — 如何创建和注册作品。
+- `animation-tracks/SKILL.md` — 如何编辑轨道和动画道具。
+- 加上标准框架skills：`actions`、`self-modifying-code`、`delegate-to-agent`、`storing-data`、`security`、`frontend-design`、`create-skill`、`capture-learnings`。
+
+要添加新的合成，请遵循 `AGENTS.md` 中的清单：创建组件，声明 `FALLBACK_TRACKS`，使用 `findTrack` / `trackProgress` / `getPropValue`（切勿硬编码帧），从 `compositions/index.ts` 导出，将 `CompositionEntry` 添加到注册表，然后运行 `pnpm typecheck`。

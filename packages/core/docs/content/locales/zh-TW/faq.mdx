@@ -1,0 +1,230 @@
+---
+title: "FAQ"
+description: "有關原生代理的常見問題 - 它是什麼、它的用途、您可以建置什麼以及它如何工作。"
+---
+
+# FAQ
+
+有關 Agent-Native 的常見問題，從“我只是在尋找”到“我現在正在連線驗證”。
+
+## 基礎知識 {#general}
+
+### 什麼是 Agent-Native？ {#what-is-agent-native}
+
+Agent-Native 是一個用於建置應用程式的框架，其中 AI 代理及其週圍的產品表面是平等的合作伙伴。該介面可以從一個無頭代理開始，透過一個自訂操作，發展成為豐富的聊天，或者成為一個完整的 UI。不變的是智慧體和人類共用相同的 actions、資料庫和狀態。完整解釋請參見 [What Is Agent-Native?](/docs/what-is-agent-native)。
+
+### 這是給誰的？ {#who-is-this-for}
+
+Agent-Native 適合那些想要真正的應用程式和 AI 代理使用相同資料和 actions 工作的人。常見的路徑是：
+
+- **如果您需要郵件、行事曆、表單、計畫或其他無需設定的成品範本，請使用託管應用程式** - 從 [template gallery](/templates) 開始。
+- **從聊天開始**如果您想要一個使用者可以立即交談的基本應用程式，然後使用 actions 和螢幕進行擴充功能 - 從 [Getting Started](/docs/getting-started) 或 [Chat](/docs/template-chat) 開始。
+- **如果您想要在提交到 UI 之前執行一個操作和一個無頭應用程式代理迴圈，請先啟動原語優先** — 從 [Getting Started](/docs/getting-started) 開始。
+- **分叉並自訂範本**如果您想要自己的 SaaS 產品，並且已連線驗證、資料庫、UI 和代理 actions — 請參閱 [Templates](/docs/cloneable-saas)。
+- **從頭開始建置**如果您想要新的代理驅動產品的框架原語 - 從 [Getting Started](/docs/getting-started) 開始。
+- **如果您希望 Claude、ChatGPT、Codex、Cursor 或 GitHub Copilot / VS Code 使用 Agent-Native 應用程式，請連線另一個代理或程式碼工具** - 請參閱 [External Agents](/docs/external-agents) 和 [Skills Guide](/docs/skills-guide)。
+
+### 這與向現有應用新增 AI 有何不同？ {#how-is-this-different}
+
+大多數應用程式將人工智慧作為事後的想法，實際上無法在應用程式中*做*事情。在 Agent-Native 應用程式中，代理是一等公民，與 UI 共用相同的 actions、資料庫和狀態，因此它可以執行按鈕可以執行的任何操作 - 並修改應用程式自己的程式碼。參見[What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)。
+
+<Diagram id="doc-block-k43heh" title={"附加人工智慧與 agent-native"} summary={"螺栓固定的聊天側邊欄有自己的世界。 agent-native 代理與 UI 共用相同的操作、資料庫和狀態。"}>
+
+```html
+<div class="diagram-vs">
+  <div class="diagram-col">
+    <span class="diagram-pill warn">外掛式 AI</span>
+    <div class="diagram-node">聊天側邊欄</div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>
+      獨立的 AI 世界<br /><small class="diagram-muted">無法操作應用</small>
+    </div>
+    <div class="diagram-box diagram-muted">App UI &amp; data</div>
+  </div>
+  <div class="diagram-divider" aria-hidden="true"></div>
+  <div class="diagram-col">
+    <span class="diagram-pill ok">Agent-Native</span>
+    <div class="diagram-row2">
+      <div class="diagram-node">UI</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+    <div class="diagram-box" data-rough>shared actions, DB &amp; state</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-vs {
+  display: flex;
+  align-items: stretch;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.diagram-vs .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+  min-width: 200px;
+}
+.diagram-vs .diagram-row2 {
+  display: flex;
+  gap: 8px;
+}
+.diagram-vs .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-vs .diagram-divider {
+  width: 1px;
+  align-self: stretch;
+  background: currentColor;
+  opacity: 0.15;
+}
+```
+
+</Diagram>
+
+### 它是開放原始碼的嗎？ {#is-this-open-source}
+
+是的。此框架和所有範本都是開放原始碼的。您可以在本機執行所有內容、自行託管或使用 Builder.io 的雲端來實現託管、協作和團隊功能。
+
+### 需要多少錢？ {#how-much}
+
+框架本身是免費的。您在實踐中會看到的兩種成本：
+
+- **AI 使用。** 您攜帶自己的 API 金鑰（Anthropic、OpenAI 等）並直接向模型提供者付款。我們沒有加價。
+- **託管。** 無論您的主機收費多少。對於小型工作負載，大多數範本都可以在免費套餐（Netlify、Vercel、Cloudflare）上正常執行。
+
+如果您不想管理其中任何內容，`agent-native.com` 上的託管版本（由 Builder.io 運營）可將推理和託管捆綁到每席位計畫中。
+
+### 我可以自己主持嗎？ {#can-i-self-host}
+
+是的。選取執行 Node 的任何主機 — Netlify、Vercel、Cloudflare、AWS、Deno Deploy、您自己的伺服器 — 以及任何 SQL 資料庫（Postgres、SQLite、Turso、D1）。此框架是為了可移植而建置的。參見[Deployment](/docs/deployment)。
+
+### 支援哪些 AI 模型？ {#what-models}
+
+Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI API 形狀的任何提供者（包括透過 Ollama 的本機模型）。您可以在設定中設定模型；切換是設定更改，而不是程式碼重寫。此框架最重的測試路徑是 Claude，因此這是預設推薦。
+
+### 我需要了解人工智慧/機器學習嗎？ {#do-i-need-to-know-ai}
+
+沒有。您不需要訓練模型、微調或處理嵌入。您建置了一個一般的 Web 應用程式 - 在託管版本上，您幾乎不需要建置任何東西。此框架處理代理整合：路由訊息、執行 actions、同步狀態。
+
+### 我可以將現有應用遷移到 Agent-Native 嗎？ {#can-i-use-existing-code}
+
+可以，但是從頭開始建置原生代理效果最好。架構——共用資料庫、輪詢同步、actions、應用程式狀態——需要始終整合。從範本開始並自訂它是推薦的路徑。可以把它想象成從桌面優先到行動優先的轉變：你*可以*改造，但建置原生更好。
+
+## 範本以及您可以建置的內容 {#templates}
+
+### 有哪些範本可用？ {#what-templates-are-available}
+
+此框架附帶了可用於正式環境的範本，包括 [Chat](/docs/template-chat)、[Mail](/docs/template-mail)、[Calendar](/docs/template-calendar)、[Forms](/docs/template-forms)、[Plan](/docs/template-plan)（視覺計畫和 PR 回顧）、[Analytics](/docs/template-analytics)、[Dispatch](/docs/template-dispatch) 等。每個都是一個完整的應用程式，包含 UI、代理 actions、資料庫架構和 AI 指令。完整目錄請參見 [Templates](/docs/cloneable-saas)。
+
+### 我可以自訂範本嗎？ {#can-i-customize-templates}
+
+這就是重點。分叉一個範本並透過詢問代理來自訂它。 “向表單新增優先級欄位。” “連線到我們的 Salesforce 執行個體。” “更改配色方案以匹配我們的品牌。”代理修改程式碼，您的應用程式會隨著時間的推移而發展。
+
+### 我可以建置範本未涵蓋的內容嗎？ {#build-from-scratch}
+
+是的。如果你想要一個基本的聊天應用程式，請執行`npx @agent-native/core@latest create my-chat-app --template chat`；您可以獲得持久的聊天對話串、actions、驗證、SQL 支援的執行時狀態以及新增您自己的螢幕的空間。如果您想要沒有 UI 的最小操作優先應用程式，請執行 `npx @agent-native/core@latest create my-agent --headless`。請參閱 [Getting Started](/docs/getting-started)、[Pure-Agent Apps](/docs/pure-agent-apps) 和 [Chat](/docs/template-chat)。
+
+### 我可以在不分叉範本的情況下嘗試它嗎？ {#try-with-a-skill}
+
+是的——透過一個指令將一項技能安裝到您已經使用的編碼代理中，不需要腳手架。請參閱 [Skills Guide](/docs/skills-guide#app-backed-skills) 了解演練。
+
+## 代理能力 {#agent-capabilities}
+
+### 代理真的可以修改應用程式自己的程式碼嗎？ {#can-the-agent-modify-code}
+
+是的，這是一個功能。代理可以安全地編輯元件、路由、樣式和 actions。您要求“新增群組分析圖表”，代理就會建置它。您詢問“連線到我們的 Stripe 帳戶”，然後代理會編寫整合。一切都是正常的 Git 跟蹤程式碼，因此不良更改很容易恢復。
+
+### 使用者可以從應用程式外部與代理交談嗎？ {#external-channels}
+
+是的。相同的代理在您的網路 UI、Slack、Telegram、透過電子郵件以及其他代理（透過 [A2A](/docs/a2a-protocol)）中執行。這是同一個代理，具有相同的記憶和相同的 actions，只是透過不同的管道到達。參見[Messaging the agent](/docs/messaging)。
+
+### 代理可以互相交談嗎？ {#can-agents-talk-to-each-other}
+
+是的，透過 [A2A (Agent-to-Agent) protocol](/docs/a2a-protocol)。每個 Agent-Native 應用程式都會自動取得 A2A 端點。從郵件應用程式中，您可以標記分析代理以查詢資料。代理發現其他可用代理，透過協議呼叫它們，並在 UI 中顯示結果。無需設定 - 代理卡是根據範本的 actions 自動產生的。
+
+### 代理可以在應用程式中看到什麼？ {#what-can-the-agent-see}
+
+代理始終知道使用者目前正在檢視的內容。 UI 在每次路由更改時將導覽狀態寫入資料庫 - 開啟哪個檢視、選取哪個專案。代理在採取行動之前會閱讀此內容。如果電子郵件已開啟，代理就知道是哪封電子郵件。如果選取了一張幻燈片，代理就知道是哪張幻燈片。參見[Context Awareness](/docs/context-awareness)。
+
+## 開發問題 {#development}
+
+### 哪些人工智慧編碼工具可與 Agent-Native 配合使用？ {#which-ai-tools-work}
+
+任何讀取專案指令的人工智慧編碼工具。此框架使用 AGENTS.md 作為通用標準，並自動為特定工具建立符號連結：
+
+- **Claude 程式碼** — 讀取 CLAUDE.md（透過 CLI 設定從 AGENTS.md 進行符號連結）
+- **游標** - 直接讀取 AGENTS.md，或者如果專案中存在 `.cursorrules`（游標的舊位置）
+- **Windsurf** — 讀取 .windsurfrules（透過 CLI 設定從 AGENTS.md 進行符號連結）
+- **Codex、Gemini 等** — 透過嵌入式代理面板工作
+- **Builder.io** — 具有視覺化編輯和協作功能的雲端託管代理
+
+### 我可以使用自己的資料庫嗎？ {#can-i-use-my-own-database}
+
+是的。設定 `DATABASE_URL` ，框架會自動偵測它。支援的資料庫包括 SQLite、Postgres（Neon、Supabase、plain）、Turso (libSQL) 和 Cloudflare D1。所有 SQL 透過 Drizzle ORM 都是與方言無關的 - 相同的程式碼在任何地方都可以工作。
+
+### 我可以在哪裡部署？ {#where-can-i-deploy}
+
+任何地方。伺服器在 Nitro 上執行，可編譯為任何部署目標：Node.js、Cloudflare Workers/Pages、Netlify、Vercel、Deno Deploy、AWS Lambda 和 Bun。您還可以使用 Builder.io 的託管進行託管部署。請參閱 [Deployment guide](/docs/deployment)。
+
+## 架構 {#architecture}
+
+### 為什麼是 SSE 加輪詢而不是 WebSocket？ {#why-polling-not-websockets}
+
+SSE 為同行程寫入提供了到瀏覽器的直接路徑，而輕量級版本計數器輪詢仍然是後備方案，因為它適用於每個部署環境 - 包括無伺服器和邊緣，其中持久 socket 可能不可用。參見[Key Concepts — 即時同步](/docs/key-concepts#polling-sync)。
+
+<Diagram id="doc-block-4ztuxl" title={"SSE 首先，輪詢後備"} summary={"同行程即時寫流；版本計數器輪詢使無伺服器、邊緣和跨行程寫入保持收斂。"}>
+
+```html
+<div class="diagram-transport">
+  <div class="diagram-box" data-rough>資料庫寫入</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      SSE<br /><small class="diagram-muted"
+        >/_agent-native/events &middot; instant</small
+      >
+    </div>
+    <div class="diagram-node">
+      輪詢<br /><small class="diagram-muted"
+        >/_agent-native/poll &middot; universal fallback</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>瀏覽器重新取得</div>
+</div>
+```
+
+```css
+.diagram-transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-transport .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-transport .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### 為什麼 UI 不能直接呼叫 LLM？ {#why-no-inline-llm-calls}
+
+人工智慧是非確定性的，因此您需要對話流來提供意見回饋和迭代 - 而不是一次性按鈕 - 並且代理已經擁有行內呼叫所缺乏的程式碼庫、指令、skills 和歷史紀錄。透過代理路由所有內容還可以讓應用程式從 Slack、Telegram 或其他代理驅動。參見[Key Concepts — Agent chat bridge](/docs/key-concepts#agent-chat-bridge)。
+
+### 為什麼這是一個框架而不是一個庫？ {#why-framework-not-library}
+
+共用資料庫、即時同步、actions 系統和應用程式狀態之所以有效，是因為它們從頭開始連線在一起 - UI 立即對代理更改做出反應，代理進行通信，並且代理了解使用者正在檢視的內容。程式庫提供零件；這是一個架構。參見[Key Concepts](/docs/key-concepts)。

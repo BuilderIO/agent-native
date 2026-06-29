@@ -2,19 +2,20 @@ import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 import type {
   BindContentDatabaseSourceFieldRequest,
   ContentDatabaseResponse,
 } from "../shared/api.js";
 import { serializePropertyValue } from "../shared/properties.js";
-import { getDb, schema } from "../server/db/index.js";
+import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
+import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
 import {
   propertyTypeForSourceField,
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property.js";
-import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
 
 const SOURCE_TAG_PROPERTY_NAME = "Source";
 
@@ -103,7 +104,9 @@ export default defineAction({
       property.name === SOURCE_TAG_PROPERTY_NAME &&
       property.type === "select"
     ) {
-      throw new Error("The Source tag column can't be bound to a source field.");
+      throw new Error(
+        "The Source tag column can't be bound to a source field.",
+      );
     }
     // Don't silently repoint a field that's already feeding another column —
     // that would orphan the old column's materialized values. Require an
@@ -136,9 +139,12 @@ export default defineAction({
     // lossily stringified, so it needs a matching list/multi-select column.
     // Otherwise the field's derived type must equal the column's type.
     const fieldType = propertyTypeForSourceField(field.sourceFieldType);
-    const fieldIsMultiValue = ["list", "array", "tags", "multi_select"].includes(
-      field.sourceFieldType.trim().toLowerCase(),
-    );
+    const fieldIsMultiValue = [
+      "list",
+      "array",
+      "tags",
+      "multi_select",
+    ].includes(field.sourceFieldType.trim().toLowerCase());
     if (property.type === "text") {
       if (fieldIsMultiValue) {
         throw new Error(

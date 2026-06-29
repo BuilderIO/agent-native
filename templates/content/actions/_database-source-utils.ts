@@ -1,12 +1,6 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  parsePropertyOptions,
-  serializePropertyOptions,
-  serializePropertyValue,
-  type DocumentPropertyOptionColor,
-} from "../shared/properties.js";
 import type {
   ContentDatabase,
   ContentDatabaseItem,
@@ -37,6 +31,12 @@ import type {
   DocumentProperty,
   DocumentPropertyValue,
 } from "../shared/api.js";
+import {
+  parsePropertyOptions,
+  serializePropertyOptions,
+  serializePropertyValue,
+  type DocumentPropertyOptionColor,
+} from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
 import {
   readBuilderCmsContentEntries,
@@ -2640,7 +2640,8 @@ export async function ensureDatabaseSourceProperty(args: {
     );
   const ownerSourceIdByDocumentId = new Map<string, string>();
   for (const row of rows) {
-    if (row.documentId) ownerSourceIdByDocumentId.set(row.documentId, row.sourceId);
+    if (row.documentId)
+      ownerSourceIdByDocumentId.set(row.documentId, row.sourceId);
   }
 
   const items = await db

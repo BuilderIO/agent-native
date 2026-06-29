@@ -162,7 +162,9 @@ import {
 } from "@/hooks/use-documents";
 import { cn } from "@/lib/utils";
 
+import { resolveBuilderCmsWriteEffect } from "../../../actions/_builder-cms-write-adapter.js";
 import { BuilderSourceReviewDialog } from "./database-sources/BuilderSourceReviewDialog";
+import { type BuilderReviewPublicationTransitions } from "./database-sources/BuilderSourceReviewDialog";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import {
   AddProperty,
@@ -189,9 +191,7 @@ import {
   peekPreviewDocumentSaveController,
   releasePreviewDocumentSaveController,
 } from "./previewDocumentSaveRegistry";
-import { type BuilderReviewPublicationTransitions } from "./database-sources/BuilderSourceReviewDialog";
 import { VisualEditor } from "./VisualEditor";
-import { resolveBuilderCmsWriteEffect } from "../../../actions/_builder-cms-write-adapter.js";
 
 type BuilderSourceWriteSettingsInput = {
   writeMode: ContentDatabaseSourceWriteMode;
@@ -8228,7 +8228,7 @@ function DatabaseTimelineView({
                   <div
                     key={`${dateKey}-header`}
                     className={cn(
-                      "sticky top-0 z-10 grid gap-0.5 border-r border-b border-border bg-background/95 px-2 py-2 backdrop-blur last:border-r-0",
+                      "sticky top-0 z-10 grid gap-0.5 border-r border-b border-border bg-background px-2 py-2 last:border-r-0",
                       !inMonth && "bg-muted/70",
                     )}
                     style={{ gridColumn: index + 1, gridRow: 1 }}

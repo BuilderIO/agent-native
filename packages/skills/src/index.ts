@@ -392,6 +392,7 @@ const HIDDEN_STANDALONE_BUILT_INS = [
   "assets",
   "content",
   "design-exploration",
+  "visual-edit",
   "context-xray",
 ];
 

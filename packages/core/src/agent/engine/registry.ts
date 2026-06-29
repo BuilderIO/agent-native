@@ -18,6 +18,10 @@ import {
 } from "../../server/credential-provider.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
+import {
+  normalizeOpenAiBaseUrl,
+  OPENAI_BASE_URL_ENV_VAR,
+} from "./openai-compatible-endpoint.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -324,6 +328,39 @@ function engineCreateConfig(
   };
 }
 
+async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
+  let raw: string | null | undefined = null;
+  try {
+    raw = await resolveSecret(OPENAI_BASE_URL_ENV_VAR);
+  } catch {
+    raw = null;
+  }
+
+  if (!raw && canUseDeployCredentialFallbackForRequest()) {
+    raw = readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR);
+  }
+
+  return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
+}
+
+async function engineCreateConfigForEntry(
+  entry: AgentEngineEntry,
+  apiKey: string | undefined,
+  extra?: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const safeExtra = { ...(extra ?? {}) };
+  if (entry.name === "ai-sdk:openai") {
+    if (typeof safeExtra.baseURL === "string" && safeExtra.baseUrl == null) {
+      safeExtra.baseUrl = normalizeOpenAiBaseUrl(safeExtra.baseURL);
+    }
+    if (safeExtra.baseUrl == null) {
+      const baseUrl = await resolveOpenAiBaseUrl();
+      if (baseUrl) safeExtra.baseUrl = baseUrl;
+    }
+  }
+  return engineCreateConfig(apiKey, safeExtra);
+}
+
 /**
  * True when the stored `agent-engine` row points at a registered engine
  * AND an API key for it is reachable via the engine's required env vars.
@@ -364,6 +401,46 @@ export async function isStoredEngineUsableForRequest(
       if (await resolveSecret(key)) continue;
     } catch {
       // Fall through to the deployment-level check below.
+    }
+    if (
+      !canUseDeployCredentialFallbackForRequest() ||
+      !readDeployCredentialEnv(key)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Request-aware credential preflight for an already-resolved engine instance.
+ * `resolveEngine()` may still return a default or explicitly requested engine
+ * object before credentials are actually usable; call this before starting a
+ * user-visible run so missing providers fail immediately.
+ */
+export async function isResolvedEngineUsableForRequest(
+  engine: AgentEngine,
+  options: { apiKey?: string } = {},
+): Promise<boolean> {
+  const entry = _registry.get(engine.name);
+  // Custom engines may have their own credential contract outside the core
+  // registry metadata, so do not block them speculatively.
+  if (!entry) return true;
+  if (!isAgentEnginePackageInstalled(entry)) return false;
+  if (entry.requiredEnvVars.length === 0) return true;
+
+  if (entry.name === "builder") {
+    const creds = await resolveBuilderCredentials();
+    return Boolean(creds.privateKey && creds.publicKey);
+  }
+
+  if (options.apiKey?.trim()) return true;
+
+  for (const key of entry.requiredEnvVars) {
+    try {
+      if (await resolveSecret(key)) continue;
+    } catch {
+      // Fall through to deployment-level fallback when allowed.
     }
     if (
       !canUseDeployCredentialFallbackForRequest() ||
@@ -432,7 +509,9 @@ export async function resolveEngine(
         `[agent-engine] Unknown engine: "${name}". Registered: ${[..._registry.keys()].join(", ")}`,
       );
     assertAgentEnginePackageInstalled(entry);
-    return entry.create(engineCreateConfig(apiKey, engineConfig));
+    return entry.create(
+      await engineCreateConfigForEntry(entry, apiKey, engineConfig),
+    );
   }
 
   // 3. Explicit string name from options
@@ -443,7 +522,7 @@ export async function resolveEngine(
         `[agent-engine] Unknown engine: "${engineOption}". Registered: ${[..._registry.keys()].join(", ")}`,
       );
     assertAgentEnginePackageInstalled(entry);
-    return entry.create(engineCreateConfig(apiKey));
+    return entry.create(await engineCreateConfigForEntry(entry, apiKey));
   }
 
   // 4. Env var — explicit engine name override
@@ -452,7 +531,7 @@ export async function resolveEngine(
     const entry = _registry.get(envEngine);
     if (entry) {
       assertAgentEnginePackageInstalled(entry);
-      return entry.create(engineCreateConfig(apiKey));
+      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
     }
   }
 
@@ -460,7 +539,7 @@ export async function resolveEngine(
   if (appDefault?.engine) {
     const entry = _registry.get(appDefault.engine);
     if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
-      return entry.create(engineCreateConfig(apiKey));
+      return entry.create(await engineCreateConfigForEntry(entry, apiKey));
     }
   }
 
@@ -477,7 +556,9 @@ export async function resolveEngine(
   // Builder connection wins over a stale deploy-level/provider key.
   const detectedFromUser = await detectEngineFromUserSecrets();
   if (detectedFromUser?.name === "builder") {
-    return detectedFromUser.create(engineCreateConfig(apiKey));
+    return detectedFromUser.create(
+      await engineCreateConfigForEntry(detectedFromUser, apiKey),
+    );
   }
 
   // 6. Settings store — only when the stored row's API key is reachable.
@@ -490,19 +571,22 @@ export async function resolveEngine(
   if (storedRaw && typeof storedEngine === "string") {
     const entry = _registry.get(storedEngine);
     if (entry && (await isStoredEngineUsableForRequest(storedRaw, entry))) {
-      return entry.create({
-        ...engineCreateConfig(
+      return entry.create(
+        await engineCreateConfigForEntry(
+          entry,
           apiKey,
           stripInlineApiKeyConfig(
             storedConfig as Record<string, unknown> | undefined,
           ),
         ),
-      });
+      );
     }
   }
 
   if (detectedFromUser) {
-    return detectedFromUser.create(engineCreateConfig(apiKey));
+    return detectedFromUser.create(
+      await engineCreateConfigForEntry(detectedFromUser, apiKey),
+    );
   }
 
   // 8. Auto-detect from any provider env var — so just dropping a key in
@@ -510,7 +594,9 @@ export async function resolveEngine(
   const detected = canUseDeployCredentialFallbackForRequest()
     ? detectEngineFromEnv()
     : null;
-  if (detected) return detected.create(engineCreateConfig(apiKey));
+  if (detected) {
+    return detected.create(await engineCreateConfigForEntry(detected, apiKey));
+  }
 
   // 9. Default: anthropic
   const anthropicEntry = _registry.get("anthropic");
@@ -519,7 +605,9 @@ export async function resolveEngine(
       "[agent-engine] Default Anthropic engine is not registered. Did builtin.ts fail to load?",
     );
   }
-  return anthropicEntry.create(engineCreateConfig(apiKey));
+  return anthropicEntry.create(
+    await engineCreateConfigForEntry(anthropicEntry, apiKey),
+  );
 }
 
 /**

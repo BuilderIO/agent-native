@@ -129,6 +129,14 @@ struct NativeFullscreenSession {
     /// time when reporting `duration_ms`, so the upload metadata matches
     /// the actual recorded content rather than wall-clock time.
     paused_total: Duration,
+    /// Start time for the segment currently being captured. Used to subtract
+    /// unrecoverable segment time when ScreenCaptureKit fails finalization
+    /// but earlier segments are still playable.
+    current_segment_started_at: Instant,
+    /// Recorded time lost because a finalized segment was unusable and had to
+    /// be skipped during recovery.
+    lost_segment_duration: Duration,
+    lost_segment_count: u32,
     /// When the current pause began, if paused. Folded into `paused_total`
     /// on resume.
     paused_at: Option<Instant>,
@@ -723,7 +731,9 @@ pub async fn native_fullscreen_recording_begin(
         // Rebaseline the duration clock: the warm phase ran during the
         // countdown, so `started_at` (set at warm time) is several seconds
         // early. The clip's first written frame is now, so measure from now.
-        session.started_at = Instant::now();
+        let now = Instant::now();
+        session.started_at = now;
+        session.current_segment_started_at = now;
         session.pending_recording_output = false;
 
         Ok(NativeFullscreenStartInfo {
@@ -746,13 +756,25 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
     emit_native_upload_progress(&app, "finalizing", "Optimizing clip", None, None);
+    // The recorder's ScreenCaptureKit stream is now fully stopped and its moov
+    // atom is written (or has definitively failed). Signal the UI so it can tear
+    // down the separate live-transcription SCStream (system_audio.rs) now,
+    // without racing the recorder finalize: tearing that stream down while the
+    // recorder is still writing its moov interrupts ScreenCaptureKit
+    // (RPRecordingErrorDomain -5814) and corrupts the clip. We emit from inside
+    // the finalize helper — after the moov write but BEFORE segment
+    // consolidation — so a paused multi-segment recording stops transcription
+    // promptly instead of letting it run through the merge window and push the
+    // saved transcript past the clip's real end. See recorder.ts `handle.stop()`.
     let StoppedSession {
         session,
         duration_ms,
         stop_outcome,
         consolidate_outcome,
         multi_segment,
-    } = take_and_finalize_active_session(&state)?;
+    } = take_and_finalize_active_session(&state, |_session| {
+        let _ = app.emit("clips:native-recording-finalized", &recording_id);
+    })?;
 
     // The camera bubble is the ONE overlay we deliberately leave
     // capture-included (see `show_bubble`), so it has to stay on-screen
@@ -886,7 +908,7 @@ pub async fn native_fullscreen_recording_stop_and_save(
         stop_outcome,
         consolidate_outcome,
         multi_segment,
-    } = take_and_finalize_active_session(&state)?;
+    } = take_and_finalize_active_session(&state, |_session| {})?;
     // Capture is finalized — drop the camera bubble now so the face
     // doesn't linger while the clip saves (mirrors the upload path).
     let _ = crate::clips::close_bubble(app.clone()).await;
@@ -1057,10 +1079,111 @@ pub async fn native_fullscreen_recording_resume(
     session.backend = Some(backend);
     session.segments.push(segment_path);
     session.restart.segment_counter = next_counter;
+    session.current_segment_started_at = Instant::now();
     session.paused_total = session
         .paused_total
         .checked_add(paused_at.elapsed())
         .unwrap_or(session.paused_total);
+    session.paused_at = None;
+    Ok(())
+}
+
+/// Best-effort checkpoint for long ScreenCaptureKit recordings. It finalizes
+/// the current segment and immediately starts a sibling segment, so a later
+/// ReplayKit finalization failure can only lose the active segment instead of
+/// the entire recording.
+#[tauri::command]
+pub async fn native_fullscreen_recording_rotate_segment(
+    app: AppHandle,
+    state: State<'_, NativeFullscreenRecordingState>,
+) -> Result<(), String> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, state);
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
+        let Some(session) = guard.as_mut() else {
+            return Ok(());
+        };
+        if session.pending_recording_output || session.paused_at.is_some() {
+            return Ok(());
+        }
+        if !matches!(
+            session.backend.as_ref(),
+            Some(NativeFullscreenBackend::ScreenCaptureKit { .. })
+        ) {
+            return Ok(());
+        }
+
+        rotate_screencapturekit_segment(&app, session)
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn rotate_screencapturekit_segment(
+    app: &AppHandle,
+    session: &mut NativeFullscreenSession,
+) -> Result<(), String> {
+    let restart = session.restart.clone();
+    let next_counter = restart.segment_counter.saturating_add(1);
+    let extension = native_extension_for_mime_type(session.mime_type);
+    let segment_path = segment_path_for(app, &restart.safe_id, extension, next_counter)?;
+    let _ = std::fs::remove_file(&segment_path);
+
+    if let Some(free) = free_disk_bytes(segment_path.parent().unwrap_or(&segment_path)) {
+        if free < DISK_SPACE_BLOCK_BYTES {
+            eprintln!(
+                "[clips-tray] skipping segment rotation because disk space is low: {} free",
+                format_mb(free)
+            );
+            return Ok(());
+        }
+    }
+
+    eprintln!(
+        "[clips-tray] rotating ScreenCaptureKit recording segment -> {}",
+        segment_path.display()
+    );
+    let rotation_started = Instant::now();
+    let stop_outcome = finalize_active_backend(session, true);
+    if let Err(err) = &stop_outcome {
+        eprintln!("[clips-tray] segment rotation finalize reported an error: {err}");
+    }
+    recover_from_unusable_current_segment(session, "segment rotation", true);
+
+    let start_result = start_screencapturekit_backend_at(
+        &segment_path,
+        restart.include_audio,
+        restart.capture_system_audio,
+        restart.mic_device_id.as_deref(),
+        restart.mic_device_label.as_deref(),
+        restart.target_display_id,
+        restart.capture_region,
+        false,
+    );
+
+    let (backend, _, _) = match start_result {
+        Ok(result) => result,
+        Err(err) => {
+            session.paused_at = Some(rotation_started);
+            return Err(format!(
+                "ScreenCaptureKit segment rotation paused recording after a finalized checkpoint, but the next segment could not start: {err}"
+            ));
+        }
+    };
+
+    session.paused_total = session
+        .paused_total
+        .checked_add(rotation_started.elapsed())
+        .unwrap_or(session.paused_total);
+    session.backend = Some(backend);
+    session.segments.push(segment_path);
+    session.restart.segment_counter = next_counter;
+    session.current_segment_started_at = Instant::now();
     session.paused_at = None;
     Ok(())
 }
@@ -1076,17 +1199,27 @@ struct StoppedSession {
     stop_outcome: Result<(), String>,
     /// Result of merging segment files into `session.path`.
     consolidate_outcome: Result<(), String>,
-    /// True when more than one segment was captured (i.e. the user
-    /// paused at least once). Used to decide whether a consolidation
-    /// failure is fatal — single-segment consolidation is just a rename.
+    /// True when more than one segment was captured (manual pause/resume or
+    /// automatic long-recording checkpoints). Used to decide whether a
+    /// consolidation failure is fatal — single-segment consolidation is just a
+    /// rename.
     multi_segment: bool,
 }
 
 /// Take the active session out of state, finalize its backend, and merge
 /// any pause/resume segments into the canonical output path. Shared by
 /// the upload and save-locally stop commands.
+///
+/// `on_capture_finalized` runs in the narrow window after the capture
+/// backend is fully stopped (moov atom written) but before segment
+/// consolidation begins. The upload path uses it to tell the UI to stop
+/// live transcription: doing it here keeps the saved transcript anchored
+/// to the clip's real end instead of running through the (multi-segment)
+/// merge, while still avoiding the -5814 corruption from tearing the
+/// transcription SCStream down before the recorder's moov is written.
 fn take_and_finalize_active_session(
     state: &State<'_, NativeFullscreenRecordingState>,
+    on_capture_finalized: impl FnOnce(&NativeFullscreenSession),
 ) -> Result<StoppedSession, String> {
     let mut session = {
         let mut guard = state.inner.lock().map_err(|e| e.to_string())?;
@@ -1105,11 +1238,19 @@ fn take_and_finalize_active_session(
     // playable. The caller persists recovery metadata so a finalize
     // failure doesn't orphan the file.
     let stop_outcome = finalize_active_backend(&mut session, true);
+    recover_from_unusable_current_segment(&mut session, "final stop", false);
     println!(
         "[clips-tray] finalize backend done (ok={}); {}",
         stop_outcome.is_ok(),
         describe_recording_path(&session.path)
     );
+    // The capture backend is fully stopped and its moov atom is written.
+    // Signal callers now — before the (potentially slow) segment merge — so
+    // live transcription can stop while the clip duration is still anchored
+    // to the real Stop click. Tearing it down here is safe from the -5814
+    // corruption because the recorder's SCStream is already finalized; the
+    // remaining work is plain on-disk file merging.
+    on_capture_finalized(&session);
     // With one segment this is a cheap rename. With multiple segments a
     // failure would silently lose everything after the first pause, so
     // callers check `multi_segment` and surface the merge error.
@@ -1124,10 +1265,18 @@ fn take_and_finalize_active_session(
         session.segments.len(),
         describe_recording_path(&session.path)
     );
+    if session.lost_segment_count > 0 {
+        eprintln!(
+            "[clips-tray] recovered recording by dropping {} unusable segment(s), approx {}s lost",
+            session.lost_segment_count,
+            session.lost_segment_duration.as_secs()
+        );
+    }
     let duration_ms = session
         .started_at
         .elapsed()
         .saturating_sub(session.paused_total)
+        .saturating_sub(session.lost_segment_duration)
         .as_millis();
     Ok(StoppedSession {
         session,
@@ -1148,6 +1297,52 @@ fn finalize_active_backend(
         return Ok(());
     };
     stop_native_recording(&mut backend, wait_for_finalize)
+}
+
+fn playable_recording_file(path: &Path, mime_type: &str) -> bool {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.len() > 0 => {}
+        _ => return false,
+    }
+    if mime_type == MP4_RECORDING_MIME_TYPE || mime_type == QUICKTIME_RECORDING_MIME_TYPE {
+        return mp4_has_moov(path) != Some(false);
+    }
+    true
+}
+
+fn recover_from_unusable_current_segment(
+    session: &mut NativeFullscreenSession,
+    reason: &str,
+    allow_empty: bool,
+) -> bool {
+    let Some(current) = session.segments.last().cloned() else {
+        return false;
+    };
+    if playable_recording_file(&current, session.mime_type) {
+        return false;
+    }
+    if !allow_empty && session.segments.len() <= 1 {
+        eprintln!(
+            "[clips-tray] current recording segment is unusable after {reason}, but no earlier segment exists to recover"
+        );
+        return false;
+    }
+
+    let dropped = session.segments.pop();
+    if dropped.as_ref() == Some(&current) {
+        let _ = std::fs::remove_file(&current);
+        session.lost_segment_count = session.lost_segment_count.saturating_add(1);
+        session.lost_segment_duration = session
+            .lost_segment_duration
+            .checked_add(session.current_segment_started_at.elapsed())
+            .unwrap_or(session.lost_segment_duration);
+        eprintln!(
+            "[clips-tray] dropped unusable recording segment after {reason}; recovered {} earlier segment(s)",
+            session.segments.len()
+        );
+        return true;
+    }
+    false
 }
 
 /// Best-effort cleanup of a session being discarded (cancel, or a stale
@@ -2243,15 +2438,19 @@ fn new_fullscreen_session(
     height: Option<u32>,
     restart: RestartInfo,
 ) -> NativeFullscreenSession {
+    let now = Instant::now();
     NativeFullscreenSession {
         backend: Some(backend),
         path: path.clone(),
         mime_type,
-        started_at: Instant::now(),
+        started_at: now,
         width,
         height,
         segments: vec![path],
         paused_total: Duration::ZERO,
+        current_segment_started_at: now,
+        lost_segment_duration: Duration::ZERO,
+        lost_segment_count: 0,
         paused_at: None,
         restart,
         pending_recording_output: false,

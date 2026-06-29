@@ -1,0 +1,7 @@
+{
+  "name": "voice",
+  "private": true,
+  "scripts": {
+    "build": "node ../../../scripts/build-retired-netlify-site.ts voice"
+  }
+}
