@@ -175,6 +175,7 @@ export function ScrubInput({
             onPointerCancel={endDrag}
             className={cn(
               "flex h-6 w-20 shrink-0 cursor-ew-resize select-none items-center gap-1 text-[11px] text-muted-foreground",
+              "hover:bg-[var(--design-editor-control-bg)] hover:rounded-sm",
               dragging && "text-foreground",
               disabled && "pointer-events-none cursor-not-allowed opacity-50",
               labelClassName,
@@ -193,7 +194,10 @@ export function ScrubInput({
         placeholder={placeholder}
         inputMode="decimal"
         aria-label={ariaLabel ?? label}
-        onFocus={() => setFocused(true)}
+        onFocus={(event) => {
+          setFocused(true);
+          event.target.select();
+        }}
         onBlur={() => {
           setFocused(false);
           if (skipNextBlurCommitRef.current) {

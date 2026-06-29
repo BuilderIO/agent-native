@@ -8,16 +8,20 @@ import {
 } from "@shared/color-utils";
 import {
   IconAlignCenter,
+  IconAlignJustified,
   IconAlignLeft,
   IconAlignRight,
   IconBorderStyle,
   IconBrush,
   IconChevronDown,
+  IconChevronRight,
   IconCode,
+  IconComponents,
   IconEye,
   IconEyeOff,
   IconFlipHorizontal,
   IconFlipVertical,
+  IconFrame,
   IconLayoutGrid,
   IconLayoutAlignBottom,
   IconLayoutAlignCenter,
@@ -32,9 +36,11 @@ import {
   IconMaximize,
   IconMinus,
   IconPalette,
+  IconPhoto,
   IconPlus,
   IconTypography,
   IconUnlink,
+  IconVector,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
@@ -811,17 +817,31 @@ function PanelSection({
   actions?: ReactNode;
   children?: ReactNode;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <section className="shrink-0 border-b border-border/90">
       <div className="flex min-h-8 items-center gap-2 px-3 pt-1.5">
-        <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-          {title}
-        </h3>
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 truncate bg-transparent text-left"
+          onClick={() => setCollapsed((c) => !c)}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? (
+            <IconChevronRight className="size-3 shrink-0 text-muted-foreground" />
+          ) : (
+            <IconChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          )}
+          <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+            {title}
+          </h3>
+        </button>
         {actions ? (
           <div className="flex items-center gap-0.5">{actions}</div>
         ) : null}
       </div>
-      {children ? (
+      {!collapsed && children ? (
         <div className="space-y-1.5 px-3 pb-2 pt-1.5 text-[11px]">
           {children}
         </div>
@@ -1333,14 +1353,25 @@ function commitElementSizing(
   commitStylePatch(patch, onStyleChange, onStylesChange);
 }
 
+function elementTypeIcon(element: ElementInfo) {
+  const tag = element.tagName || "element";
+  if (TEXT_TAGS.has(tag)) return IconTypography;
+  if (tag === "img" || tag === "video" || tag === "picture") return IconPhoto;
+  if (tag === "svg" || tag === "path") return IconVector;
+  if (tag === "button" || tag === "a") return IconComponents;
+  return IconFrame;
+}
+
 function SelectionHeader({ element }: { element: ElementInfo | null }) {
   if (!element) return null;
 
   const title = inspectorObjectTitle(element);
+  const TypeIcon = elementTypeIcon(element);
 
   return (
     <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/90 px-3">
-      <div className="flex min-w-0 text-left text-[13px] font-semibold text-foreground">
+      <div className="flex min-w-0 items-center gap-1.5 text-left text-[13px] font-semibold text-foreground">
+        <TypeIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate">{title}</span>
       </div>
     </div>
@@ -1405,7 +1436,7 @@ function SectionIconButton({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-6 rounded-md text-muted-foreground hover:text-foreground"
+          className="size-6 cursor-pointer rounded-md text-muted-foreground hover:text-foreground disabled:cursor-not-allowed"
           disabled={disabled}
           onClick={onClick}
           aria-label={label}
@@ -1437,7 +1468,7 @@ function InspectorIconButton({
           variant="ghost"
           size="icon"
           className={cn(
-            "h-6 min-w-6 rounded-none border-r border-border/50 text-muted-foreground first:rounded-l-md last:rounded-r-md last:border-r-0 hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
+            "h-6 min-w-6 cursor-pointer rounded-none border-r border-border/50 text-muted-foreground first:rounded-l-md last:rounded-r-md last:border-r-0 hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground disabled:cursor-not-allowed",
             active &&
               "bg-[var(--design-editor-panel-bg)] text-[var(--design-editor-accent-color)] shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]",
           )}
@@ -2157,6 +2188,13 @@ function TypographyProperties({
           onClick={() => onStyleChange("textAlign", "right")}
         >
           <IconAlignRight className="size-3.5" />
+        </InspectorIconButton>
+        <InspectorIconButton
+          label={t("editPanel.textAligns.justify")}
+          active={textAlign === "justify"}
+          onClick={() => onStyleChange("textAlign", "justify")}
+        >
+          <IconAlignJustified className="size-3.5" />
         </InspectorIconButton>
       </InspectorSegment>
     </PanelSection>
@@ -3078,29 +3116,33 @@ function AppearanceProperties({
           labelClassName="w-0 overflow-hidden"
           inputClassName="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none"
         />
-        <ScrubInput
-          label={t("editPanel.labels.cornerRadius")}
-          value={cssLengthNumber(styles.borderRadius || "0")}
-          onChange={(value) =>
-            onStyleChange("borderRadius", `${Math.max(0, Math.round(value))}px`)
-          }
-          unit="px"
-          min={0}
-          precision={1}
-          labelClassName="w-0 overflow-hidden"
-          inputClassName="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] shadow-none"
-        />
+        {/* M9: blend mode compact — inline select next to opacity, no separate labeled row */}
+        <Select
+          value={optionValue(
+            BLEND_MODE_OPTIONS,
+            styles.mixBlendMode || "normal",
+            "normal",
+          )}
+          onValueChange={(value) => onStyleChange("mixBlendMode", value)}
+        >
+          <SelectTrigger className="h-6 min-w-0 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {BLEND_MODE_OPTIONS.map((opt) => (
+              <SelectItem
+                key={opt.value}
+                value={opt.value}
+                className="text-[11px]"
+              >
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
-      <PropSelect
-        label={"Blend" /* i18n-ignore Figma inspector label */}
-        value={optionValue(
-          BLEND_MODE_OPTIONS,
-          styles.mixBlendMode || "normal",
-          "normal",
-        )}
-        onChange={(value) => onStyleChange("mixBlendMode", value)}
-        options={[...BLEND_MODE_OPTIONS]}
-      />
+      {/* M7: use CornerRadiusControl (with independent-corners toggle) instead of bare ScrubInput */}
+      <CornerRadiusControl styles={styles} onStyleChange={onStyleChange} />
     </PanelSection>
   );
 }

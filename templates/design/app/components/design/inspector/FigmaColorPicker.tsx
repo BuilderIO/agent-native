@@ -52,6 +52,7 @@ export type FigmaPaintType =
   | "angular"
   | "diamond"
   | "image"
+  | "video"
   | "none";
 
 // These interfaces remain so EditPanel's prop types don't break, even though
@@ -377,6 +378,25 @@ function IconImageFill({ className }: { className?: string }) {
   );
 }
 
+function IconVideoFill({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      {/* Frame border */}
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      {/* Play triangle — filled, no stroke for clarity at small size */}
+      <polygon points="10,9 10,15 16,12" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 function IconNoneFill({ className }: { className?: string }) {
   return (
     <svg
@@ -407,6 +427,7 @@ const PAINT_TYPES: Array<{
   { type: "angular", label: "Angular", Icon: IconAngularGradient }, // i18n-ignore paint type label
   { type: "diamond", label: "Diamond", Icon: IconDiamondGradient }, // i18n-ignore paint type label
   { type: "image", label: "Image", Icon: IconImageFill }, // i18n-ignore paint type label
+  { type: "video", label: "Video", Icon: IconVideoFill }, // i18n-ignore paint type label
   { type: "none", label: "None", Icon: IconNoneFill }, // i18n-ignore paint type label
 ];
 
@@ -754,7 +775,7 @@ export function FigmaColorPicker({
               <>
                 {/* ── Paint-type icon row ──────────────────────────────────── */}
                 <div className="border-t border-border/70 px-2 py-1.5">
-                  <div className="grid grid-cols-7 gap-px">
+                  <div className="grid grid-cols-8 gap-px">
                     {PAINT_TYPES.map(({ type, label, Icon }) => {
                       const isActive = effectivePaintType === type;
                       const isGradientType =
@@ -768,7 +789,8 @@ export function FigmaColorPicker({
                         !_onGradientTypeChange &&
                         !_onAddGradientStop;
                       const imageDisabled =
-                        type === "image" && !onPaintTypeChange;
+                        (type === "image" || type === "video") &&
+                        !onPaintTypeChange;
                       const isDisabled =
                         disabled || gradientDisabled || imageDisabled;
                       return (
@@ -894,7 +916,7 @@ export function FigmaColorPicker({
                       onValueChange={(v) => setMode(v as FigmaColorMode)}
                       disabled={disabled}
                     >
-                      <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-2 text-[11px] font-medium [&>svg]:size-3 [&>svg]:shrink-0">
+                      <SelectTrigger className="h-6 w-[4.5rem] rounded-md border-transparent bg-transparent px-1.5 text-[11px] font-semibold shadow-none hover:bg-[var(--design-editor-control-bg)] focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-3 [&>svg]:shrink-0">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="text-[11px]">
@@ -950,8 +972,8 @@ export function FigmaColorPicker({
                     <IconChevronDown className="size-3 text-muted-foreground" />
                   </button>
 
-                  {/* Swatch grid: flat chips (no shadow-inner), 10 columns */}
-                  <div className="grid grid-cols-10 gap-1">
+                  {/* Swatch grid: flat chips (no shadow-inner), 8 columns */}
+                  <div className="grid grid-cols-8 gap-1">
                     {PLACEHOLDER_SWATCHES.map((swatch, index) => {
                       const isCurrentColor =
                         rgbaToHex(parseCssColor(swatch) ?? FALLBACK_COLOR) ===
