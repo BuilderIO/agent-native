@@ -366,6 +366,7 @@ function ColorInput({
           ...stop,
           opacity: patch.opacity,
         })),
+        gradient.prefix,
       ),
     );
   };
@@ -408,7 +409,11 @@ function ColorInput({
           );
           replaceBackgroundLayer(
             activeGradientIndex,
-            buildGradientLayer(activeGradient.type, nextStops),
+            buildGradientLayer(
+              activeGradient.type,
+              nextStops,
+              activeGradient.prefix,
+            ),
           );
         }
       : undefined;
@@ -424,10 +429,11 @@ function ColorInput({
           };
           replaceBackgroundLayer(
             activeGradientIndex,
-            buildGradientLayer(activeGradient.type, [
-              ...activeGradient.stops,
-              nextStop,
-            ]),
+            buildGradientLayer(
+              activeGradient.type,
+              [...activeGradient.stops, nextStop],
+              activeGradient.prefix,
+            ),
           );
           setSelectedStopId(nextStop.id);
           return;
@@ -453,7 +459,11 @@ function ColorInput({
           );
           replaceBackgroundLayer(
             activeGradientIndex,
-            buildGradientLayer(activeGradient.type, nextStops),
+            buildGradientLayer(
+              activeGradient.type,
+              nextStops,
+              activeGradient.prefix,
+            ),
           );
           setSelectedStopId(nextStops[0]?.id);
         }
@@ -561,7 +571,24 @@ const FILL_LAYER_PREFIX = "layer:";
 
 interface ParsedGradientLayer {
   type: DesignGradientType;
+  prefix?: string;
   stops: DesignGradientStop[];
+}
+
+const DEFAULT_EXPORT_SETTINGS: ExportSettingsValue = {
+  scale: 1,
+  format: "png",
+  suffix: "",
+};
+
+function elementIdentityKey(element: ElementInfo): string {
+  return [
+    element.sourceId ?? element.id ?? element.selector ?? element.tagName,
+    Math.round(element.boundingRect.x),
+    Math.round(element.boundingRect.y),
+    Math.round(element.boundingRect.width),
+    Math.round(element.boundingRect.height),
+  ].join(":");
 }
 
 function fillLayerId(index: number): string {
@@ -647,20 +674,21 @@ function joinCssLayers(layers: string[]): string {
   return cleaned.length ? cleaned.join(", ") : "none";
 }
 
-function parseGradientLayer(layer: string): ParsedGradientLayer | null {
+export function parseGradientLayer(layer: string): ParsedGradientLayer | null {
   const match = layer.trim().match(/^(linear|radial|conic)-gradient\((.*)\)$/i);
   if (!match) return null;
 
   const parts = splitCssLayers(match[2] || "");
   const type = gradientTypeFromCss(match[1] || "", layer);
   const firstStop = parseGradientStop(parts[0] || "", 0, parts.length);
+  const prefix = firstStop ? undefined : parts[0]?.trim();
   const stopParts = firstStop ? parts : parts.slice(1);
   const stops = stopParts
     .map((part, index) => parseGradientStop(part, index, stopParts.length))
     .filter((stop): stop is DesignGradientStop => Boolean(stop));
 
   if (!stops.length) return null;
-  return { type, stops };
+  return { type, prefix, stops };
 }
 
 function parseGradientStop(
@@ -695,7 +723,7 @@ function readLeadingColor(part: string): { raw: string; value: string } | null {
   if (transparent) {
     return { raw: transparent[0], value: "rgba(0, 0, 0, 0)" };
   }
-  const functionName = trimmed.match(/^(rgb|rgba|hsl|hsla)\(/i);
+  const functionName = trimmed.match(/^[a-z][a-z0-9-]*\(/i);
   if (!functionName) return null;
   let depth = 0;
   for (let index = 0; index < trimmed.length; index += 1) {
@@ -735,9 +763,17 @@ function gradientLabel(type: DesignGradientType): string {
   return "Linear gradient"; // i18n-ignore design inspector paint row
 }
 
-function buildGradientLayer(
+function defaultGradientPrefix(type: DesignGradientType): string {
+  if (type === "radial") return "circle at 50% 50%";
+  if (type === "angular") return "from 0deg at 50% 50%";
+  if (type === "diamond") return "closest-corner at 50% 50%";
+  return "90deg";
+}
+
+export function buildGradientLayer(
   type: DesignGradientType,
   stops: DesignGradientStop[],
+  prefix = defaultGradientPrefix(type),
 ): string {
   const stopList = [...stops]
     .sort((a, b) => a.position - b.position)
@@ -751,16 +787,11 @@ function buildGradientLayer(
     })
     .join(", ");
 
-  if (type === "radial") {
-    return `radial-gradient(circle at 50% 50%, ${stopList})`;
+  if (type === "radial" || type === "diamond") {
+    return `radial-gradient(${prefix}, ${stopList})`;
   }
-  if (type === "angular") {
-    return `conic-gradient(from 0deg at 50% 50%, ${stopList})`;
-  }
-  if (type === "diamond") {
-    return `radial-gradient(closest-corner at 50% 50%, ${stopList})`;
-  }
-  return `linear-gradient(90deg, ${stopList})`;
+  if (type === "angular") return `conic-gradient(${prefix}, ${stopList})`;
+  return `linear-gradient(${prefix}, ${stopList})`;
 }
 
 function defaultGradientStops(colorValue: string): DesignGradientStop[] {
@@ -3372,12 +3403,12 @@ function FillProperties({
 
   // Non-destructive fill hide: stash the color before hiding so toggling
   // visible again restores the exact original value (the design editor never loses color).
-  // Keyed by `${element.id ?? tagName}:${fillProperty}` so separate elements
+  // Keyed by a stable selected-element identity so anonymous same-tag elements
   // don't share stash slots.
   const [hiddenFillStash, setHiddenFillStash] = useState<
     Record<string, string>
   >({});
-  const stashKey = `${element.id ?? element.tagName}:${fillProperty}`;
+  const stashKey = `${elementIdentityKey(element)}:${fillProperty}`;
   const isHidden = fillValue === "transparent" || fillValue === "";
   const handleFillVisibilityToggle = () => {
     if (isHidden) {
@@ -3592,10 +3623,14 @@ function FillProperties({
                             const firstStop = gradient.stops[0];
                             if (!firstStop) return;
                             replaceLayer(
-                              buildGradientLayer(gradient.type, [
-                                { ...firstStop, color: nextColor },
-                                ...gradient.stops.slice(1),
-                              ]),
+                              buildGradientLayer(
+                                gradient.type,
+                                [
+                                  { ...firstStop, color: nextColor },
+                                  ...gradient.stops.slice(1),
+                                ],
+                                gradient.prefix,
+                              ),
                             );
                           }}
                           paintType={gradient?.type ?? "image"}
@@ -3636,6 +3671,7 @@ function FillProperties({
                               ...stop,
                               opacity: opacity <= 0 ? 100 : 0,
                             })),
+                            gradient.prefix,
                           ),
                         );
                       }}
@@ -4240,12 +4276,13 @@ export function EditPanel({
   exporting = false,
 }: EditPanelProps) {
   const t = useT();
-  const [exportSettings, setExportSettings] = useState<ExportSettingsValue>({
-    scale: 1,
-    format: "png",
-    suffix: "",
-  });
+  const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
+    DEFAULT_EXPORT_SETTINGS,
+  );
   const [showExportPreview, setShowExportPreview] = useState(false);
+  const selectedElementKey = selectedElement
+    ? elementIdentityKey(selectedElement)
+    : "none";
   const isTextElement = selectedElement
     ? TEXT_TAGS.has(selectedElement.tagName)
     : false;
@@ -4259,6 +4296,11 @@ export function EditPanel({
     },
     [onTweakChange],
   );
+
+  useEffect(() => {
+    setExportSettings(DEFAULT_EXPORT_SETTINGS);
+    setShowExportPreview(false);
+  }, [selectedElementKey]);
 
   return (
     <div
@@ -4352,6 +4394,7 @@ export function EditPanel({
                 }
               >
                 <ExportSettingsPanel
+                  key={selectedElementKey}
                   value={exportSettings}
                   formats={["png", "svg"]}
                   exporting={exporting}

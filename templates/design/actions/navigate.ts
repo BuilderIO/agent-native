@@ -107,6 +107,7 @@ export default defineAction({
       path: z.string().optional().describe("URL path to navigate to"),
     })
     .superRefine((args, ctx) => {
+      const editorView = args.editorView ?? args.viewMode;
       if (
         (args.view === "editor" || args.view === "present") &&
         !args.designId
@@ -115,6 +116,21 @@ export default defineAction({
           code: z.ZodIssueCode.custom,
           path: ["designId"],
           message: `designId is required for ${args.view} view`,
+        });
+      }
+      if (
+        args.view === "editor" &&
+        editorView === "single" &&
+        !args.fileId &&
+        !args.screenId &&
+        !args.filename &&
+        !args.screen
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["editorView"],
+          message:
+            "single editor view requires a fileId, screenId, filename, or screen",
         });
       }
     }),

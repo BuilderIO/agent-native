@@ -42,16 +42,27 @@ function designDeepLink(designId: string): string {
   });
 }
 
-const requestedScreenSchema = z.object({
-  frameId: z.string().optional(),
-  title: z.string().min(1),
-  filename: z
-    .string()
-    .optional()
-    .describe("Target filename for this screen, such as onboarding.html"),
-  role: z.enum(["screen", "variant"]).optional().default("screen"),
-  variantOf: z.string().optional(),
-});
+const requestedScreenSchema = z
+  .object({
+    frameId: z.string().optional(),
+    title: z.string().min(1),
+    filename: z
+      .string()
+      .optional()
+      .describe("Target filename for this screen, such as onboarding.html"),
+    role: z.enum(["screen", "variant"]).optional().default("screen"),
+    variantOf: z.string().optional(),
+  })
+  .superRefine((screen, ctx) => {
+    if (screen.role === "variant" && !screen.variantOf) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["variantOf"],
+        message:
+          "variant screens require variantOf to identify the base screen",
+      });
+    }
+  });
 
 export default defineAction({
   description:

@@ -17,6 +17,12 @@ function escapeHtml(str: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function extractRenderableHtml(content: string): string {
+  const bodyMatch = content.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+  if (bodyMatch) return bodyMatch[1].trim();
+  return content;
+}
+
 export function safeExportBaseName(title: string | null | undefined): string {
   const safe = (title || "design")
     .replace(/[^a-zA-Z0-9_-]/g, "-")
@@ -56,7 +62,7 @@ export function buildStandaloneHtml(args: {
     // so multi-file designs still ship in one bundle.
     const extraBody = [...htmlFiles, ...jsxFiles]
       .filter((f) => f !== indexHtml)
-      .map((f) => f.content ?? "")
+      .map((f) => extractRenderableHtml(f.content ?? ""))
       .join("\n\n");
     if (extraBody.trim()) {
       // Inline JS / template literals can contain `</body>` strings, so favor
@@ -88,7 +94,7 @@ export function buildStandaloneHtml(args: {
   }
 
   const combinedBody = [...htmlFiles, ...jsxFiles]
-    .map((f) => f.content ?? "")
+    .map((f) => extractRenderableHtml(f.content ?? ""))
     .join("\n\n");
 
   return `<!DOCTYPE html>

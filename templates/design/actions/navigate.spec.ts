@@ -62,4 +62,23 @@ describe("navigate", () => {
       true,
     );
   });
+
+  it("rejects single editor view without a screen target", () => {
+    expect(
+      action.schema.safeParse({
+        view: "editor",
+        designId: "design_123",
+        editorView: "single",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      action.schema.safeParse({
+        view: "editor",
+        designId: "design_123",
+        editorView: "single",
+        fileId: "file_123",
+      }).success,
+    ).toBe(true);
+  });
 });

@@ -23,6 +23,31 @@ describe("design export helpers", () => {
     expect(html).toContain("content: '<\\/style>'");
   });
 
+  it("merges multi-file HTML screens by extracting body content", () => {
+    const html = buildStandaloneHtml({
+      title: "Export",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body><h1>One</h1></body></html>",
+        },
+        {
+          filename: "screen-2.html",
+          fileType: "html",
+          content:
+            "<!doctype html><html><head><title>Two</title></head><body><p>Two</p></body></html>",
+        },
+      ],
+    });
+
+    expect(html).not.toContain(
+      "<!doctype html><html><head><title>Two</title></head>",
+    );
+    expect(html).toContain("<h1>One</h1>");
+    expect(html).toContain("<p>Two</p>");
+  });
+
   it("wraps script and style contents in CDATA for SVG foreignObject exports", () => {
     const svg = buildSvgForeignObject({
       width: 320,
