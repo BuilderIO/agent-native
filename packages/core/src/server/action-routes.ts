@@ -284,6 +284,20 @@ export function mountActionRoutes(
         return runWithRequestContext(
           { userEmail, userName, orgId, timezone },
           async () => {
+            // Reject oversize bodies from Content-Length before parsing, so a
+            // public no-auth POST can't force parse work on a huge request.
+            if (typeof entry.maxBodyBytes === "number" && method !== "GET") {
+              const clRaw = getHeader(event, "content-length");
+              if (clRaw) {
+                const declared = parseInt(clRaw, 10);
+                if (!Number.isNaN(declared) && declared > entry.maxBodyBytes) {
+                  setResponseStatus(event, 413);
+                  return {
+                    error: `Request body too large (max ${entry.maxBodyBytes} bytes)`,
+                  };
+                }
+              }
+            }
             // Parse params based on method. On web-standard runtimes (Netlify
             // Functions, CF Workers), event.req IS the web Request — use .json()
             // directly. H3's readBody fails on those runtimes because it expects

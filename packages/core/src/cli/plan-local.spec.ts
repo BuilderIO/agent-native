@@ -254,6 +254,48 @@ function writeChecklistMissingItemLabel(dir: string) {
   );
 }
 
+// A checklist authored as a JSON object nested inside a TabsBlock, missing the
+// required per-item `id`. The renderer rejects this; the old tag-scanning lint
+// never saw it (it is not a top-level `<Checklist>` tag) — the "false green".
+function writeNestedChecklistMissingItemId(dir: string) {
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, "plan.mdx"),
+    [
+      "---",
+      'title: "Repro: nested checklist false green"',
+      'kind: "plan"',
+      "---",
+      "",
+      "# Nested checklist",
+      "",
+      "<TabsBlock",
+      '  id="tabs-1"',
+      "  tabs={[",
+      "    {",
+      '      id: "tab-a",',
+      '      label: "Tasks",',
+      "      blocks: [",
+      "        {",
+      '          id: "cl-1",',
+      '          type: "checklist",',
+      "          data: {",
+      "            items: [",
+      '              { label: "No id here" },',
+      '              { label: "Second item also missing id" }',
+      "            ]",
+      "          }",
+      "        }",
+      "      ]",
+      "    }",
+      "  ]}",
+      "/>",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
 function writeQuestionFormMissingTitleAndMode(dir: string) {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
@@ -535,6 +577,23 @@ describe("local plan CLI helpers", () => {
     );
   });
 
+  it("rejects a checklist nested in a TabsBlock missing item ids (no false green)", () => {
+    const dir = path.join(tmpDir(), "nested-checklist");
+    writeNestedChecklistMissingItemId(dir);
+
+    const issues = validateLocalPlanFiles(readLocalPlanFiles(dir));
+    const messages = issues.map((issue) => issue.message);
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/Checklist items\[0\]\.id is required/),
+        expect.stringMatching(/Checklist items\[1\]\.id is required/),
+      ]),
+    );
+    expect(() => writeLocalPlanPreview({ dir })).toThrow(
+      /Checklist items\[0\]\.id is required/,
+    );
+  });
+
   it("rejects missing question title, mode, and option label", () => {
     const dir = path.join(tmpDir(), "bad-question-required");
     writeQuestionFormMissingTitleAndMode(dir);
@@ -630,6 +689,26 @@ describe("local plan CLI helpers", () => {
     }
   });
 
+  // fetchFn that proxies the real localhost bridge calls to global fetch but
+  // intercepts the validate-local-plan-source action with a canned verdict, so
+  // verify stays hermetic (no external network) while exercising both paths.
+  // Pass `null` to simulate the endpoint being unreachable.
+  function verifyFetchFn(
+    validation: { status?: number; body?: unknown } | null,
+  ): typeof fetch {
+    return (async (input, init) => {
+      const url = String(input);
+      if (url.includes("/actions/validate-local-plan-source")) {
+        if (!validation) throw new Error("network down");
+        return new Response(JSON.stringify(validation.body ?? {}), {
+          status: validation.status ?? 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return fetch(input as never, init);
+    }) as typeof fetch;
+  }
+
   it("verifies the localhost bridge headlessly and reports Safari guidance", async () => {
     const dir = path.join(tmpDir(), "checkout");
     writeSamplePlan(dir);
@@ -639,6 +718,7 @@ describe("local plan CLI helpers", () => {
       appUrl: "https://plan.example.com",
       token: "test-token",
       urlFile: false,
+      fetchFn: verifyFetchFn({ body: { valid: true, issues: [] } }),
     });
 
     expect(result.ok).toBe(true);
@@ -647,8 +727,107 @@ describe("local plan CLI helpers", () => {
     expect(result.bridge.ok).toBe(true);
     expect(result.bridge.source).toBe("agent-native-local-bridge");
     expect(result.bridge.mdxFiles).toContain("plan.mdx");
+    expect(result.validation.ran).toBe(true);
+    expect(result.validation.valid).toBe(true);
     expect(result.warnings.join("\n")).toContain("Safari may block");
     expect(fs.existsSync(path.join(dir, ".plan-url"))).toBe(false);
+  });
+
+  it("fails verify when the renderer schema rejects the plan", async () => {
+    const dir = path.join(tmpDir(), "checkout-invalid");
+    writeSamplePlan(dir);
+
+    const result = await verifyLocalPlanBridge({
+      dir,
+      appUrl: "https://plan.example.com",
+      token: "test-token",
+      urlFile: false,
+      fetchFn: verifyFetchFn({
+        body: {
+          valid: false,
+          issues: [
+            {
+              path: "blocks[1].data.tabs[0].blocks[0].data.items[0].id",
+              message: "Required",
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(result.bridge.ok).toBe(true);
+    expect(result.validation.ran).toBe(true);
+    expect(result.validation.valid).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(result.warnings.join("\n")).toContain(
+      "blocks[1].data.tabs[0].blocks[0].data.items[0].id",
+    );
+  });
+
+  it("verify stays ok but warns when the validate endpoint is unavailable", async () => {
+    const dir = path.join(tmpDir(), "checkout-no-endpoint");
+    writeSamplePlan(dir);
+
+    const result = await verifyLocalPlanBridge({
+      dir,
+      appUrl: "https://plan.example.com",
+      token: "test-token",
+      urlFile: false,
+      fetchFn: verifyFetchFn(null),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.validation.ran).toBe(false);
+    expect(result.warnings.join("\n")).toContain(
+      "NOT validated against the renderer schema",
+    );
+  });
+
+  it("does not abort on the offline lint; reports the renderer verdict for an invalid plan", async () => {
+    const dir = path.join(tmpDir(), "verify-invalid-renderer");
+    writeNestedChecklistMissingItemId(dir);
+
+    // The offline lint would reject this, but verify must still reach the
+    // authoritative renderer and report ITS verdict — not throw early.
+    const result = await verifyLocalPlanBridge({
+      dir,
+      appUrl: "https://plan.example.com",
+      token: "test-token",
+      urlFile: false,
+      fetchFn: verifyFetchFn({
+        body: {
+          valid: false,
+          issues: [
+            {
+              path: "blocks[0].data.tabs[0].blocks[0].data.items[0].id",
+              message: "Required",
+            },
+          ],
+        },
+      }),
+    });
+
+    expect(result.validation.ran).toBe(true);
+    expect(result.validation.valid).toBe(false);
+    expect(result.ok).toBe(false);
+  });
+
+  it("falls back to the offline lint when the renderer is unreachable", async () => {
+    const dir = path.join(tmpDir(), "verify-invalid-offline");
+    writeNestedChecklistMissingItemId(dir);
+
+    const result = await verifyLocalPlanBridge({
+      dir,
+      appUrl: "https://plan.example.com",
+      token: "test-token",
+      urlFile: false,
+      fetchFn: verifyFetchFn(null),
+    });
+
+    expect(result.validation.ran).toBe(false);
+    expect(result.ok).toBe(false);
+    expect(result.warnings.join("\n")).toContain("Offline lint rejected");
+    expect(result.warnings.join("\n")).toMatch(/items\[0\]\.id is required/);
   });
 
   it("fetches the no-auth block catalog for local authoring", async () => {
