@@ -7,7 +7,13 @@ import {
   IconCursorText,
   IconX,
 } from "@tabler/icons-react";
-import { useState, useRef, useCallback, useEffect, type ReactNode } from "react";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
@@ -523,7 +529,9 @@ export function DrawOverlay({
             <IconCursorText className="h-3.5 w-3.5" />
           </button>
         </TooltipTrigger>
-        <TooltipContent>{t("visualEditor.typeAnywhereOnCanvas")}</TooltipContent>
+        <TooltipContent>
+          {t("visualEditor.typeAnywhereOnCanvas")}
+        </TooltipContent>
       </Tooltip>
 
       {/* Undo last annotation (stroke or text) */}

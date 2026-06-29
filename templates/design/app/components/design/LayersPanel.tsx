@@ -186,6 +186,14 @@ const SECTION_ELEMENT_ID = "__design_layers_elements__";
 // per spec; the source row stores the drag payload here on dragstart instead.
 let activeDragState: { sourceId: string; draggedIds: string[] } | null = null;
 
+const ROW_BASE_INDENT = 4;
+const ROW_INDENT_STEP = 28;
+const ROW_MAX_INDENT = 96;
+
+function rowIndent(depth: number): number {
+  return Math.min(ROW_BASE_INDENT + depth * ROW_INDENT_STEP, ROW_MAX_INDENT);
+}
+
 function defaultLabels(t: ReturnType<typeof useT>): LayersPanelLabels {
   return {
     title: t("layersPanel.title"),
@@ -1093,7 +1101,7 @@ function LayerRow({
             "text-foreground/90 hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground",
           node.hidden && "text-muted-foreground",
         )}
-        style={{ paddingLeft: 4 + depth * 28 }}
+        style={{ paddingLeft: rowIndent(depth) }}
       >
         {hasChildren ? (
           <Button
