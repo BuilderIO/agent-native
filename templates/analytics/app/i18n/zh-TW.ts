@@ -629,6 +629,7 @@ const messages = {
     off: "Off",
     since: "Since",
     sectionOptions: "部分選項",
+    extensionMissingId: "此擴充面板未選擇任何擴充功能。",
     panelOptions: "面板選項",
     fullScreen: "全螢幕",
     refresh: "重新整理",
