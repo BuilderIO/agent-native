@@ -74,6 +74,10 @@ export interface EmbeddedExtensionProps {
   className?: string;
   /** Initial iframe height before content reports a real height. */
   initialHeight?: number;
+  /** Fires once when the embedded iframe first signals content readiness — its
+   * first height report, or iframe load as a fallback. Hosts that gate on
+   * content paint (e.g. dashboard report screenshots) use this. */
+  onReady?: () => void;
 }
 
 /**
@@ -87,8 +91,19 @@ export function EmbeddedExtension({
   context,
   className,
   initialHeight = 80,
+  onReady,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Latch the readiness signal so onReady fires at most once per iframe
+  // instance. Reset when the iframe is recreated (extensionId/updatedAt change).
+  const onReadyRef = useRef(onReady);
+  onReadyRef.current = onReady;
+  const readyFiredRef = useRef(false);
+  const fireReady = () => {
+    if (readyFiredRef.current) return;
+    readyFiredRef.current = true;
+    onReadyRef.current?.();
+  };
   const [height, setHeight] = useState<number>(initialHeight);
   const [isDark, setIsDark] = useState(false);
   // (audit H4) Mirror ExtensionViewer's role-aware gating; deny-by-default until
@@ -158,6 +173,7 @@ export function EmbeddedExtension({
   useEffect(() => {
     bridgeContextRef.current = { role: "viewer", isAuthor: false };
     bindingLatchedRef.current = false;
+    readyFiredRef.current = false;
   }, [extensionId, extension?.updatedAt]);
 
   useEffect(() => {
@@ -215,6 +231,8 @@ export function EmbeddedExtension({
         const h = Number(message.height);
         if (Number.isFinite(h) && h > 0) {
           setHeight(Math.ceil(h));
+          // First laid-out height means the content has painted.
+          fireReady();
         }
         return;
       }
@@ -330,6 +348,9 @@ export function EmbeddedExtension({
             { type: "agent-native-slot-context", context: context ?? {} },
             "*",
           );
+          // Fallback readiness signal in case the extension never reports a
+          // height (e.g. fixed-height content that skips auto-resize).
+          fireReady();
         }}
       />
       <EmbeddedToolMenu

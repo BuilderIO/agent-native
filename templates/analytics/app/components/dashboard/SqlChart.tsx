@@ -937,11 +937,7 @@ export function SqlChart({
       );
     }
     return (
-      <EmbeddedExtension
-        extensionId={extensionId}
-        slotId={`dashboard-panel-${panel.id}`}
-        className="w-full"
-      />
+      <DashboardExtensionPanel extensionId={extensionId} panelId={panel.id} />
     );
   }
   const colors = panel.config?.colors || DEFAULT_COLORS;
@@ -1064,6 +1060,31 @@ export function SqlChart({
       stacked={panel.config?.stacked === true}
       panel={panel}
     />,
+  );
+}
+
+function DashboardExtensionPanel({
+  extensionId,
+  panelId,
+}: {
+  extensionId: string;
+  panelId: string;
+}) {
+  // Hold the report-readiness marker until the extension iframe paints so
+  // dashboard report screenshots don't capture a blank extension panel.
+  const [ready, setReady] = useState(false);
+  return (
+    <div
+      className="w-full"
+      data-dashboard-report-loading={ready ? undefined : "true"}
+    >
+      <EmbeddedExtension
+        extensionId={extensionId}
+        slotId={`dashboard-panel-${panelId}`}
+        className="w-full"
+        onReady={() => setReady(true)}
+      />
+    </div>
   );
 }
 
