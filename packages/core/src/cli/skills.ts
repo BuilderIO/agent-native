@@ -466,6 +466,21 @@ route from the latest localhost manifest.
 pnpm action navigate --view editor --designId "<design-id>" --editorView overview
 \`\`\`
 
+## Open The Design Surface
+
+- Use the \`link\`, \`deepLink\`, or MCP App embed returned by Design actions so
+  the user sees the canvas. In Codex Desktop or VS Code, prefer opening that
+  Design URL in the available preview/webview panel; otherwise surface the
+  "Open design" link.
+- If the user is working in VS Code, the Agent Native extension can open the
+  same URL via
+  \`vscode://builder.agent-native/open?url=<encoded-design-url>\`. Its
+  \`Agent Native: Open Design Canvas\` command also starts the local bridge and
+  opens hosted Design in the VS Code side panel.
+- After \`add-localhost-screens\`, confirm the Design editor is in overview mode
+  with the requested URL-backed frames visible. Do not stop at "screens added"
+  when the user asked to inspect or edit visually.
+
 ## Editing URLs
 
 Keep localhost screens as URL files plus \`screenMetadata[fileId]\`. Do not

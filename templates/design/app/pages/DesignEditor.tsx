@@ -1237,6 +1237,36 @@ function codeLayerTreeToPanelNodes(
   });
 }
 
+interface EffectiveCodeLayerState {
+  lockedIds: Set<string>;
+  hiddenIds: Set<string>;
+}
+
+function collectEffectiveCodeLayerState(
+  nodes: CodeLayerTreeNode[],
+  lockedIds: Set<string>,
+  hiddenIds: Set<string>,
+  inheritedLocked: boolean,
+  inheritedHidden: boolean,
+  state: EffectiveCodeLayerState,
+): EffectiveCodeLayerState {
+  nodes.forEach((node) => {
+    const locked = inheritedLocked || lockedIds.has(node.id);
+    const hidden = inheritedHidden || hiddenIds.has(node.id);
+    if (locked) state.lockedIds.add(node.id);
+    if (hidden) state.hiddenIds.add(node.id);
+    collectEffectiveCodeLayerState(
+      node.children,
+      lockedIds,
+      hiddenIds,
+      locked,
+      hidden,
+      state,
+    );
+  });
+  return state;
+}
+
 function bridgeSourceIdForCodeLayerNode(node: CodeLayerNode): string {
   return (
     node.dataAttributes["data-agent-native-node-id"] ??
@@ -6027,6 +6057,27 @@ ${serializedHtml}
     });
     return owners;
   }, [codeLayerModelsByFile]);
+  const effectiveCodeLayerState = useMemo(() => {
+    const state: EffectiveCodeLayerState = {
+      lockedIds: new Set(),
+      hiddenIds: new Set(),
+    };
+    codeLayerModelsByFile.forEach((model) => {
+      const fileLocked = lockedLayerIds.has(model.fileId);
+      const fileHidden = hiddenLayerIds.has(model.fileId);
+      if (fileLocked) state.lockedIds.add(model.fileId);
+      if (fileHidden) state.hiddenIds.add(model.fileId);
+      collectEffectiveCodeLayerState(
+        model.tree,
+        lockedLayerIds,
+        hiddenLayerIds,
+        fileLocked,
+        fileHidden,
+        state,
+      );
+    });
+    return state;
+  }, [codeLayerModelsByFile, hiddenLayerIds, lockedLayerIds]);
   useEffect(() => {
     const fileIds = new Set(files.map((file) => file.id));
     const allCodeLayerNodes = codeLayerModelsByFile.flatMap(
@@ -6207,11 +6258,14 @@ ${serializedHtml}
     ];
     const activeFileBlocked =
       activeFile?.id &&
-      (lockedLayerIds.has(activeFile.id) || hiddenLayerIds.has(activeFile.id));
+      (effectiveCodeLayerState.lockedIds.has(activeFile.id) ||
+        effectiveCodeLayerState.hiddenIds.has(activeFile.id));
     const selectionBlocked =
       Boolean(activeFileBlocked) ||
       selectedPathIds.some(
-        (layerId) => lockedLayerIds.has(layerId) || hiddenLayerIds.has(layerId),
+        (layerId) =>
+          effectiveCodeLayerState.lockedIds.has(layerId) ||
+          effectiveCodeLayerState.hiddenIds.has(layerId),
       );
     if (!selectionBlocked) return;
     setSelectedElement(null);
@@ -6222,8 +6276,7 @@ ${serializedHtml}
     activeCodeLayerTree,
     activeFile?.id,
     codeLayerOwnerByNodeId,
-    hiddenLayerIds,
-    lockedLayerIds,
+    effectiveCodeLayerState,
     selectedElementLayerId,
   ]);
 
@@ -6292,10 +6345,10 @@ ${serializedHtml}
     activeFile?.id ??
     "";
   const activeLayerLocked = Boolean(
-    activeLayerId && lockedLayerIds.has(activeLayerId),
+    activeLayerId && effectiveCodeLayerState.lockedIds.has(activeLayerId),
   );
   const activeLayerHidden = Boolean(
-    activeLayerId && hiddenLayerIds.has(activeLayerId),
+    activeLayerId && effectiveCodeLayerState.hiddenIds.has(activeLayerId),
   );
 
   const canMoveLayer = useCallback(
@@ -6303,8 +6356,8 @@ ${serializedHtml}
       const targetOwner = codeLayerOwnerByNodeId.get(intent.targetId);
       if (
         !targetOwner ||
-        lockedLayerIds.has(intent.targetId) ||
-        hiddenLayerIds.has(intent.targetId)
+        effectiveCodeLayerState.lockedIds.has(intent.targetId) ||
+        effectiveCodeLayerState.hiddenIds.has(intent.targetId)
       ) {
         return false;
       }
@@ -6314,12 +6367,12 @@ ${serializedHtml}
           draggedId !== intent.targetId &&
           !!draggedOwner &&
           draggedOwner.fileId === targetOwner.fileId &&
-          !lockedLayerIds.has(draggedId) &&
-          !hiddenLayerIds.has(draggedId)
+          !effectiveCodeLayerState.lockedIds.has(draggedId) &&
+          !effectiveCodeLayerState.hiddenIds.has(draggedId)
         );
       });
     },
-    [codeLayerOwnerByNodeId, hiddenLayerIds, lockedLayerIds],
+    [codeLayerOwnerByNodeId, effectiveCodeLayerState],
   );
 
   const handleLayerMove = useCallback(
@@ -6328,8 +6381,8 @@ ${serializedHtml}
       const targetOwner = codeLayerOwnerByNodeId.get(intent.targetId);
       if (!targetOwner) return;
       if (
-        lockedLayerIds.has(intent.targetId) ||
-        hiddenLayerIds.has(intent.targetId)
+        effectiveCodeLayerState.lockedIds.has(intent.targetId) ||
+        effectiveCodeLayerState.hiddenIds.has(intent.targetId)
       ) {
         return;
       }
@@ -6347,8 +6400,8 @@ ${serializedHtml}
           draggedId === intent.targetId ||
           !draggedOwner ||
           draggedOwner.fileId !== targetOwner.fileId ||
-          lockedLayerIds.has(draggedId) ||
-          hiddenLayerIds.has(draggedId)
+          effectiveCodeLayerState.lockedIds.has(draggedId) ||
+          effectiveCodeLayerState.hiddenIds.has(draggedId)
         ) {
           continue;
         }
@@ -6379,8 +6432,7 @@ ${serializedHtml}
       canMoveLayer,
       codeLayerOwnerByNodeId,
       files,
-      hiddenLayerIds,
-      lockedLayerIds,
+      effectiveCodeLayerState,
       t,
     ],
   );
@@ -6493,12 +6545,18 @@ ${serializedHtml}
 
   const handleToggleLayerLocked = useCallback(
     (layerId: string, locked: boolean) => {
-      setLockedLayerIds((current) => {
-        const next = new Set(current);
-        if (locked) next.add(layerId);
-        else next.delete(layerId);
-        return next;
-      });
+      const applyLockedState = () => {
+        setLockedLayerIds((current) => {
+          const next = new Set(current);
+          if (locked) next.add(layerId);
+          else next.delete(layerId);
+          return next;
+        });
+      };
+      if (files.some((file) => file.id === layerId)) {
+        applyLockedState();
+        return;
+      }
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
       if (!owner || !node) return;
@@ -6514,11 +6572,11 @@ ${serializedHtml}
         "data-agent-native-locked",
         locked ? "true" : null,
       );
-      if (nextContent && nextContent !== sourceContent) {
-        applyFileContentUpdate(owner.fileId, nextContent, {
-          refreshPreview: false,
-        });
-      }
+      if (!nextContent || nextContent === sourceContent) return;
+      applyFileContentUpdate(owner.fileId, nextContent, {
+        refreshPreview: false,
+      });
+      applyLockedState();
     },
     [
       activeContent,
@@ -6531,12 +6589,18 @@ ${serializedHtml}
 
   const handleToggleLayerHidden = useCallback(
     (layerId: string, hidden: boolean) => {
-      setHiddenLayerIds((current) => {
-        const next = new Set(current);
-        if (hidden) next.add(layerId);
-        else next.delete(layerId);
-        return next;
-      });
+      const applyHiddenState = () => {
+        setHiddenLayerIds((current) => {
+          const next = new Set(current);
+          if (hidden) next.add(layerId);
+          else next.delete(layerId);
+          return next;
+        });
+      };
+      if (files.some((file) => file.id === layerId)) {
+        applyHiddenState();
+        return;
+      }
       const owner = codeLayerOwnerByNodeId.get(layerId);
       const node = owner?.node;
       if (!owner || !node) return;
@@ -6552,11 +6616,11 @@ ${serializedHtml}
         "data-agent-native-hidden",
         hidden ? "true" : null,
       );
-      if (nextContent && nextContent !== sourceContent) {
-        applyFileContentUpdate(owner.fileId, nextContent, {
-          refreshPreview: false,
-        });
-      }
+      if (!nextContent || nextContent === sourceContent) return;
+      applyFileContentUpdate(owner.fileId, nextContent, {
+        refreshPreview: false,
+      });
+      applyHiddenState();
     },
     [
       activeContent,

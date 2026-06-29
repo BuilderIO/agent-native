@@ -1,0 +1,26 @@
+{
+  "name": "agent-native-design",
+  "version": "1.0.0+codex.97a9aad5d00b",
+  "description": "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
+  "author": { "name": "Agent-Native", "url": "https://agent-native.com" },
+  "homepage": "https://design.agent-native.com",
+  "license": "MIT",
+  "keywords": ["agent-native", "design", "mcp", "skills", "app-backed-skill"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Design",
+    "shortDescription": "Explore, compare, iterate, and export interactive UI design prototypes from the Design app.",
+    "longDescription": "Design packages agent instructions, app actions, an MCP connector, and inline UI surfaces as an installable skill. The plugin connects to hosted Design by default; use the Agent-Native CLI when you need a custom/self-hosted app URL.",
+    "developerName": "Agent-Native",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://design.agent-native.com",
+    "defaultPrompt": [
+      "Open Design where useful",
+      "Use Design for app-backed workflows",
+      "Search Design and return usable context"
+    ],
+    "brandColor": "#0F766E"
+  }
+}
