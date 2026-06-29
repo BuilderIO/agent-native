@@ -52,7 +52,13 @@ import {
   IconUnlink,
   IconVector,
 } from "@tabler/icons-react";
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -4681,6 +4687,15 @@ export function EditPanel({
     setShowExportPreview(false);
   }, [selectedElementKey]);
 
+  // Scroll guard: suppress the click that fires immediately after a scroll
+  // gesture ends (rubber-band or normal scroll). Using onScroll instead of
+  // onPointerDown avoids side-effects like Radix DismissableLayer detecting a
+  // "pointerdown outside" and closing open popovers — which, during an
+  // over-scroll bounce, could briefly un-shield the canvas and allow a stray
+  // pointer event to deselect the selected canvas element (R3 regression).
+  const scrolledRecentlyRef = useRef(false);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   if (readOnly) {
     return (
       <div
@@ -4736,26 +4751,38 @@ export function EditPanel({
 
           <div
             className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
-            onPointerDown={(e) => {
-              // Track pointer-down position so we can suppress spurious clicks
-              // (e.g. color-picker opening) that fire after a scroll gesture.
-              const startX = e.clientX;
-              const startY = e.clientY;
-              const target = e.currentTarget;
-              const SCROLL_THRESHOLD = 5;
-              // A captured click that fires after significant pointer movement is
-              // a scroll-end event, not a real click — suppress it.
-              const onClickCapture = (ev: Event) => {
-                const clickEv = ev as MouseEvent;
-                const dx = clickEv.clientX - startX;
-                const dy = clickEv.clientY - startY;
-                if (Math.hypot(dx, dy) > SCROLL_THRESHOLD) {
-                  ev.stopPropagation();
-                  ev.preventDefault();
-                }
-                target.removeEventListener("click", onClickCapture, true);
-              };
-              target.addEventListener("click", onClickCapture, true);
+            onScroll={() => {
+              // Mark that a scroll just happened so the click that some
+              // browsers fire at the end of a scroll gesture (or after an
+              // overscroll/rubber-band bounce) is suppressed. Crucially this
+              // runs on the scroll event — NOT on pointerdown — so it never
+              // triggers Radix's DismissableLayer "outside pointerdown"
+              // detection, which would close open inspector popovers and, once
+              // the shield is removed, allow a stray canvas pointer event to
+              // deselect the selected element (the R3 overscroll regression).
+              scrolledRecentlyRef.current = true;
+              if (scrollTimerRef.current !== null) {
+                clearTimeout(scrollTimerRef.current);
+              }
+              scrollTimerRef.current = setTimeout(() => {
+                scrolledRecentlyRef.current = false;
+                scrollTimerRef.current = null;
+              }, 300);
+            }}
+            onClickCapture={(e) => {
+              // Suppress spurious clicks (e.g. color-picker opening) that
+              // fire immediately after a scroll gesture ends. The 300ms
+              // window from the last scroll event covers both the synchronous
+              // scroll-end click and the delayed synthetic click that mobile
+              // browsers generate after a touch-scroll ends.
+              if (!scrolledRecentlyRef.current) return;
+              scrolledRecentlyRef.current = false;
+              if (scrollTimerRef.current !== null) {
+                clearTimeout(scrollTimerRef.current);
+                scrollTimerRef.current = null;
+              }
+              e.stopPropagation();
+              e.preventDefault();
             }}
             onKeyDown={(e) => {
               // Trap Tab within the inspector panel so it never focuses the

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { buildCodeLayerProjection } from "../../shared/code-layer";
 import {
   getDesignEditorShareUrl,
   getOverviewCanvasZoom,
   getOverviewDisplayZoom,
   getOverviewEnterTarget,
   getOverviewZoomScale,
+  resolveCodeLayerNodeFromElementInfo,
   getSelectedScreenIdsForEditorState,
   shouldLockInspectorForInitialGeneration,
   shouldEscapeToOverview,
@@ -174,5 +176,46 @@ describe("DesignEditor initial generation inspector lock", () => {
         pendingGenerationActive: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("DesignEditor element canonicalization", () => {
+  it("resolves stale runtime positional selectors by source-backed element details", () => {
+    const projection = buildCodeLayerProjection(
+      `<main><div class="tile">Alpha</div><div class="tile">Beta</div></main>`,
+    );
+
+    const node = resolveCodeLayerNodeFromElementInfo(projection, {
+      tagName: "div",
+      selector:
+        'body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(6)',
+      classes: ["tile"],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Beta",
+      isFlexChild: false,
+      isFlexContainer: false,
+    });
+
+    expect(node?.textSnippet).toBe("Beta");
+  });
+
+  it("does not guess when stale runtime element details are ambiguous", () => {
+    const projection = buildCodeLayerProjection(
+      `<main><div class="tile">Same</div><div class="tile">Same</div></main>`,
+    );
+
+    const node = resolveCodeLayerNodeFromElementInfo(projection, {
+      tagName: "div",
+      selector: 'body[data-agent-native-node-id="an-runtime"] > div',
+      classes: ["tile"],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 10, height: 10 },
+      textContent: "Same",
+      isFlexChild: false,
+      isFlexContainer: false,
+    });
+
+    expect(node).toBeNull();
   });
 });

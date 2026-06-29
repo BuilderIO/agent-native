@@ -325,22 +325,47 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     return parts.slice(-5).join(' > ');
   }
 
-  function getSourceId(el) {
-    if (!el || !el.getAttribute) return '';
-    return (
-      el.getAttribute('data-agent-native-node-id') ||
+	  function getSourceId(el) {
+	    if (!el || !el.getAttribute) return '';
+	    return (
+	      el.getAttribute('data-agent-native-node-id') ||
       el.getAttribute('data-code-layer-id') ||
       el.getAttribute('data-layer-id') ||
       el.getAttribute('data-builder-id') ||
       el.getAttribute('data-loc') ||
       el.id ||
-      ''
-    );
-  }
+	      ''
+	    );
+	  }
 
-  function freshRuntimeNodeId(prefix) {
-    var random = '';
-    try {
+	  function isDocumentRootElement(el) {
+	    return el === document.body || el === document.documentElement;
+	  }
+
+	  function closestStableSourceElement(el) {
+	    if (!el || !el.closest) return null;
+	    var stable = el.closest('[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]');
+	    if (!stable || isDocumentRootElement(stable)) return null;
+	    return stable;
+	  }
+
+	  function hasStableOwnSource(el) {
+	    return !!(
+	      el &&
+	      !isDocumentRootElement(el) &&
+	      getSourceId(el)
+	    );
+	  }
+
+	  function selectionTargetForHit(hit) {
+	    if (!hit || isDocumentRootElement(hit)) return hit;
+	    if (hasStableOwnSource(hit)) return hit;
+	    return closestStableSourceElement(hit) || hit;
+	  }
+
+	  function freshRuntimeNodeId(prefix) {
+	    var random = '';
+	    try {
       if (window.crypto && window.crypto.getRandomValues) {
         var bytes = new Uint32Array(2);
         window.crypto.getRandomValues(bytes);
@@ -373,7 +398,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     if (stableOwnSelector) return stableOwnSelector;
 
     if (el.id) return '#' + escapeIdent(el.id);
-    var stableAncestor = el.closest('[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[data-loc]');
+    var stableAncestor = closestStableSourceElement(el);
     if (stableAncestor && stableAncestor !== el) {
       var stableAncestorSelector = selectorPart(stableAncestor);
       if (stableAncestorSelector) {
@@ -392,13 +417,14 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   function getElementInfo(el) {
     var cs = window.getComputedStyle(el);
     var rect = el.getBoundingClientRect();
-    var parentStyles = el.parentElement
-      ? window.getComputedStyle(el.parentElement)
-      : null;
-    var parentDisplay = parentStyles ? parentStyles.display : undefined;
-    var sourceId = getSourceId(el) || getSelector(el);
-    var parentLayout = parentStyles
-      ? {
+	    var parentStyles = el.parentElement
+	      ? window.getComputedStyle(el.parentElement)
+	      : null;
+	    var parentDisplay = parentStyles ? parentStyles.display : undefined;
+	    var sourceBacked = hasStableOwnSource(el) || !!closestStableSourceElement(el);
+	    var sourceId = sourceBacked ? (getSourceId(el) || getSelector(el)) : '';
+	    var parentLayout = parentStyles
+	      ? {
           display: parentStyles.display,
           flexDirection: parentStyles.flexDirection,
           alignItems: parentStyles.alignItems,
@@ -408,16 +434,25 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
           gridTemplateRows: parentStyles.gridTemplateRows,
           position: parentStyles.position,
         }
-      : undefined;
-    var capabilities = [
-      {
-        kind: 'deterministic-style-edit',
-        label: 'deterministic-style-edit',
-        confidence: 0.92,
-        reason: 'Inline style can be patched and replayed through HMR/collab.',
-      },
-    ];
-    if (el.classList && el.classList.length > 0) {
+	      : undefined;
+	    var capabilities = sourceBacked
+	      ? [
+	          {
+	            kind: 'deterministic-style-edit',
+	            label: 'deterministic-style-edit',
+	            confidence: 0.92,
+	            reason: 'Inline style can be patched and replayed through HMR/collab.',
+	          },
+	        ]
+	      : [
+	          {
+	            kind: 'unsupported',
+	            label: 'runtime-only-element',
+	            confidence: 0.3,
+	            reason: 'This runtime node is not anchored to a source code layer.',
+	          },
+	        ];
+	    if (sourceBacked && el.classList && el.classList.length > 0) {
       capabilities.push({
         kind: 'deterministic-class-edit',
         label: 'deterministic-class-edit',
@@ -425,7 +460,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
         reason: 'Class tokens are visible on the selected element.',
       });
     }
-    if (parentDisplay === 'flex' || parentDisplay === 'inline-flex' || parentDisplay === 'grid' || parentDisplay === 'inline-grid') {
+	    if (sourceBacked && (parentDisplay === 'flex' || parentDisplay === 'inline-flex' || parentDisplay === 'grid' || parentDisplay === 'inline-grid')) {
       capabilities.push({
         kind: 'agent-structural-edit',
         label: 'agent-structural-edit',
@@ -1088,23 +1123,23 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       window.parent.postMessage({ type: 'clear-selection' }, '*');
       return;
     }
-    selectedEl = target;
-    var info = getElementInfo(selectedEl);
-    positionOverlay(selectionOverlay, selectedEl);
-    window.parent.postMessage({ type: 'element-select', payload: info }, '*');
+	    selectedEl = selectionTargetForHit(target);
+	    var info = getElementInfo(selectedEl);
+	    positionOverlay(selectionOverlay, selectedEl);
+	    window.parent.postMessage({ type: 'element-select', payload: info }, '*');
   }
 
   function openContextMenuAtEvent(e) {
     stopNativeInteraction(e);
     blurActiveTextEditor();
     var target = elementFromEditorPoint(e.clientX, e.clientY);
-    var info = null;
-    if (target) {
-      selectedEl = target;
-      info = getElementInfo(target);
-      positionOverlay(selectionOverlay, target);
-      window.parent.postMessage({ type: 'element-select', payload: info }, '*');
-    }
+	    var info = null;
+	    if (target) {
+	      selectedEl = selectionTargetForHit(target);
+	      info = getElementInfo(selectedEl);
+	      positionOverlay(selectionOverlay, selectedEl);
+	      window.parent.postMessage({ type: 'element-select', payload: info }, '*');
+	    }
     window.parent.postMessage({
       type: 'element-contextmenu',
       clientX: e.clientX,
@@ -2099,6 +2134,7 @@ interface DesignCanvasProps {
     viewportHeight: number;
     displayWidth: number;
     displayHeight: number;
+    fluid?: boolean;
   };
   editorChromeScaleX?: number;
   editorChromeScaleY?: number;
@@ -2756,6 +2792,7 @@ export function DesignCanvas({
 
   const { width: iframeWidth, height: iframeHeight } =
     deviceDimensions[deviceFrame];
+  const embeddedFrameFluid = embeddedFrame?.fluid === true;
 
   // Wrap the iframe in a positioned container so DrawOverlay /
   // CanvasCommentPins can absolutely-position themselves on top of the
@@ -2768,9 +2805,15 @@ export function DesignCanvas({
     <div
       className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
       style={{
-        width: embeddedFrame ? embeddedFrame.viewportWidth : iframeWidth,
+        width: embeddedFrame
+          ? embeddedFrameFluid
+            ? "100%"
+            : embeddedFrame.viewportWidth
+          : iframeWidth,
         height: embeddedFrame
-          ? embeddedFrame.viewportHeight
+          ? embeddedFrameFluid
+            ? "100%"
+            : embeddedFrame.viewportHeight
           : deviceFrame === "none"
             ? "100%"
             : (iframeHeight ?? undefined),
@@ -2848,6 +2891,17 @@ export function DesignCanvas({
   );
 
   if (embeddedFrame) {
+    if (embeddedFrameFluid) {
+      return (
+        <div
+          ref={scrollContainerRef}
+          className="relative h-full w-full overflow-hidden"
+        >
+          {iframeElement}
+        </div>
+      );
+    }
+
     const scaleX =
       embeddedFrame.displayWidth / Math.max(1, embeddedFrame.viewportWidth);
     const scaleY =

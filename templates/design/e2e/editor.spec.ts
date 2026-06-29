@@ -52,6 +52,46 @@ test("screen overview resizes previews from the device selector", async ({
   await expect(page.getByText("390 x 844").first()).toBeVisible();
 });
 
+test("screen overview keeps the name readable when frame header space is tight", async ({
+  page,
+}) => {
+  const screenShell = page
+    .locator("[data-frame-shell]")
+    .filter({ has: page.locator("[data-screen-card]") })
+    .first();
+  await expect(screenShell).toBeVisible();
+
+  const screenCard = screenShell.locator("[data-screen-card]");
+  const initialCardBox = await screenCard.boundingBox();
+  if (!initialCardBox) throw new Error("no screen card box");
+
+  await page.mouse.move(
+    initialCardBox.x + initialCardBox.width / 2,
+    initialCardBox.y + initialCardBox.height / 2,
+  );
+  await page.keyboard.down("Control");
+  await page.mouse.wheel(0, 300);
+  await page.keyboard.up("Control");
+  await page.waitForTimeout(250);
+
+  await expect(screenShell.locator("[data-frame-dimensions]")).toHaveCount(0);
+
+  const cardBox = await screenCard.boundingBox();
+  const titleBox = await screenShell
+    .locator("[data-frame-title]")
+    .boundingBox();
+  const fullViewBox = await screenShell
+    .locator("[data-frame-full-view]")
+    .boundingBox();
+  if (!cardBox || !titleBox || !fullViewBox) {
+    throw new Error("missing frame header boxes");
+  }
+
+  expect(titleBox.width).toBeGreaterThan(0);
+  expect(titleBox.x).toBeLessThan(cardBox.x + cardBox.width);
+  expect(fullViewBox.x).toBeGreaterThanOrEqual(cardBox.x + cardBox.width - 1);
+});
+
 test("screen overview lets users select elements inside the active screen", async ({
   page,
 }) => {

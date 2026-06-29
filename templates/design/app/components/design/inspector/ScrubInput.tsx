@@ -71,6 +71,10 @@ export function ScrubInput({
   const [draft, setDraft] = useState(() =>
     formatScrubValue(value, { unit, precision }),
   );
+  // Track the latest draft in a ref so commitDraft always reads the most
+  // up-to-date value even if the blur event fires before the React state
+  // update has been committed to the render tree (concurrent mode / batching).
+  const draftRef = useRef(draft);
   const [focused, setFocused] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -83,7 +87,11 @@ export function ScrubInput({
   });
 
   useEffect(() => {
-    if (!focused) setDraft(formatScrubValue(value, { unit, precision }));
+    if (!focused) {
+      const formatted = formatScrubValue(value, { unit, precision });
+      draftRef.current = formatted;
+      setDraft(formatted);
+    }
   }, [focused, precision, unit, value]);
 
   const options = { unit, min, max, precision };
@@ -91,19 +99,28 @@ export function ScrubInput({
   const setNextValue = (nextValue: number, meta: ScrubInputChangeMeta) => {
     const normalized = normalizeScrubNumber(nextValue, options);
     onChange(normalized, meta);
-    setDraft(formatScrubValue(normalized, options));
+    const formatted = formatScrubValue(normalized, options);
+    draftRef.current = formatted;
+    setDraft(formatted);
   };
 
   const commitDraft = () => {
-    const parsed = parseScrubExpression(draft, value, options);
+    // Always read from the ref so we use the latest typed value even if the
+    // React render with the updated draft state hasn't committed yet (e.g.
+    // when blur fires in the same synchronous batch as the last onChange).
+    const currentDraft = draftRef.current;
+    const parsed = parseScrubExpression(currentDraft, value, options);
     if (!parsed) {
-      setDraft(formatScrubValue(value, options));
+      const reverted = formatScrubValue(value, options);
+      draftRef.current = reverted;
+      setDraft(reverted);
       return;
     }
 
+    draftRef.current = parsed.normalized;
     setDraft(parsed.normalized);
     if (parsed.value !== value) {
-      onChange(parsed.value, { source: "commit", expression: draft });
+      onChange(parsed.value, { source: "commit", expression: currentDraft });
     }
   };
 
@@ -131,7 +148,9 @@ export function ScrubInput({
 
     if (event.key === "Escape") {
       event.preventDefault();
-      setDraft(formatScrubValue(value, options));
+      const reverted = formatScrubValue(value, options);
+      draftRef.current = reverted;
+      setDraft(reverted);
       skipNextBlurCommitRef.current = true;
       event.currentTarget.blur();
     }
@@ -228,7 +247,10 @@ export function ScrubInput({
           }
           commitDraft();
         }}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          draftRef.current = event.target.value;
+          setDraft(event.target.value);
+        }}
         onKeyDown={handleKeyDown}
         className={cn(
           // Compact design-editor: h-6, 11px tabular text, ring-1 with no offset.

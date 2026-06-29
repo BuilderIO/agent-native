@@ -1750,6 +1750,107 @@ function resolveCodeLayerNodeFromBridge(
   );
 }
 
+function collapsedElementText(value: string | null | undefined): string {
+  return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+export function resolveCodeLayerNodeFromElementInfo(
+  projection: { nodes: CodeLayerNode[] },
+  info: ElementInfo | null | undefined,
+): CodeLayerNode | null {
+  if (!info) return null;
+  const direct = resolveCodeLayerNodeFromBridge(
+    projection,
+    info.selector,
+    info.sourceId ?? info.id,
+  );
+  if (direct) return direct;
+
+  const tagName = info.tagName.toLowerCase();
+  const text = collapsedElementText(info.textContent);
+  const classes = new Set(info.classes);
+  const scored = projection.nodes
+    .filter((node) => node.tag === tagName)
+    .map((node) => {
+      let score = 0;
+      const nodeText = collapsedElementText(node.textSnippet);
+      if (text && nodeText) {
+        if (nodeText === text) score += 8;
+        else if (nodeText.includes(text) || text.includes(nodeText)) score += 4;
+      }
+      if (classes.size > 0) {
+        const matchingClasses = node.classes.filter((className) =>
+          classes.has(className),
+        ).length;
+        if (matchingClasses === classes.size) score += 4;
+        else if (matchingClasses > 0) score += matchingClasses;
+      }
+      if (info.id && node.attributes.id === info.id) score += 6;
+      return { node, score };
+    })
+    .filter((candidate) => candidate.score >= 4)
+    .sort((a, b) => b.score - a.score);
+
+  if (scored.length === 0) return null;
+  const [best, next] = scored;
+  if (!best) return null;
+  if (next && next.score === best.score) return null;
+  return best.node;
+}
+
+function canonicalElementInfoForCodeLayerNode(
+  info: ElementInfo,
+  node: CodeLayerNode,
+): ElementInfo {
+  return {
+    ...info,
+    sourceId: bridgeSourceIdForCodeLayerNode(node),
+    selector: preferredCodeLayerSelector(node),
+    classes: node.classes.length > 0 ? node.classes : info.classes,
+    confidence: node.confidence,
+    editCapabilities: info.editCapabilities?.some((capability) =>
+      capability.kind.startsWith("deterministic"),
+    )
+      ? info.editCapabilities
+      : [
+          {
+            kind: "deterministic-style-edit",
+            label: "deterministic-style-edit",
+            confidence: 0.88,
+            reason: "Selection resolved to a unique source code layer.",
+          },
+        ],
+  };
+}
+
+function canonicalizeElementInfoFromProjection(
+  projection: { nodes: CodeLayerNode[] },
+  info: ElementInfo,
+): ElementInfo {
+  const node = resolveCodeLayerNodeFromElementInfo(projection, info);
+  return node ? canonicalElementInfoForCodeLayerNode(info, node) : info;
+}
+
+function elementInfoIsRuntimeOnly(
+  info: ElementInfo | null | undefined,
+): boolean {
+  return Boolean(
+    info?.editCapabilities?.some(
+      (capability) => capability.kind === "unsupported",
+    ),
+  );
+}
+
+function codeLayerPatchMessage(
+  message: string | null | undefined,
+  fallback: string,
+): string {
+  if (!message) return fallback;
+  return message.includes("did not match a code layer node")
+    ? fallback
+    : message;
+}
+
 function elementInfoExistsInContent(
   content: string,
   info: ElementInfo | null,
@@ -4520,10 +4621,9 @@ export default function DesignEditor() {
   );
   const selectedCodeLayerNode = useMemo(() => {
     if (!selectedElement) return null;
-    return resolveCodeLayerNodeFromBridge(
+    return resolveCodeLayerNodeFromElementInfo(
       activeCodeLayerProjection,
-      selectedElement.selector,
-      selectedElement.sourceId ?? selectedElement.id,
+      selectedElement,
     );
   }, [activeCodeLayerProjection, selectedElement]);
   const selectedElementLayerId = selectedCodeLayerNode?.id ?? null;
@@ -4536,10 +4636,9 @@ export default function DesignEditor() {
   const selectedCanvasSelector = selectedCanvasSelectorCandidates[0] ?? null;
   const hoveredCodeLayerNode = useMemo(() => {
     if (!hoveredElement) return null;
-    return resolveCodeLayerNodeFromBridge(
+    return resolveCodeLayerNodeFromElementInfo(
       activeCodeLayerProjection,
-      hoveredElement.selector,
-      hoveredElement.sourceId ?? hoveredElement.id,
+      hoveredElement,
     );
   }, [activeCodeLayerProjection, hoveredElement]);
   const hoveredCanvasSelectorCandidates = useMemo(() => {
@@ -5125,23 +5224,40 @@ export default function DesignEditor() {
 
   const handleElementSelect = useCallback(
     (info: ElementInfo) => {
-      setSelectedElement(info);
+      setSelectedElement(
+        canonicalizeElementInfoFromProjection(activeCodeLayerProjection, info),
+      );
       if (viewModeRef.current === "overview") {
         setOverviewSelectedScreenIds([]);
       }
       focusDesignInspectorForSelection();
     },
-    [focusDesignInspectorForSelection],
+    [activeCodeLayerProjection, focusDesignInspectorForSelection],
   );
 
-  const handleElementDblClickText = useCallback((info: ElementInfo) => {
-    setSelectedElement(info);
-    setMode("edit");
-  }, []);
+  const handleElementDblClickText = useCallback(
+    (info: ElementInfo) => {
+      setSelectedElement(
+        canonicalizeElementInfoFromProjection(activeCodeLayerProjection, info),
+      );
+      setMode("edit");
+    },
+    [activeCodeLayerProjection],
+  );
 
-  const handleElementHover = useCallback((info: ElementInfo | null) => {
-    setHoveredElement(info);
-  }, []);
+  const handleElementHover = useCallback(
+    (info: ElementInfo | null) => {
+      setHoveredElement(
+        info
+          ? canonicalizeElementInfoFromProjection(
+              activeCodeLayerProjection,
+              info,
+            )
+          : null,
+      );
+    },
+    [activeCodeLayerProjection],
+  );
 
   const handleIframeHotkey = useCallback((payload: IframeHotkeyPayload) => {
     if (!payload.key) return;
@@ -5169,7 +5285,14 @@ export default function DesignEditor() {
       if (!container || !menu) return;
       if (payload.info) {
         flushSync(() => {
-          setSelectedElement(payload.info ?? null);
+          setSelectedElement(
+            payload.info
+              ? canonicalizeElementInfoFromProjection(
+                  activeCodeLayerProjection,
+                  payload.info,
+                )
+              : null,
+          );
         });
         focusDesignInspectorForSelection();
       }
@@ -5183,7 +5306,7 @@ export default function DesignEditor() {
           : payload.clientY;
       menu.openAt({ clientX, clientY });
     },
-    [focusDesignInspectorForSelection],
+    [activeCodeLayerProjection, focusDesignInspectorForSelection],
   );
 
   const commitVisualStyles = useCallback(
@@ -5211,6 +5334,11 @@ export default function DesignEditor() {
       // compose. Falls back to activeContent when the ref is unset (file switch).
       const baseContent = lastLocalContentRef.current ?? activeContent;
       const [firstProperty, firstValue] = entries[0];
+      const projection = buildCodeLayerProjection(baseContent);
+      const targetInfo = options.elementInfo ?? selectedElement;
+      const targetNode = targetInfo
+        ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+        : resolveCodeLayerNodeFromBridge(projection, selector);
       const capability =
         selectedElement?.editCapabilities?.find((item) =>
           item.kind.startsWith("deterministic"),
@@ -5219,6 +5347,33 @@ export default function DesignEditor() {
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      if (!targetNode && elementInfoIsRuntimeOnly(targetInfo)) {
+        setPatchProof({
+          id: proofId,
+          fileId: activeFile.id,
+          filename: activeFile.filename,
+          selector,
+          sourceId: targetInfo?.sourceId,
+          property:
+            entries.length === 1
+              ? firstProperty
+              : entries.map(([property]) => property).join(", "),
+          previousValue: targetInfo?.computedStyles?.[firstProperty],
+          nextValue:
+            entries.length === 1
+              ? firstValue
+              : entries
+                  .map(([property, value]) => `${property}: ${value}`)
+                  .join("; "),
+          previousContent: baseContent,
+          capability: "unsupported",
+          confidence: 0.3,
+          status: "failed",
+          error: t("designEditor.patchProof.selectorMissing"),
+          createdAt: Date.now(),
+        });
+        return;
+      }
       setPatchProof({
         id: proofId,
         fileId: activeFile.id,
@@ -5252,12 +5407,6 @@ export default function DesignEditor() {
       const nextContent = applyInlineStylesToHtml(baseContent, selector, {
         ...Object.fromEntries(entries),
       });
-      const projection = buildCodeLayerProjection(baseContent);
-      const targetNode = resolveCodeLayerNodeFromBridge(
-        projection,
-        selector,
-        options.elementInfo?.sourceId ?? selectedElement?.sourceId,
-      );
       const stylePatch = entries.reduce<{
         content: string;
         failed: string | null;
@@ -5273,9 +5422,10 @@ export default function DesignEditor() {
           if (patch.result.status !== "applied") {
             return {
               content: current.content,
-              failed:
-                patch.result.message ??
+              failed: codeLayerPatchMessage(
+                patch.result.message,
                 t("designEditor.patchProof.selectorMissing"),
+              ),
             };
           }
           return { content: patch.content, failed: null };
@@ -5447,10 +5597,16 @@ export default function DesignEditor() {
       const projection = buildCodeLayerProjection(activeContent);
       const resolveBridgeNode = (targetSelector: string, sourceId?: string) =>
         resolveCodeLayerNodeFromBridge(projection, targetSelector, sourceId);
-      const targetNode = resolveBridgeNode(
-        selector,
-        details?.sourceId ?? elementInfo?.sourceId,
-      );
+      const targetInfo = elementInfo
+        ? {
+            ...elementInfo,
+            selector,
+            sourceId: details?.sourceId ?? elementInfo.sourceId,
+          }
+        : null;
+      const targetNode = targetInfo
+        ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+        : resolveBridgeNode(selector, details?.sourceId);
       const anchorNode = resolveBridgeNode(
         anchorSelector,
         details?.anchorSourceId,
@@ -5465,7 +5621,10 @@ export default function DesignEditor() {
       });
       if (patch.result.status !== "applied") {
         toast.error(
-          patch.result.message ?? t("designEditor.toasts.layerMoveFailed"),
+          codeLayerPatchMessage(
+            patch.result.message,
+            t("designEditor.toasts.layerMoveFailed"),
+          ),
           { duration: 4000 },
         );
         return false;
@@ -5518,11 +5677,20 @@ export default function DesignEditor() {
       if (!canEditDesign) return false;
       if (!activeFile) return false;
       const projection = buildCodeLayerProjection(activeContent);
-      const targetNode = resolveCodeLayerNodeFromBridge(
-        projection,
-        selector,
-        details?.sourceId ?? elementInfo?.sourceId,
-      );
+      const targetInfo = elementInfo
+        ? {
+            ...elementInfo,
+            selector,
+            sourceId: details?.sourceId ?? elementInfo.sourceId,
+          }
+        : null;
+      const targetNode = targetInfo
+        ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+        : resolveCodeLayerNodeFromBridge(
+            projection,
+            selector,
+            details?.sourceId,
+          );
       const anchorNode = resolveCodeLayerNodeFromBridge(
         projection,
         details?.anchorSelector,
@@ -5548,11 +5716,7 @@ export default function DesignEditor() {
       applyLocalContentUpdate(nextContent, { refreshPreview: false });
       const nextProjection = buildCodeLayerProjection(nextContent);
       const nextNode = elementInfo
-        ? resolveCodeLayerNodeFromBridge(
-            nextProjection,
-            elementInfo.selector,
-            elementInfo.sourceId,
-          )
+        ? resolveCodeLayerNodeFromElementInfo(nextProjection, elementInfo)
         : null;
       if (nextNode) {
         setSelectedLayerIdsState([nextNode.id]);
@@ -5579,11 +5743,10 @@ export default function DesignEditor() {
       if (!canEditDesign) return;
       if (!activeFile) return;
       const projection = buildCodeLayerProjection(activeContent);
-      const targetNode = resolveCodeLayerNodeFromBridge(
-        projection,
-        selector,
-        elementInfo?.sourceId,
-      );
+      const targetInfo = elementInfo ? { ...elementInfo, selector } : null;
+      const targetNode = targetInfo
+        ? resolveCodeLayerNodeFromElementInfo(projection, targetInfo)
+        : resolveCodeLayerNodeFromBridge(projection, selector);
       const isEmpty = value.trim().length === 0;
       const removedContent =
         isEmpty && targetNode
@@ -5608,7 +5771,10 @@ export default function DesignEditor() {
         );
       if (!nextContent) {
         toast.error(
-          patch?.result.message ?? t("designEditor.patchProof.selectorMissing"),
+          codeLayerPatchMessage(
+            patch?.result.message,
+            t("designEditor.patchProof.selectorMissing"),
+          ),
           { duration: 4000 },
         );
         return;
@@ -5788,10 +5954,9 @@ export default function DesignEditor() {
 
     if (!selectedElement?.selector) return;
     const projection = buildCodeLayerProjection(activeContent);
-    const targetNode = resolveCodeLayerNodeFromBridge(
+    const targetNode = resolveCodeLayerNodeFromElementInfo(
       projection,
-      selectedElement.selector,
-      selectedElement.sourceId ?? selectedElement.id,
+      selectedElement,
     );
     const nextContent =
       (targetNode
@@ -7676,7 +7841,10 @@ ${serializedHtml}
         });
         if (patch.result.status !== "applied") {
           toast.error(
-            patch.result.message ?? t("designEditor.toasts.layerMoveFailed"),
+            codeLayerPatchMessage(
+              patch.result.message,
+              t("designEditor.toasts.layerMoveFailed"),
+            ),
             { duration: 4000 },
           );
           continue;
@@ -8765,7 +8933,7 @@ ${serializedHtml}
       <div className="flex-1 flex overflow-hidden relative">
         {!embedded ? (
           <div
-            className="relative flex min-h-0 shrink-0 flex-col bg-[var(--design-editor-panel-bg)]"
+            className="relative flex min-h-0 shrink-0 flex-col border-r border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]"
             style={{ width: leftSidebarWidth }}
           >
             <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-2">
@@ -8985,18 +9153,23 @@ ${serializedHtml}
                           zoom={100}
                           deviceFrame="none"
                           embeddedFrame={{
-                            viewportWidth: metadata.width,
-                            viewportHeight: metadata.height,
-                            displayWidth: geometry.width,
-                            displayHeight: geometry.height,
+                            viewportWidth: Math.max(1, Math.round(geometry.width)),
+                            viewportHeight: Math.max(
+                              1,
+                              Math.round(geometry.height),
+                            ),
+                            displayWidth: Math.max(1, Math.round(geometry.width)),
+                            displayHeight: Math.max(
+                              1,
+                              Math.round(geometry.height),
+                            ),
+                            fluid: true,
                           }}
                           editorChromeScaleX={
-                            (geometry.width / Math.max(1, metadata.width)) *
-                            (overviewCanvasZoom / 100)
+                            overviewCanvasZoom / 100
                           }
                           editorChromeScaleY={
-                            (geometry.height / Math.max(1, metadata.height)) *
-                            (overviewCanvasZoom / 100)
+                            overviewCanvasZoom / 100
                           }
                           editMode={mode === "edit"}
                           interactMode={false}
@@ -9176,7 +9349,7 @@ ${serializedHtml}
         {/* Right rail */}
         {!embedded ? (
           <div
-            className="relative flex h-full min-h-0 shrink-0 flex-col bg-[var(--design-editor-panel-bg)]"
+            className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-[var(--design-editor-panel-divider-color)] bg-[var(--design-editor-panel-bg)]"
             style={{ width: rightSidebarWidth }}
           >
             <div

@@ -265,3 +265,32 @@ test("dragging the Home screen shell moves and resizes it", async ({
   expect(Math.abs(movedBack.x - before.x)).toBeLessThan(6);
   expect(Math.abs(movedBack.y - before.y)).toBeLessThan(6);
 });
+
+test("Escape cancels an in-progress overview screen drag", async ({ page }) => {
+  const shell = screenShell(page);
+  const before = await shell.boundingBox();
+  if (!before) throw new Error("no home screen shell box");
+
+  const start = {
+    x: before.x + before.width * 0.34,
+    y: before.y + 12,
+  };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(start.x + 72, start.y + 36, { steps: 8 });
+
+  const during = await shell.boundingBox();
+  if (!during) throw new Error("no dragging shell box");
+  expect(during.x).toBeGreaterThan(before.x + 20);
+  expect(during.y).toBeGreaterThan(before.y + 10);
+
+  await page.keyboard.press("Escape");
+  await page.mouse.move(start.x + 144, start.y + 72, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(100);
+
+  const after = await shell.boundingBox();
+  if (!after) throw new Error("no cancelled shell box");
+  expect(Math.abs(after.x - before.x)).toBeLessThan(6);
+  expect(Math.abs(after.y - before.y)).toBeLessThan(6);
+});

@@ -34,10 +34,12 @@ import {
 } from "@shared/pen-path";
 import { IconCopy, IconMaximize } from "@tabler/icons-react";
 import {
+  memo,
   useRef,
   useState,
   useCallback,
   useEffect,
+  useMemo,
   type CSSProperties,
   type ReactNode,
 } from "react";
@@ -180,6 +182,12 @@ const SURFACE_PADDING = 240;
 const DUPLICATE_DRAG_THRESHOLD = 6;
 const DRAG_THRESHOLD = 3;
 const FRAME_LABEL_HEIGHT = 28;
+const FRAME_HEADER_BUTTON_OUTSIDE_WIDTH = 260;
+const FRAME_HEADER_BUTTON_RESERVE = 116;
+const FRAME_HEADER_DIMENSIONS_WIDTH = 72;
+const FRAME_HEADER_TITLE_CHAR_WIDTH = 6.5;
+const FRAME_HEADER_MIN_TITLE_WIDTH = 28;
+const FRAME_HEADER_MAX_TITLE_WIDTH = 180;
 const MIN_ZOOM = 2;
 const MAX_ZOOM = 800;
 const ZOOM_SENSITIVITY = 0.01;
@@ -963,6 +971,74 @@ export function MultiScreenCanvas({
     setDragCursor(null);
     dragCleanup.current?.();
   }, []);
+
+  const cancelActiveDrag = useCallback(() => {
+    let cancelled = false;
+    const state = dragState.current;
+
+    if (state) {
+      cancelled = true;
+      if (state.type === "move" || state.type === "resize") {
+        updateFrameGeometry((current) =>
+          frameGeometryWithOverrides(current, state.originFrames),
+        );
+      } else if (state.type === "rotate") {
+        updateFrameGeometry((current) => ({
+          ...current,
+          [state.frameId]: { ...state.originFrame },
+        }));
+      } else if (state.type === "draft-move" || state.type === "draft-resize") {
+        updateDraftPrimitives((current) =>
+          current.map((draft) => {
+            const origin = state.originDrafts[draft.id];
+            return origin ? cloneDraftPrimitive(origin) : draft;
+          }),
+        );
+      } else if (state.type === "marquee") {
+        updateSelectedIds(() => state.baseSelectedIds);
+        updateSelectedDraftIds(() => state.baseSelectedDraftIds);
+      } else if (state.type === "pen-node") {
+        setActivePenPath(
+          state.pathBefore ? clonePenPath(state.pathBefore) : null,
+        );
+        setPenGesturePreview(null);
+        setPenPointer(null);
+        setPenCloseHover(false);
+      }
+    }
+
+    if (duplicateCleanup.current) {
+      cancelled = true;
+      duplicateCleanup.current();
+    }
+
+    if (cancelled || dragCleanup.current) {
+      finishDrag();
+      return true;
+    }
+    return false;
+  }, [
+    finishDrag,
+    updateDraftPrimitives,
+    updateFrameGeometry,
+    updateSelectedDraftIds,
+    updateSelectedIds,
+  ]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (!cancelActiveDrag()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [cancelActiveDrag]);
 
   const beginPan = useCallback(
     (e: React.MouseEvent) => {
@@ -2783,6 +2859,22 @@ export function MultiScreenCanvas({
         frameGeometry[screen.id] ?? getInitialFrameGeometry(index, metadata),
     };
   });
+  const screenContentById = useMemo(() => {
+    if (!renderScreenContent) return new Map<string, ReactNode>();
+    return new Map(
+      screens.map((screen, index) => {
+        const metadata = getResolvedMetadata(screen);
+        return [
+          screen.id,
+          renderScreenContent(
+            screen,
+            metadata,
+            getInitialFrameGeometry(index, metadata),
+          ),
+        ] as const;
+      }),
+    );
+  }, [getResolvedMetadata, renderScreenContent, screens]);
   const selectedFrameEntries = canvasFrames
     .filter(({ screen }) => selectedIdSet.has(screen.id))
     .map(({ screen, geometry }) => ({ id: screen.id, geometry }));
@@ -2851,7 +2943,7 @@ export function MultiScreenCanvas({
               screen={screen}
               metadata={metadata}
               geometry={geometry}
-              screenContent={renderScreenContent?.(screen, metadata, geometry)}
+              screenContent={screenContentById.get(screen.id)}
               isActive={screen.id === activeId}
               isSelected={selectedIdSet.has(screen.id)}
               hasHoveredChild={
@@ -3344,26 +3436,7 @@ function isPoint(point: Point | undefined): point is Point {
   return !!point;
 }
 
-function Screen({
-  screen,
-  metadata,
-  geometry,
-  isActive,
-  isSelected,
-  hasHoveredChild,
-  groupSelected,
-  handlesEnabled,
-  penActive,
-  creationToolActive,
-  chromeScale,
-  onPick,
-  onEdit,
-  onStartFrameDrag,
-  onStartResize,
-  onStartRotate,
-  onStartDuplicateGesture,
-  screenContent,
-}: {
+interface ScreenProps {
   screen: ScreenFile;
   metadata: ResolvedScreenMetadata;
   geometry: FrameGeometry;
@@ -3390,10 +3463,32 @@ function Screen({
     display: string,
     e: React.MouseEvent<HTMLElement>,
   ) => void;
-}) {
+}
+
+const Screen = memo(function Screen({
+  screen,
+  metadata,
+  geometry,
+  isActive,
+  isSelected,
+  hasHoveredChild,
+  groupSelected,
+  handlesEnabled,
+  penActive,
+  creationToolActive,
+  chromeScale,
+  onPick,
+  onEdit,
+  onStartFrameDrag,
+  onStartResize,
+  onStartRotate,
+  onStartDuplicateGesture,
+  screenContent,
+}: ScreenProps) {
   const t = useT();
   const display = metadata.title ?? prettyScreenName(screen.filename);
   const previewUrl = metadata.previewUrl ?? getPreviewUrl(screen.content);
+  const previewViewport = getScreenPreviewViewport(metadata, geometry);
   const suppressNextClick = useRef(false);
   const emphasized = isActive || isSelected;
   const selectionOutlined = isSelected && !groupSelected;
@@ -3403,8 +3498,25 @@ function Screen({
     Boolean(screenContent) && !penActive && !creationToolActive;
   const frameLabelHeight = FRAME_LABEL_HEIGHT * chromeScale;
   const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
-  const labelInfoMaxWidth = Math.max(64, frameScreenWidth - 116);
-  const fullViewMaxWidth = Math.max(84, Math.min(180, frameScreenWidth * 0.46));
+  const fullViewOutsideFrame =
+    frameScreenWidth < FRAME_HEADER_BUTTON_OUTSIDE_WIDTH;
+  const labelInfoMaxWidth = Math.max(
+    64,
+    frameScreenWidth - (fullViewOutsideFrame ? 8 : FRAME_HEADER_BUTTON_RESERVE),
+  );
+  const estimatedTitleWidth = clamp(
+    display.length * FRAME_HEADER_TITLE_CHAR_WIDTH,
+    FRAME_HEADER_MIN_TITLE_WIDTH,
+    FRAME_HEADER_MAX_TITLE_WIDTH,
+  );
+  const showDimensions =
+    frameScreenWidth >=
+    estimatedTitleWidth +
+      FRAME_HEADER_DIMENSIONS_WIDTH +
+      (fullViewOutsideFrame ? 16 : FRAME_HEADER_BUTTON_RESERVE);
+  const fullViewMaxWidth = fullViewOutsideFrame
+    ? 120
+    : Math.max(84, Math.min(180, frameScreenWidth * 0.46));
 
   return (
     <div
@@ -3453,6 +3565,7 @@ function Screen({
         }}
       >
         <div
+          data-frame-label
           className="absolute left-1 top-1/2 flex min-w-0 items-center gap-1.5"
           style={{
             maxWidth: labelInfoMaxWidth,
@@ -3468,30 +3581,40 @@ function Screen({
             )}
           />
           <span
+            data-frame-title
             className={cn(
-              "truncate text-[11px] font-medium",
+              "min-w-0 truncate text-[11px] font-medium",
               emphasized ? "text-foreground" : "text-muted-foreground",
             )}
             title={screen.filename}
           >
             {display}
           </span>
-          <span className="hidden shrink-0 text-[10px] tabular-nums text-muted-foreground/70 sm:inline">
-            {metadata.width} x {metadata.height}
-          </span>
+          {showDimensions ? (
+            <span
+              data-frame-dimensions
+              className="hidden shrink-0 text-[10px] tabular-nums text-muted-foreground/70 sm:inline"
+            >
+              {previewViewport.displayWidth} x {previewViewport.displayHeight}
+            </span>
+          ) : null}
         </div>
         <button
           type="button"
+          data-frame-full-view
           className={cn(
-            "absolute right-1 top-1/2 z-40 flex h-5 shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            "absolute top-1/2 z-40 flex h-5 shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "group-hover/frame:opacity-100 group-focus-within/frame:opacity-100",
             emphasized && "opacity-100",
+            fullViewOutsideFrame ? "left-full" : "right-1",
           )}
           style={{
             maxWidth: fullViewMaxWidth,
             transform: `translateY(-50%) scale(${chromeScale})`,
-            transformOrigin: "right center",
+            transformOrigin: fullViewOutsideFrame
+              ? "left center"
+              : "right center",
             transition: CHROME_LABEL_TRANSITION,
           }}
           aria-label={t("multiScreenCanvas.fullView")}
@@ -3595,14 +3718,15 @@ function Screen({
               loading="lazy"
               className="pointer-events-none border-0"
               style={{
-                width: metadata.width,
-                height: metadata.height,
-                // Scale the iframe to fit within the frame geometry. The outer
-                // canvas transform already handles pan/zoom; this scale maps the
-                // iframe's native resolution to the frame's display dimensions.
-                transform: `scale(${geometry.width / metadata.width}, ${
-                  geometry.height / metadata.height
-                })`,
+                width: previewViewport.viewportWidth,
+                height: previewViewport.viewportHeight,
+                // Untouched same-aspect overview thumbnails may scale uniformly.
+                // User-resized frames use their real iframe viewport so
+                // responsive layouts recompute instead of getting stretched.
+                transform:
+                  previewViewport.scale === 1
+                    ? undefined
+                    : `scale(${previewViewport.scale})`,
                 transformOrigin: "top left",
                 backgroundColor: "white",
                 colorScheme: "light",
@@ -3640,6 +3764,29 @@ function Screen({
         />
       </div>
     </div>
+  );
+}, areScreenPropsEqual);
+
+function areScreenPropsEqual(prev: ScreenProps, next: ScreenProps) {
+  return (
+    prev.screen === next.screen &&
+    prev.screenContent === next.screenContent &&
+    sameResolvedMetadata(prev.metadata, next.metadata) &&
+    sameFrameGeometry(prev.geometry, next.geometry) &&
+    prev.isActive === next.isActive &&
+    prev.isSelected === next.isSelected &&
+    prev.hasHoveredChild === next.hasHoveredChild &&
+    prev.groupSelected === next.groupSelected &&
+    prev.handlesEnabled === next.handlesEnabled &&
+    prev.penActive === next.penActive &&
+    prev.creationToolActive === next.creationToolActive &&
+    prev.chromeScale === next.chromeScale &&
+    prev.onPick === next.onPick &&
+    prev.onEdit === next.onEdit &&
+    prev.onStartFrameDrag === next.onStartFrameDrag &&
+    prev.onStartResize === next.onStartResize &&
+    prev.onStartRotate === next.onStartRotate &&
+    prev.onStartDuplicateGesture === next.onStartDuplicateGesture
   );
 }
 
@@ -3919,6 +4066,41 @@ function getOverviewFrameHeight(
   return Math.max(80, Math.round((width * sourceHeight) / sourceWidth));
 }
 
+function getScreenPreviewViewport(
+  metadata: Pick<ResolvedScreenMetadata, "width" | "height">,
+  geometry: Pick<FrameGeometry, "width" | "height">,
+) {
+  const metadataWidth = Math.max(1, Math.round(metadata.width));
+  const metadataHeight = Math.max(1, Math.round(metadata.height));
+  const geometryWidth = Math.max(1, Math.round(geometry.width));
+  const geometryHeight = Math.max(1, Math.round(geometry.height));
+  const metadataAspect = metadataWidth / metadataHeight;
+  const geometryAspect = geometryWidth / geometryHeight;
+  const aspectMatches = Math.abs(metadataAspect - geometryAspect) < 0.005;
+
+  if (aspectMatches) {
+    return {
+      viewportWidth: metadataWidth,
+      viewportHeight: metadataHeight,
+      displayWidth: metadataWidth,
+      displayHeight: metadataHeight,
+      scale:
+        Math.abs(metadataWidth - geometryWidth) < 0.5 &&
+        Math.abs(metadataHeight - geometryHeight) < 0.5
+          ? 1
+          : geometryWidth / metadataWidth,
+    };
+  }
+
+  return {
+    viewportWidth: geometryWidth,
+    viewportHeight: geometryHeight,
+    displayWidth: geometryWidth,
+    displayHeight: geometryHeight,
+    scale: 1,
+  };
+}
+
 function dedupeIds(ids: string[]) {
   return [...new Set(ids)];
 }
@@ -4112,6 +4294,20 @@ function sameFrameGeometry(a: FrameGeometry, b: FrameGeometry) {
     a.height === b.height &&
     (a.rotation ?? 0) === (b.rotation ?? 0) &&
     (a.z ?? 0) === (b.z ?? 0)
+  );
+}
+
+function sameResolvedMetadata(
+  a: ResolvedScreenMetadata,
+  b: ResolvedScreenMetadata,
+) {
+  return (
+    a.source === b.source &&
+    a.previewState === b.previewState &&
+    a.title === b.title &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.previewUrl === b.previewUrl
   );
 }
 

@@ -1223,14 +1223,24 @@ export function SizingField({
               disabled && "pointer-events-none opacity-40",
             )}
           >
-            {/* Axis letter */}
-            <span className="shrink-0 pl-1.5 text-muted-foreground">
-              {axis}
-            </span>
+            {/* Axis letter — tooltip hints the user that the ▾ caret is the mode picker */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="shrink-0 cursor-default pl-1.5 text-muted-foreground"
+                  aria-hidden="true"
+                >
+                  {axis}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                {`${axis} — drag label to scrub · type to set · use ▾ to change sizing mode`}
+              </TooltipContent>
+            </Tooltip>
             {/* Scrub-editable size value */}
             <ScrubInput
               label={axis}
-              ariaLabel={`${axis} size`}
+              ariaLabel={`${axis} size in pixels`}
               value={Math.round(resolvedSize ?? 0)}
               onChange={(next) => onSizeChange!(Math.max(1, Math.round(next)))}
               unit="px"
