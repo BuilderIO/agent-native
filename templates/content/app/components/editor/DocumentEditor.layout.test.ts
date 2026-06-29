@@ -94,7 +94,27 @@ describe("document editor layout", () => {
     expect(source).toContain("pendingDocumentSaveRef.current = pending");
     expect(source).toContain("clearTimeout(saveTimeoutRef.current)");
     expect(source).toContain(
-      "void pending.save(pending.title, pending.content)",
+      "Promise.resolve(pending.save(pending.title, pending.content)).catch",
+    );
+    expect(source).toContain("handleBackgroundSaveError");
+    expect(source).toContain("const canEditRef = useRef(canEdit)");
+    expect(source).toContain("if (!canEditRef.current) return document");
+    expect(source).toContain("if (!canEditRef.current) return");
+  });
+
+  it("keeps read-only documents off editor-only realtime endpoints", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain(
+      'docId: canEdit && !isLocalFileDocument ? documentId : ""',
+    );
+    expect(source).toContain(
+      "canEdit && !isLocalFileDocument ? documentId : null",
     );
   });
 

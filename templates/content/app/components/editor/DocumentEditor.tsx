@@ -274,6 +274,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const updateDocument = useUpdateDocument();
   const queryClient = useQueryClient();
   const canEdit = document.canEdit ?? true;
+  const canEditRef = useRef(canEdit);
+  canEditRef.current = canEdit;
   // The block render context (asset/upload resolvers, inline markdown reader,
   // panel popover) is stable for the editor's lifetime. Created once here and
   // provided alongside the content block registry so every registry block in the
@@ -324,6 +326,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     document.updatedAt ?? null,
   );
   documentUpdatedAtRef.current = document.updatedAt ?? null;
+  const handleBackgroundSaveError = useCallback(
+    (error: unknown) => {
+      toast.error(t("empty.genericError"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    },
+    [t],
+  );
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -375,7 +386,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
     : undefined;
 
-  // Collaborative editing — stable Y.Doc per document, always-on
+  // Collaborative editing is write-only for now. Viewers get the SQL snapshot
+  // and skip collab endpoints that reject non-editor access.
   const {
     ydoc,
     awareness,
@@ -384,7 +396,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     agentActive,
     agentPresent,
   } = useCollaborativeDoc({
-    docId: isLocalFileDocument ? "" : documentId,
+    docId: canEdit && !isLocalFileDocument ? documentId : "",
     requestSource: TAB_ID,
     user: currentUser,
   });
@@ -571,6 +583,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       content?: string;
       icon?: string | null;
     }): Promise<Document> => {
+      if (!canEditRef.current) return document;
+
       const localSource = document.source;
       const isLinkedLocalSource = canWriteLinkedLocalSource(
         documentId,
@@ -702,6 +716,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
   const debouncedSave = useCallback(
     (title: string, content: string) => {
+      if (!canEditRef.current) return;
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       const pending: PendingDocumentSave = {
         title,
@@ -712,13 +727,16 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             pendingDocumentSaveRef.current = null;
           }
           saveTimeoutRef.current = null;
-          void pending.save(pending.title, pending.content);
+          if (!canEditRef.current) return;
+          void Promise.resolve(
+            pending.save(pending.title, pending.content),
+          ).catch(handleBackgroundSaveError);
         }, 500),
       };
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
     },
-    [saveDocumentImmediately],
+    [handleBackgroundSaveError, saveDocumentImmediately],
   );
 
   useEffect(() => {
@@ -728,9 +746,21 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       clearTimeout(pending.timeout);
       saveTimeoutRef.current = null;
       pendingDocumentSaveRef.current = null;
-      void pending.save(pending.title, pending.content);
+      if (!canEditRef.current) return;
+      void Promise.resolve(pending.save(pending.title, pending.content)).catch(
+        handleBackgroundSaveError,
+      );
     };
-  }, [documentId]);
+  }, [documentId, handleBackgroundSaveError]);
+
+  useEffect(() => {
+    if (canEdit) return;
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    pendingDocumentSaveRef.current = null;
+  }, [canEdit, documentId]);
 
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
   // `flush-request-<id>` app-state key when an external agent wants to ingest
@@ -846,7 +876,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
-    isLocalFileDocument ? null : documentId,
+    canEdit && !isLocalFileDocument ? documentId : null,
   );
   const hasComments =
     !isLocalFileDocument &&
@@ -1061,7 +1091,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                           onSelect={(emoji) => {
                             void (async () => {
                               await persistDocumentUpdates({ icon: emoji });
-                            })();
+                            })().catch(handleBackgroundSaveError);
                           }}
                         />
                       ) : document.icon ? (
