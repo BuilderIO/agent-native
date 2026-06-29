@@ -15,7 +15,6 @@ const TEST_DB_PATH = join(
   tmpdir(),
   `bind-source-field-test-${process.pid}-${Date.now()}.sqlite`,
 );
-process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
 
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
@@ -24,6 +23,7 @@ let bindAction: typeof import("./bind-content-database-source-field.js").default
 const OWNER = "owner@example.com";
 
 beforeAll(async () => {
+  process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
   const dbModule = await import("../server/db/index.js");
   getDb = dbModule.getDb;
   schema = dbModule.schema;
