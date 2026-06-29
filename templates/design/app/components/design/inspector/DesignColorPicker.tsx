@@ -14,6 +14,7 @@ import type { ShaderDescriptor } from "@shared/shader-presets";
 import { IconChevronDown, IconColorPicker } from "@tabler/icons-react";
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type JSX,
@@ -130,6 +131,7 @@ export interface DesignColorPickerProps {
   value: string;
   onChange: (value: string) => void;
   onPaintValueChange?: (value: string) => void;
+  onImageFillChange?: (value: ImageFillValue) => void;
   label?: string;
   opacity?: number;
   onOpacityChange?: (opacity: number) => void;
@@ -190,6 +192,87 @@ interface HsvaColor {
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const FALLBACK_COLOR: RgbaColor = { r: 0, g: 0, b: 0, a: 1 };
+
+// ─── Extended CSS color parser ──────────────────────────────────────────────────
+//
+// `parseCssColor` from color-utils handles hex, comma-separated rgb/rgba, and
+// hsl/hsla. Browsers increasingly emit modern CSS Level 4 formats from
+// getComputedStyle: space-separated `rgb(R G B)`, `rgb(R G B / A)`, and
+// opaque formats like `oklch(...)` or `color(display-p3 ...)`.
+//
+// This local wrapper extends the parser to cover those cases so that colors
+// arriving from the canvas's computed-style bridge are always usable.
+
+const MODERN_RGB_PATTERN =
+  /^rgba?\(\s*([0-9.]+)\s+([0-9.]+)\s+([0-9.]+)(?:\s*\/\s*([0-9.]+%?))?\s*\)$/i;
+
+/** Canvas element reused across calls for DOM-based color resolution. */
+let _resolverCanvas: HTMLCanvasElement | null = null;
+let _resolverCtx: CanvasRenderingContext2D | null = null;
+
+/**
+ * Parses a CSS color string into RgbaColor, extending the base parser with:
+ *   - Modern space-separated `rgb(R G B)` / `rgb(R G B / A)` syntax
+ *   - Opaque formats (oklch, color, etc.) resolved via a hidden canvas
+ *
+ * Falls back to null if the value is unparseable and the DOM is unavailable.
+ */
+function parseCssColorExtended(value: string): RgbaColor | null {
+  // 1. Try the standard parser first (handles hex, comma rgb/rgba, hsl/hsla).
+  const standard = parseCssColor(value);
+  if (standard) return standard;
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "transparent" || trimmed === "none") return null;
+
+  // 2. Modern space-separated rgb/rgba — CSS Level 4.
+  const modernRgb = trimmed.match(MODERN_RGB_PATTERN);
+  if (modernRgb) {
+    const parseAlphaLocal = (v: string | undefined): number => {
+      if (!v) return 1;
+      if (v.endsWith("%"))
+        return Math.max(0, Math.min(1, Number(v.slice(0, -1)) / 100));
+      return Math.max(0, Math.min(1, Number(v)));
+    };
+    return {
+      r: Math.round(Math.max(0, Math.min(255, Number(modernRgb[1])))),
+      g: Math.round(Math.max(0, Math.min(255, Number(modernRgb[2])))),
+      b: Math.round(Math.max(0, Math.min(255, Number(modernRgb[3])))),
+      a: parseAlphaLocal(modernRgb[4]),
+    };
+  }
+
+  // 3. DOM-based resolver for oklch, color(display-p3 ...), hsl (modern), etc.
+  //    Uses a hidden 1×1 canvas to resolve any valid CSS color to rgb().
+  if (typeof document === "undefined") return null;
+  try {
+    if (!_resolverCanvas) {
+      _resolverCanvas = document.createElement("canvas");
+      _resolverCanvas.width = 1;
+      _resolverCanvas.height = 1;
+    }
+    if (!_resolverCtx) {
+      _resolverCtx = _resolverCanvas.getContext("2d", {
+        willReadFrequently: true,
+      });
+    }
+    const ctx = _resolverCtx;
+    if (!ctx) return null;
+    // Detect invalid color values: save fillStyle before and after assignment.
+    // If the browser rejects the value, fillStyle won't change.
+    const prev = ctx.fillStyle;
+    ctx.fillStyle = trimmed;
+    const next = ctx.fillStyle; // browser normalises to rgb/hex on accept
+    // If the value was rejected, fillStyle stays at the previous value.
+    if (next === prev) return null;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+    return { r, g, b, a: a / 255 };
+  } catch {
+    return null;
+  }
+}
 
 const DEFAULT_LABELS: DesignColorPickerLabels = {
   trigger: "Open color picker", // i18n-ignore fallback component label
@@ -575,6 +658,7 @@ export function DesignColorPicker({
   value,
   onChange,
   onPaintValueChange,
+  onImageFillChange,
   label: _label,
   opacity,
   onOpacityChange,
@@ -605,7 +689,7 @@ export function DesignColorPicker({
   className,
 }: DesignColorPickerProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
-  const color = parseCssColor(value) ?? FALLBACK_COLOR;
+  const color = parseCssColorExtended(value) ?? FALLBACK_COLOR;
   const hsv = rgbaToHsv(color);
   const hsl = rgbaToHsl(color);
   const effectiveOpacity = opacity ?? alphaToOpacity(color.a);
@@ -651,16 +735,24 @@ export function DesignColorPicker({
 
   // Resolve the active gradient: prefer EditPanel-driven props; otherwise parse
   // the live CSS value, falling back to local edit state.
-  const parsedGradient = parseGradientCss(value, gradientType ?? "linear");
+  const parsedGradient = useMemo(
+    () => parseGradientCss(value, gradientType ?? "linear"),
+    [gradientType, value],
+  );
+  const fallbackGradient = useMemo(
+    () =>
+      GRADIENT_TYPES.has(effectivePaintType)
+        ? defaultGradient(
+            effectivePaintType as GradientKind,
+            toCssColor(color) || "#000000",
+          )
+        : null,
+    [color.r, color.g, color.b, color.a, effectivePaintType],
+  );
   const activeGradient: GradientValue | null = GRADIENT_TYPES.has(
     effectivePaintType,
   )
-    ? (localGradient ??
-      parsedGradient ??
-      defaultGradient(
-        effectivePaintType as GradientKind,
-        toCssColor(color) || "#000000",
-      ))
+    ? (localGradient ?? parsedGradient ?? fallbackGradient)
     : null;
 
   useEffect(() => {
@@ -754,7 +846,8 @@ export function DesignColorPicker({
 
   // The 2D field edits the selected gradient stop's color when in gradient mode.
   const fieldColor: RgbaColor = activeGradient
-    ? (parseCssColor(selectedStop?.color ?? "#000000") ?? FALLBACK_COLOR)
+    ? (parseCssColorExtended(selectedStop?.color ?? "#000000") ??
+      FALLBACK_COLOR)
     : color;
   const rawFieldHsv = rgbaToHsv(fieldColor);
   // Preserve the last non-zero hue so dragging through gray doesn't lose it.
@@ -771,7 +864,7 @@ export function DesignColorPicker({
   const selectedStopColor = selectedStop?.color;
   useEffect(() => {
     if (!activeGradient || !selectedStopColor) return;
-    const parsed = parseCssColor(selectedStopColor);
+    const parsed = parseCssColorExtended(selectedStopColor);
     if (parsed) setHexDraft(toDisplayHex(parsed));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedStopColor, selectedStopId]);
@@ -807,6 +900,10 @@ export function DesignColorPicker({
 
   const emitImageFill = (next: ImageFillValue) => {
     setImageFill(next);
+    if (onImageFillChange) {
+      onImageFillChange(next);
+      return;
+    }
     emitPaintValue(imageFillToCss(next));
   };
 
@@ -860,6 +957,10 @@ export function DesignColorPicker({
       return;
     }
     if (nextType === "image") {
+      if (onImageFillChange && imageFill.url) {
+        onImageFillChange(imageFill);
+        return;
+      }
       emitPaintValue(imageFill.url ? imageFillToCss(imageFill) : "transparent");
       return;
     }
@@ -1050,8 +1151,18 @@ export function DesignColorPicker({
           align="start"
           sideOffset={8}
           className="z-[10000] w-[252px] p-0 shadow-xl"
+          // Keep the picker open when the style change triggered by a paint-type
+          // switch causes the canvas to re-project the element. Without this,
+          // Radix treats the resulting focus shift as an "interact outside" event
+          // and closes the popover before the type switch is visible.
+          onInteractOutside={(e) => {
+            // Allow closing only for genuine pointer clicks on the canvas area
+            // (the user clicked somewhere else). Programmatic focus changes from
+            // the canvas bridge (element re-projection) should not close the picker.
+            if (e.type === "focusoutside") e.preventDefault();
+          }}
         >
-          <div className="overflow-hidden rounded-md bg-popover text-popover-foreground">
+          <div className="rounded-md bg-popover text-popover-foreground">
             {view === "shader" ? (
               <ShaderFillsPanel
                 descriptor={shaderDescriptor ?? undefined}

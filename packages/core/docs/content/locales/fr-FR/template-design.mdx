@@ -340,11 +340,11 @@ Chaque opération appelable par un agent est un fichier TypeScript dans `templat
 - **Systèmes de conception** : `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system` et `analyze-brand-assets` pour collecter des données de marque avant l'analyse.
 - **Importer** — `index-design-system-with-builder` for Builder-backed code/GitHub/Figma file design-system indexing, plus `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **Exportation et transfert** : `export-html`, `export-pdf`, `export-svg`, `export-zip` et `export-coding-handoff` pour transformer une conception en transfert d'outil de codage.
-- **Contexte et navigation** – `view-screen` (conception actuelle, fichier ouvert, vue, question en attente ou grille de variantes), `get-design-snapshot` (état actuel à partir duquel un agent externe peut continuer) et `navigate`.
+- **Contexte et navigation** – `view-screen` (conception actuelle, fichier ouvert, vue, question en attente ou choix de variante), `get-design-snapshot` (état actuel à partir duquel un agent externe peut continuer) et `navigate`.
 
 ### Travailler avec l'agent
 
-L'agent sait toujours ce que vous avez ouvert. La conception actuelle, le fichier ouvert, la vue active et toute question en attente ou grille de variantes sont renvoyés par `view-screen` et injectés dans chaque message, vous pouvez donc dire « rendre cela plus dense » ou « exporter cette variante » sans nommer la conception.
+L'agent sait toujours ce que vous avez ouvert. La conception actuelle, le fichier ouvert, la vue active et toute question en attente ou choix de variante sont renvoyés par `view-screen` et injectés dans chaque message, vous pouvez donc dire « rendre cela plus dense » ou « exporter cette variante » sans nommer la conception.
 
 Étant donné qu'une conception n'est constituée que de fichiers HTML/JSX autonomes, l'agent édite la même source que celle du rendu iframe et celle d'où provient chaque exportation : il n'existe pas de format de « maquette IA » distinct à traduire. Un système de conception lié fournit des jetons et `custom_instructions` que l'agent honore à chaque passage de génération. Sélectionnez du texte ou une région dans l'aperçu et appuyez sur Cmd+I pour concentrer l'agent exactement sur cette partie.
 

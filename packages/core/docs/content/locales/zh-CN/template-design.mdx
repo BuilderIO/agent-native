@@ -371,12 +371,6 @@ npx @agent-native/core@latest skills add visual-edit
 会在 overview 模式中保持为分开的有序屏幕。
 
 `/visual-edit` 入口路由可以在查看者登录前加载，公开的 `/design/:id` 链接也
-可以在没有 session 的情况下呈现只读公开设计。持久保存屏幕布局、生成新屏
-幕或共享仍会创建绑定账号的 Design 数据：未登录用户会先经过
-`/_agent-native/sign-in?return=...`，然后 Design 会把项目保存或复制到该账号
-中，再打开共享对话框。
-
-`/visual-edit` 入口路由可以在查看者登录前加载，公开的 `/design/:id` 链接也
 可以在没有会话时以只读方式渲染公开 design。持久保存屏幕布局、生成新屏幕或
 共享仍会创建账号绑定的 Design 数据：未登录用户会经过
 `/_agent-native/sign-in?return=...`，然后 Design 会在打开共享对话框前，把项

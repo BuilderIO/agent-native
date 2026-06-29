@@ -25,6 +25,13 @@ patterns live in `.agents/skills/`.
   selected file is not already clear from context.
 - Generated files must be complete, standalone HTML unless the user asks for a
   different export format. They should render in the iframe without a build step.
+- For design generation, ground the work in a concrete audience, primary job,
+  and visual thesis before writing. For existing products, inspect current
+  screens, linked design systems, tokens, and component language before
+  inventing a new direction. Use realistic content/copy and one signature choice
+  per direction; avoid lorem ipsum, generic SaaS filler, and decorative
+  placeholders. Include expected responsive/accessibility states and visually
+  inspect the result before calling it ready.
 - For raster image generation, restyling, or editing existing screenshots/photos,
   use the available first-party Assets MCP tool such as `generate-asset` instead
   of placeholders or generic stock imagery. When the Assets picker returns a
@@ -97,9 +104,10 @@ patterns live in `.agents/skills/`.
   generated CSS selectors as a compatibility fallback only. For localhost React
   screens, resolve through build-time source/debug metadata (stable generated
   ids, component name, file, and line) before falling back to selectors.
-- For multi-variant work, write candidates incrementally so the UI can preview
-  progress. External MCP hosts should use `present-design-variants` so the same
-  picker opens inline instead of writing `application_state` directly.
+- For multi-variant work, use `present-design-variants` so every candidate is
+  saved as a normal overview-board screen and the user gets one inline chat
+  button per screen name. After the user picks, delete the unchosen variant
+  screens before continuing from the kept screen.
 - Use framework sharing actions for design and design-system visibility/grants.
 - `/visual-edit` is a public entry route and public `/design/:id` links may
   render read-only public designs without a session. Do not open anonymous write
@@ -131,7 +139,9 @@ patterns live in `.agents/skills/`.
   generation frames created by `generate-screens`.
 - `show-design-questions` opens focused pre-generation questions in the main
   design canvas (`show-questions` application state).
-- `design-variants` contains in-progress candidates for the variant picker.
+- `guided-questions` may contain a one-click chat choice for the current
+  variant set. Variants themselves are normal design files with `canvasFrames`
+  and `screenMetadata`.
 
 ## Code Layers
 
@@ -179,14 +189,12 @@ patterns live in `.agents/skills/`.
   and open the editor in overview mode.
 - For human-in-the-loop UI exploration, create a design shell, call
   `present-design-variants` with 2-5 complete HTML directions (three by
-  default), wait for the user to pick one, then use `get-design-snapshot` and
-  `generate-design` for follow-up refinements.
-- Inline MCP-app hosts (ChatGPT / Claude / Claude Desktop main chat) carry the
-  pick back over the chat bridge automatically. If the Design app instead opens
-  as a browser link (CLI hosts like Codex / Claude Code, deep link carries
-  `handoff=chat`), the user picks there and the editor shows a copyable summary
-  (also in `present-design-variants` result `fallbackInstructions`) — ask them
-  to paste it back into chat so you can continue from the chosen direction.
+  default), wait for the user to pick one in chat, delete the other generated
+  variant screens with `delete-file`, then use `get-design-snapshot` and
+  `generate-design` or `edit-design` for follow-up refinements.
+- If inline chat choice buttons are unavailable, the user can tell you the
+  preferred screen name. Do not show a separate variant picker or ask them to
+  paste a copyable handoff summary.
 
 ## Skills
 

@@ -57,6 +57,9 @@ const DEFAULT_LABELS: ExportSettingsPanelLabels = {
 
 const DEFAULT_FORMATS: ExportFormat[] = ["png", "jpg", "svg", "pdf", "webp"];
 
+const controlChromeClass =
+  "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground shadow-none hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground focus:ring-1 focus:ring-[var(--design-editor-accent-color)] focus:ring-offset-0 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0";
+
 /** Preset scale options shown in the scale dropdown — matches the design editor's presets */
 const SCALE_PRESETS: { label: string; value: ExportScale }[] = [
   { label: "0.5x", value: "0.5" },
@@ -130,7 +133,12 @@ function ScaleSelect({
         }
       }}
     >
-      <SelectTrigger className="h-6 w-14 shrink-0 px-1.5 text-[11px]">
+      <SelectTrigger
+        className={cn(
+          "h-6 w-14 shrink-0 px-1.5 text-[11px]",
+          controlChromeClass,
+        )}
+      >
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -262,7 +270,7 @@ export function ExportSettingsPanel({
         variant="outline"
         disabled={isDisabled}
         onClick={handleExport}
-        className="h-6 w-full px-2 text-[11px]"
+        className={cn("h-6 w-full px-2 text-[11px]", controlChromeClass)}
       >
         <IconDownload className="size-3.5" />
         {copy.export}
@@ -312,7 +320,10 @@ function ExportRow({
               onPatchRow(row.id, { customScale: false });
             }
           }}
-          className="h-6 w-14 shrink-0 px-1.5 text-[11px] tabular-nums"
+          className={cn(
+            "h-6 w-14 shrink-0 px-1.5 text-[11px] tabular-nums",
+            controlChromeClass,
+          )}
           aria-label="Scale"
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
@@ -340,7 +351,12 @@ function ExportRow({
           onPatchRow(row.id, { format: format as ExportFormat })
         }
       >
-        <SelectTrigger className="h-6 min-w-0 flex-1 px-1.5 text-[11px]">
+        <SelectTrigger
+          className={cn(
+            "h-6 min-w-0 flex-1 px-1.5 text-[11px]",
+            controlChromeClass,
+          )}
+        >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -364,7 +380,10 @@ function ExportRow({
         disabled={isDisabled}
         onChange={(e) => onPatchRow(row.id, { suffix: e.target.value })}
         placeholder={labels.suffix}
-        className="h-6 min-w-0 flex-1 px-1.5 text-[11px]"
+        className={cn(
+          "h-6 min-w-0 flex-1 px-1.5 text-[11px]",
+          controlChromeClass,
+        )}
         aria-label={labels.suffix}
       />
 

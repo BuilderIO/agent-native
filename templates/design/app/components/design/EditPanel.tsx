@@ -40,6 +40,7 @@ import {
   IconLetterSpacing,
   IconLineHeight,
   IconLink,
+  IconLock,
   IconMaximize,
   IconMinus,
   IconPalette,
@@ -100,12 +101,15 @@ import {
   type AutoLayoutSizingAxis,
   type ConstraintsValue,
   type ExportSettingsValue,
+  imageFillToBackgroundStyles,
   type DesignFillRow,
   type DesignFillRowPatch,
   type DesignGradientStop,
   type DesignGradientStopPatch,
   type DesignGradientType,
+  type ImageFillValue,
 } from "./inspector";
+import { IconLayoutSettings } from "./inspector/design-icons";
 import type { DesignPaintType } from "./inspector/DesignColorPicker";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
@@ -129,6 +133,7 @@ interface EditPanelProps {
   onStylesChange?: (styles: Record<string, string>) => void;
   onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
+  readOnly?: boolean;
 }
 
 /**
@@ -220,6 +225,7 @@ function ColorInput({
   onChange,
   backgroundImage,
   onBackgroundImageChange,
+  onImageFillChange,
   blendMode,
   onBlendModeChange,
   supportsLayeredFills = false,
@@ -231,6 +237,7 @@ function ColorInput({
   onChange: (value: string) => void;
   backgroundImage?: string;
   onBackgroundImageChange?: (value: string) => void;
+  onImageFillChange?: (value: ImageFillValue) => void;
   blendMode?: string;
   onBlendModeChange?: (value: string) => void;
   supportsLayeredFills?: boolean;
@@ -540,6 +547,7 @@ function ColorInput({
       onPaintValueChange={
         supportsLayeredFills ? handlePaintValueChange : undefined
       }
+      onImageFillChange={onImageFillChange}
       blendMode={blendMode}
       onBlendModeChange={onBlendModeChange}
       showBlendMode={supportsLayeredFills}
@@ -1109,6 +1117,99 @@ const FONT_WEIGHT_OPTIONS = [
   { value: "900", key: "black" },
 ] as const;
 
+type TextResizeMode = "auto-width" | "auto-height" | "fixed";
+
+function cleanFontFamilyName(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+function splitFontFamilyList(value: string | undefined): string[] {
+  const raw = value?.trim();
+  if (!raw) return [];
+
+  const families: string[] = [];
+  let token = "";
+  let quote: '"' | "'" | null = null;
+
+  for (let i = 0; i < raw.length; i += 1) {
+    const char = raw[i];
+    if ((char === '"' || char === "'") && raw[i - 1] !== "\\") {
+      if (quote === char) quote = null;
+      else if (!quote) quote = char;
+      token += char;
+      continue;
+    }
+    if (char === "," && !quote) {
+      const cleaned = cleanFontFamilyName(token);
+      if (cleaned) families.push(cleaned);
+      token = "";
+      continue;
+    }
+    token += char;
+  }
+
+  const cleaned = cleanFontFamilyName(token);
+  if (cleaned) families.push(cleaned);
+  return families;
+}
+
+function normalizeFontFamilyName(value: string): string {
+  return cleanFontFamilyName(value).replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeFontFamilyStack(value: string): string {
+  return splitFontFamilyList(value).map(normalizeFontFamilyName).join(",");
+}
+
+function displayFontFamilyName(value: string | undefined): string {
+  const first = splitFontFamilyList(value)[0];
+  if (!first) return "Sans Serif"; // i18n-ignore design generic font label
+
+  const normalized = normalizeFontFamilyName(first);
+  if (normalized === "sans-serif") {
+    return "Sans Serif"; // i18n-ignore design generic font label
+  }
+  if (normalized === "serif") return "Serif"; // i18n-ignore design generic font label
+  if (normalized === "monospace") {
+    return "Monospace"; // i18n-ignore design generic font label
+  }
+  if (normalized === "system-ui" || normalized === "-apple-system") {
+    return "System UI"; // i18n-ignore design generic font label
+  }
+  if (normalized === "blinkmacsystemfont") {
+    return "Apple System"; // i18n-ignore design generic font label
+  }
+  return first;
+}
+
+function resolveFontFamilySelectValue(value: string | undefined): string {
+  const raw = value?.trim();
+  if (!raw) return "sans-serif";
+
+  const normalizedStack = normalizeFontFamilyStack(raw);
+  const exactOption = FONT_FAMILY_OPTIONS.find(
+    (option) => normalizeFontFamilyStack(option.value) === normalizedStack,
+  );
+  if (exactOption) return exactOption.value;
+
+  const firstFamily = normalizeFontFamilyName(
+    splitFontFamilyList(raw)[0] ?? "",
+  );
+  const firstFamilyOption = FONT_FAMILY_OPTIONS.find(
+    (option) =>
+      normalizeFontFamilyName(splitFontFamilyList(option.value)[0] ?? "") ===
+      firstFamily,
+  );
+  return firstFamilyOption?.value ?? raw;
+}
+
 const ALIGN_SELF_OPTIONS = [
   { value: "auto", key: "auto" },
   { value: "flex-start", key: "start" },
@@ -1596,6 +1697,33 @@ function inferElementSizing(
   return "fixed";
 }
 
+/**
+ * Return the element's geometric dimension on the given axis in CSS pixels.
+ *
+ * `getComputedStyle().width/height` always resolves to a computed px value
+ * (even for `width: auto` the browser returns e.g. "200px"). For rotated
+ * elements this is the pre-rotation CSS box size — what Figma shows in the
+ * inspector — while `getBoundingClientRect().width/height` would be the
+ * axis-aligned bounding box which is inflated by the rotation.
+ *
+ * Falls back to the bounding-rect dimension only when the computed style is
+ * missing or unparseable (e.g. the bridge hasn't populated it yet).
+ */
+function cssElementSize(
+  element: ElementInfo,
+  axis: AutoLayoutSizingAxis,
+): number {
+  const isHorizontal = axis === "horizontal";
+  const cssValue = isHorizontal
+    ? element.computedStyles.width
+    : element.computedStyles.height;
+  const parsed = parseFloat(cssValue || "");
+  const fallback = isHorizontal
+    ? element.boundingRect.width
+    : element.boundingRect.height;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 function commitElementSizing(
   element: ElementInfo,
   axis: AutoLayoutSizingAxis,
@@ -1605,12 +1733,10 @@ function commitElementSizing(
 ) {
   const isHorizontal = axis === "horizontal";
   const sizeProperty = isHorizontal ? "width" : "height";
-  const resolvedSize = Math.max(
-    1,
-    Math.round(
-      isHorizontal ? element.boundingRect.width : element.boundingRect.height,
-    ),
-  );
+  // Use CSS computed dimension (pre-rotation box size) as the seed for "fixed"
+  // sizing so a rotated element is locked to its actual CSS width/height rather
+  // than the inflated axis-aligned bounding rect.
+  const resolvedSize = Math.max(1, Math.round(cssElementSize(element, axis)));
   const parentDirection = parentFlexDirection(element);
   const isFlex = isParentFlex(element);
   const isGrid = isParentGrid(element);
@@ -1858,9 +1984,110 @@ function InspectorIconButton({
 
 function InspectorSegment({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
+    <div className="flex w-fit max-w-full min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
       {children}
     </div>
+  );
+}
+
+function TextResizeControls({
+  resizeMode,
+  onResizeModeChange,
+}: {
+  resizeMode: TextResizeMode;
+  onResizeModeChange: (mode: TextResizeMode) => void;
+}) {
+  const t = useT();
+
+  return (
+    <InspectorSegment>
+      <InspectorIconButton
+        label={t("editPanel.textResize.autoWidth")}
+        active={resizeMode === "auto-width"}
+        onClick={() => onResizeModeChange("auto-width")}
+      >
+        <IconArrowAutofitWidth className="size-3.5" />
+      </InspectorIconButton>
+      <InspectorIconButton
+        label={t("editPanel.textResize.autoHeight")}
+        active={resizeMode === "auto-height"}
+        onClick={() => onResizeModeChange("auto-height")}
+      >
+        <IconArrowAutofitHeight className="size-3.5" />
+      </InspectorIconButton>
+      <InspectorIconButton
+        label={t("editPanel.textResize.fixed")}
+        active={resizeMode === "fixed"}
+        onClick={() => onResizeModeChange("fixed")}
+      >
+        <IconSquare className="size-3.5" />
+      </InspectorIconButton>
+    </InspectorSegment>
+  );
+}
+
+function TypographyDetailsPopover({
+  resizeMode,
+  onResizeModeChange,
+}: {
+  resizeMode: TextResizeMode;
+  onResizeModeChange: (mode: TextResizeMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={"Typography details" /* i18n-ignore design action */}
+          aria-pressed={open}
+          className={cn(
+            "h-6 min-w-6 cursor-pointer rounded-md text-muted-foreground hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground",
+            open &&
+              "bg-[var(--design-editor-accent-color)]/20 text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+          )}
+        >
+          <IconLayoutSettings className="size-3.5" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        side="left"
+        align="end"
+        sideOffset={8}
+        className="z-[100010] w-[360px] rounded-xl border-[var(--design-editor-control-border)] bg-[var(--design-editor-panel-bg)] p-0 text-foreground shadow-2xl"
+      >
+        <div className="flex items-center gap-1 border-b border-[var(--design-editor-control-border)] p-2.5">
+          <div className="flex rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
+            <span className="rounded bg-[var(--design-editor-panel-raised-bg)] px-2.5 py-1 text-[11px] font-semibold text-foreground">
+              {"Basics" /* i18n-ignore design typography details tab */}
+            </span>
+            <span className="px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+              {"Details" /* i18n-ignore design typography details tab */}
+            </span>
+            <span className="px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+              {"Variable" /* i18n-ignore design typography details tab */}
+            </span>
+          </div>
+        </div>
+        <div className="space-y-3 p-4 text-[11px]">
+          <div className="flex h-20 items-center justify-center rounded-md bg-[var(--design-editor-control-bg)] text-[18px] text-muted-foreground/80">
+            {"Preview" /* i18n-ignore design typography details preview */}
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[11px] font-medium text-muted-foreground">
+              {"Text box" /* i18n-ignore design typography details label */}
+            </span>
+            <TextResizeControls
+              resizeMode={resizeMode}
+              onResizeModeChange={onResizeModeChange}
+            />
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -2330,20 +2557,29 @@ function ShadowEffectRow({
 function PageProperties({
   styles,
   onStyleChange,
+  onStylesChange,
 }: {
   styles: Record<string, string>;
   onStyleChange: (property: string, value: string) => void;
+  onStylesChange?: (styles: Record<string, string>) => void;
 }) {
   const t = useT();
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
+  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontFamilies.${option.key}`),
   }));
-  const fontFamily = FONT_FAMILY_OPTIONS.some(
-    (option) => option.value === styles.fontFamily,
+  const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
+  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
+    (option) => option.value === fontFamily,
   )
-    ? styles.fontFamily
-    : "sans-serif";
+    ? baseFontFamilyOptions
+    : [
+        {
+          value: fontFamily,
+          label: displayFontFamilyName(styles.fontFamily || fontFamily),
+        },
+        ...baseFontFamilyOptions,
+      ];
 
   return (
     <div>
@@ -2354,6 +2590,13 @@ function PageProperties({
           onChange={(v) => onStyleChange("backgroundColor", v)}
           backgroundImage={styles.backgroundImage || ""}
           onBackgroundImageChange={(v) => onStyleChange("backgroundImage", v)}
+          onImageFillChange={(value) =>
+            commitStylePatch(
+              imageFillToBackgroundStyles(value),
+              onStyleChange,
+              onStylesChange,
+            )
+          }
           blendMode={styles.backgroundBlendMode || "normal"}
           onBlendModeChange={(v) => onStyleChange("backgroundBlendMode", v)}
           supportsLayeredFills
@@ -2386,10 +2629,22 @@ function TypographyProperties({
 }) {
   const t = useT();
   const styles = element.computedStyles;
-  const fontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
+  const baseFontFamilyOptions = FONT_FAMILY_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontFamilies.${option.key}`),
   }));
+  const fontFamily = resolveFontFamilySelectValue(styles.fontFamily);
+  const fontFamilyOptions = FONT_FAMILY_OPTIONS.some(
+    (option) => option.value === fontFamily,
+  )
+    ? baseFontFamilyOptions
+    : [
+        {
+          value: fontFamily,
+          label: displayFontFamilyName(styles.fontFamily || fontFamily),
+        },
+        ...baseFontFamilyOptions,
+      ];
   const fontWeightOptions = FONT_WEIGHT_OPTIONS.map((option) => ({
     value: option.value,
     label: t(`editPanel.fontWeights.${option.key}`),
@@ -2404,7 +2659,7 @@ function TypographyProperties({
     !styles.width || styles.width === "auto" || styles.width === "max-content";
   const heightIsAuto = !styles.height || styles.height === "auto";
   const noWrap = styles.whiteSpace === "nowrap";
-  const resizeMode: "auto-width" | "auto-height" | "fixed" =
+  const resizeMode: TextResizeMode =
     widthIsAuto && noWrap
       ? "auto-width"
       : !heightIsAuto && !widthIsAuto
@@ -2412,7 +2667,7 @@ function TypographyProperties({
         : "auto-height";
   const currentWidth = styles.width && !widthIsAuto ? styles.width : "200px";
   const currentHeight = styles.height && !heightIsAuto ? styles.height : "48px";
-  const setResizeMode = (mode: "auto-width" | "auto-height" | "fixed") => {
+  const setResizeMode = (mode: TextResizeMode) => {
     if (mode === "auto-width") {
       onStyleChange("width", "auto");
       onStyleChange("height", "auto");
@@ -2462,51 +2717,36 @@ function TypographyProperties({
 
   return (
     <PanelSection title={t("editPanel.sections.typography")}>
-      {/* Row 0: text resizing (auto-width / auto-height / fixed) */}
-      <InspectorSegment>
-        <InspectorIconButton
-          label={"Auto width" /* i18n-ignore design text-resize mode */}
-          active={resizeMode === "auto-width"}
-          onClick={() => setResizeMode("auto-width")}
+      {/* Row 1: font family full-width.
+          Wrapped in a height-constrained div so the SelectTrigger button's
+          hit-target is exactly h-6 (24 px) and cannot visually or physically
+          overlap the weight/size row below (bug: trigger extended ~12 px into
+          the next row, causing clicks meant for the size input to open this
+          dropdown instead). */}
+      <div className="h-6 overflow-hidden">
+        <Select
+          value={fontFamily}
+          onValueChange={(v) => onStyleChange("fontFamily", v)}
         >
-          <IconArrowAutofitWidth className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={"Auto height" /* i18n-ignore design text-resize mode */}
-          active={resizeMode === "auto-height"}
-          onClick={() => setResizeMode("auto-height")}
-        >
-          <IconArrowAutofitHeight className="size-3.5" />
-        </InspectorIconButton>
-        <InspectorIconButton
-          label={"Fixed size" /* i18n-ignore design text-resize mode */}
-          active={resizeMode === "fixed"}
-          onClick={() => setResizeMode("fixed")}
-        >
-          <IconSquare className="size-3.5" />
-        </InspectorIconButton>
-      </InspectorSegment>
-
-      {/* Row 1: font family full-width */}
-      <Select
-        value={styles.fontFamily || "sans-serif"}
-        onValueChange={(v) => onStyleChange("fontFamily", v)}
-      >
-        <SelectTrigger className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {fontFamilyOptions.map((opt) => (
-            <SelectItem
-              key={opt.value}
-              value={opt.value}
-              className="text-[11px]"
-            >
-              {opt.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+          <SelectTrigger
+            aria-label={t("editPanel.labels.font")}
+            className="h-6 w-full rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {fontFamilyOptions.map((opt) => (
+              <SelectItem
+                key={opt.value}
+                value={opt.value}
+                className="text-[11px]"
+              >
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       {/* Row 2: weight + size side by side */}
       <div className="grid grid-cols-2 gap-1.5">
@@ -2580,7 +2820,7 @@ function TypographyProperties({
       </div>
 
       {/* Row 4: horizontal + vertical text alignment */}
-      <div className="grid grid-cols-2 gap-1.5">
+      <div className="flex items-center gap-1.5">
         <InspectorSegment>
           <InspectorIconButton
             label={t("editPanel.textAligns.left")}
@@ -2634,6 +2874,12 @@ function TypographyProperties({
             <IconLayoutAlignBottom className="size-3.5" />
           </InspectorIconButton>
         </InspectorSegment>
+        <div className="ml-auto shrink-0">
+          <TypographyDetailsPopover
+            resizeMode={resizeMode}
+            onResizeModeChange={setResizeMode}
+          />
+        </div>
       </div>
     </PanelSection>
   );
@@ -2699,8 +2945,8 @@ function FlexContainerControls({
     },
     clipContent: styles.overflow === "hidden",
     resolvedSize: {
-      horizontal: element.boundingRect.width,
-      vertical: element.boundingRect.height,
+      horizontal: cssElementSize(element, "horizontal"),
+      vertical: cssElementSize(element, "vertical"),
     },
     // Forward the raw CSS display so the matrix can render the correct Flow
     // state (normal flow for block/grid, flex for flex/inline-flex). Added as an
@@ -2784,6 +3030,9 @@ function FlexContainerControls({
             onStylesChange,
           );
         }}
+        onChildSizeChange={(axis, px) =>
+          onStyleChange(axis === "horizontal" ? "width" : "height", `${px}px`)
+        }
         onChildMinMaxChange={(axis, kind, val) =>
           commitElementMinMax(axis, kind, val, onStyleChange)
         }
@@ -2927,7 +3176,7 @@ function LayoutContextProperties({
             axis="W"
             sizingAxis="horizontal"
             value={inferElementSizing(element, "horizontal")}
-            resolvedSize={element.boundingRect.width}
+            resolvedSize={cssElementSize(element, "horizontal")}
             minMax={readElementMinMax(element, "horizontal")}
             options={availableSizing.horizontal ?? ["fixed"]}
             disabled={false}
@@ -2940,6 +3189,7 @@ function LayoutContextProperties({
                 onStylesChange,
               )
             }
+            onSizeChange={(px) => onStyleChange("width", `${px}px`)}
             onMinMaxChange={(axis, kind, val) =>
               commitElementMinMax(axis, kind, val, onStyleChange)
             }
@@ -2948,7 +3198,7 @@ function LayoutContextProperties({
             axis="H"
             sizingAxis="vertical"
             value={inferElementSizing(element, "vertical")}
-            resolvedSize={element.boundingRect.height}
+            resolvedSize={cssElementSize(element, "vertical")}
             minMax={readElementMinMax(element, "vertical")}
             options={availableSizing.vertical ?? ["fixed"]}
             disabled={false}
@@ -2961,6 +3211,7 @@ function LayoutContextProperties({
                 onStylesChange,
               )
             }
+            onSizeChange={(px) => onStyleChange("height", `${px}px`)}
             onMinMaxChange={(axis, kind, val) =>
               commitElementMinMax(axis, kind, val, onStyleChange)
             }
@@ -3408,8 +3659,11 @@ function FillProperties({
   const [hiddenFillStash, setHiddenFillStash] = useState<
     Record<string, string>
   >({});
+  const [hiddenBackgroundLayerStash, setHiddenBackgroundLayerStash] = useState<
+    Record<string, string>
+  >({});
   const stashKey = `${elementIdentityKey(element)}:${fillProperty}`;
-  const isHidden = fillValue === "transparent" || fillValue === "";
+  const isHidden = !colorHasVisibleAlpha(fillValue);
   const handleFillVisibilityToggle = () => {
     if (isHidden) {
       // Restore the stashed color, or fall back to a sensible default.
@@ -3564,8 +3818,17 @@ function FillProperties({
                 const opacity = gradient
                   ? averageGradientOpacity(gradient.stops)
                   : 100;
+                const layerStashKey = `${elementIdentityKey(element)}:backgroundImage:${index}`;
+                const stashedLayer = hiddenBackgroundLayerStash[layerStashKey];
+                const hiddenImagePlaceholder = Boolean(
+                  stashedLayer && gradient && opacity <= 0,
+                );
                 const label = gradient
-                  ? `${gradientLabel(gradient.type)} ${index + 1}`
+                  ? hiddenImagePlaceholder
+                    ? `${"Image" /* i18n-ignore design inspector paint row */} ${
+                        index + 1
+                      }`
+                    : `${gradientLabel(gradient.type)} ${index + 1}`
                   : `${"Image" /* i18n-ignore design inspector paint row */} ${
                       index + 1
                     }`;
@@ -3663,7 +3926,38 @@ function FillProperties({
                           : t("editPanel.labels.hideLayer")
                       }
                       onClick={() => {
-                        if (!gradient) return;
+                        if (opacity <= 0 && stashedLayer) {
+                          replaceLayer(stashedLayer);
+                          setHiddenBackgroundLayerStash((prev) => {
+                            const next = { ...prev };
+                            delete next[layerStashKey];
+                            return next;
+                          });
+                          return;
+                        }
+                        if (!gradient) {
+                          setHiddenBackgroundLayerStash((prev) => ({
+                            ...prev,
+                            [layerStashKey]: layer,
+                          }));
+                          replaceLayer(
+                            buildGradientLayer("linear", [
+                              {
+                                id: "stop-0",
+                                color: "rgba(0, 0, 0, 0)",
+                                position: 0,
+                                opacity: 0,
+                              },
+                              {
+                                id: "stop-1",
+                                color: "rgba(0, 0, 0, 0)",
+                                position: 100,
+                                opacity: 0,
+                              },
+                            ]),
+                          );
+                          return;
+                        }
                         replaceLayer(
                           buildGradientLayer(
                             gradient.type,
@@ -4274,6 +4568,7 @@ export function EditPanel({
   onStylesChange,
   onExport,
   exporting = false,
+  readOnly = false,
 }: EditPanelProps) {
   const t = useT();
   const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
@@ -4302,6 +4597,41 @@ export function EditPanel({
     setShowExportPreview(false);
   }, [selectedElementKey]);
 
+  if (readOnly) {
+    return (
+      <div
+        className={cn(
+          "shrink-0 bg-[var(--design-editor-panel-bg)]",
+          "flex h-full min-h-0 flex-col overflow-hidden",
+        )}
+        style={{ width }}
+      >
+        <div className="flex min-h-8 shrink-0 items-center border-b border-border/90 px-3">
+          <h2 className="min-w-0 truncate text-[12px] font-semibold text-foreground">
+            {t("editPanel.properties")}
+          </h2>
+        </div>
+        <div className="flex min-h-0 flex-1 items-center justify-center px-5">
+          <div
+            className="max-w-[188px] text-center"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="mx-auto mb-3 flex size-9 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground/60">
+              <IconLock className="size-4" aria-hidden="true" />
+            </div>
+            <h3 className="text-[12px] font-semibold leading-snug text-foreground">
+              {t("designEditor.inspectorLockedTitle")}
+            </h3>
+            <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground/70">
+              {t("designEditor.inspectorLockedDescription")}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -4320,11 +4650,63 @@ export function EditPanel({
         <>
           <SelectionHeader element={selectedElement} />
 
-          <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div
+            className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain"
+            onPointerDown={(e) => {
+              // Track pointer-down position so we can suppress spurious clicks
+              // (e.g. color-picker opening) that fire after a scroll gesture.
+              const startX = e.clientX;
+              const startY = e.clientY;
+              const target = e.currentTarget;
+              const SCROLL_THRESHOLD = 5;
+              // A captured click that fires after significant pointer movement is
+              // a scroll-end event, not a real click — suppress it.
+              const onClickCapture = (ev: Event) => {
+                const clickEv = ev as MouseEvent;
+                const dx = clickEv.clientX - startX;
+                const dy = clickEv.clientY - startY;
+                if (Math.hypot(dx, dy) > SCROLL_THRESHOLD) {
+                  ev.stopPropagation();
+                  ev.preventDefault();
+                }
+                target.removeEventListener("click", onClickCapture, true);
+              };
+              target.addEventListener("click", onClickCapture, true);
+            }}
+            onKeyDown={(e) => {
+              // Trap Tab within the inspector panel so it never focuses the
+              // canvas iframe. When the canvas iframe gains focus it forwards
+              // a synthetic Tab keydown to the parent window, which is picked
+              // up by the design-editor hotkey handler as "cycle file" and
+              // causes apparent deselection / overview-mode switch (bug: Tab
+              // in a numeric field deselected the canvas element).
+              if (e.key !== "Tab") return;
+              const panel = e.currentTarget;
+              const focusable = Array.from(
+                panel.querySelectorAll<HTMLElement>(
+                  'input, button, select, textarea, [tabindex]:not([tabindex="-1"])',
+                ),
+              ).filter(
+                (el) =>
+                  !el.hasAttribute("disabled") &&
+                  el.tabIndex !== -1 &&
+                  !el.closest('[aria-hidden="true"]'),
+              );
+              if (focusable.length === 0) return;
+              e.preventDefault();
+              const current = document.activeElement as HTMLElement | null;
+              const idx = current ? focusable.indexOf(current) : -1;
+              const next = e.shiftKey
+                ? focusable[(idx - 1 + focusable.length) % focusable.length]
+                : focusable[(idx + 1) % focusable.length];
+              next?.focus();
+            }}
+          >
             {!selectedElement && (
               <PageProperties
                 styles={pageStyles}
                 onStyleChange={onStyleChange}
+                onStylesChange={onStylesChange}
               />
             )}
 

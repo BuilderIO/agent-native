@@ -340,11 +340,11 @@ Cada operação que pode ser chamada pelo agente é um arquivo TypeScript em `te
 - **Sistemas de design** — `create-design-system`, `update-design-system`, `get-design-system`, `list-design-systems`, `delete-design-system`, `set-default-design-system` e `analyze-brand-assets` para coletar dados da marca antes da análise.
 - **Importar** — `index-design-system-with-builder` for Builder-backed code/GitHub/Figma file design-system indexing, plus `import-from-url`, `import-document` (DOCX/PPTX/PDF/XLSX), and `import-design-project` for other sources.
 - **Exportação e transferência** — `export-html`, `export-pdf`, `export-svg`, `export-zip` e `export-coding-handoff` para transformar um design em uma transferência de ferramenta de codificação.
-- **Contexto e navegação** — `view-screen` (design atual, arquivo aberto, visualização, pergunta pendente ou grade de variantes), `get-design-snapshot` (estado atual para um agente externo continuar) e `navigate`.
+- **Contexto e navegação** — `view-screen` (design atual, arquivo aberto, visualização, pergunta pendente ou escolha de variante), `get-design-snapshot` (estado atual para um agente externo continuar) e `navigate`.
 
 ### Trabalhando com o agente
 
-O agente sempre sabe o que você tem em aberto. O design atual, o arquivo aberto, a visualização ativa e qualquer questão pendente ou grade de variantes são retornados por `view-screen` e injetados em cada mensagem, para que você possa dizer "tornar isso mais denso" ou "exportar esta variante" sem nomear o design.
+O agente sempre sabe o que você tem em aberto. O design atual, o arquivo aberto, a visualização ativa e qualquer questão pendente ou escolha de variante são retornados por `view-screen` e injetados em cada mensagem, para que você possa dizer "tornar isso mais denso" ou "exportar esta variante" sem nomear o design.
 
 Como um design consiste apenas em arquivos HTML/JSX independentes, o agente edita a mesma fonte que o iframe renderiza e de onde vem cada exportação — não há um formato de "maquete de IA" separado para traduzir. Um sistema de design vinculado fornece tokens e `custom_instructions` que o agente homenageia em cada passagem de geração. Selecione o texto ou uma região na visualização e pressione Cmd+I para focar o agente exatamente nessa parte.
 

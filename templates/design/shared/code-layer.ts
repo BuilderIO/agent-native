@@ -1797,6 +1797,16 @@ function normalizeSelectorForMatch(selector: string): string {
     .replace(/\s+/g, " ");
 }
 
+function selectorPartTag(selectorPart: string): string | null {
+  const match = selectorPart.trim().match(/^([A-Za-z][A-Za-z0-9:-]*)/);
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+function isDocumentRootSelectorPart(selectorPart: string): boolean {
+  const tag = selectorPartTag(selectorPart);
+  return tag === "html" || tag === "body";
+}
+
 function lastSelectorPart(selector: string): string {
   const parts = normalizeSelectorForMatch(selector).split(" > ");
   return parts[parts.length - 1] ?? selector;
@@ -1926,7 +1936,11 @@ function selectorPathMatchesElement(
   let current: ParsedElement | undefined = element;
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     const selectorPart = parts[index];
-    if (!current || !selectorPart) return false;
+    if (!selectorPart) return false;
+    if (!current) {
+      if (isDocumentRootSelectorPart(selectorPart)) continue;
+      return false;
+    }
     if (!simpleSelectorMatchesElement(current, selectorPart)) return false;
     current =
       current.parentIndex === undefined

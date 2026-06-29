@@ -8,6 +8,8 @@ import {
   inspectorInputCount,
   dragCanvasByText,
   cdpScreenshot,
+  installBridge,
+  waitForBridge,
 } from "./helpers";
 
 let designId: string;
@@ -18,6 +20,7 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   await gotoEditor(page, designId);
+  await page.getByRole("tab", { name: "Design", exact: true }).click();
 });
 
 test("editor renders the toolbar and the design iframe content", async ({
@@ -37,6 +40,98 @@ test("editor renders the toolbar and the design iframe content", async ({
   expect(nodeCount).toBeGreaterThanOrEqual(5);
 });
 
+test("screen overview resizes previews from the device selector", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "Device preview" }).first().click();
+  await page.getByRole("menuitemradio", { name: "Desktop" }).click();
+  await expect(page.getByText("1280 x 800").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Device preview" }).first().click();
+  await page.getByRole("menuitemradio", { name: "Mobile" }).click();
+  await expect(page.getByText("390 x 844").first()).toBeVisible();
+});
+
+test("screen overview lets users select elements inside the active screen", async ({
+  page,
+}) => {
+  const before = await inspectorInputCount(page);
+  await installBridge(page);
+  await page.evaluate(() => ((window as any).__bridge = []));
+
+  const target = designFrame(page).getByText("E2E Hero Heading").first();
+  await target.waitFor({ state: "visible", timeout: 8_000 });
+  const box = await target.boundingBox();
+  expect(
+    box,
+    "overview iframe element should have a bounding box",
+  ).toBeTruthy();
+  const activeScreenCard = page
+    .locator("[data-screen-card]")
+    .filter({ has: page.locator("iframe[data-design-preview-iframe]") })
+    .first();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await waitForBridge(page, "element-hover");
+  await expect
+    .poll(() =>
+      activeScreenCard
+        .locator("[data-screen-hover-outline]")
+        .evaluate((el) => window.getComputedStyle(el).opacity),
+    )
+    .toBe("0");
+  await expect
+    .poll(() =>
+      activeScreenCard
+        .locator('[data-resize-handle="nw"]')
+        .evaluate((el) => window.getComputedStyle(el).opacity),
+    )
+    .toBe("0");
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+
+  const selected = await waitForBridge(page, "element-select");
+  const payload = selected?.payload ?? selected;
+  expect(payload?.textContent ?? "").toContain("E2E Hero Heading");
+  await expect(page.locator("[data-frame-selection-box]")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      designFrame(page)
+        .locator('[data-agent-native-edit-overlay="selection"]')
+        .evaluate((el) => window.getComputedStyle(el).display),
+    )
+    .not.toBe("none");
+  await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
+});
+
+test("left sidebar switches between all screens and focused screens", async ({
+  page,
+}) => {
+  const sidebar = page.locator("aside").first();
+  const allScreens = sidebar.getByRole("button", { name: "All screens" });
+  const homeScreen = sidebar
+    .getByRole("button", { name: "Home", exact: true })
+    .first();
+
+  await expect(allScreens).toBeVisible();
+  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
+
+  await homeScreen.click();
+  await expect(homeScreen).toHaveAttribute("aria-current", "page");
+  await expect(allScreens).not.toHaveAttribute("aria-current", "page");
+  await expect
+    .poll(
+      async () =>
+        (await page.locator("iframe[data-design-preview-iframe]").boundingBox())
+          ?.width ?? 0,
+      { timeout: 10_000 },
+    )
+    .toBeGreaterThan(600);
+
+  await allScreens.click();
+  await expect(allScreens).toHaveAttribute("aria-current", "page");
+  await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
+});
+
 test("clicking an element selects it and populates the inspector", async ({
   page,
 }) => {
@@ -50,6 +145,56 @@ test("clicking an element selects it and populates the inspector", async ({
   expect(payload.selector ?? "").toMatch(/data-agent-native-node-id/);
 
   await expect.poll(() => inspectorInputCount(page)).toBeGreaterThan(before);
+});
+
+test("selected element handles stay above hover chrome", async ({ page }) => {
+  const payload = await selectByText(page, "E2E Hero Heading");
+  expect(payload.selector).toBeTruthy();
+
+  await page
+    .locator("iframe[data-design-preview-iframe]")
+    .evaluate((iframe, selector) => {
+      (iframe as HTMLIFrameElement).contentWindow?.postMessage(
+        { type: "hover-element", selector },
+        "*",
+      );
+    }, payload.selector);
+
+  await expect
+    .poll(() =>
+      designFrame(page)
+        .locator('[data-agent-native-edit-overlay="highlight"]')
+        .evaluate((el) => window.getComputedStyle(el).display),
+    )
+    .toBe("none");
+
+  const overlayChrome = await designFrame(page)
+    .locator("body")
+    .evaluate(() => {
+      const highlight = document.querySelector<HTMLElement>(
+        '[data-agent-native-edit-overlay="highlight"]',
+      );
+      const selection = document.querySelector<HTMLElement>(
+        '[data-agent-native-edit-overlay="selection"]',
+      );
+      const handle = document.querySelector<HTMLElement>(
+        '[data-agent-native-edit-handle="nw"]',
+      );
+      if (!highlight || !selection || !handle) {
+        throw new Error("missing selection overlay chrome");
+      }
+      const handleStyles = window.getComputedStyle(handle);
+      return {
+        highlightZ: Number(window.getComputedStyle(highlight).zIndex),
+        selectionZ: Number(window.getComputedStyle(selection).zIndex),
+        handleZ: Number(handleStyles.zIndex),
+        handleBackground: handleStyles.backgroundColor,
+      };
+    });
+
+  expect(overlayChrome.selectionZ).toBeGreaterThan(overlayChrome.highlightZ);
+  expect(overlayChrome.handleZ).toBeGreaterThan(0);
+  expect(overlayChrome.handleBackground).not.toBe("rgba(0, 0, 0, 0)");
 });
 
 test("selecting a different element changes the selection", async ({

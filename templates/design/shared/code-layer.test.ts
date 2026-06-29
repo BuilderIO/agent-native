@@ -472,6 +472,40 @@ describe("applyVisualEdit", () => {
     );
   });
 
+  it("applies edits from runtime body-rooted selectors against fragment HTML", () => {
+    const html = `<div>One</div><div>Two</div><div>Three</div><div>Four</div>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `body[data-agent-native-node-id="an-runtime"] > div:nth-of-type(4)`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<div>One</div><div>Two</div><div>Three</div><div style="color: #111">Four</div>`,
+    );
+  });
+
+  it("applies edits from runtime html/body-rooted selectors against fragment HTML", () => {
+    const html = `<main><section><button>One</button></section><section><button>Two</button></section></main>`;
+    const patch = applyVisualEdit(html, {
+      kind: "style",
+      target: {
+        selector: `html[data-agent-native-node-id="an-doc"] > body[data-agent-native-node-id="an-body"] > main > section:nth-of-type(2) > button`,
+      },
+      property: "color",
+      value: "#111",
+    });
+
+    expect(patch.result.status).toBe("applied");
+    expect(patch.content).toBe(
+      `<main><section><button>One</button></section><section><button style="color: #111">Two</button></section></main>`,
+    );
+  });
+
   it("does not collapse full bridge selector paths to ambiguous leaf selectors", () => {
     const html = `<main><section data-layer-name="First"><button class="secondary">First</button></section><section data-layer-name="Second"><button class="secondary">Second</button></section></main>`;
     const patch = applyVisualEdit(html, {

@@ -58,10 +58,22 @@ export function formatScrubValue(
   options: Pick<ScrubExpressionOptions, "precision" | "unit"> = {},
 ): string {
   const normalized = normalizeScrubNumber(value, options);
-  const numeric =
-    Number.isFinite(options.precision) && options.precision! >= 0
-      ? normalized.toFixed(options.precision).replace(/\.?0+$/, "")
-      : String(normalized);
+  let numeric: string;
+  if (Number.isFinite(options.precision) && options.precision! >= 0) {
+    const fixed = normalized.toFixed(options.precision!);
+    if (options.unit) {
+      // For fields with units (px, %, °, etc.) collapse all trailing zeros
+      // including the decimal point: "12.30px" → "12.3px", "10.00px" → "10px".
+      numeric = fixed.replace(/\.?0+$/, "");
+    } else {
+      // For unitless fields (e.g. line-height), preserve at least one decimal
+      // digit so values like "2.0" stay "2.0" rather than collapsing to "2".
+      // Only strip redundant trailing zeros beyond the first decimal digit.
+      numeric = fixed.replace(/(?<=\.\d)0+$/, "");
+    }
+  } else {
+    numeric = String(normalized);
+  }
   return `${numeric}${options.unit ?? ""}`;
 }
 

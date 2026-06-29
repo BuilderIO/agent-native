@@ -41,6 +41,8 @@ import {
 import { prettyScreenName } from "@/lib/screen-names";
 import { cn } from "@/lib/utils";
 
+import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "./types";
+
 interface ScreenFile {
   id: string;
   filename: string;
@@ -125,6 +127,9 @@ interface MultiScreenCanvasProps {
   screens: ScreenFile[];
   zoom: number;
   activeId?: string | null;
+  selectedScreenIds?: string[];
+  activeScreenHasHoveredChild?: boolean;
+  previewDeviceFrame?: DeviceFrameType;
   activeTool?: MultiScreenCanvasTool;
   toolProps?: CanvasToolProps;
   onActiveToolChange?: (tool: MultiScreenCanvasTool) => void;
@@ -143,16 +148,16 @@ interface MultiScreenCanvasProps {
     screenId: string,
     primitive: CanvasPrimitiveInsert,
   ) => boolean | string;
+  onPrimitiveCreated?: (screenId: string, nodeId: string) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
   onDeleteSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
-  onZoomToEdit?: (id: string) => void;
-  zoomToEditThreshold?: number;
   renderScreenContent?: (
     screen: ScreenFile,
     metadata: ResolvedScreenMetadata,
     geometry: FrameGeometry,
   ) => ReactNode;
+  onScreenSelectionChange?: (ids: string[]) => void;
   selectAllRequest?: number;
   clearSelectionRequest?: number;
 }
@@ -161,7 +166,8 @@ interface MultiScreenCanvasProps {
  * design-editor overview canvas. Renders every file in the design as a movable,
  * resizable frame inside an infinite, pannable surface.
  */
-const SCREEN_WIDTH = 320;
+export const OVERVIEW_FRAME_WIDTH = 320;
+const SCREEN_WIDTH = OVERVIEW_FRAME_WIDTH;
 const SCREEN_HEIGHT = 640;
 const SCREEN_CARD_HEIGHT = SCREEN_HEIGHT + 26;
 const SCREEN_GAP = 56;
@@ -171,10 +177,21 @@ const DRAG_THRESHOLD = 3;
 const FRAME_LABEL_HEIGHT = 28;
 const MIN_ZOOM = 2;
 const MAX_ZOOM = 800;
-const ZOOM_SENSITIVITY = 0.002;
-const MAX_WHEEL_ZOOM_DELTA = 80;
+const ZOOM_SENSITIVITY = 0.01;
+const MAX_WHEEL_ZOOM_DELTA = 120;
 const MAX_WHEEL_PAN_DELTA = 140;
 const PIXEL_GRID_ZOOM = 800;
+// During a zoom gesture the constant-size selection chrome is frozen (we don't
+// re-render); on commit it recomputes to its fixed screen size. These transitions
+// ease that recompute instead of snapping. Only chromeScale-driven props are
+// listed, so selection/geometry/rotation changes are never animated.
+const CHROME_SETTLE_MS = 150;
+const CHROME_BORDER_TRANSITION = `inset ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, border-radius ${CHROME_SETTLE_MS}ms ease-out, opacity 150ms ease-out`;
+const CHROME_HANDLE_TRANSITION = `width ${CHROME_SETTLE_MS}ms ease-out, height ${CHROME_SETTLE_MS}ms ease-out, border-width ${CHROME_SETTLE_MS}ms ease-out, top ${CHROME_SETTLE_MS}ms ease-out, bottom ${CHROME_SETTLE_MS}ms ease-out, left ${CHROME_SETTLE_MS}ms ease-out, right ${CHROME_SETTLE_MS}ms ease-out`;
+// Frame header (name + dimensions + "Full view" button) is counter-scaled via
+// transform to stay a fixed screen size; ease that scale on zoom-settle. opacity
+// is included so the button's hover-fade (transition-opacity) keeps working.
+const CHROME_LABEL_TRANSITION = `transform ${CHROME_SETTLE_MS}ms ease-out, opacity 150ms ease-out`;
 const DRAFT_FRAME_WIDTH = 320;
 const DRAFT_FRAME_HEIGHT = 640;
 const DRAFT_RECT_WIDTH = 160;
@@ -389,10 +406,27 @@ type DragState =
   | DraftCreateDragState
   | PenNodeDragState;
 
+type PendingWheelGesture =
+  | {
+      mode: "zoom";
+      deltaY: number;
+      cursor: Point;
+      clientX: number;
+      clientY: number;
+    }
+  | {
+      mode: "pan";
+      deltaX: number;
+      deltaY: number;
+    };
+
 export function MultiScreenCanvas({
   screens,
   zoom,
   activeId,
+  selectedScreenIds,
+  activeScreenHasHoveredChild = false,
+  previewDeviceFrame = "none",
   activeTool,
   toolProps,
   onActiveToolChange,
@@ -405,12 +439,12 @@ export function MultiScreenCanvas({
   onGeometryChange,
   onGeometryCommit,
   onCreatePrimitive,
+  onPrimitiveCreated,
   onCreateScreenFrame,
   onDeleteSelection,
   onZoomChange,
-  onZoomToEdit,
-  zoomToEditThreshold,
   renderScreenContent,
+  onScreenSelectionChange,
   selectAllRequest,
   clearSelectionRequest,
 }: MultiScreenCanvasProps) {
@@ -440,7 +474,7 @@ export function MultiScreenCanvas({
   const [localActiveTool, setLocalActiveTool] =
     useState<MultiScreenCanvasTool>("move");
   const [selectedIds, setSelectedIds] = useState<string[]>(
-    activeId ? [activeId] : [],
+    selectedScreenIds ?? [],
   );
   const selectedIdsRef = useRef(selectedIds);
   const dragState = useRef<DragState | null>(null);
@@ -460,6 +494,23 @@ export function MultiScreenCanvas({
   const [dragCursor, setDragCursor] = useState<string | null>(null);
   const suppressNextPick = useRef(false);
   const feedbackTimerRef = useRef<number | null>(null);
+  const pendingWheelGestureRef = useRef<PendingWheelGesture | null>(null);
+  const wheelGestureFrameRef = useRef<number | null>(null);
+  const worldRef = useRef<HTMLDivElement>(null);
+  const pixelGridRef = useRef<HTMLDivElement>(null);
+  const viewCommitTimerRef = useRef<number | null>(null);
+  const previousPreviewDeviceFrameRef = useRef(previewDeviceFrame);
+
+  const getResolvedMetadata = useCallback(
+    (screen: ScreenFile) =>
+      resolveScreenMetadata(
+        screen,
+        metadataById?.[screen.id],
+        getScreenMetadata?.(screen),
+        previewDeviceFrame,
+      ),
+    [getScreenMetadata, metadataById, previewDeviceFrame],
+  );
 
   useEffect(() => {
     onGeometryChangeRef.current = onGeometryChange;
@@ -548,6 +599,10 @@ export function MultiScreenCanvas({
   }, [selectedIds]);
 
   useEffect(() => {
+    onScreenSelectionChange?.(selectedIds);
+  }, [onScreenSelectionChange, selectedIds]);
+
+  useEffect(() => {
     draftPrimitivesRef.current = draftPrimitives;
   }, [draftPrimitives]);
 
@@ -569,8 +624,9 @@ export function MultiScreenCanvas({
       screens.forEach((screen, index) => {
         const existing = current[screen.id];
         const persisted = geometryById?.[screen.id];
+        const metadata = getResolvedMetadata(screen);
         const resolved = {
-          ...getInitialFrameGeometry(index),
+          ...getInitialFrameGeometry(index, metadata),
           ...persisted,
         } as FrameGeometry;
         next[screen.id] = persisted ? resolved : (existing ?? resolved);
@@ -588,14 +644,47 @@ export function MultiScreenCanvas({
       const next = current.filter((id) => currentIds.has(id));
       return next.length === current.length ? current : next;
     });
-  }, [geometryById, screens, updateFrameGeometry, updateSelectedIds]);
+  }, [
+    geometryById,
+    getResolvedMetadata,
+    screens,
+    updateFrameGeometry,
+    updateSelectedIds,
+  ]);
 
   useEffect(() => {
-    if (!activeId) return;
-    updateSelectedIds((current) =>
-      current.includes(activeId) ? current : [activeId],
-    );
-  }, [activeId, updateSelectedIds]);
+    const previous = previousPreviewDeviceFrameRef.current;
+    previousPreviewDeviceFrameRef.current = previewDeviceFrame;
+    if (previous === previewDeviceFrame) return;
+
+    updateFrameGeometry((current) => {
+      const next = { ...current };
+      let changed = false;
+
+      screens.forEach((screen, index) => {
+        const metadata = getResolvedMetadata(screen);
+        const currentGeometry =
+          current[screen.id] ?? getInitialFrameGeometry(index, metadata);
+        const nextHeight = getOverviewFrameHeight(
+          currentGeometry.width,
+          metadata,
+        );
+        if (currentGeometry.height === nextHeight) return;
+        next[screen.id] = {
+          ...currentGeometry,
+          height: nextHeight,
+        };
+        changed = true;
+      });
+
+      return changed ? next : current;
+    });
+  }, [getResolvedMetadata, previewDeviceFrame, screens, updateFrameGeometry]);
+
+  useEffect(() => {
+    if (!selectedScreenIds) return;
+    updateSelectedIds(() => selectedScreenIds);
+  }, [screens, selectedScreenIds, updateSelectedIds]);
 
   useEffect(() => {
     if (
@@ -628,11 +717,18 @@ export function MultiScreenCanvas({
   useEffect(() => {
     if (!surfaceRef.current || screens.length === 0) return;
     const rect = surfaceRef.current.getBoundingClientRect();
-    const columns = Math.min(screens.length, 3);
-    const rows = Math.ceil(screens.length / columns);
     const scale = zoomRef.current / 100;
-    const totalWidth = columns * SCREEN_WIDTH + (columns - 1) * SCREEN_GAP;
-    const totalHeight = rows * SCREEN_CARD_HEIGHT + (rows - 1) * SCREEN_GAP;
+    const frames = screens.map((screen, index) =>
+      getInitialFrameGeometry(index, getResolvedMetadata(screen)),
+    );
+    const bounds = getFrameGroupBounds(
+      frames.map((geometry, index) => ({
+        id: screens[index]?.id ?? String(index),
+        geometry,
+      })),
+    );
+    const totalWidth = bounds?.width ?? SCREEN_WIDTH;
+    const totalHeight = bounds?.height ?? SCREEN_CARD_HEIGHT;
     const visualLeft = Math.max(24, (rect.width - totalWidth * scale) / 2);
     const visualTop = Math.max(24, (rect.height - totalHeight * scale) / 2);
     const nextPan = {
@@ -641,9 +737,9 @@ export function MultiScreenCanvas({
     };
     panRef.current = nextPan;
     setPan(nextPan);
-    // Only on mount or when screen count changes, not on every pan update.
+    // Only on mount, screen-count changes, or device-preview changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [screens.length]);
+  }, [previewDeviceFrame, screens.length]);
 
   useEffect(() => {
     return () => {
@@ -651,6 +747,12 @@ export function MultiScreenCanvas({
       duplicateCleanup.current?.();
       if (feedbackTimerRef.current !== null) {
         window.clearTimeout(feedbackTimerRef.current);
+      }
+      if (wheelGestureFrameRef.current !== null) {
+        window.cancelAnimationFrame(wheelGestureFrameRef.current);
+      }
+      if (viewCommitTimerRef.current !== null) {
+        window.clearTimeout(viewCommitTimerRef.current);
       }
     };
   }, []);
@@ -682,8 +784,17 @@ export function MultiScreenCanvas({
   }, []);
 
   const getCurrentFrameEntries = useCallback(
-    () => getFrameEntries(screens, frameGeometryRef.current),
-    [screens],
+    () =>
+      screens.map((screen, index) => {
+        const metadata = getResolvedMetadata(screen);
+        return {
+          id: screen.id,
+          geometry:
+            frameGeometryRef.current[screen.id] ??
+            getInitialFrameGeometry(index, metadata),
+        };
+      }),
+    [getResolvedMetadata, screens],
   );
 
   const getCurrentDraftEntries = useCallback(
@@ -720,14 +831,6 @@ export function MultiScreenCanvas({
             (b.geometry.z ?? 0) - (a.geometry.z ?? 0) || b.index - a.index,
         )[0],
     [getCurrentFrameEntries],
-  );
-
-  const getFrameAtClientPoint = useCallback(
-    (clientX: number, clientY: number) => {
-      const point = canvasPointFromClient(clientX, clientY);
-      return getFrameEntryAtPoint(point)?.id;
-    },
-    [canvasPointFromClient, getFrameEntryAtPoint],
   );
 
   const deleteSelectedItems = useCallback(() => {
@@ -1028,7 +1131,8 @@ export function MultiScreenCanvas({
           current.filter((draft) => draft.id !== nextDraft.id),
         );
         updateSelectedDraftIds(() => []);
-        updateSelectedIds(() => [persisted.nodeId]);
+        updateSelectedIds(() => []);
+        onPrimitiveCreated?.(persisted.frameId, persisted.nodeId);
         return;
       }
 
@@ -1038,6 +1142,7 @@ export function MultiScreenCanvas({
     },
     [
       persistDraftPrimitive,
+      onPrimitiveCreated,
       updateDraftPrimitives,
       updateSelectedDraftIds,
       updateSelectedIds,
@@ -1684,9 +1789,11 @@ export function MultiScreenCanvas({
       const targetIds = currentSelectedIds.includes(id)
         ? currentSelectedIds
         : [id];
+      if (activeId !== id) {
+        onPick(id);
+      }
       if (!currentSelectedIds.includes(id)) {
         updateSelectedIds(() => [id]);
-        onPick(id);
       }
       updateSelectedDraftIds(() => []);
 
@@ -1781,6 +1888,7 @@ export function MultiScreenCanvas({
       installDragListeners(handleMouseMove, handleMouseUp);
     },
     [
+      activeId,
       finishDrag,
       getCurrentFrameEntries,
       installDragListeners,
@@ -1798,6 +1906,10 @@ export function MultiScreenCanvas({
       e.preventDefault();
       e.stopPropagation();
       suppressNextPick.current = true;
+
+      if (activeId !== id) {
+        onPick(id);
+      }
 
       const currentSelectedIds = selectedIdsRef.current;
       const targetIds = currentSelectedIds.includes(id)
@@ -1907,9 +2019,11 @@ export function MultiScreenCanvas({
       installDragListeners(handleMouseMove, handleMouseUp);
     },
     [
+      activeId,
       finishDrag,
       getCurrentFrameEntries,
       installDragListeners,
+      onPick,
       showTransformFeedback,
       updateFrameGeometry,
       updateSelectedIds,
@@ -1931,6 +2045,10 @@ export function MultiScreenCanvas({
       e.preventDefault();
       e.stopPropagation();
       suppressNextPick.current = true;
+
+      if (activeId !== id) {
+        onPick(id);
+      }
 
       const originFrame = getCurrentFrameEntries().find(
         (entry) => entry.id === id,
@@ -2003,10 +2121,12 @@ export function MultiScreenCanvas({
       installDragListeners(handleMouseMove, handleMouseUp);
     },
     [
+      activeId,
       finishDrag,
       getCanvasPoint,
       getCurrentFrameEntries,
       installDragListeners,
+      onPick,
       showTransformFeedback,
       updateFrameGeometry,
       updateSelectedIds,
@@ -2023,11 +2143,20 @@ export function MultiScreenCanvas({
 
       if (e.shiftKey) {
         updateSelectedDraftIds(() => []);
-        updateSelectedIds((current) =>
-          current.includes(id)
-            ? current.filter((selectedId) => selectedId !== id)
-            : [...current, id],
-        );
+        const currentSelectedIds = selectedIdsRef.current;
+        const nextSelectedIds = currentSelectedIds.includes(id)
+          ? currentSelectedIds.filter((selectedId) => selectedId !== id)
+          : [...currentSelectedIds, id];
+        updateSelectedIds(() => nextSelectedIds);
+        const nextPrimaryId =
+          nextSelectedIds.length === 0
+            ? null
+            : nextSelectedIds.includes(id)
+              ? id
+              : (nextSelectedIds[nextSelectedIds.length - 1] ?? null);
+        if (nextPrimaryId && nextPrimaryId !== activeId) {
+          onPick(nextPrimaryId);
+        }
         return;
       }
 
@@ -2035,7 +2164,7 @@ export function MultiScreenCanvas({
       updateSelectedIds(() => [id]);
       onPick(id);
     },
-    [onPick, updateSelectedDraftIds, updateSelectedIds],
+    [activeId, onPick, updateSelectedDraftIds, updateSelectedIds],
   );
 
   const handleFrameDoubleClick = useCallback(
@@ -2204,6 +2333,116 @@ export function MultiScreenCanvas({
     [activeTool, localActiveTool, updatePenPointer],
   );
 
+  // Push the current pan/zoom straight to the DOM. A wheel/pinch gesture must
+  // NEVER re-render React's canvas tree during the gesture: each render re-runs
+  // renderScreenContent (which re-creates the active screen's live DesignCanvas
+  // iframe) and, with React DevTools attached, serializes every render over the
+  // extension bridge — that re-render storm is the real source of zoom jank, not
+  // layout/paint. We mutate the transform directly here and reconcile React
+  // state once, after the gesture settles, via scheduleViewCommit().
+  const applyViewToDom = useCallback(() => {
+    const nextScale = zoomRef.current / 100;
+    const p = panRef.current;
+    const world = worldRef.current;
+    if (world) {
+      // 2D translate (not translate3d) so the layer is not GPU-pinned to a
+      // stale low-res raster — keeps zoomed-in content crisp.
+      world.style.transform = `translate(${p.x}px, ${p.y}px) scale(${nextScale})`;
+    }
+    const grid = pixelGridRef.current;
+    if (grid) {
+      grid.style.backgroundPosition = `${p.x}px ${p.y}px`;
+      grid.style.backgroundSize = `${nextScale}px ${nextScale}px`;
+    }
+  }, []);
+
+  const commitView = useCallback(() => {
+    viewCommitTimerRef.current = null;
+    setCanvasZoom(zoomRef.current);
+    setPan(panRef.current);
+    onZoomChange?.(zoomRef.current);
+  }, [onZoomChange]);
+
+  // Debounced: only commit to React state once the gesture has been idle for a
+  // beat, so a continuous pinch produces zero re-renders until the user pauses.
+  const scheduleViewCommit = useCallback(() => {
+    if (viewCommitTimerRef.current !== null) {
+      window.clearTimeout(viewCommitTimerRef.current);
+    }
+    viewCommitTimerRef.current = window.setTimeout(commitView, 120);
+  }, [commitView]);
+
+  const flushPendingWheelGesture = useCallback(() => {
+    wheelGestureFrameRef.current = null;
+    const gesture = pendingWheelGestureRef.current;
+    pendingWheelGestureRef.current = null;
+    if (!gesture) return;
+
+    if (gesture.mode === "zoom") {
+      const currentZoom = zoomRef.current;
+      const zoomDeltaY = clamp(
+        gesture.deltaY,
+        -MAX_WHEEL_ZOOM_DELTA,
+        MAX_WHEEL_ZOOM_DELTA,
+      );
+      const nextZoom = clamp(
+        currentZoom * Math.exp(-zoomDeltaY * ZOOM_SENSITIVITY),
+        MIN_ZOOM,
+        MAX_ZOOM,
+      );
+      if (nextZoom === currentZoom) return;
+
+      const nextPan = getPanForZoomToCursor({
+        pan: panRef.current,
+        cursor: gesture.cursor,
+        oldZoom: currentZoom,
+        nextZoom,
+      });
+      zoomRef.current = nextZoom;
+      panRef.current = nextPan;
+      applyViewToDom();
+      scheduleViewCommit();
+      return;
+    }
+
+    const nextPan = {
+      x: panRef.current.x - gesture.deltaX,
+      y: panRef.current.y - gesture.deltaY,
+    };
+    panRef.current = nextPan;
+    applyViewToDom();
+    scheduleViewCommit();
+  }, [applyViewToDom, scheduleViewCommit]);
+
+  const enqueueWheelGesture = useCallback(
+    (gesture: PendingWheelGesture) => {
+      const pending = pendingWheelGestureRef.current;
+      if (pending?.mode === "zoom" && gesture.mode === "zoom") {
+        pendingWheelGestureRef.current = {
+          mode: "zoom",
+          deltaY: pending.deltaY + gesture.deltaY,
+          cursor: gesture.cursor,
+          clientX: gesture.clientX,
+          clientY: gesture.clientY,
+        };
+      } else if (pending?.mode === "pan" && gesture.mode === "pan") {
+        pendingWheelGestureRef.current = {
+          mode: "pan",
+          deltaX: pending.deltaX + gesture.deltaX,
+          deltaY: pending.deltaY + gesture.deltaY,
+        };
+      } else {
+        pendingWheelGestureRef.current = gesture;
+      }
+
+      if (wheelGestureFrameRef.current !== null) return;
+      wheelGestureFrameRef.current = window.requestAnimationFrame(
+        flushPendingWheelGesture,
+      );
+    },
+    [flushPendingWheelGesture],
+  );
+
   const handleWheelEvent = useCallback(
     (event: WheelEvent) => {
       const rect = surfaceRef.current?.getBoundingClientRect();
@@ -2213,40 +2452,18 @@ export function MultiScreenCanvas({
       const delta = getWheelDelta(event);
 
       if (event.ctrlKey || event.metaKey) {
-        const currentZoom = zoomRef.current;
         const zoomDeltaY = clamp(
           delta.y,
           -MAX_WHEEL_ZOOM_DELTA,
           MAX_WHEEL_ZOOM_DELTA,
         );
-        const nextZoom = clamp(
-          currentZoom * Math.exp(-zoomDeltaY * ZOOM_SENSITIVITY),
-          MIN_ZOOM,
-          MAX_ZOOM,
-        );
-        if (nextZoom === currentZoom) return;
-
-        const nextPan = getPanForZoomToCursor({
-          pan: panRef.current,
+        enqueueWheelGesture({
+          mode: "zoom",
+          deltaY: zoomDeltaY,
           cursor: { x: event.clientX - rect.left, y: event.clientY - rect.top },
-          oldZoom: currentZoom,
-          nextZoom,
+          clientX: event.clientX,
+          clientY: event.clientY,
         });
-        const zoomEditFrameId =
-          zoomToEditThreshold !== undefined &&
-          currentZoom < zoomToEditThreshold &&
-          nextZoom >= zoomToEditThreshold
-            ? getFrameAtClientPoint(event.clientX, event.clientY)
-            : undefined;
-
-        zoomRef.current = nextZoom;
-        panRef.current = nextPan;
-        setCanvasZoom(nextZoom);
-        setPan(nextPan);
-        onZoomChange?.(nextZoom);
-        if (zoomEditFrameId) {
-          onZoomToEdit?.(zoomEditFrameId);
-        }
         return;
       }
 
@@ -2260,14 +2477,9 @@ export function MultiScreenCanvas({
         -MAX_WHEEL_PAN_DELTA,
         MAX_WHEEL_PAN_DELTA,
       );
-      const nextPan = {
-        x: panRef.current.x - deltaX,
-        y: panRef.current.y - deltaY,
-      };
-      panRef.current = nextPan;
-      setPan(nextPan);
+      enqueueWheelGesture({ mode: "pan", deltaX, deltaY });
     },
-    [getFrameAtClientPoint, onZoomChange, onZoomToEdit, zoomToEditThreshold],
+    [enqueueWheelGesture],
   );
 
   useEffect(() => {
@@ -2462,6 +2674,52 @@ export function MultiScreenCanvas({
     if (tool !== "pen") clearActivePenPath();
   }, [activeTool, clearActivePenPath, localActiveTool]);
 
+  // Cmd+D / Ctrl+D: duplicate the selected frame with a visible offset so the
+  // copy doesn't land exactly on top of the original (Figma-style behaviour).
+  useEffect(() => {
+    if (!onDuplicate) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (activePenPathRef.current) return;
+      if (
+        !(event.metaKey || event.ctrlKey) ||
+        event.key.toLowerCase() !== "d" ||
+        isEditableHotkeyTarget(event.target)
+      ) {
+        return;
+      }
+      // Only act on frame IDs — filter out canvas primitives (sub-elements).
+      const frameIds = selectedIdsRef.current.filter(
+        (id) => frameGeometryRef.current[id],
+      );
+      const targetId = frameIds[0];
+      if (!targetId) return;
+      const screen = screens.find((s) => s.id === targetId);
+      if (!screen) return;
+      const sourceGeometry = frameGeometryRef.current[targetId];
+      if (!sourceGeometry) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      // Offset the duplicate by one grid gap to the right (and slightly down)
+      // so it is visually distinct from the original, mirroring Figma's behaviour.
+      const canvasPosition = {
+        x: sourceGeometry.x + sourceGeometry.width + SCREEN_GAP,
+        y: sourceGeometry.y,
+      };
+      onDuplicate(targetId, {
+        mode: "alt-click",
+        screen,
+        canvasPosition,
+        dropCanvasPosition: canvasPosition,
+      });
+    };
+
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [onDuplicate, screens]);
+
   const scale = canvasZoom / 100;
   const chromeScale = scale > 0 ? 1 / scale : 1;
   const showPixelGrid = canvasZoom >= PIXEL_GRID_ZOOM;
@@ -2488,10 +2746,15 @@ export function MultiScreenCanvas({
           : effectiveTool === "hand"
             ? "grab"
             : "default";
-  const canvasFrames = screens.map((screen, index) => ({
-    screen,
-    geometry: frameGeometry[screen.id] ?? getInitialFrameGeometry(index),
-  }));
+  const canvasFrames = screens.map((screen, index) => {
+    const metadata = getResolvedMetadata(screen);
+    return {
+      screen,
+      metadata,
+      geometry:
+        frameGeometry[screen.id] ?? getInitialFrameGeometry(index, metadata),
+    };
+  });
   const selectedFrameEntries = canvasFrames
     .filter(({ screen }) => selectedIdSet.has(screen.id))
     .map(({ screen, geometry }) => ({ id: screen.id, geometry }));
@@ -2507,16 +2770,25 @@ export function MultiScreenCanvas({
     selectedDraftEntries.length > 1
       ? getFrameGroupBounds(selectedDraftEntries)
       : null;
+  const singleSelectedFrame =
+    selectedFrameEntries.length === 1 && !selectedGroupBounds
+      ? selectedFrameEntries[0]
+      : null;
+  const singleSelectedDraft =
+    selectedDraftEntries.length === 1 && !selectedDraftGroupBounds
+      ? selectedDraftEntries[0]
+      : null;
   return (
     <div
       ref={surfaceRef}
-      className="relative h-full w-full select-none overflow-hidden bg-background"
+      className="relative h-full w-full select-none overflow-hidden"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       style={{ cursor: surfaceCursor, touchAction: "none" }}
     >
       {showPixelGrid ? (
         <div
+          ref={pixelGridRef}
           className="pointer-events-none absolute inset-0 opacity-60"
           style={{
             backgroundImage:
@@ -2528,20 +2800,23 @@ export function MultiScreenCanvas({
       ) : null}
 
       <div
+        ref={worldRef}
         className="pointer-events-none absolute"
         style={{
-          left: pan.x,
-          top: pan.y,
-          transform: `scale(${scale})`,
+          left: 0,
+          top: 0,
+          // Plain 2D transform — NO will-change / translate3d. Forcing a
+          // compositor layer pins a low-res cached raster that the GPU stretches
+          // when you zoom in, leaving screen content permanently blurry. A 2D
+          // transform lets the browser re-rasterize crisply at rest. Zoom smoothness
+          // comes from never re-rendering React during the gesture (see
+          // flushPendingWheelGesture / applyViewToDom), not from layer promotion —
+          // the trace proved paint/composite was never the bottleneck.
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
           transformOrigin: "top left",
         }}
       >
-        {canvasFrames.map(({ screen, geometry }) => {
-          const metadata = resolveScreenMetadata(
-            screen,
-            metadataById?.[screen.id],
-            getScreenMetadata?.(screen),
-          );
+        {canvasFrames.map(({ screen, metadata, geometry }) => {
           return (
             <Screen
               key={screen.id}
@@ -2551,6 +2826,9 @@ export function MultiScreenCanvas({
               screenContent={renderScreenContent?.(screen, metadata, geometry)}
               isActive={screen.id === activeId}
               isSelected={selectedIdSet.has(screen.id)}
+              hasHoveredChild={
+                screen.id === activeId && activeScreenHasHoveredChild
+              }
               groupSelected={hasGroupSelection}
               handlesEnabled={!hasGroupSelection}
               penActive={penActive}
@@ -2598,6 +2876,32 @@ export function MultiScreenCanvas({
           <PenPathOverlay path={displayedPenPath} closeHover={penCloseHover} />
         ) : null}
 
+        {singleSelectedFrame ? (
+          <SelectionBox
+            geometry={singleSelectedFrame.geometry}
+            chromeScale={chromeScale}
+            showRotate
+            onStartResize={(handle, event) =>
+              beginResize(singleSelectedFrame.id, handle, event)
+            }
+            onStartRotate={(event) =>
+              beginRotate(singleSelectedFrame.id, event)
+            }
+          />
+        ) : null}
+
+        {singleSelectedDraft ? (
+          <SelectionBox
+            geometry={singleSelectedDraft.geometry}
+            chromeScale={chromeScale}
+            showRotate={false}
+            onStartResize={(handle, event) =>
+              beginDraftResize(singleSelectedDraft.id, handle, event)
+            }
+            onStartRotate={() => {}}
+          />
+        ) : null}
+
         {selectedGroupBounds ? (
           <GroupSelectionBox
             bounds={selectedGroupBounds}
@@ -2635,19 +2939,22 @@ export function MultiScreenCanvas({
             }
           />
         ))}
-
-        {marquee ? (
-          <span
-            className="pointer-events-none absolute z-40 border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)]"
-            style={{
-              left: SURFACE_PADDING + marquee.x,
-              top: SURFACE_PADDING + marquee.y,
-              width: marquee.width,
-              height: marquee.height,
-            }}
-          />
-        ) : null}
       </div>
+
+      {marquee ? (
+        <span
+          className="pointer-events-none absolute z-40 border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)]"
+          style={{
+            // Convert canvas-space marquee to surface-space so this overlay
+            // is never clipped or hidden by the canvas transform container.
+            // Surface position = pan + (SURFACE_PADDING + canvasCoord) * scale
+            left: pan.x + (SURFACE_PADDING + marquee.x) * scale,
+            top: pan.y + (SURFACE_PADDING + marquee.y) * scale,
+            width: Math.max(1, marquee.width * scale),
+            height: Math.max(1, marquee.height * scale),
+          }}
+        />
+      ) : null}
 
       {duplicatePreview ? (
         <div
@@ -2727,7 +3034,7 @@ function DraftPrimitiveLayer({
       type="button"
       className={cn(
         "group/artboard pointer-events-auto absolute block overflow-visible text-left outline-none",
-        preview || penActive ? "cursor-crosshair" : "cursor-move",
+        preview || penActive ? "cursor-crosshair" : "cursor-pointer",
       )}
       style={{
         left: SURFACE_PADDING + geometry.x,
@@ -2752,18 +3059,21 @@ function DraftPrimitiveLayer({
       <span
         className={cn(
           "pointer-events-none absolute rounded-sm border transition-opacity",
-          selected
+          preview
             ? "border-[var(--design-editor-accent-color)] opacity-100"
-            : "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100",
+            : selected
+              ? "border-transparent opacity-0"
+              : "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100",
         )}
         style={{
           inset: -5 * chromeScale,
           borderWidth: 1.5 * chromeScale,
+          transition: CHROME_BORDER_TRANSITION,
         }}
       />
       <ResizeHandles
-        active={selected || preview}
-        enabled={!penActive && ((isSelected && !groupSelected) || preview)}
+        active={preview}
+        enabled={!penActive && preview}
         showRotate={false}
         chromeScale={chromeScale}
         onStartResize={(handle, event) =>
@@ -3012,6 +3322,7 @@ function Screen({
   geometry,
   isActive,
   isSelected,
+  hasHoveredChild,
   groupSelected,
   handlesEnabled,
   penActive,
@@ -3030,6 +3341,7 @@ function Screen({
   geometry: FrameGeometry;
   isActive: boolean;
   isSelected: boolean;
+  hasHoveredChild: boolean;
   groupSelected: boolean;
   handlesEnabled: boolean;
   penActive: boolean;
@@ -3057,8 +3369,14 @@ function Screen({
   const suppressNextClick = useRef(false);
   const emphasized = isActive || isSelected;
   const selectionOutlined = isSelected && !groupSelected;
-  const showHoverOutline =
-    !creationToolActive && (!isSelected || !groupSelected);
+  const showHoverChrome =
+    !creationToolActive && !isSelected && !groupSelected && !hasHoveredChild;
+  const screenContentInteractive =
+    Boolean(screenContent) && !penActive && !creationToolActive;
+  const frameLabelHeight = FRAME_LABEL_HEIGHT * chromeScale;
+  const frameScreenWidth = geometry.width / Math.max(chromeScale, 0.001);
+  const labelInfoMaxWidth = Math.max(64, frameScreenWidth - 116);
+  const fullViewMaxWidth = Math.max(84, Math.min(180, frameScreenWidth * 0.46));
 
   return (
     <div
@@ -3066,29 +3384,51 @@ function Screen({
       className="group/frame pointer-events-auto absolute"
       style={{
         left: SURFACE_PADDING + geometry.x,
-        top: SURFACE_PADDING + geometry.y - FRAME_LABEL_HEIGHT,
+        top: SURFACE_PADDING + geometry.y - frameLabelHeight,
         width: geometry.width,
         transform: geometry.rotation
           ? `rotate(${geometry.rotation}deg)`
           : undefined,
-        transformOrigin: `${geometry.width / 2}px ${FRAME_LABEL_HEIGHT + geometry.height / 2}px`,
+        transformOrigin: `${geometry.width / 2}px ${frameLabelHeight + geometry.height / 2}px`,
         zIndex: geometry.z,
       }}
     >
       <div
-        className="flex h-7 w-full cursor-default items-center justify-between gap-2 px-1"
+        className="relative w-full cursor-default"
+        style={{ height: frameLabelHeight }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (suppressNextClick.current) {
+            suppressNextClick.current = false;
+            return;
+          }
+          if (e.detail > 1) return;
+          onPick(screen.id, e);
+        }}
+        onDoubleClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onEdit(screen.id, e);
+        }}
         onMouseDown={(e) => {
           if (e.button !== 0) return;
           if (penActive || creationToolActive) return;
           if (e.shiftKey) {
             e.stopPropagation();
-            onPick(screen.id, e);
             return;
           }
           onStartFrameDrag(screen.id, e);
         }}
       >
-        <div className="flex min-w-0 items-center gap-1.5">
+        <div
+          className="absolute left-1 top-1/2 flex min-w-0 items-center gap-1.5"
+          style={{
+            maxWidth: labelInfoMaxWidth,
+            transform: `translateY(-50%) scale(${chromeScale})`,
+            transformOrigin: "left center",
+            transition: CHROME_LABEL_TRANSITION,
+          }}
+        >
           <span
             className={cn(
               "h-1.5 w-1.5 shrink-0 rounded-full",
@@ -3111,11 +3451,17 @@ function Screen({
         <button
           type="button"
           className={cn(
-            "relative z-40 flex h-5 max-w-[46%] shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            "absolute right-1 top-1/2 z-40 flex h-5 shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "group-hover/frame:opacity-100 group-focus-within/frame:opacity-100",
             emphasized && "opacity-100",
           )}
+          style={{
+            maxWidth: fullViewMaxWidth,
+            transform: `translateY(-50%) scale(${chromeScale})`,
+            transformOrigin: "right center",
+            transition: CHROME_LABEL_TRANSITION,
+          }}
           aria-label={t("multiScreenCanvas.fullView")}
           title={t("multiScreenCanvas.fullView")}
           onClick={(event) => onEdit(screen.id, event)}
@@ -3173,41 +3519,41 @@ function Screen({
           "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           emphasized
             ? "text-foreground"
-            : "text-muted-foreground hover:text-foreground",
+            : cn(
+                "text-muted-foreground",
+                showHoverChrome && "hover:text-foreground",
+              ),
         )}
         style={{
           width: geometry.width,
           height: geometry.height,
-          cursor:
-            penActive || creationToolActive
-              ? "crosshair"
-              : isSelected
-                ? "move"
-                : "pointer",
+          cursor: penActive || creationToolActive ? "crosshair" : "pointer",
           touchAction: "none",
         }}
       >
         <span
+          data-screen-hover-outline
           className={cn(
             "pointer-events-none absolute border transition-opacity",
-            selectionOutlined
-              ? "border-[var(--design-editor-accent-color)] opacity-100"
-              : showHoverOutline
-                ? "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100"
-                : "border-transparent opacity-0",
+            showHoverChrome
+              ? "border-[var(--design-editor-accent-color)] opacity-0 group-hover/artboard:opacity-100"
+              : "border-transparent opacity-0",
           )}
           style={{
             inset: -5 * chromeScale,
             borderRadius: 13 * chromeScale,
             borderWidth: 1.5 * chromeScale,
+            transition: CHROME_BORDER_TRANSITION,
           }}
         />
         <span
           className={cn(
             "relative block h-full w-full overflow-hidden rounded-lg border bg-white shadow-2xl transition-colors",
-            "border-border group-hover/artboard:border-muted-foreground/60",
+            "border-border",
+            showHoverChrome &&
+              "group-hover/artboard:border-muted-foreground/60",
           )}
-          style={{ pointerEvents: penActive ? "none" : undefined }}
+          style={{ pointerEvents: screenContentInteractive ? "auto" : "none" }}
         >
           {screenContent ?? (
             <iframe
@@ -3219,10 +3565,21 @@ function Screen({
               style={{
                 width: metadata.width,
                 height: metadata.height,
+                // Scale the iframe to fit within the frame geometry. The outer
+                // canvas transform already handles pan/zoom; this scale maps the
+                // iframe's native resolution to the frame's display dimensions.
                 transform: `scale(${geometry.width / metadata.width}, ${
                   geometry.height / metadata.height
                 })`,
                 transformOrigin: "top left",
+                backgroundColor: "white",
+                colorScheme: "light",
+                // Prevent the browser from discarding the composited layer at
+                // fractional zoom levels, which causes the iframe to go black.
+                // backface-visibility:hidden forces the browser to keep the
+                // backing store alive even when the effective scale is very small
+                // (e.g. 0.25 iframe scale × 0.5 canvas zoom = 0.125 total).
+                backfaceVisibility: "hidden",
               }}
               title={screen.filename}
             />
@@ -3236,8 +3593,14 @@ function Screen({
           <span className="pointer-events-none absolute inset-0 rounded-[7px] border border-black/5" />
         </span>
         <ResizeHandles
-          active={selectionOutlined}
-          enabled={!penActive && !creationToolActive && handlesEnabled}
+          active={false}
+          enabled={
+            !selectionOutlined &&
+            !penActive &&
+            !creationToolActive &&
+            handlesEnabled
+          }
+          showOnHover={false}
           showRotate
           chromeScale={chromeScale}
           onStartResize={(handle, e) => onStartResize(screen.id, handle, e)}
@@ -3258,25 +3621,61 @@ function GroupSelectionBox({
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
 }) {
   return (
-    <div
-      data-frame-shell
-      className="pointer-events-none absolute z-30 border border-[var(--design-editor-accent-color)]"
-      style={{
-        left: SURFACE_PADDING + bounds.left,
-        top: SURFACE_PADDING + bounds.top,
+    <SelectionBox
+      geometry={{
+        x: bounds.left,
+        y: bounds.top,
         width: bounds.width,
         height: bounds.height,
+      }}
+      chromeScale={chromeScale}
+      showRotate={false}
+      onStartResize={onStartResize}
+      onStartRotate={() => {}}
+    />
+  );
+}
+
+function SelectionBox({
+  geometry,
+  chromeScale,
+  showRotate = true,
+  onStartResize,
+  onStartRotate,
+}: {
+  geometry: FrameGeometry;
+  chromeScale: number;
+  showRotate?: boolean;
+  onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
+  onStartRotate: (e: React.MouseEvent) => void;
+}) {
+  return (
+    <div
+      data-frame-selection-box
+      data-frame-shell
+      className="pointer-events-none absolute border border-[var(--design-editor-accent-color)]"
+      style={{
+        left: SURFACE_PADDING + geometry.x,
+        top: SURFACE_PADDING + geometry.y,
+        width: geometry.width,
+        height: geometry.height,
         borderRadius: 13 * chromeScale,
         borderWidth: 1.5 * chromeScale,
+        transition: CHROME_BORDER_TRANSITION,
+        transform: geometry.rotation
+          ? `rotate(${geometry.rotation}deg)`
+          : undefined,
+        transformOrigin: `${geometry.width / 2}px ${geometry.height / 2}px`,
+        zIndex: 1_000_000,
       }}
     >
       <ResizeHandles
         active
         enabled
-        showRotate={false}
+        showRotate={showRotate}
         chromeScale={chromeScale}
         onStartResize={onStartResize}
-        onStartRotate={() => {}}
+        onStartRotate={onStartRotate}
       />
     </div>
   );
@@ -3285,6 +3684,7 @@ function GroupSelectionBox({
 function ResizeHandles({
   active,
   enabled,
+  showOnHover = true,
   showRotate = true,
   chromeScale = 1,
   onStartResize,
@@ -3292,6 +3692,7 @@ function ResizeHandles({
 }: {
   active: boolean;
   enabled: boolean;
+  showOnHover?: boolean;
   showRotate?: boolean;
   chromeScale?: number;
   onStartResize: (handle: ResizeHandle, e: React.MouseEvent) => void;
@@ -3303,7 +3704,11 @@ function ResizeHandles({
     "pointer-events-auto absolute z-20 rounded-[2px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-contrast-color)] shadow transition-opacity",
     active
       ? "opacity-100"
-      : "opacity-0 group-hover/artboard:opacity-100 group-focus-visible/artboard:opacity-100",
+      : cn(
+          "opacity-0",
+          showOnHover &&
+            "group-hover/artboard:opacity-100 group-focus-visible/artboard:opacity-100",
+        ),
   );
   const edgeHandleClass =
     "pointer-events-auto absolute z-10 bg-transparent opacity-0";
@@ -3313,7 +3718,7 @@ function ResizeHandles({
       {EDGE_RESIZE_HANDLE_CONFIGS.map((config) => (
         <span
           key={config.handle}
-          data-resize-handle
+          data-resize-handle={config.handle}
           className={edgeHandleClass}
           style={edgeHandleStyle(config.handle, config.cursor, chromeScale)}
           onMouseDown={(e) => onStartResize(config.handle, e)}
@@ -3322,7 +3727,7 @@ function ResizeHandles({
       {CORNER_RESIZE_HANDLE_CONFIGS.map((config) => (
         <span
           key={config.handle}
-          data-resize-handle
+          data-resize-handle={config.handle}
           className={visibleHandleClass}
           style={cornerHandleStyle(config.handle, config.cursor, chromeScale)}
           onMouseDown={(e) => onStartResize(config.handle, e)}
@@ -3337,7 +3742,11 @@ function ResizeHandles({
                 "pointer-events-auto absolute z-10 size-5 rounded-full transition-opacity active:cursor-grabbing",
                 active
                   ? "opacity-100"
-                  : "opacity-0 group-hover/artboard:opacity-100 group-focus-visible/artboard:opacity-100",
+                  : cn(
+                      "opacity-0",
+                      showOnHover &&
+                        "group-hover/artboard:opacity-100 group-focus-visible/artboard:opacity-100",
+                    ),
               )}
               style={rotateHandleStyle(config.corner, chromeScale)}
               onMouseDown={onStartRotate}
@@ -3387,6 +3796,7 @@ function edgeHandleStyle(
   if (handle === "n" || handle === "s") {
     return {
       cursor,
+      transition: CHROME_HANDLE_TRANSITION,
       left: 0,
       right: 0,
       height: size,
@@ -3395,6 +3805,7 @@ function edgeHandleStyle(
   }
   return {
     cursor,
+    transition: CHROME_HANDLE_TRANSITION,
     top: 0,
     bottom: 0,
     width: size,
@@ -3411,6 +3822,7 @@ function cornerHandleStyle(
   const offset = -size / 2;
   return {
     cursor,
+    transition: CHROME_HANDLE_TRANSITION,
     width: size,
     height: size,
     borderWidth: Math.max(1, 1.25 * chromeScale),
@@ -3424,6 +3836,7 @@ function rotateHandleStyle(corner: string, chromeScale: number): CSSProperties {
   const offset = -34 * chromeScale;
   return {
     cursor: "grab",
+    transition: CHROME_HANDLE_TRANSITION,
     width: size,
     height: size,
     ...(corner.includes("n") ? { top: offset } : { bottom: offset }),
@@ -3443,25 +3856,30 @@ interface BoundsRect {
   bottom: number;
 }
 
-function getInitialFrameGeometry(index: number): FrameGeometry {
+function getInitialFrameGeometry(
+  index: number,
+  metadata?: Pick<ResolvedScreenMetadata, "width" | "height">,
+): FrameGeometry {
   const column = index % 3;
   const row = Math.floor(index / 3);
+  const height = getOverviewFrameHeight(SCREEN_WIDTH, metadata);
   return {
     x: column * (SCREEN_WIDTH + SCREEN_GAP),
-    y: row * (SCREEN_CARD_HEIGHT + SCREEN_GAP),
+    y: row * (height + FRAME_LABEL_HEIGHT + SCREEN_GAP),
     width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT,
+    height,
   };
 }
 
-function getFrameEntries(
-  screens: ScreenFile[],
-  geometryById: FrameGeometryById,
-): FrameEntry[] {
-  return screens.map((screen, index) => ({
-    id: screen.id,
-    geometry: geometryById[screen.id] ?? getInitialFrameGeometry(index),
-  }));
+function getOverviewFrameHeight(
+  width: number,
+  metadata?: Pick<ResolvedScreenMetadata, "width" | "height">,
+) {
+  const sourceWidth =
+    metadata?.width && metadata.width > 0 ? metadata.width : 1280;
+  const sourceHeight =
+    metadata?.height && metadata.height > 0 ? metadata.height : 2560;
+  return Math.max(80, Math.round((width * sourceHeight) / sourceWidth));
 }
 
 function dedupeIds(ids: string[]) {
@@ -4009,6 +4427,7 @@ function resolveScreenMetadata(
   screen: ScreenFile,
   keyedMetadata?: ScreenMetadata,
   getterMetadata?: ScreenMetadata,
+  previewDeviceFrame: DeviceFrameType = "none",
 ): ResolvedScreenMetadata {
   const metadata = { ...screen, ...keyedMetadata, ...getterMetadata };
   const previewUrl =
@@ -4016,9 +4435,16 @@ function resolveScreenMetadata(
     metadata.previewUrl ??
     screen.previewUrl ??
     getPreviewUrl(screen.content);
-  const width = metadata.width && metadata.width > 0 ? metadata.width : 1280;
+  const deviceViewport =
+    previewDeviceFrame === "none"
+      ? undefined
+      : DEVICE_FRAME_VIEWPORTS[previewDeviceFrame];
+  const width =
+    deviceViewport?.width ??
+    (metadata.width && metadata.width > 0 ? metadata.width : 1280);
   const height =
-    metadata.height && metadata.height > 0 ? metadata.height : 2560;
+    deviceViewport?.height ??
+    (metadata.height && metadata.height > 0 ? metadata.height : 2560);
   return {
     source:
       normalizeSource(metadata.sourceType ?? metadata.source) ??

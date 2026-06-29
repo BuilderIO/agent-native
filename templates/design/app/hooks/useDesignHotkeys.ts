@@ -271,7 +271,14 @@ function handleDesignHotkey(
   if (
     event.key === "Tab" &&
     props.onTab &&
-    !isFocusableChromeTarget(event.target)
+    // Ignore synthetic (non-trusted) Tab events dispatched by handleIframeHotkey
+    // unless they carry the iframe-hotkey marker. This keeps inspector field
+    // tabbing native while allowing real iframe canvas Tab presses to cycle files.
+    (event.isTrusted !== false ||
+      (event as KeyboardEvent & { __agentNativeIframeHotkey?: boolean })
+        .__agentNativeIframeHotkey === true) &&
+    !isFocusableChromeTarget(event.target) &&
+    !isDesignHotkeyEditableTarget(document.activeElement)
   ) {
     prevent();
     props.onTab({ ...details, backwards: event.shiftKey });

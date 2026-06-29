@@ -51,7 +51,7 @@ const requestedScreenSchema = z
       .optional()
       .describe("Target filename for this screen, such as onboarding.html"),
     role: z.enum(["screen", "variant"]).optional().default("screen"),
-    variantOf: z.string().optional(),
+    variantOf: z.string().trim().min(1).optional(),
   })
   .superRefine((screen, ctx) => {
     if (screen.role === "variant" && !screen.variantOf) {
@@ -79,7 +79,48 @@ export default defineAction({
     screens: z
       .preprocess(
         (value) => (typeof value === "string" ? JSON.parse(value) : value),
-        z.array(requestedScreenSchema).min(1).max(8),
+        z
+          .array(requestedScreenSchema)
+          .min(1)
+          .max(8)
+          .superRefine((screens, ctx) => {
+            const requestAnchors = new Map<
+              string,
+              { index: number; role: DesignGenerationFrame["role"] }
+            >();
+            screens.forEach((screen, index) => {
+              const anchors = [screen.frameId, screen.filename, screen.title];
+              for (const anchor of anchors) {
+                if (!anchor || requestAnchors.has(anchor)) continue;
+                requestAnchors.set(anchor, {
+                  index,
+                  role: screen.role,
+                });
+              }
+            });
+
+            screens.forEach((screen, index) => {
+              if (screen.role !== "variant" || !screen.variantOf) return;
+              const anchor = requestAnchors.get(screen.variantOf);
+              if (!anchor) return;
+              if (anchor.index === index) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: [index, "variantOf"],
+                  message: "variant screens cannot point to themselves",
+                });
+                return;
+              }
+              if (anchor.role === "variant") {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: [index, "variantOf"],
+                  message:
+                    "variant screens must anchor to a base screen, not another variant",
+                });
+              }
+            });
+          }),
       )
       .describe("Screens or variants that should be generated on the canvas"),
     designSystemId: z

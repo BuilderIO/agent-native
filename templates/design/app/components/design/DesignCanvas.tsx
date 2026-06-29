@@ -247,8 +247,14 @@ function createEditorBridgeThemeScript(vars: Record<string, string>) {
 const EDITOR_CHROME_BRIDGE_SCRIPT = `
 <script data-agent-native-editor-chrome-bridge>
 (function() {
-  var textEditingEnabled = __TEXT_EDITING_ENABLED__;
+  var readOnly = __READ_ONLY__;
+  var textEditingEnabled = !readOnly && __TEXT_EDITING_ENABLED__;
   var scaleToolEnabled = false;
+  var editorChromeScaleX = Math.max(0.05, Number(__EDITOR_CHROME_SCALE_X__) || 1);
+  var editorChromeScaleY = Math.max(0.05, Number(__EDITOR_CHROME_SCALE_Y__) || editorChromeScaleX);
+  document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-x', String(editorChromeScaleX));
+  document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-y', String(editorChromeScaleY));
+  document.documentElement.style.setProperty('--agent-native-editor-chrome-line-scale', String(Math.max(editorChromeScaleX, editorChromeScaleY)));
 
   function escapeIdent(value) {
     if (window.CSS && typeof window.CSS.escape === 'function') {
@@ -501,7 +507,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
 
   var highlightOverlay = document.createElement('div');
   highlightOverlay.setAttribute('data-agent-native-edit-overlay', 'highlight');
-  highlightOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99999;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;';
+  highlightOverlay.style.cssText = 'position:fixed;pointer-events:none;z-index:99997;border:1.5px solid var(--design-editor-accent-color);background:transparent;display:none;box-sizing:border-box;';
   document.body.appendChild(highlightOverlay);
 
   var selectionOverlay = document.createElement('div');
@@ -542,7 +548,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     var handle = document.createElement('span');
     handle.setAttribute('data-agent-native-edit-handle', pos);
     var cursor = pos === 'n' || pos === 's' ? 'ns-resize' : pos === 'e' || pos === 'w' ? 'ew-resize' : pos === 'nw' || pos === 'se' ? 'nwse-resize' : 'nesw-resize';
-    handle.style.cssText = 'position:absolute;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:' + cursor + ';';
+    handle.style.cssText = 'position:absolute;z-index:1;width:7px;height:7px;border:1px solid var(--design-editor-accent-color);background:var(--design-editor-accent-contrast-color);box-sizing:border-box;border-radius:1px;pointer-events:auto;cursor:' + cursor + ';';
     if (pos.indexOf('n') !== -1) handle.style.top = '-4px';
     if (pos.indexOf('s') !== -1) handle.style.bottom = '-4px';
     if (pos.indexOf('w') !== -1) handle.style.left = '-4px';
@@ -799,7 +805,11 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   }
 
   function refreshOverlays() {
-    if (hoveredEl) positionOverlay(highlightOverlay, hoveredEl);
+    if (hoveredEl && hoveredEl !== selectedEl) {
+      positionOverlay(highlightOverlay, hoveredEl);
+    } else {
+      highlightOverlay.style.display = 'none';
+    }
     if (selectedEl) positionOverlay(selectionOverlay, selectedEl);
   }
 
@@ -1754,6 +1764,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     setTextEditingPointerPassthrough(true);
     positionOverlay(selectionOverlay, target);
 	    window.parent.postMessage({ type: 'element-select', payload: getElementInfo(target) }, '*');
+	    window.parent.postMessage({ type: 'element-dblclick-text', payload: getElementInfo(target) }, '*');
 	    postTextEditingState(target, true);
 
     function finish(commit) {
@@ -1839,7 +1850,11 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       return;
     }
     if (hoveredEl && hoveredEl.closest('[data-agent-native-text-editing]')) return;
-    positionOverlay(highlightOverlay, hoveredEl);
+    if (hoveredEl === selectedEl) {
+      highlightOverlay.style.display = 'none';
+    } else {
+      positionOverlay(highlightOverlay, hoveredEl);
+    }
     if (e.altKey && selectedEl && hoveredEl && selectedEl !== hoveredEl) {
       showMeasurements(selectedEl, hoveredEl);
     } else {
@@ -1854,6 +1869,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
     hoveredEl = null;
     highlightOverlay.style.display = 'none';
     hideMeasurements();
+    window.parent.postMessage({ type: 'element-hover', payload: null }, '*');
   }, true);
 
   window.addEventListener('keyup', function(e) {
@@ -1908,6 +1924,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       selectedEl = target;
       var selectedInfo = getElementInfo(target);
       positionOverlay(selectionOverlay, target);
+      if (hoveredEl === selectedEl) highlightOverlay.style.display = 'none';
       window.parent.postMessage({ type: 'element-select', payload: selectedInfo }, '*');
       return;
     }
@@ -1931,7 +1948,7 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
       }
       var hoverTarget = findRuntimeTarget(String(e.data.selector || ''), hoverCandidates);
       hoveredEl = hoverTarget;
-      if (hoveredEl && !isLayerInteractionBlocked(hoveredEl)) {
+      if (hoveredEl && !isLayerInteractionBlocked(hoveredEl) && hoveredEl !== selectedEl) {
         positionOverlay(highlightOverlay, hoveredEl);
       } else {
         highlightOverlay.style.display = 'none';
@@ -2004,11 +2021,14 @@ interface DesignCanvasProps {
     displayWidth: number;
     displayHeight: number;
   };
+  editorChromeScaleX?: number;
+  editorChromeScaleY?: number;
   editMode: boolean;
   interactMode: boolean;
+  readOnly?: boolean;
   scaleMode?: boolean;
   onElementSelect: (info: ElementInfo) => void;
-  onElementHover: (info: ElementInfo) => void;
+  onElementHover: (info: ElementInfo | null) => void;
   onVisualStyleChange?: (
     selector: string,
     styles: Record<string, string>,
@@ -2025,6 +2045,7 @@ interface DesignCanvasProps {
     selector?: string;
     hasRange?: boolean;
   }) => void;
+  onElementDblClickText?: (info: ElementInfo) => void;
   onIframeHotkey?: (event: IframeHotkeyPayload) => void;
   onIframeContextMenu?: (event: IframeContextMenuPayload) => void;
   onVisualStructureChange?: (
@@ -2119,8 +2140,11 @@ export function DesignCanvas({
   onZoomChange,
   deviceFrame,
   embeddedFrame,
+  editorChromeScaleX = 1,
+  editorChromeScaleY = editorChromeScaleX,
   editMode,
   interactMode,
+  readOnly = false,
   scaleMode = false,
   clearSelectionRequest,
   onElementSelect,
@@ -2128,6 +2152,7 @@ export function DesignCanvas({
   onVisualStyleChange,
   onTextContentChange,
   onTextEditingStateChange,
+  onElementDblClickText,
   onIframeHotkey,
   onIframeContextMenu,
   onVisualStructureChange,
@@ -2198,13 +2223,17 @@ export function DesignCanvas({
   // outside Edit mode. The editor chrome bridge is omitted only for Interact.
   const srcdoc = useMemo(() => {
     if (externalPreviewUrl) return undefined;
-    const editorChromeBridge = interactMode
-      ? ""
-      : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
-        EDITOR_CHROME_BRIDGE_SCRIPT.replace(
-          "__TEXT_EDITING_ENABLED__",
-          editMode ? "true" : "false",
-        );
+    const editorChromeBridge =
+      interactMode || readOnly
+        ? ""
+        : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
+          EDITOR_CHROME_BRIDGE_SCRIPT.replace(
+            "__READ_ONLY__",
+            readOnly ? "true" : "false",
+          )
+            .replace("__TEXT_EDITING_ENABLED__", editMode ? "true" : "false")
+            .replace("__EDITOR_CHROME_SCALE_X__", String(editorChromeScaleX))
+            .replace("__EDITOR_CHROME_SCALE_Y__", String(editorChromeScaleY));
     const embeddedWheelBridge = EMBEDDED_WHEEL_BRIDGE_SCRIPT.replace(
       "__EMBEDDED_WHEEL_FORWARDING_ENABLED__",
       isEmbeddedFrame ? "true" : "false",
@@ -2225,9 +2254,12 @@ export function DesignCanvas({
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${renderedContent}${bridgeToInject}</body></html>`;
   }, [
     editMode,
+    editorChromeScaleX,
+    editorChromeScaleY,
     externalPreviewUrl,
     interactMode,
     isEmbeddedFrame,
+    readOnly,
     renderedContent,
   ]);
 
@@ -2352,6 +2384,10 @@ export function DesignCanvas({
         });
         return;
       }
+      if (e.data.type === "element-dblclick-text") {
+        onElementDblClickText?.(e.data.payload);
+        return;
+      }
       if (e.data.type === "design-hotkey") {
         onIframeHotkey?.({
           key: String(e.data.key || ""),
@@ -2473,6 +2509,7 @@ export function DesignCanvas({
     onVisualStyleChange,
     onTextContentChange,
     onTextEditingStateChange,
+    onElementDblClickText,
     onIframeHotkey,
     onIframeContextMenu,
     onVisualStructureChange,

@@ -319,7 +319,7 @@ const enUS = {
     downloadZip: "Download ZIP",
     exportHtml: "Export HTML",
     exportPdf: "Export PDF",
-    copyCodingHandoff: "Copy coding handoff",
+    copyCodingHandoff: "Copy agent prompt",
     designTools: "Design tools",
     drawOnCanvas: "Draw on canvas",
     dropCommentPin: "Drop comment pin",
@@ -330,6 +330,9 @@ const enUS = {
     variations: "{{count}} variations",
     close: "Close",
     generating: "Generating design...",
+    inspectorLockedTitle: "Inspector locked while generating",
+    inspectorLockedDescription:
+      "Controls unlock when the first screen is ready.",
     noFiles: "No files yet. Ask the agent to generate a design.",
     tryAgain: "Try again",
     newPrompt: "New prompt",
@@ -395,8 +398,8 @@ const enUS = {
       "agent-structural-edit": "Agent needed for structural move",
     },
     toasts: {
-      codingHandoffError: "Could not create coding handoff",
-      codingHandoffCopied: "Coding handoff copied",
+      codingHandoffError: "Could not create agent handoff",
+      codingHandoffCopied: "Agent prompt copied",
       clipboardBlocked: "Clipboard blocked",
       htmlCreateError: "Could not create HTML download",
       htmlDownloaded: "HTML downloaded",
@@ -427,6 +430,7 @@ const enUS = {
   layersPanel: {
     title: "Layers",
     screens: "Screens",
+    allScreens: "All screens",
     thumbnail: "Thumbnail",
     addScreen: "Add screen",
     searchPlaceholder: "Search layers...",
@@ -8071,6 +8075,8 @@ const designModeFeatureOverrides = {
 const designCanvasFeatureOverrides = {
   "zh-TW": {
     designEditor: {
+      inspectorLockedTitle: "產生中，檢查器已鎖定",
+      inspectorLockedDescription: "第一個畫面準備好後即可使用控制項。",
       toasts: {
         propsCopied: "屬性已複製",
         propsPasted: "屬性已貼上",
@@ -8079,6 +8085,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "圖層",
       screens: "畫面",
+      allScreens: "所有畫面",
       thumbnail: "縮圖",
       addScreen: "新增畫面",
       searchPlaceholder: "搜尋圖層...",
@@ -8099,6 +8106,8 @@ const designCanvasFeatureOverrides = {
   },
   "zh-CN": {
     designEditor: {
+      inspectorLockedTitle: "生成期间检查器已锁定",
+      inspectorLockedDescription: "第一个屏幕准备好后即可使用控件。",
       toasts: {
         propsCopied: "属性已复制",
         propsPasted: "属性已粘贴",
@@ -8137,6 +8146,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "图层",
       screens: "屏幕",
+      allScreens: "所有屏幕",
       thumbnail: "缩略图",
       addScreen: "添加屏幕",
       searchPlaceholder: "搜索图层...",
@@ -8157,6 +8167,9 @@ const designCanvasFeatureOverrides = {
   },
   "es-ES": {
     designEditor: {
+      inspectorLockedTitle: "Inspector bloqueado durante la generación",
+      inspectorLockedDescription:
+        "Los controles se desbloquean cuando la primera pantalla esté lista.",
       toasts: {
         propsCopied: "Propiedades copiadas",
         propsPasted: "Propiedades pegadas",
@@ -8195,6 +8208,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Capas",
       screens: "Pantallas",
+      allScreens: "Todas las pantallas",
       thumbnail: "Miniatura",
       addScreen: "Añadir pantalla",
       searchPlaceholder: "Buscar capas...",
@@ -8215,6 +8229,9 @@ const designCanvasFeatureOverrides = {
   },
   "fr-FR": {
     designEditor: {
+      inspectorLockedTitle: "Inspecteur verrouillé pendant la génération",
+      inspectorLockedDescription:
+        "Les contrôles se déverrouillent lorsque le premier écran est prêt.",
       toasts: {
         propsCopied: "Propriétés copiées",
         propsPasted: "Propriétés collées",
@@ -8253,6 +8270,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Calques",
       screens: "Écrans",
+      allScreens: "Tous les écrans",
       thumbnail: "Miniature",
       addScreen: "Ajouter un écran",
       searchPlaceholder: "Rechercher des calques...",
@@ -8273,6 +8291,9 @@ const designCanvasFeatureOverrides = {
   },
   "de-DE": {
     designEditor: {
+      inspectorLockedTitle: "Inspektor während der Generierung gesperrt",
+      inspectorLockedDescription:
+        "Die Steuerelemente werden freigeschaltet, sobald der erste Screen bereit ist.",
       toasts: {
         propsCopied: "Eigenschaften kopiert",
         propsPasted: "Eigenschaften eingefügt",
@@ -8312,6 +8333,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Ebenen",
       screens: "Screens",
+      allScreens: "Alle Screens",
       thumbnail: "Miniaturansicht",
       addScreen: "Screen hinzufügen",
       searchPlaceholder: "Ebenen suchen...",
@@ -8332,6 +8354,9 @@ const designCanvasFeatureOverrides = {
   },
   "ja-JP": {
     designEditor: {
+      inspectorLockedTitle: "生成中はインスペクターがロックされています",
+      inspectorLockedDescription:
+        "最初の画面の準備ができるとコントロールが使えます。",
       toasts: {
         propsCopied: "プロパティをコピーしました",
         propsPasted: "プロパティを貼り付けました",
@@ -8370,6 +8395,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "レイヤー",
       screens: "画面",
+      allScreens: "すべての画面",
       thumbnail: "サムネイル",
       addScreen: "画面を追加",
       searchPlaceholder: "レイヤーを検索...",
@@ -8390,6 +8416,9 @@ const designCanvasFeatureOverrides = {
   },
   "ko-KR": {
     designEditor: {
+      inspectorLockedTitle: "생성 중에는 인스펙터가 잠겨 있습니다",
+      inspectorLockedDescription:
+        "첫 화면이 준비되면 컨트롤이 잠금 해제됩니다.",
       toasts: {
         propsCopied: "속성이 복사됨",
         propsPasted: "속성이 붙여넣어짐",
@@ -8428,6 +8457,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "레이어",
       screens: "화면",
+      allScreens: "모든 화면",
       thumbnail: "썸네일",
       addScreen: "화면 추가",
       searchPlaceholder: "레이어 검색...",
@@ -8448,6 +8478,9 @@ const designCanvasFeatureOverrides = {
   },
   "pt-BR": {
     designEditor: {
+      inspectorLockedTitle: "Inspetor bloqueado durante a geração",
+      inspectorLockedDescription:
+        "Os controles são desbloqueados quando a primeira tela estiver pronta.",
       toasts: {
         propsCopied: "Propriedades copiadas",
         propsPasted: "Propriedades coladas",
@@ -8486,6 +8519,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "Camadas",
       screens: "Telas",
+      allScreens: "Todas as telas",
       thumbnail: "Miniatura",
       addScreen: "Adicionar tela",
       searchPlaceholder: "Buscar camadas...",
@@ -8506,6 +8540,9 @@ const designCanvasFeatureOverrides = {
   },
   "hi-IN": {
     designEditor: {
+      inspectorLockedTitle: "जनरेट करते समय इंस्पेक्टर लॉक है",
+      inspectorLockedDescription:
+        "पहली स्क्रीन तैयार होने पर नियंत्रण अनलॉक हो जाएंगे.",
       toasts: {
         propsCopied: "गुण कॉपी किए गए",
         propsPasted: "गुण चिपकाए गए",
@@ -8544,6 +8581,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "परतें",
       screens: "स्क्रीन",
+      allScreens: "सभी स्क्रीन",
       thumbnail: "थंबनेल",
       addScreen: "स्क्रीन जोड़ें",
       searchPlaceholder: "परतें खोजें...",
@@ -8564,6 +8602,9 @@ const designCanvasFeatureOverrides = {
   },
   "ar-SA": {
     designEditor: {
+      inspectorLockedTitle: "المفتش مقفل أثناء الإنشاء",
+      inspectorLockedDescription:
+        "تُفتح عناصر التحكم عندما تكون الشاشة الأولى جاهزة.",
       toasts: {
         propsCopied: "تم نسخ الخصائص",
         propsPasted: "تم لصق الخصائص",
@@ -8602,6 +8643,7 @@ const designCanvasFeatureOverrides = {
     layersPanel: {
       title: "الطبقات",
       screens: "الشاشات",
+      allScreens: "كل الشاشات",
       thumbnail: "الصورة المصغرة",
       addScreen: "إضافة شاشة",
       searchPlaceholder: "البحث في الطبقات...",

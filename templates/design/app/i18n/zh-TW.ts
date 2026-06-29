@@ -411,10 +411,13 @@ const messages = {
       layerMoveFailed: "無法移動該圖層",
       saveCopyError: "無法儲存這個設計的副本",
     },
+    inspectorLockedTitle: "產生中，檢查器已鎖定",
+    inspectorLockedDescription: "第一個畫面準備好後即可使用控制項。",
   },
   layersPanel: {
     title: "圖層",
     screens: "畫面",
+    allScreens: "所有畫面",
     thumbnail: "縮圖",
     addScreen: "新增畫面",
     searchPlaceholder: "搜尋圖層...",

@@ -14,6 +14,8 @@ export type { MCPCallerIdentity, MCPRequestMeta } from "./build-server.js";
 // stdio transport for `agent-native mcp serve` (Node-only).
 export { runMCPStdio } from "./stdio.js";
 export type { RunMCPStdioOptions } from "./stdio.js";
+export { runScreenMemoryMCPStdio } from "./screen-memory-stdio.js";
+export type { RunScreenMemoryMCPStdioOptions } from "./screen-memory-stdio.js";
 
 // Generic cross-app builtin tools (merged into the registry, template wins).
 export { getBuiltinCrossAppTools } from "./builtin-tools.js";

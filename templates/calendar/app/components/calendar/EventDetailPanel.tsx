@@ -189,18 +189,18 @@ export function EventDetailPanel({
     <TooltipProvider>
       {isOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm 2xl:hidden"
+          className="calendar-event-detail-backdrop fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
           onClick={onClose}
         />
       )}
       <div
         className={cn(
-          "fixed inset-y-0 right-0 z-50 w-full max-w-sm overflow-hidden 2xl:static 2xl:z-auto 2xl:max-w-none 2xl:shrink-0",
-          isOpen ? "2xl:w-80" : "w-0 2xl:w-0",
+          "calendar-event-detail-panel fixed inset-y-0 right-0 z-50 w-full max-w-sm overflow-hidden",
+          isOpen ? "calendar-event-detail-panel-open" : "w-0",
           !isOpen && "pointer-events-none",
         )}
       >
-        <div className="flex h-full w-full flex-col border-l border-border bg-card 2xl:w-80">
+        <div className="calendar-event-detail-panel-inner flex h-full w-full flex-col border-l border-border bg-card">
           {event && (
             <>
               {/* Header */}

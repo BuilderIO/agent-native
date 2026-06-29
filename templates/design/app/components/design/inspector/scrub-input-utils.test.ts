@@ -43,6 +43,18 @@ describe("scrub input expression parsing", () => {
     expect(formatScrubValue(12.125, { precision: 2 })).toBe("12.13");
   });
 
+  it("preserves at least one decimal digit for unitless precision fields", () => {
+    // Line-height: entering "2.0" stores the number 2, but should display "2.0"
+    expect(formatScrubValue(2, { precision: 2 })).toBe("2.0");
+    expect(formatScrubValue(1.5, { precision: 2 })).toBe("1.5");
+    expect(formatScrubValue(1.25, { precision: 2 })).toBe("1.25");
+    // Unitless with precision=1: whole numbers keep .0
+    expect(formatScrubValue(2, { precision: 1 })).toBe("2.0");
+    // Fields with units still strip trailing zeros fully
+    expect(formatScrubValue(10, { unit: "px", precision: 1 })).toBe("10px");
+    expect(formatScrubValue(10, { unit: "%", precision: 1 })).toBe("10%");
+  });
+
   it("applies keyboard and pointer step modifiers", () => {
     expect(getScrubStepFromEvent({ shiftKey: true, altKey: false }, 2)).toBe(
       20,
