@@ -119,7 +119,7 @@ describe("content database source actions", () => {
     expect(
       normalizeContentDatabasePageOptions({ limit: 10_000, offset: 25 }),
     ).toEqual({
-      limit: 500,
+      limit: 5_000,
       offset: 25,
     });
     expect(normalizeContentDatabasePageOptions({})).toEqual({

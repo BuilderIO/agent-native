@@ -204,6 +204,7 @@ interface DocumentDatabaseProps {
 }
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
+const CONTENT_DATABASE_MAX_ITEM_LIMIT = 5_000;
 
 export type SortDirection = ContentDatabaseSortDirection;
 export type DatabaseSort = ContentDatabaseSort;
@@ -490,7 +491,9 @@ function DatabaseTable({
   const properties = data?.properties ?? [];
   const items = data?.items ?? [];
   const totalItemCount = data?.pagination?.totalItems ?? items.length;
-  const hasMoreItems = data?.pagination?.hasMore === true;
+  const hasMoreItems =
+    data?.pagination?.hasMore === true &&
+    databaseItemLimit < CONTENT_DATABASE_MAX_ITEM_LIMIT;
   const isLoadingMoreItems =
     database.isFetching && data?.pagination?.limit !== databaseItemLimit;
   const databaseId = data?.database.id ?? null;
@@ -1560,8 +1563,12 @@ function DatabaseTable({
             size="sm"
             disabled={isLoadingMoreItems}
             onClick={() =>
-              setDatabaseItemLimit(
-                (current) => current + CONTENT_DATABASE_PAGE_SIZE,
+              setDatabaseItemLimit((current) =>
+                Math.min(
+                  current + CONTENT_DATABASE_PAGE_SIZE,
+                  totalItemCount,
+                  CONTENT_DATABASE_MAX_ITEM_LIMIT,
+                ),
               )
             }
           >

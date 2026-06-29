@@ -19,6 +19,8 @@ import {
   serializeDatabase,
 } from "./_property-utils.js";
 
+export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
+
 function canManageRole(role: string) {
   return role === "owner" || role === "admin";
 }
@@ -78,7 +80,10 @@ export function normalizeContentDatabasePageOptions(options: {
 }) {
   const limit =
     typeof options.limit === "number" && Number.isFinite(options.limit)
-      ? Math.max(1, Math.min(Math.floor(options.limit), 500))
+      ? Math.max(
+          1,
+          Math.min(Math.floor(options.limit), CONTENT_DATABASE_MAX_READ_LIMIT),
+        )
       : null;
   const offset =
     typeof options.offset === "number" && Number.isFinite(options.offset)
