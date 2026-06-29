@@ -1574,6 +1574,7 @@ function staticStringLiteralValue(
 const NESTED_CONTAINER_TAGS: ReadonlyArray<{ tag: string; attr: string }> = [
   { tag: "TabsBlock", attr: "tabs" },
   { tag: "Tabs", attr: "tabs" },
+  { tag: "Columns", attr: "columns" },
 ];
 
 function lintNestedContainerEntry(
@@ -1636,7 +1637,8 @@ function lintNestedBlock(
     }
     return;
   }
-  if (type === "question-form") {
+  // visual-questions shares question-form's schema; lint both.
+  if (type === "question-form" || type === "visual-questions") {
     const questionsProp = readTopLevelObjectProperty(
       dataProp.value,
       "questions",
@@ -1647,7 +1649,7 @@ function lintNestedBlock(
       checkQuestionObjectList(
         questionObjects,
         dataBase + questionsProp.valueStart,
-        "question-form",
+        type,
         file,
         source,
         issues,
