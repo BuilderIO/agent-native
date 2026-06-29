@@ -157,8 +157,17 @@ interface DocumentEditorBodyProps {
 type PendingDocumentSave = {
   title: string;
   content: string;
-  save: (title: string, content: string) => unknown | Promise<unknown>;
+  save: (
+    title: string,
+    content: string,
+    options?: DocumentSaveOptions,
+  ) => unknown | Promise<unknown>;
+  canEditWhenQueued: boolean;
   timeout: ReturnType<typeof setTimeout>;
+};
+
+type DocumentSaveOptions = {
+  allowQueuedSave?: boolean;
 };
 
 type DocumentSaveResult = {
@@ -578,12 +587,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   }, [document, isLinkedLocalSourceDocument, localTitle, localContent]);
 
   const persistDocumentUpdates = useCallback(
-    async (updates: {
-      title?: string;
-      content?: string;
-      icon?: string | null;
-    }): Promise<Document> => {
-      if (!canEditRef.current) return document;
+    async (
+      updates: {
+        title?: string;
+        content?: string;
+        icon?: string | null;
+      },
+      options: DocumentSaveOptions = {},
+    ): Promise<Document> => {
+      if (!options.allowQueuedSave && !canEditRef.current) return document;
 
       const localSource = document.source;
       const isLinkedLocalSource = canWriteLinkedLocalSource(
@@ -643,7 +655,11 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
 
   const saveDocumentImmediately = useCallback(
-    async (title: string, content: string): Promise<DocumentSaveResult> => {
+    async (
+      title: string,
+      content: string,
+      options: DocumentSaveOptions = {},
+    ): Promise<DocumentSaveResult> => {
       // Never clobber a newer server version (e.g. an agent edit we haven't
       // reconciled into the editor yet) with the editor's current — possibly
       // stale — content. Guard per-field using the field's own watermark.
@@ -667,7 +683,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         return { contentPersisted: !contentChanged };
       }
 
-      const saved = await persistDocumentUpdates(updates);
+      const saved = await persistDocumentUpdates(updates, options);
       // Adopt the server updatedAt per saved field.
       const savedAt = saved?.updatedAt ?? new Date().toISOString();
       if (updates.title !== undefined) {
@@ -714,6 +730,17 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       queryClient,
     ],
   );
+  const flushPendingDocumentSave = useCallback(
+    (pending: PendingDocumentSave) => {
+      if (!pending.canEditWhenQueued) return;
+      void Promise.resolve(
+        pending.save(pending.title, pending.content, {
+          allowQueuedSave: true,
+        }),
+      ).catch(handleBackgroundSaveError);
+    },
+    [handleBackgroundSaveError],
+  );
   const debouncedSave = useCallback(
     (title: string, content: string) => {
       if (!canEditRef.current) return;
@@ -722,21 +749,19 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         title,
         content,
         save: saveDocumentImmediately,
+        canEditWhenQueued: canEditRef.current,
         timeout: setTimeout(() => {
           if (pendingDocumentSaveRef.current === pending) {
             pendingDocumentSaveRef.current = null;
           }
           saveTimeoutRef.current = null;
-          if (!canEditRef.current) return;
-          void Promise.resolve(
-            pending.save(pending.title, pending.content),
-          ).catch(handleBackgroundSaveError);
+          flushPendingDocumentSave(pending);
         }, 500),
       };
       pendingDocumentSaveRef.current = pending;
       saveTimeoutRef.current = pending.timeout;
     },
-    [handleBackgroundSaveError, saveDocumentImmediately],
+    [flushPendingDocumentSave, saveDocumentImmediately],
   );
 
   useEffect(() => {
@@ -746,21 +771,19 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       clearTimeout(pending.timeout);
       saveTimeoutRef.current = null;
       pendingDocumentSaveRef.current = null;
-      if (!canEditRef.current) return;
-      void Promise.resolve(pending.save(pending.title, pending.content)).catch(
-        handleBackgroundSaveError,
-      );
+      flushPendingDocumentSave(pending);
     };
-  }, [documentId, handleBackgroundSaveError]);
+  }, [documentId, flushPendingDocumentSave]);
 
   useEffect(() => {
     if (canEdit) return;
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
+    const pending = pendingDocumentSaveRef.current;
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    saveTimeoutRef.current = null;
     pendingDocumentSaveRef.current = null;
-  }, [canEdit, documentId]);
+    flushPendingDocumentSave(pending);
+  }, [canEdit, documentId, flushPendingDocumentSave]);
 
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
   // `flush-request-<id>` app-state key when an external agent wants to ingest

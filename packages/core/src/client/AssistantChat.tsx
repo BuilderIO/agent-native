@@ -308,14 +308,13 @@ async function waitForThreadRunToClear(apiUrl: string, threadId?: string) {
         `${apiUrl}/runs/active?threadId=${encodeURIComponent(threadId)}`,
       );
       if (res.ok) {
-        const info = await res.json();
-        const heartbeatAt =
-          typeof info?.heartbeatAt === "number" ? info.heartbeatAt : null;
-        const stale =
-          info?.status === "running" &&
-          heartbeatAt != null &&
-          Date.now() - heartbeatAt > 5000;
-        if (!info?.active || info?.status !== "running" || stale) return;
+        const info = (await res.json()) as ActiveRunLookup;
+        if (
+          !info?.active ||
+          info?.status !== "running" ||
+          activeRunLooksStale(info)
+        )
+          return;
       }
     } catch {
       // Transient poll failure — try again until the short grace period ends.
