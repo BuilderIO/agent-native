@@ -25,7 +25,7 @@ be stored in `data-agent-native-layer-name`; selector ids such as
 
 - `inline`: the current SQL-backed Design files and deterministic HTML swaps.
 - `localhost`: a running app dev server exposed through
-  `agent-native design connect`.
+  `npx @agent-native/core@latest design connect`.
 - `fusion`: future hosted or hybrid sources that can provide snapshots and code
   context through the same bridge contract.
 
@@ -38,13 +38,19 @@ objects even when they are derived later from captured state.
 Run this from the app/repo root while the app dev server is running:
 
 ```bash
-agent-native design connect --url http://localhost:5173 --root .
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
 ```
 
 The command starts a local bridge and prints a manifest URL. It also creates
 `.agent-native/design-routes.json` only when that file does not already exist.
 That manifest is non-authoritative scaffolding; the live bridge response and the
 Design `connect-localhost` action are the durable app contract.
+
+For agent-launched visual editing, install or invoke `/visual-edit`. The skill
+registers the bridge with `connect-localhost`, uses `add-localhost-screens` to
+place each route or path/query state as a URL-backed iframe screen, then
+navigates the editor to overview mode. Keep these screens as URL sources; do not
+copy localhost HTML into inline files unless intentionally freezing a snapshot.
 
 Current bridge operations:
 

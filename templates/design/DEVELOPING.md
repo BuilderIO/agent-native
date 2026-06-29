@@ -15,9 +15,12 @@ This guide is for development-mode agents editing this app's source code. For ap
 - **Dev:** `pnpm dev` (Vite dev server with both React Router + Nitro plugins)
 - **Build:** `pnpm build` (React Router build — client + SSR + Nitro server)
 - **Start:** `node .output/server/index.mjs` (production)
-- **Design local bridge:** `agent-native design connect --url http://localhost:5173 --root .`
+- **Design local bridge:** `npx @agent-native/core@latest design connect --url http://localhost:5173 --root .`
   exposes a local manifest for Design's localhost source mode and scaffolds
   `.agent-native/design-routes.json` without overwriting an existing file.
+- **Visual edit local apps:** `/visual-edit` registers that bridge with
+  `connect-localhost`, adds URL-backed iframe screens with
+  `add-localhost-screens`, and opens the editor in overview mode.
 
 ## Directory Structure
 

@@ -37,15 +37,16 @@ const HELP = `npx @agent-native/core@latest skills
 
 Usage:
   npx @agent-native/core@latest skills list
-  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
-  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
-  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
+  npx @agent-native/core@latest skills status [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--json]
+  npx @agent-native/core@latest skills update [assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray|scaffold] [--client codex|claude-code|pi|all] [--scope user|project] [--dry-run] [--json]
+  npx @agent-native/core@latest skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray [--client codex|claude-code|cowork|cursor|opencode|github-copilot|all] [--scope user|project] [--mode hosted|local-files|self-hosted] [--mcp-url <url>] [--no-connect] [--with-github-action] [--yes] [--dry-run] [--json]
   npx @agent-native/core@latest skills add <manifest-or-app-dir|skill-repo> [--skill <name>] [--client ...] [--yes]
 
 Examples:
   npx @agent-native/core@latest skills add assets
   npx @agent-native/core@latest skills add content --mode local-files
   npx @agent-native/core@latest skills add design-exploration
+  npx @agent-native/core@latest skills add visual-edit
   npx @agent-native/core@latest skills add visual-plan
   npx @agent-native/core@latest skills add visual-recap
   npx @agent-native/core@latest skills add visual-recap --with-github-action
@@ -374,6 +375,92 @@ iteration, or a human-in-the-loop choice among design directions.
   browser/deep-link fallback.
 - If you inspect local MCP config, redact \`Authorization\`, \`http_headers\`,
   and token values. Never paste bearer tokens into chat or logs.
+`;
+
+const DESIGN_VISUAL_EDIT_SKILL_MD = `---
+name: visual-edit
+description: >-
+  Open a running local app in Design overview mode as URL-backed iframe screens
+  for visual editing, flow review, duplication, and route-state exploration.
+metadata:
+  visibility: exported
+---
+
+# Visual Edit
+
+Use \`/visual-edit\` when the user wants to inspect or edit a real local app
+visually instead of generating standalone Alpine HTML. The source of truth is
+the running localhost app plus its route URLs. Design shows those routes as
+iframe-backed screens on the infinite canvas.
+
+## Core Model
+
+- Each screen is a URL-backed iframe, not copied HTML.
+- Each screen keeps URL metadata: \`connectionId\`, \`routeId\`, \`path\`,
+  \`url\`, \`bridgeUrl\`, title, and viewport size.
+- Start in Design's screen overview mode. In overview, screens are static like
+  Figma frames; full-screen focus is for scrolling and app interaction.
+- Alt-drag duplicates a screen. For localhost screens, duplication copies the
+  iframe frame and URL metadata; change the copy's path/query for a new state.
+- Flow visualization is multiple URL states: \`/checkout?step=shipping\`,
+  \`/checkout?step=payment\`, \`/checkout?step=done\`, etc.
+
+## Required Local Bridge
+
+From the target app repo, make sure its dev server is running, then run:
+
+\`\`\`bash
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root .
+\`\`\`
+
+Use the app's real port. The command starts a local bridge on
+\`http://127.0.0.1:7331\` by default and exposes \`/manifest.json\`,
+\`/routes.json\`, and \`/health\`.
+
+For one-shot agent setup, ask for JSON and keep the long-running bridge open in
+a second terminal if the user needs live updates:
+
+\`\`\`bash
+npx @agent-native/core@latest design connect --url http://localhost:5173 --root . --json
+\`\`\`
+
+## Action Flow
+
+1. Register or refresh the bridge with \`connect-localhost\`, passing the
+   \`/manifest.json\` result as \`routeManifest\` and \`capabilities\`.
+2. Create or reuse a Design project with \`create-design\`.
+3. Place URL-backed screens with \`add-localhost-screens\`:
+
+\`\`\`bash
+pnpm action add-localhost-screens '{
+  "designId": "<design-id>",
+  "connectionId": "<connection-id>",
+  "paths": ["/", "/pricing", "/checkout?step=payment"]
+}'
+\`\`\`
+
+If no \`routes\` or \`paths\` are supplied, \`add-localhost-screens\` uses every
+route from the latest localhost manifest.
+
+4. Navigate to overview mode:
+
+\`\`\`bash
+pnpm action navigate --view editor --designId "<design-id>" --editorView overview
+\`\`\`
+
+## Editing URLs
+
+Keep localhost screens as URL files plus \`screenMetadata[fileId]\`. Do not
+replace them with copied \`srcdoc\` HTML unless the user explicitly asks for a
+frozen snapshot. To change a state, rerun \`add-localhost-screens\` with the new
+path/query or duplicate the screen and update the copy's URL metadata.
+
+## Verification
+
+- \`list-localhost-connections\` returns the expected connection and routes.
+- The Design editor opens in overview mode.
+- Every requested screen renders the intended localhost URL.
+- Alt-dragging a screen copies the URL-backed frame, not an inline HTML clone.
 `;
 
 /**
@@ -2458,6 +2545,9 @@ export const BUILT_IN_APP_SKILLS = {
   },
   design: {
     skillName: "design-exploration",
+    extraSkills: {
+      "visual-edit": DESIGN_VISUAL_EDIT_SKILL_MD,
+    },
     manifest: normalizeAppSkillManifest({
       schemaVersion: 1,
       id: "design",
@@ -2480,12 +2570,22 @@ export const BUILT_IN_APP_SKILLS = {
           action: "present-design-variants",
           path: "/design",
         },
+        {
+          id: "visual-edit",
+          action: "add-localhost-screens",
+          path: "/design",
+        },
       ],
       skills: [
         {
           path: "skills/design-exploration",
           visibility: "exported",
           exportAs: "design-exploration",
+        },
+        {
+          path: "skills/visual-edit",
+          visibility: "exported",
+          exportAs: "visual-edit",
         },
       ],
       hostAdapters: [
@@ -2653,6 +2753,9 @@ const BUILT_IN_APP_SKILL_ALIASES = {
   "ui-design": "design",
   "ux-design": "design",
   "design-exploration": "design",
+  "visual-edit": "design",
+  "local-visual-edit": "design",
+  "design-visual-edit": "design",
   "ux-exploration": "design",
   "agent-native-design": "design",
   "agent-native-design-exploration": "design",
@@ -2686,6 +2789,8 @@ const BUILT_IN_APP_SKILL_DISPLAY_ALIASES = {
   ],
   design: [
     "design-exploration",
+    "visual-edit",
+    "local-visual-edit",
     "ux-exploration",
     "agent-native-design-exploration",
   ],
@@ -3116,6 +3221,19 @@ function builtInOnlySkillNames(target: string): string[] | undefined {
   if (normalized === "visual-plan") return ["visual-plan"];
   if (normalized === "visual-recap" || normalized === "visual-recaps") {
     return ["visual-recap"];
+  }
+  if (
+    normalized === "design-exploration" ||
+    normalized === "agent-native-design-exploration"
+  ) {
+    return ["design-exploration"];
+  }
+  if (
+    normalized === "visual-edit" ||
+    normalized === "local-visual-edit" ||
+    normalized === "design-visual-edit"
+  ) {
+    return ["visual-edit"];
   }
   return undefined;
 }
@@ -4277,6 +4395,11 @@ const BUILT_IN_SKILL_PROMPT_OPTIONS: SkillsTargetPromptContext["options"] = [
     value: "design-exploration",
     label: "design-exploration",
     hint: BUILT_IN_APP_SKILLS.design.manifest.description,
+  },
+  {
+    value: "visual-edit",
+    label: "visual-edit",
+    hint: "Open a running local app in Design overview mode as URL-backed iframe screens.",
   },
   {
     value: "context-xray",

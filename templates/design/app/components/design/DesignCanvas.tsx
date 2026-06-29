@@ -1901,6 +1901,18 @@ interface DesignCanvasProps {
   onPrototypeNavigate?: (screen: string, href: string) => void;
 }
 
+function getExternalPreviewUrl(content: string): string | null {
+  const trimmed = content.trim();
+  if (!/^https?:\/\//i.test(trimmed)) return null;
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 export interface IframeHotkeyPayload {
   key: string;
   code: string;
@@ -1965,6 +1977,10 @@ export function DesignCanvas({
   const [annotationPins, setAnnotationPins] = useState<CanvasPin[]>([]);
   const [pinSubmitSignal, setPinSubmitSignal] = useState(0);
   const isEmbeddedFrame = Boolean(embeddedFrame);
+  const externalPreviewUrl = useMemo(
+    () => getExternalPreviewUrl(renderedContent),
+    [renderedContent],
+  );
   zoomRef.current = zoom;
 
   const queuedAnnotationPins = useMemo(
@@ -2000,6 +2016,7 @@ export function DesignCanvas({
   // Build the srcdoc. The tweak bridge ALWAYS goes in so the panel works
   // outside Edit mode. The editor chrome bridge is omitted only for Interact.
   const srcdoc = useMemo(() => {
+    if (externalPreviewUrl) return undefined;
     const editorChromeBridge = interactMode
       ? ""
       : createEditorBridgeThemeScript(readEditorBridgeThemeVars()) +
@@ -2025,7 +2042,13 @@ export function DesignCanvas({
     }
     // No body/html tags — wrap it
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${renderedContent}${bridgeToInject}</body></html>`;
-  }, [editMode, interactMode, isEmbeddedFrame, renderedContent]);
+  }, [
+    editMode,
+    externalPreviewUrl,
+    interactMode,
+    isEmbeddedFrame,
+    renderedContent,
+  ]);
 
   // Listen for messages from the iframe
   useEffect(() => {
@@ -2440,8 +2463,13 @@ export function DesignCanvas({
     >
       <iframe
         ref={iframeRef}
-        srcDoc={srcdoc}
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        src={externalPreviewUrl ?? undefined}
+        srcDoc={externalPreviewUrl ? undefined : srcdoc}
+        sandbox={
+          externalPreviewUrl
+            ? "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+            : "allow-scripts allow-popups allow-popups-to-escape-sandbox"
+        }
         data-design-preview-iframe
         className="block h-full w-full border-0 bg-transparent"
         title={t("designEditor.designPreview")}

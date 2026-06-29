@@ -1534,6 +1534,16 @@ function parseDesignDataJson(data?: string | null): Record<string, unknown> {
   }
 }
 
+function getDesignDataRecord(
+  data: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  const value = data[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function getCanvasFrameGeometry(
   data: Record<string, unknown>,
 ): CanvasFrameGeometryById {
@@ -5471,15 +5481,38 @@ ${serializedHtml}
     selectedElementLayerId,
   ]);
 
-  const overviewScreens = useMemo(
-    () =>
-      files.map((file) => ({
+  const overviewScreens = useMemo(() => {
+    const metadataByFileId = getDesignDataRecord(
+      designDataJson,
+      "screenMetadata",
+    );
+    return files.map((file) => {
+      const metadata = getDesignDataRecord(metadataByFileId, file.id);
+      const stringValue = (key: string) =>
+        typeof metadata[key] === "string"
+          ? (metadata[key] as string)
+          : undefined;
+      const numberValue = (key: string) =>
+        typeof metadata[key] === "number" && Number.isFinite(metadata[key])
+          ? (metadata[key] as number)
+          : undefined;
+      return {
         id: file.id,
         filename: file.filename,
         content: file.content,
-      })),
-    [files],
-  );
+        sourceType: stringValue("sourceType"),
+        source: stringValue("source"),
+        lod: stringValue("lod"),
+        previewState: stringValue("previewState"),
+        status: stringValue("status"),
+        title: stringValue("title"),
+        width: numberValue("width"),
+        height: numberValue("height"),
+        url: stringValue("url"),
+        previewUrl: stringValue("previewUrl"),
+      };
+    });
+  }, [designDataJson, files]);
 
   const activeLayerId =
     selectedLayerIds[selectedLayerIds.length - 1] ??

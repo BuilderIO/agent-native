@@ -105,13 +105,15 @@ patterns live in `.agents/skills/`.
   editor download menu.
 - Design source modes are `inline`, `localhost`, and `fusion`. Inline is the
   current SQL-backed prototype mode. Localhost connections come from
-  `agent-native design connect` and are persisted with `connect-localhost`; list
-  them with `list-localhost-connections` before creating or resolving local-code
-  artboards. Fusion is a future source type and should be preserved when present
-  but not invented for inline/local work.
-- Localhost route manifests are scaffolding for Flow Canvas artboards. Preserve
-  route ids, paths, `sourceType`, bridge URL, and snapshot/state references when
-  moving between actions so later flow-edge derivation has stable anchors.
+  `npx @agent-native/core@latest design connect` and are persisted with
+  `connect-localhost`; list them with `list-localhost-connections` before
+  creating or resolving local-code artboards. Fusion is a future source type and
+  should be preserved when present but not invented for inline/local work.
+- Localhost route manifests are scaffolding for URL-backed Flow Canvas
+  artboards. Use `add-localhost-screens` to place routes or path/query states as
+  iframe screens in overview mode. Preserve route ids, paths, `sourceType`,
+  bridge URL, and snapshot/state references when moving between actions so later
+  flow-edge derivation has stable anchors.
 
 ## Application State
 
@@ -144,22 +146,32 @@ patterns live in `.agents/skills/`.
 ## Localhost Source Actions
 
 - `connect-localhost`: registers or refreshes a localhost source connection
-  emitted by `agent-native design connect`. Pass `devServerUrl`, optional
-  `bridgeUrl`, optional `rootPath`, and either `routes` or a full
-  `routeManifest`.
+  emitted by `npx @agent-native/core@latest design connect`. Pass
+  `devServerUrl`, optional `bridgeUrl`, optional `rootPath`, and either `routes`
+  or a full `routeManifest`.
 - `list-localhost-connections`: lists the current user's saved localhost
   connections and route manifests. Use this before referring to local-code
   artboards.
+- `add-localhost-screens`: creates or refreshes URL-backed iframe screens from
+  the latest localhost connection or a specific `connectionId`. Pass `routes`
+  with `path`/`url` when visualizing a flow; pass `paths` for a concise route
+  list. Then call `navigate --view editor --designId <id> --editorView overview`.
 
 ## App-Backed Skill Distribution
 
 - The preferred hosted install path is
-  `npx @agent-native/core@latest skills add design-exploration` (or `design`).
-  It installs the exported Design exploration instructions and registers the
-  hosted Design MCP connector together.
+  `npx @agent-native/core@latest skills add design-exploration`,
+  `npx @agent-native/core@latest skills add visual-edit`, or `design` for the
+  full Design bundle. It installs the exported Design instructions and registers
+  the hosted Design MCP connector together.
 - The open Skills CLI path
-  `npx skills@latest add BuilderIO/agent-native --skill design-exploration` installs
-  the exported instructions only.
+  `npx skills@latest add BuilderIO/agent-native --skill visual-edit` installs
+  exported instructions only.
+- For local-code visual editing, `/visual-edit` should run the target app dev
+  server, run
+  `npx @agent-native/core@latest design connect --url http://localhost:<port> --root .`,
+  register that manifest with `connect-localhost`, call `add-localhost-screens`,
+  and open the editor in overview mode.
 - For human-in-the-loop UI exploration, create a design shell, call
   `present-design-variants` with 2-5 complete HTML directions (three by
   default), wait for the user to pick one, then use `get-design-snapshot` and
