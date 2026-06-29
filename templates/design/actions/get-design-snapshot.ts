@@ -43,7 +43,11 @@ export default defineAction({
   run: async ({ designId }) => {
     const access = await resolveAccess("design", designId);
     if (!access) {
-      throw new Error("Design not found");
+      const err = new Error("Design not found") as Error & {
+        statusCode: number;
+      };
+      err.statusCode = 404;
+      throw err;
     }
     const design = access.resource as typeof schema.designs.$inferSelect;
 

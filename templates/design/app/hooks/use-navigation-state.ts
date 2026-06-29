@@ -17,8 +17,26 @@ export interface NavigationState {
   filename?: string;
   screen?: string;
   zoom?: number;
+  tool?: string;
   path?: string;
 }
+
+const DESIGN_EDITOR_TOOLS = [
+  "move",
+  "frame",
+  "rect",
+  "line",
+  "arrow",
+  "ellipse",
+  "polygon",
+  "star",
+  "text",
+  "pen",
+  "hand",
+  "comment",
+  "draw",
+  "scale",
+] as const;
 
 export interface DesignEditorCommand {
   designId: string;
@@ -62,6 +80,13 @@ function normalizeInspectorTab(
     : undefined;
 }
 
+function normalizeDesignTool(value: unknown): string | undefined {
+  return typeof value === "string" &&
+    DESIGN_EDITOR_TOOLS.includes(value as (typeof DESIGN_EDITOR_TOOLS)[number])
+    ? value
+    : undefined;
+}
+
 export function editorPathFromCommand(cmd: NavigationState): string | null {
   if (cmd.path) return cmd.path;
   if (cmd.view !== "editor" || !cmd.designId) return null;
@@ -78,6 +103,8 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   } else if (editorView === "single") {
     params.set("zoom", String(FOCUSED_SCREEN_ZOOM));
   }
+  const tool = normalizeDesignTool(cmd.tool);
+  if (tool) params.set("tool", tool);
 
   const query = params.toString();
   return `/design/${encodeURIComponent(cmd.designId)}${query ? `?${query}` : ""}`;
@@ -106,10 +133,12 @@ export function editorCommandFromNavigate(
   } else if (editorView === "single") {
     command.zoom = FOCUSED_SCREEN_ZOOM;
   }
+  const tool = normalizeDesignTool(cmd.tool);
+  if (tool) command.tool = tool;
   return command;
 }
 
-export function useNavigationState() {
+export function useNavigationState(enabled = true) {
   const params = useParams();
   const browserTabId = getBrowserTabId();
 
@@ -134,8 +163,13 @@ export function useNavigationState() {
         if (fileId) state.fileId = fileId;
         const filename = searchParams.get("filename");
         if (filename) state.filename = filename;
-        const zoom = Number(searchParams.get("zoom"));
-        if (Number.isFinite(zoom)) state.zoom = zoom;
+        const rawZoom = searchParams.get("zoom");
+        if (rawZoom !== null) {
+          const zoom = Number(rawZoom);
+          if (Number.isFinite(zoom)) state.zoom = zoom;
+        }
+        const tool = normalizeDesignTool(searchParams.get("tool"));
+        if (tool) state.tool = tool;
       } else if (pathname.startsWith("/design-systems")) {
         state.view = "design-systems";
         const designSystemId = searchParams.get("designSystemId");
@@ -177,5 +211,6 @@ export function useNavigationState() {
         setClientAppState(key, command).catch(() => {});
       }
     },
+    enabled,
   });
 }

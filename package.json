@@ -89,7 +89,7 @@
     "@changesets/cli": "2.31.0",
     "@cloudflare/vite-plugin": "^1.31.0",
     "@libsql/linux-x64-gnu": "^0.5.29",
-    "@playwright/test": "^1.60.0",
+    "@playwright/test": "^1.61.1",
     "@typescript/native-preview": "7.0.0-dev.20260624.1",
     "concurrently": "^9.1.0",
     "oxfmt": "0.56.0",

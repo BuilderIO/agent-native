@@ -295,7 +295,8 @@ function TweakControl({
           />
           <span className="min-w-[2ch] text-right text-[11px] tabular-nums text-muted-foreground">
             {typeof value === "number" ? value : 50}
-            {tweak.cssVar?.includes("radius") ? "px" : ""}
+            {tweak.unit ??
+              (tweak.cssVar?.toLowerCase().includes("radius") ? "px" : "")}
           </span>
         </div>
       )}

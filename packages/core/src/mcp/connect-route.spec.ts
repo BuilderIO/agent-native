@@ -213,6 +213,8 @@ describe("handleMcpConnect", () => {
       const body = await res.text();
       expect(body).toContain("ABCD-2345");
       expect(body).toContain("Authorize this device");
+      expect(body).toContain("Authorizing device...");
+      expect(body).toContain('btn.setAttribute("aria-busy", "true")');
       expect(body).not.toContain("Pick your AI assistant");
       expect(body).not.toContain("Your MCP URL");
       expect(body).not.toContain("Advanced options");

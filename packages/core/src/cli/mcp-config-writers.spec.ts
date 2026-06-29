@@ -5,13 +5,17 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  buildCodexHttpBlock,
+  buildCodexLocalBlock,
   buildHttpMcpEntry,
   buildLocalMcpEntryForClient,
   canonicalUrl,
+  codexHasBlock,
   hasJsonMcpEntry,
   hasJsonMcpEntryForClient,
   removeCodexSameUrlDuplicates,
   removeJsonSameUrlDuplicates,
+  writeCodexBlock,
   writeHttpEntryForClient,
   writeJsonMcpEntry,
 } from "./mcp-config-writers.js";
@@ -590,5 +594,219 @@ describe("removeCodexSameUrlDuplicates", () => {
       "plan",
     );
     expect(removed).toEqual([]);
+  });
+
+  it("removes the full footprint (table + sub-tables) of a same-url alias", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(
+      file,
+      [
+        '[mcp_servers."plan"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        "",
+        '[mcp_servers."agent-native-plans"]',
+        'url = "https://plan.agent-native.com/_agent-native/mcp"',
+        "",
+        '[mcp_servers."agent-native-plans".http_headers]',
+        'Authorization = "Bearer stale-token"',
+        "",
+        "[mcp_servers.other]",
+        'url = "https://other.example.com/mcp"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const removed = removeCodexSameUrlDuplicates(
+      file,
+      "https://plan.agent-native.com/_agent-native/mcp",
+      "plan",
+    );
+
+    expect(removed).toEqual(["agent-native-plans"]);
+    const content = fs.readFileSync(file, "utf-8");
+    // The alias AND its now-orphan sub-table are both gone.
+    expect(content).not.toContain("agent-native-plans");
+    expect(content).not.toContain("stale-token");
+    // The kept server and the unrelated server survive intact.
+    expect(content).toContain('[mcp_servers."plan"]');
+    expect(content).toContain("[mcp_servers.other]");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// writeCodexBlock — sub-table-aware footprint replacement
+// ---------------------------------------------------------------------------
+
+describe("writeCodexBlock", () => {
+  const PLAN_URL = "https://plan.agent-native.com/_agent-native/mcp";
+
+  it("removes a stale standalone sub-table so a re-install never duplicates a key", () => {
+    // Repro of the real bug: a `[mcp_servers.plan.http_headers]` sub-table sat
+    // separately from the server's own block. Re-writing the server must clear
+    // it, or `mcp_servers.plan.http_headers` ends up defined twice (TOML error).
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(
+      file,
+      [
+        'model = "gpt-5.5"',
+        "",
+        "[mcp_servers.plan.http_headers]",
+        'Authorization = "Bearer OLD-token"',
+        "",
+        '[mcp_servers."plan"]',
+        `url = "${PLAN_URL}"`,
+        'http_headers = { "Authorization" = "Bearer OLD-token" }',
+        "",
+        "[mcp_servers.other]",
+        'url = "https://other.example.com/mcp"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    writeCodexBlock(
+      file,
+      "plan",
+      buildCodexHttpBlock("plan", PLAN_URL, "NEW-token"),
+    );
+
+    const content = fs.readFileSync(file, "utf-8");
+    // The orphaned sub-table header is gone — no duplicate key possible.
+    expect(content).not.toContain("[mcp_servers.plan.http_headers]");
+    expect(content).not.toContain("OLD-token");
+    // Exactly one server table and one inline http_headers for plan.
+    expect(content.match(/\[mcp_servers\."plan"\]/g)).toHaveLength(1);
+    expect(content.match(/http_headers = \{/g)).toHaveLength(1);
+    expect(content).toContain("NEW-token");
+    // Unrelated server untouched.
+    expect(content).toContain("[mcp_servers.other]");
+    expect(content).toContain('model = "gpt-5.5"');
+  });
+
+  it("collapses a server's own sub-tables (e.g. env) on rewrite", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(
+      file,
+      [
+        "[mcp_servers.node_repl]",
+        'command = "node_repl"',
+        "",
+        "[mcp_servers.node_repl.env]",
+        'FOO = "old"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    writeCodexBlock(
+      file,
+      "node_repl",
+      buildCodexLocalBlock("node_repl", ["mcp"], { FOO: "new" }),
+    );
+
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).not.toContain("[mcp_servers.node_repl.env]");
+    expect(content).not.toContain('FOO = "old"');
+    expect(content.match(/\[mcp_servers\."node_repl"\]/g)).toHaveLength(1);
+  });
+
+  it("treats table headers with trailing comments as table boundaries", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(
+      file,
+      [
+        '[mcp_servers."plan"] # installed by hand',
+        `url = "${PLAN_URL}"`,
+        "",
+        "[mcp_servers.other] # keep this neighbor",
+        'url = "https://other.example.com/mcp"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    writeCodexBlock(
+      file,
+      "plan",
+      buildCodexHttpBlock("plan", PLAN_URL, "NEW-token"),
+    );
+
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content.match(/\[mcp_servers\."plan"\]/g)).toHaveLength(1);
+    expect(content).toContain("NEW-token");
+    expect(content).not.toContain("installed by hand");
+    expect(content).toContain("[mcp_servers.other] # keep this neighbor");
+    expect(content).toContain('url = "https://other.example.com/mcp"');
+  });
+
+  it("repeated writes are idempotent (no accumulation)", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    writeCodexBlock(file, "plan", buildCodexHttpBlock("plan", PLAN_URL, "tok"));
+    const afterFirst = fs.readFileSync(file, "utf-8");
+    writeCodexBlock(file, "plan", buildCodexHttpBlock("plan", PLAN_URL, "tok"));
+    const afterSecond = fs.readFileSync(file, "utf-8");
+    expect(afterSecond).toBe(afterFirst);
+    expect(afterSecond.match(/\[mcp_servers\."plan"\]/g)).toHaveLength(1);
+  });
+
+  it("does not corrupt a neighbouring multi-line value when removing a block", () => {
+    // A block whose body contains lines that merely start with `[` (e.g. shell
+    // in a triple-quoted args value) must not be treated as a table boundary.
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    const okBlock = [
+      '[mcp_servers."open-knowledge"]',
+      'command = "/bin/sh"',
+      'args = ["-l", "-c", """',
+      '[ -f "$BUNDLE" ] && exec "$BUNDLE" mcp',
+      'exit 127"""]',
+      "",
+    ].join("\n");
+    fs.writeFileSync(
+      file,
+      ['[mcp_servers."plan"]', `url = "${PLAN_URL}"`, "", okBlock].join("\n"),
+      "utf-8",
+    );
+
+    writeCodexBlock(file, "plan", null);
+
+    const content = fs.readFileSync(file, "utf-8");
+    expect(content).not.toContain('[mcp_servers."plan"]');
+    // open-knowledge block fully intact, including its `[`-prefixed body lines.
+    expect(content).toContain('[mcp_servers."open-knowledge"]');
+    expect(content).toContain('[ -f "$BUNDLE" ] && exec "$BUNDLE" mcp');
+    expect(content).toContain('exit 127"""]');
+  });
+
+  it("removing a non-existent block is a no-op", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(file, 'model = "gpt-5.5"\n', "utf-8");
+    writeCodexBlock(file, "plan", null);
+    expect(fs.readFileSync(file, "utf-8")).toBe('model = "gpt-5.5"\n');
+  });
+});
+
+describe("codexHasBlock", () => {
+  it("detects a server present only via a sub-table", () => {
+    const dir = tmpDir();
+    const file = path.join(dir, "config.toml");
+    fs.writeFileSync(
+      file,
+      [
+        "[mcp_servers.plan.http_headers]",
+        'Authorization = "Bearer x"',
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+    expect(codexHasBlock(file, "plan")).toBe(true);
+    expect(codexHasBlock(file, "other")).toBe(false);
   });
 });

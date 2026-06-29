@@ -47,6 +47,7 @@ const BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES = new Set([
   "image",
   "video",
   "audio",
+  "contentReference",
   "localMdxComponent",
 ]);
 

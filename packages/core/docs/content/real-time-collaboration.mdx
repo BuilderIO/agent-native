@@ -14,7 +14,7 @@ agent-native collaboration model.
 
 ## Vision {#vision}
 
-Editing alongside the agent feels like working in Google Docs or Figma with
+Editing alongside the agent feels like working in a collaborative editor with
 a coworker who is both instant and tireless:
 
 If you just need the UI to refresh when the agent or another user writes to SQL, you don't need any of this — use [`useDbSync`](/docs/client). This page is for character-level co-editing of a single rich-text document (shared cursors, conflict-free merging). Both ride the same `/_agent-native/poll` channel.
@@ -358,7 +358,7 @@ pnpm action edit-document --id doc123 --find "delete me" --replace ""
 
 ## Presence Kit {#presence-kit}
 
-The presence kit provides Liveblocks/Figma-grade live-cursor and selection primitives on top of the existing awareness layer.
+The presence kit provides Liveblocks/collaboration-grade live-cursor and selection primitives on top of the existing awareness layer.
 
 Import client-side presence and editor UI from the focused browser subpath:
 

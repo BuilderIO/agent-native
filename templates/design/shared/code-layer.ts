@@ -557,6 +557,20 @@ const NON_VISUAL_TAGS = new Set([
 
 const RAW_TEXT_VISUAL_TAGS = new Set(["textarea"]);
 
+// HTML5 elements that are implicitly closed when a sibling of the same (or
+// related) type opens, because their closing tags are optional per the spec.
+const IMPLICIT_CLOSE_TAGS: Map<string, Set<string>> = new Map([
+  ["li", new Set(["li"])],
+  ["p", new Set(["p"])],
+  ["td", new Set(["td", "th"])],
+  ["th", new Set(["td", "th"])],
+  ["tr", new Set(["tr"])],
+  ["dt", new Set(["dt", "dd"])],
+  ["dd", new Set(["dt", "dd"])],
+  ["option", new Set(["option"])],
+  ["optgroup", new Set(["optgroup"])],
+]);
+
 const DATA_SELECTOR_PRIORITY = [
   "data-agent-native-node-id",
   "data-code-layer-id",
@@ -1017,13 +1031,34 @@ function parseHtmlElements(html: string): ParsedElement[] {
         const element = elements[stack[i]];
         if (!element) continue;
         stack.pop();
-        element.closeStart = match.index;
-        element.closeEnd = match.index + raw.length;
-        element.contentEnd = match.index;
-        element.end = match.index + raw.length;
-        if (element.tag === tag) break;
+        if (element.tag === tag) {
+          element.closeStart = match.index;
+          element.closeEnd = match.index + raw.length;
+          element.contentEnd = match.index;
+          element.end = match.index + raw.length;
+          break;
+        } else {
+          // Implicitly close optional-close-tag elements (e.g. <li>, <p>)
+          // without attributing the parent's close tag to them.
+          element.contentEnd = match.index;
+          element.end = match.index;
+        }
       }
       continue;
+    }
+
+    // Auto-close HTML5 optional-close-tag elements when a sibling of the same
+    // type (or a related type) opens. This mirrors how browsers handle elements
+    // like <li>, <p>, <td>, <th>, <tr>, <dt>, <dd>, <option>, <optgroup>.
+    const stackTopTag =
+      stack.length > 0 ? elements[stack[stack.length - 1]]?.tag : undefined;
+    if (stackTopTag && IMPLICIT_CLOSE_TAGS.get(tag)?.has(stackTopTag)) {
+      const popped = stack.pop()!;
+      const poppedElement = elements[popped];
+      if (poppedElement) {
+        poppedElement.contentEnd = match.index;
+        poppedElement.end = match.index;
+      }
     }
 
     const parentIndex = stack.length > 0 ? stack[stack.length - 1] : undefined;
@@ -1140,7 +1175,7 @@ function pathSelector(
         ? undefined
         : elements[current.parentIndex];
   }
-  return parts.slice(-5).join(" > ");
+  return parts.join(" > ");
 }
 
 function primarySelector(
@@ -1314,24 +1349,32 @@ function layoutFor(
     style.display ??
     (classes.has("flex")
       ? "flex"
-      : classes.has("grid")
-        ? "grid"
-        : classes.has("hidden")
-          ? "none"
-          : classes.has("block")
-            ? "block"
-            : classes.has("inline-block")
-              ? "inline-block"
-              : undefined);
+      : classes.has("inline-flex")
+        ? "inline-flex"
+        : classes.has("grid")
+          ? "grid"
+          : classes.has("inline-grid")
+            ? "inline-grid"
+            : classes.has("hidden")
+              ? "none"
+              : classes.has("block")
+                ? "block"
+                : classes.has("inline-block")
+                  ? "inline-block"
+                  : undefined);
   const parentDisplay =
     parentStyle?.display ??
     (parentClasses?.has("flex")
       ? "flex"
-      : parentClasses?.has("grid")
-        ? "grid"
-        : parentClasses?.has("hidden")
-          ? "none"
-          : undefined);
+      : parentClasses?.has("inline-flex")
+        ? "inline-flex"
+        : parentClasses?.has("grid")
+          ? "grid"
+          : parentClasses?.has("inline-grid")
+            ? "inline-grid"
+            : parentClasses?.has("hidden")
+              ? "none"
+              : undefined);
   const flexDirection =
     style["flex-direction"] ??
     (classes.has("flex-col")
@@ -1921,11 +1964,8 @@ function selectorMatches(
   const selectorHasDirectPath = normalizedSelector.includes(" > ");
   if (
     selectorHasDirectPath &&
-    normalizedNodeSelectors.some(
-      (candidate) =>
-        candidate.endsWith(` > ${normalizedSelector}`) ||
-        (candidate.includes(" > ") &&
-          normalizedSelector.endsWith(` > ${candidate}`)),
+    normalizedNodeSelectors.some((candidate) =>
+      candidate.endsWith(` > ${normalizedSelector}`),
     )
   ) {
     return true;
@@ -2180,7 +2220,7 @@ function sanitizeTextEditHtml(html: string): string {
     )
     .replace(/\s+on[A-Za-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/g, "")
     .replace(
-      /\s+(href|src|xlink:href)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi,
+      /\s+(href|src|xlink:href)\s*=\s*(?:(["'])\s*(?:javascript|vbscript|data):[\s\S]*?\2|(?:javascript|vbscript|data):[^\s>]*)/gi,
       "",
     );
 }
@@ -2253,6 +2293,7 @@ function applyMoveNodeEdit(
 function findAfterNode(
   projection: CodeLayerProjection,
   before: CodeLayerNode,
+  insertAt?: number,
 ): CodeLayerNode | undefined {
   return (
     projection.nodes.find((node) => node.id === before.id) ??
@@ -2260,7 +2301,13 @@ function findAfterNode(
       (node) =>
         node.tag === before.tag &&
         node.source?.openStart === before.source?.openStart,
-    )
+    ) ??
+    (insertAt !== undefined
+      ? projection.nodes.find(
+          (node) =>
+            node.tag === before.tag && node.source?.openStart === insertAt,
+        )
+      : undefined)
   );
 }
 
@@ -2322,6 +2369,7 @@ export function applyVisualEdit(
   }
 
   let edit: { content: string; capability: EditCapability } | PatchResultStatus;
+  let moveInsertAt: number | undefined;
   if (intent.kind === "style") {
     edit = applyStyleEdit(html, element, intent);
   } else if (intent.kind === "class") {
@@ -2363,6 +2411,17 @@ export function applyVisualEdit(
         ),
       };
     }
+    // Compute the expected post-move openStart so findAfterNode can locate the
+    // moved node even when its nodeId changes (position-based id).
+    const rawInsertAt =
+      intent.placement === "before"
+        ? anchorElement.start
+        : intent.placement === "after"
+          ? anchorElement.end
+          : anchorElement.contentEnd;
+    const removedLength = element.end - element.start;
+    moveInsertAt =
+      element.start < rawInsertAt ? rawInsertAt - removedLength : rawInsertAt;
     edit = applyMoveNodeEdit(html, element, anchorElement, intent);
   }
 
@@ -2389,7 +2448,7 @@ export function applyVisualEdit(
   }
 
   const nextProjection = buildCodeLayerProjection(edit.content, { source });
-  const afterNode = findAfterNode(nextProjection, beforeNode);
+  const afterNode = findAfterNode(nextProjection, beforeNode, moveInsertAt);
   const after = afterNode ? summarizeNode(afterNode) : undefined;
 
   return {

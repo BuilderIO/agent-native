@@ -673,6 +673,7 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       return serializeBlockAtom(node, ind);
     case "registryBlock":
       return serializeRegistryBlock(node, ind);
+    case "contentReference":
     case "localMdxComponent":
       return serializeRawSourceBlock(node, ind);
     default: {
@@ -1199,6 +1200,19 @@ function parseSingleBlock(
     return { nodes: [withIndentAttr(node)], end: childRes.end };
   }
 
+  // Content reference (Notion-style reusable MDX transclusion). The source
+  // owns the reference; the editor resolves and previews it from local files.
+  const contentReferenceTag = matchContentReferenceOpen(dedent);
+  if (contentReferenceTag) {
+    return parseContentReference(
+      lines,
+      start,
+      indent,
+      rel,
+      contentReferenceTag,
+    );
+  }
+
   // Registry block (PascalCase MDX element: <Endpoint .../>, <Checklist .../>,
   // <DataModel …>…</DataModel>, …). These are the dev-doc / OpenAPI library
   // blocks shared with plan, encoded inline. They are recognized by the content
@@ -1286,6 +1300,12 @@ function matchRegistryBlockOpen(dedent: string): string | null {
   if (!m) return null;
   const tag = m[1];
   return registryBlockSpecByTag(tag) ? tag : null;
+}
+
+function matchContentReferenceOpen(dedent: string): string | null {
+  return /^<ContentReference(?:[\s/>]|$)/.test(dedent)
+    ? "ContentReference"
+    : null;
 }
 
 function matchLocalMdxComponentOpen(dedent: string): string | null {
@@ -1422,6 +1442,48 @@ function parseRegistryBlock(
     },
   };
   return { nodes: [withIndentAttr(node)], end };
+}
+
+function parseContentReference(
+  lines: string[],
+  start: number,
+  indent: number,
+  rel: number,
+  _tag: string,
+): ParseResult {
+  const withIndentAttr = (node: PMNode): PMNode => {
+    if (rel > 0) node.attrs = { ...(node.attrs || {}), indent: rel };
+    return node;
+  };
+  const dedented = lines.map((l) => stripTabs(l, indent));
+
+  let openEndLine = start;
+  {
+    let joined = "";
+    for (let i = start; i < lines.length; i++) {
+      joined += (i === start ? "" : "\n") + dedented[i];
+      const res = scanOpenTagEnd(joined);
+      if (res) {
+        openEndLine = i;
+        break;
+      }
+      openEndLine = i;
+    }
+  }
+
+  const rawLines = dedented.slice(start, openEndLine + 1);
+  const raw = rawLines.join("\n");
+  const props = parseAttrs(raw);
+  const node: PMNode = {
+    type: "contentReference",
+    attrs: {
+      sourcePath:
+        props.sourcePath ?? props.path ?? props.source ?? props.href ?? "",
+      title: props.title ?? null,
+      __raw: raw,
+    },
+  };
+  return { nodes: [withIndentAttr(node)], end: openEndLine + 1 };
 }
 
 function parseLocalMdxComponent(

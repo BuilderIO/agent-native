@@ -225,7 +225,7 @@ elementId, styles }]`. Elements must have `data-design-id` or
   `data-plan-design-id`; use `patch-wireframe-html` / `patch-prototype-html` for
   structural or text changes.
 - Plan comments include reviewer identity, @mentions, resolver intent
-  (`agent` or `human`), exact anchors, and Figma-style threads. When adding
+  (`agent` or `human`), exact anchors, and design-review threads. When adding
   human feedback through `update-visual-plan`, preserve `authorEmail` and
   `authorName` when known; pass `parentCommentId` to reply inline to an
   existing comment thread. Text feedback should anchor to the nearest prose

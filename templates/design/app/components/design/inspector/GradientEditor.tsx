@@ -27,7 +27,7 @@ export interface GradientValue {
   stops: GradientStopValue[];
 }
 
-// ─── Checkerboard (matches FigmaColorPicker) ───────────────────────────────────
+// ─── Checkerboard (matches DesignColorPicker) ───────────────────────────────────
 
 const CHECKER_A = "#d4d4d4";
 const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
@@ -53,7 +53,7 @@ export function gradientToCss(value: GradientValue): string {
       return `radial-gradient(circle at center, ${stops})`;
     case "diamond":
       // CSS has no diamond gradient; a radial gradient with closest-side on a
-      // non-circular ellipse reads as the diamond falloff Figma shows.
+      // non-circular ellipse reads as the diamond falloff the design editor shows.
       return `radial-gradient(ellipse closest-side at center, ${stops})`;
     case "angular":
       return `conic-gradient(from ${round(value.angle)}deg at center, ${stops})`;
@@ -155,7 +155,7 @@ export function parseGradientCss(
       : false;
 
   if (fn === "linear") {
-    kind = fallbackKind === "linear" ? "linear" : fallbackKind;
+    kind = "linear";
     const angleMatch = first.match(ANGLE_RE);
     if (angleMatch) {
       angle = Number(angleMatch[1]);
@@ -166,7 +166,10 @@ export function parseGradientCss(
       stopStart = 1;
     }
   } else if (fn === "radial") {
-    kind = /ellipse/i.test(first) ? "diamond" : "radial";
+    kind =
+      /ellipse\s+closest-side/i.test(first) || fallbackKind === "diamond"
+        ? "diamond"
+        : "radial";
     if (/circle|ellipse|at\s/i.test(first)) stopStart = 1;
   } else if (fn === "conic") {
     kind = "angular";
@@ -199,7 +202,7 @@ interface AngleDialProps {
   disabled?: boolean;
 }
 
-/** Figma-style circular dial for rotating gradient angle. */
+/** design-editor circular dial for rotating gradient angle. */
 function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
   const dialRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -210,7 +213,7 @@ function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
     const rad = Math.atan2(clientY - cy, clientX - cx);
-    // atan2 gives angle from east; Figma's 0° is north (up), clockwise.
+    // atan2 gives angle from east; the design editor's 0° is north (up), clockwise.
     let deg = (rad * 180) / Math.PI + 90;
     if (deg < 0) deg += 360;
     if (deg >= 360) deg -= 360;
@@ -311,7 +314,7 @@ export interface GradientEditorProps {
   className?: string;
 }
 
-// Stop handle dimensions — Figma uses ~12px handles with white ring.
+// Stop handle dimensions — the design editor uses ~12px handles with white ring.
 const STOP_SIZE = 12; // px, the colored circle diameter
 const STOP_RING = 2; // px, white border thickness
 const STOP_OUTER = STOP_SIZE + STOP_RING * 2; // 16px total outer
@@ -372,9 +375,29 @@ export function GradientEditor({
     barClickRef.current = null;
     const position = positionFromPointer(event.clientX);
     const ordered = sortedStops(value.stops);
-    // Interpolate the color from the nearest stops for a natural insert.
+    // Interpolate the color from the adjacent stops for a natural insert.
     const before = [...ordered].reverse().find((s) => s.position <= position);
-    const newColor = before?.color ?? ordered[0]?.color ?? "#000000";
+    const after = ordered.find((s) => s.position > position);
+    let newColor: string;
+    if (before && after) {
+      const range = after.position - before.position;
+      const t = range === 0 ? 0 : (position - before.position) / range;
+      const cb = parseCssColor(before.color);
+      const ca = parseCssColor(after.color);
+      if (cb && ca) {
+        newColor = rgbaToCss({
+          r: Math.round(cb.r + t * (ca.r - cb.r)),
+          g: Math.round(cb.g + t * (ca.g - cb.g)),
+          b: Math.round(cb.b + t * (ca.b - cb.b)),
+          a: cb.a + t * (ca.a - cb.a),
+        });
+      } else {
+        newColor = before.color;
+      }
+    } else {
+      newColor =
+        before?.color ?? after?.color ?? ordered[0]?.color ?? "#000000";
+    }
     const newStop: GradientStopValue = {
       id: nextStopId(),
       color: newColor,
@@ -501,7 +524,7 @@ export function GradientEditor({
                 "absolute cursor-grab active:cursor-grabbing",
                 "rounded-full border-[2px] border-white",
                 "focus-visible:outline-none",
-                // Selected: accent-colored outer ring (like Figma's blue ring)
+                // Selected: accent-colored outer ring (the same way's blue ring)
                 isSelected
                   ? "shadow-[0_0_0_1.5px_var(--primary),0_1px_3px_rgba(0,0,0,0.35)]"
                   : "shadow-[0_0_0_1px_rgba(0,0,0,0.25),0_1px_3px_rgba(0,0,0,0.25)]",
@@ -560,9 +583,14 @@ export function GradientEditor({
                 disabled={disabled}
                 value={angleInput ?? Math.round(value.angle)}
                 onChange={(e) => {
-                  setAngleInput(e.target.value);
                   const next = Number(e.target.value);
-                  if (Number.isFinite(next)) setAngle(next);
+                  if (Number.isFinite(next)) {
+                    const normalised = ((next % 360) + 360) % 360;
+                    setAngle(next);
+                    setAngleInput(String(Math.round(normalised)));
+                  } else {
+                    setAngleInput(e.target.value);
+                  }
                 }}
                 onBlur={() => setAngleInput(null)}
                 className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-[11px] tabular-nums focus-visible:outline-none"

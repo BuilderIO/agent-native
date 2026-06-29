@@ -47,7 +47,7 @@ export interface ShareButtonProps {
   variant?: "compact" | "label";
   /** Optional trigger style. Defaults to the Google-Docs-style "Share" label. */
   trigger?: "label" | "icon";
-  /** Hide the visibility/share glyph in the label trigger. */
+  /** @deprecated Label triggers no longer render a visibility/share glyph. */
   hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
@@ -298,23 +298,8 @@ export function ShareButton(props: ShareButtonProps) {
     });
   };
 
-  // The default trigger says "Share" — the icon reflects the resource's
-  // current visibility (lock / building / globe), matching Google Docs.
-  // While the query is loading and we don't know the visibility yet,
-  // render a skeleton placeholder in the icon slot instead of guessing.
+  // The default trigger stays text-only; the icon trigger keeps the share glyph.
   const iconOnly = props.trigger === "icon";
-  const loaded = sharesQuery.data !== undefined;
-  const serverVisibility =
-    (sharesQuery.data?.visibility as Visibility | null) ?? "private";
-  const currentVisibility = pendingVisibility ?? serverVisibility;
-  const VisibilityIcon =
-    currentVisibility === "public"
-      ? IconWorld
-      : currentVisibility === "org"
-        ? IconBuilding
-        : IconLock;
-  const showTriggerIcon = iconOnly || !props.hideTriggerIcon;
-  const TriggerIcon = iconOnly ? IconShare3 : VisibilityIcon;
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -327,16 +312,7 @@ export function ShareButton(props: ShareButtonProps) {
           )}
           aria-label={iconOnly ? "Share" : undefined}
         >
-          {showTriggerIcon ? (
-            loaded || iconOnly ? (
-              <TriggerIcon size={16} strokeWidth={1.75} />
-            ) : (
-              <span
-                aria-hidden
-                className="inline-block h-4 w-4 rounded-sm bg-muted animate-pulse"
-              />
-            )
-          ) : null}
+          {iconOnly ? <IconShare3 size={16} strokeWidth={1.75} /> : null}
           {!iconOnly && <span>Share</span>}
         </button>
       </PopoverTrigger>

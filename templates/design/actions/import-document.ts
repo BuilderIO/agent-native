@@ -8,6 +8,9 @@ import {
 } from "@agent-native/core/server/design-token-utils";
 import { z } from "zod";
 
+const DOC_MAX_FILES = 20;
+const DOC_MAX_TEXT_BYTES = 500 * 1024;
+
 export default defineAction({
   description:
     "Process uploaded document metadata (DOCX, PPTX, PDF, XLSX) and return " +
@@ -44,16 +47,29 @@ export default defineAction({
   }),
   readOnly: true,
   run: async ({ files }) => {
-    const processedFiles = files.map((file) => {
+    const capped = files.slice(0, DOC_MAX_FILES);
+    const processedFiles = capped.map((file) => {
       const contentType = classifyFile(file.fileType);
-      const hasText = !!file.textContent && file.textContent.trim().length > 0;
+
+      // Truncate textContent before regex scanning to bound CPU/memory usage.
+      let text = file.textContent;
+      if (text) {
+        const encoded = new TextEncoder().encode(text);
+        if (encoded.byteLength > DOC_MAX_TEXT_BYTES) {
+          text = new TextDecoder().decode(
+            encoded.subarray(0, DOC_MAX_TEXT_BYTES),
+          );
+        }
+      }
+
+      const hasText = !!text && text.trim().length > 0;
 
       let likelyColors: string[] = [];
       let likelyFonts: string[] = [];
 
-      if (file.textContent) {
-        likelyColors = extractDocumentColors(file.textContent);
-        likelyFonts = extractDocumentFonts(file.textContent);
+      if (text) {
+        likelyColors = extractDocumentColors(text);
+        likelyFonts = extractDocumentFonts(text);
       }
 
       if (file.metadata) {
@@ -80,9 +96,7 @@ export default defineAction({
           likelyColors,
           likelyFonts,
           contentType,
-          extractedText: file.textContent
-            ? file.textContent.slice(0, 2000)
-            : undefined,
+          extractedText: text ? text.slice(0, 2000) : undefined,
           suggestions,
         },
       };

@@ -8,10 +8,9 @@ functions = "templates/design/.netlify/functions-internal"
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
 
-# A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).
-# The framework does not impose a default agent-run timeout; if a template sets
-# AGENT_RUN_SOFT_TIMEOUT_MS, keep it below this function timeout so the hidden
-# auto-continuation path can hand off before Netlify kills the function.
+# Emit the Netlify background function used by Design's durable agent-chat opt-in.
+# The normal server timeout still protects non-background HTTP handlers.
 [functions."*"]
 timeout = 75

@@ -213,8 +213,17 @@ export function normalizeDesignSourceType(
 export function makeLocalhostRouteId(path: string): string {
   const normalized = path.trim() || "/";
   if (normalized === "/") return "route-root";
+  // Pure wildcard routes ("/*", "/**") collapse to a single id.
+  if (/^\/\*+$/.test(normalized)) return "route-wildcard";
+  // Encode structural characters distinctly BEFORE collapsing non-alphanumerics,
+  // otherwise paths like "/design/:id" and "/design-id", or "/users" and
+  // "/users/*", produce identical ids and silently overwrite each other in the
+  // route manifest map.
   const slug = normalized
     .replace(/^\/+/, "")
+    .replace(/\*/g, "w") // wildcard segment
+    .replace(/:/g, "p") // route param prefix (":id" -> "pid")
+    .replace(/[[\]]/g, "") // strip [id] bracket syntax
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();

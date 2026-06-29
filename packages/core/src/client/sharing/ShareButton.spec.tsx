@@ -228,6 +228,36 @@ describe("ShareButton", () => {
     expect(trigger?.textContent).not.toContain("Share");
   });
 
+  it("renders the label trigger as text only for organization visibility", async () => {
+    sharesData.current = {
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      visibility: "org",
+      role: "owner",
+      shares: [],
+    };
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            shareUrl="https://content.agent-native.com/page/doc-1"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const trigger = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Share",
+    );
+
+    expect(trigger).toBeTruthy();
+    expect(trigger?.querySelector("svg")).toBeFalsy();
+    expect(trigger?.querySelector(".animate-pulse")).toBeFalsy();
+  });
+
   it("renders the icon-only trigger without a loading placeholder", async () => {
     sharesData.current = undefined as any;
 

@@ -39,7 +39,7 @@ import {
   IconSizingMin,
   IconSizingRemove,
   IconSizingVariable,
-} from "./figma-icons";
+} from "./design-icons";
 import { ScrubInput } from "./ScrubInput";
 
 export type AutoLayoutDirection = "horizontal" | "vertical";
@@ -78,7 +78,7 @@ export interface AutoLayoutMatrixValue {
   };
   /**
    * Currently-set min/max constraints per axis, in px. `null` means the
-   * constraint is not set (Figma shows the "Add min/max…" menu item instead of
+   * constraint is not set (the design editor shows the "Add min/max…" menu item instead of
    * a sub-row). Optional so existing callers are unaffected.
    */
   childMinMax?: {
@@ -92,6 +92,12 @@ export interface AutoLayoutMatrixValue {
    * unaffected.
    */
   display?: "flex" | "block";
+  /**
+   * When true, the gap mode is "Auto" (CSS `justify-content: space-between`).
+   * When false or omitted, gap mode is "Fixed" (a numeric gap value).
+   * Drives the checked state of the Fixed/Auto items in the gap dropdown.
+   */
+  spaceBetween?: boolean;
 }
 
 export interface AutoLayoutMatrixLabels {
@@ -157,7 +163,7 @@ export interface AutoLayoutMatrixProps {
   ) => void;
   /**
    * Invoked when the user picks "Apply variable…". Optional — when omitted the
-   * variable row is still shown but disabled (placeholder), matching Figma when
+   * variable row is still shown but disabled (placeholder), matching the design editor when
    * no variable collections exist.
    */
   onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
@@ -245,12 +251,14 @@ export function AutoLayoutMatrix({
 }: AutoLayoutMatrixProps) {
   const copy = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labels };
 
-  const horizontalPaddingValue = Math.round(
-    (value.padding.left + value.padding.right) / 2,
-  );
-  const verticalPaddingValue = Math.round(
-    (value.padding.top + value.padding.bottom) / 2,
-  );
+  // Show left/top as the representative value when padding is linked.
+  // Averaging the two sides would silently destroy asymmetric padding on the
+  // next edit — the onChange handler sets both sides to the same number, so
+  // whatever is displayed becomes the new value for both sides. Using the
+  // left/top value means scrubbing up/down from the current value preserves
+  // the user's intent without a silent lossy round-trip through the average.
+  const horizontalPaddingValue = value.padding.left;
+  const verticalPaddingValue = value.padding.top;
 
   const activeFlow = getFlowOption(value);
   const isBlock = activeFlow === "normal";
@@ -282,13 +290,13 @@ export function AutoLayoutMatrix({
         {/* ── Flow ── */}
         <div className="space-y-1.5">
           <ControlLabel>
-            {"Flow" /* i18n-ignore Figma inspector label */}
+            {"Flow" /* i18n-ignore design inspector label */}
           </ControlLabel>
           <div className="flex items-center gap-1.5">
             {/* 4-segment flow bar: normal / vertical / horizontal / grid */}
             <div className="flex h-7 flex-1 items-center gap-0.5 rounded-md bg-[var(--design-editor-control-bg)] p-0.5">
               <FlowButton
-                label={"Normal flow" /* i18n-ignore Figma inspector label */}
+                label={"Normal flow" /* i18n-ignore design inspector label */}
                 active={activeFlow === "normal"}
                 disabled={disabled}
                 onClick={() => selectFlow("normal")}
@@ -312,7 +320,7 @@ export function AutoLayoutMatrix({
                 <IconFlowHorizontal className="size-3.5" />
               </FlowButton>
               <FlowButton
-                label={"Grid" /* i18n-ignore Figma inspector label */}
+                label={"Grid" /* i18n-ignore design inspector label */}
                 active={activeFlow === "grid"}
                 disabled={disabled}
                 onClick={() => selectFlow("grid")}
@@ -347,7 +355,7 @@ export function AutoLayoutMatrix({
         {/* ── Resizing ── */}
         <div className="space-y-1.5">
           <ControlLabel>
-            {"Resizing" /* i18n-ignore Figma inspector label */}
+            {"Resizing" /* i18n-ignore design inspector label */}
           </ControlLabel>
           <div className="grid grid-cols-[1fr_1fr_auto] items-start gap-1.5">
             <SizingField
@@ -414,7 +422,7 @@ export function AutoLayoutMatrix({
           {/* Left: Alignment label + compact 3×3 matrix (no border box) */}
           <div className="space-y-1.5">
             <ControlLabel>
-              {"Alignment" /* i18n-ignore Figma inspector label */}
+              {"Alignment" /* i18n-ignore design inspector label */}
             </ControlLabel>
             <CompactAlignmentMatrix
               value={value.alignment}
@@ -434,6 +442,8 @@ export function AutoLayoutMatrix({
               onDistribute={onDistribute}
               label={copy.gap}
               disabled={disabled || isBlock}
+              direction={value.direction}
+              gapMode={value.spaceBetween ? "auto" : "fixed"}
             />
           </div>
         </div>
@@ -584,9 +594,9 @@ const ALIGNMENT_CELLS: Array<{
 /**
  * Compact 3×3 alignment grid (no border box). Inactive cells show a faint dot;
  * the active cell shows accent bars oriented by flow — horizontal bars for a
- * vertical flow, vertical bars for a horizontal flow (Figma convention).
+ * vertical flow, vertical bars for a horizontal flow (editor convention).
  * When `onDistribute` is provided, two distribute buttons (H + V) are rendered
- * below the grid, matching Figma's inspector layout.
+ * below the grid, matching the design editor's inspector layout.
  */
 function CompactAlignmentMatrix({
   value,
@@ -651,7 +661,7 @@ function CompactAlignmentMatrix({
               <button
                 type="button"
                 aria-label={
-                  "Distribute horizontal spacing" /* i18n-ignore Figma inspector tooltip */
+                  "Distribute horizontal spacing" /* i18n-ignore design inspector tooltip */
                 }
                 disabled={disabled}
                 onClick={() => onDistribute("horizontal")}
@@ -666,7 +676,7 @@ function CompactAlignmentMatrix({
             </TooltipTrigger>
             <TooltipContent>
               {
-                "Distribute horizontal spacing" /* i18n-ignore Figma inspector tooltip */
+                "Distribute horizontal spacing" /* i18n-ignore design inspector tooltip */
               }
             </TooltipContent>
           </Tooltip>
@@ -675,7 +685,7 @@ function CompactAlignmentMatrix({
               <button
                 type="button"
                 aria-label={
-                  "Distribute vertical spacing" /* i18n-ignore Figma inspector tooltip */
+                  "Distribute vertical spacing" /* i18n-ignore design inspector tooltip */
                 }
                 disabled={disabled}
                 onClick={() => onDistribute("vertical")}
@@ -690,7 +700,7 @@ function CompactAlignmentMatrix({
             </TooltipTrigger>
             <TooltipContent>
               {
-                "Distribute vertical spacing" /* i18n-ignore Figma inspector tooltip */
+                "Distribute vertical spacing" /* i18n-ignore design inspector tooltip */
               }
             </TooltipContent>
           </Tooltip>
@@ -834,12 +844,16 @@ function GapField({
   onDistribute,
   label,
   disabled,
+  direction,
+  gapMode = "fixed",
 }: {
   value: number;
   onGapChange: (gap: number) => void;
   onDistribute?: (axis: DistributionAxis) => void;
   label: string;
   disabled: boolean;
+  direction: AutoLayoutDirection;
+  gapMode?: "fixed" | "auto";
 }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -897,26 +911,26 @@ function GapField({
               sideOffset={4}
             >
               <DropdownMenuCheckboxItem
-                checked
+                checked={gapMode !== "auto"}
                 className="text-[12px]"
                 onSelect={() => {
                   /* Fixed gap: keep current numeric value (already numeric). */
                 }}
               >
-                {"Fixed" /* i18n-ignore Figma gap mode label */}
+                {"Fixed" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
               <DropdownMenuCheckboxItem
-                checked={false}
+                checked={gapMode === "auto"}
                 className="text-[12px]"
-                onSelect={() => onDistribute("horizontal")}
+                onSelect={() => onDistribute(direction)}
               >
-                {"Auto" /* i18n-ignore Figma gap mode label */}
+                {"Auto" /* i18n-ignore design gap mode label */}
               </DropdownMenuCheckboxItem>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
       </div>
-      {/* Sliders / advanced spacing icon (Figma's tune control) */}
+      {/* Sliders / advanced spacing icon (the design editor's tune control) */}
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -927,7 +941,7 @@ function GapField({
             aria-label={
               "Advanced gap settings" /* i18n-ignore inspector tooltip */
             }
-            onClick={() => onDistribute?.("horizontal")}
+            onClick={() => onDistribute?.(direction)}
             className="size-7 shrink-0 rounded-md text-muted-foreground hover:bg-[var(--design-editor-control-bg)] hover:text-foreground"
           >
             <IconSlidersMini />
@@ -1050,8 +1064,8 @@ export interface SizingFieldProps {
 }
 
 /**
- * Figma-style sizing field. Trigger renders `[axis | value | mode ▾]`; the menu
- * is the full Figma resizing dropdown:
+ * design-editor sizing field. Trigger renders `[axis | value | mode ▾]`; the menu
+ * is the full design resizing dropdown:
  *   Fixed · Hug contents · Fill container
  *   ──────────────────────
  *   Add min … · Add max …
@@ -1076,8 +1090,13 @@ export function SizingField({
 }: SizingFieldProps) {
   const labels = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labelOverrides };
   const isWidth = sizingAxis === "horizontal";
-  // Which inline "add" editor is currently open (none by default).
-  const [editing, setEditing] = useState<null | "min" | "max">(null);
+  // Local pending state for a newly-opened constraint editor. Holds the kind
+  // and seed value so the sub-row is visible before the user has confirmed a
+  // value. We only commit to onMinMaxChange when the user types or scrubs.
+  const [pending, setPending] = useState<{
+    kind: "min" | "max";
+    seed: number;
+  } | null>(null);
 
   const minValue = minMax?.min ?? null;
   const maxValue = minMax?.max ?? null;
@@ -1087,7 +1106,7 @@ export function SizingField({
   const canHug = options.includes("hug");
   const canFill = options.includes("fill");
 
-  // Figma rule: when Fixed, show ONLY the numeric value + chevron (no word).
+  // design rule: when Fixed, show ONLY the numeric value + chevron (no word).
   // When Hug / Fill, show value + the mode word.
   const showWord = value !== "fixed";
 
@@ -1097,10 +1116,12 @@ export function SizingField({
   const maxLabel = isWidth ? labels.maxWidth : labels.maxHeight;
 
   const openEditor = (kind: "min" | "max") => {
-    // Seed a sensible default when first adding the constraint.
+    // Compute a sensible seed but do NOT write it to the parent yet — only
+    // show the pending sub-row. The value is committed when the user first
+    // scrubs/types in the ConstraintSubRow.
     const seed = Math.max(0, Math.round(resolvedSize ?? 0));
-    onMinMaxChange?.(sizingAxis, kind, kind === "min" ? seed : seed || 1);
-    setEditing(kind);
+    const seedValue = kind === "min" ? seed : seed || 1;
+    setPending({ kind, seed: seedValue });
   };
 
   return (
@@ -1213,8 +1234,20 @@ export function SizingField({
           onChange={(next) => onMinMaxChange?.(sizingAxis, "min", next)}
           onRemove={() => {
             onMinMaxChange?.(sizingAxis, "min", null);
-            setEditing((cur) => (cur === "min" ? null : cur));
           }}
+        />
+      ) : pending?.kind === "min" ? (
+        // Pending (uncommitted) min row — shown before the user confirms a value.
+        <ConstraintSubRow
+          label={minLabel}
+          value={pending.seed}
+          disabled={disabled}
+          removeLabel={labels.removeConstraint}
+          onChange={(next) => {
+            setPending(null);
+            onMinMaxChange?.(sizingAxis, "min", next);
+          }}
+          onRemove={() => setPending(null)}
         />
       ) : null}
       {hasMax ? (
@@ -1226,8 +1259,20 @@ export function SizingField({
           onChange={(next) => onMinMaxChange?.(sizingAxis, "max", next)}
           onRemove={() => {
             onMinMaxChange?.(sizingAxis, "max", null);
-            setEditing((cur) => (cur === "max" ? null : cur));
           }}
+        />
+      ) : pending?.kind === "max" ? (
+        // Pending (uncommitted) max row — shown before the user confirms a value.
+        <ConstraintSubRow
+          label={maxLabel}
+          value={pending.seed}
+          disabled={disabled}
+          removeLabel={labels.removeConstraint}
+          onChange={(next) => {
+            setPending(null);
+            onMinMaxChange?.(sizingAxis, "max", next);
+          }}
+          onRemove={() => setPending(null)}
         />
       ) : null}
     </div>
@@ -1251,11 +1296,7 @@ function SizingMenuItem({
   return (
     <DropdownMenuItem
       disabled={disabled}
-      onSelect={(event) => {
-        // Keep the menu's selection semantics but route through our handler.
-        event.preventDefault();
-        onSelect();
-      }}
+      onSelect={onSelect}
       className="gap-2 pl-2 pr-2 text-[12px]"
     >
       <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
@@ -1353,7 +1394,7 @@ function CheckMini() {
 // Inline SVG glyphs (Tabler-weight, 24px viewBox)
 // ─────────────────────────────────────────────────
 
-/** Minimal downward chevron — matches the Figma caret weight. */
+/** Minimal downward chevron — matches the design caret weight. */
 function ChevronDownMini() {
   return (
     <svg

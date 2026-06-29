@@ -127,6 +127,12 @@ export function isDesignHotkeyEditableTarget(target: EventTarget | null) {
   if (editable instanceof HTMLElement && editable.isContentEditable) {
     return true;
   }
+  if (
+    editable instanceof HTMLElement &&
+    editable.hasAttribute("data-hotkeys-scope")
+  ) {
+    return true;
+  }
   const tagName = editable.tagName.toLowerCase();
   return tagName === "input" || tagName === "textarea" || tagName === "select";
 }
@@ -292,6 +298,7 @@ function handleDesignHotkey(
     return run(props.onPaste);
   }
   if (primary && key === "d") return run(props.onDuplicate);
+  if (primary && key === "r") return run(props.onRename);
   if (primary && key === "g") {
     return event.shiftKey ? run(props.onUngroup) : run(props.onGroup);
   }
@@ -301,10 +308,10 @@ function handleDesignHotkey(
   if (primary && key === "0") return run(props.onZoomReset);
 
   const digit = digitFromEvent(event);
-  if ((primary || event.shiftKey) && digit === "1") {
+  if (event.shiftKey && !primary && digit === "1") {
     return run(props.onZoomToFit);
   }
-  if ((primary || event.shiftKey) && digit === "2") {
+  if (event.shiftKey && !primary && digit === "2") {
     return run(props.onZoomToSelection);
   }
 

@@ -346,7 +346,10 @@ export function assignRegions(
   const requestedColumns =
     options.columns == null
       ? maxColumns
-      : getWholeNumberAtLeast(options.columns, maxColumns, 1);
+      : Math.min(
+          maxColumns,
+          getWholeNumberAtLeast(options.columns, maxColumns, 1),
+        );
   const columns = Math.min(total, requestedColumns);
 
   return Array.from({ length: total }, (_, index) => {
@@ -563,8 +566,23 @@ export function resizeFrameFromDelta(
     }
   }
 
+  const preClampWidth = width;
+  const preClampHeight = height;
   width = Math.max(options.minWidth ?? MIN_CANVAS_FRAME_WIDTH, width);
   height = Math.max(options.minHeight ?? MIN_CANVAS_FRAME_HEIGHT, height);
+
+  if (options.preserveAspectRatio) {
+    const widthClamped = width > preClampWidth;
+    const heightClamped = height > preClampHeight;
+    if (widthClamped && !heightClamped) {
+      height = width / ratio;
+    } else if (heightClamped && !widthClamped) {
+      width = height * ratio;
+    } else if (widthClamped && heightClamped) {
+      // Both axes hit their minimum; width wins as the primary authority
+      height = width / ratio;
+    }
+  }
 
   return {
     ...origin,

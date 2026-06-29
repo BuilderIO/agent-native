@@ -216,6 +216,10 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.chatUI = entry.chatUI;
   }
+  if (typeof entry.timeoutMs === "number") out.timeoutMs = entry.timeoutMs;
+  if (typeof entry.maxResultChars === "number") {
+    out.maxResultChars = entry.maxResultChars;
+  }
   if (
     typeof entry.needsApproval === "boolean" ||
     typeof entry.needsApproval === "function"

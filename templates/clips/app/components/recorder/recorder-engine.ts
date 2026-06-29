@@ -194,7 +194,7 @@ const SCREEN_CAPTURE_MAX_HEIGHT = 1080;
 // client-side (ffmpeg.wasm re-encode is disabled — see COMPRESSION_ENABLED in
 // `@/lib/compress`) and the upload provider streams large files directly, so we
 // capture at a crisp 1080p bitrate instead of a tight budget. 1.2 Mbps left
-// dense UI (fine text, Figma, code) visibly fuzzy; 8 Mbps keeps it sharp.
+// dense UI (fine text and code) visibly fuzzy; 8 Mbps keeps it sharp.
 // Dial down here if file sizes become a concern for a deployment.
 const RECORDING_VIDEO_BITRATE_BPS = 8_000_000;
 const RECORDING_AUDIO_BITRATE_BPS = 128_000;

@@ -1,5 +1,24 @@
 # @agent-native/core
 
+## 0.80.5
+
+### Patch Changes
+
+- 8a43376: Allow app-level opt-in to durable background agent chat runs, let direct loop callers use that timeout regime, and expose per-action tool timeouts from `defineAction`.
+- 8a43376: Route Figma/code design-system indexing through Builder and keep the legacy fig subpath as a compatibility shim.
+- 8a43376: Expose the Design visual-edit skill in repo-local skill sync and generated app plugin bundles.
+- 8a43376: Defer agent chat context subscriber updates so embedded chat rendering does not trigger render-phase updates in host apps.
+- 8a43376: Make MCP install/connect idempotent for Codex `config.toml`. The writer now
+  recognizes a server's sub-tables (`[mcp_servers.<name>.http_headers]`,
+  `[mcp_servers.<name>.env]`, …) as part of its footprint, so re-installing or
+  reconnecting a server clears stale sub-tables instead of leaving one behind as a
+  duplicate TOML key. Same-URL alias cleanup removes the whole footprint too, and
+  the AGENTS.md / CLAUDE.md managed-instruction writers collapse any pre-existing
+  duplicate blocks into a single block.
+- 8a43376: Show a clear loading state while authorizing MCP device codes.
+- 8a43376: Render label share buttons without a leading visibility icon.
+- 8a43376: Show the Connect AI setup card and block submits from standalone prompt composers when no LLM is connected.
+
 ## 0.80.4
 
 ### Patch Changes
@@ -82,7 +101,7 @@
 ### Patch Changes
 
 - aa345cc: App shells use an outline-style raised surface ring and Dispatch left navigation can collapse to an animated icon rail.
-- aa345cc: Live cursors now use Figma-style pointer markers with adjacent participant labels.
+- aa345cc: Live cursors now use compact pointer markers with adjacent participant labels.
 - aa345cc: Surface missing LLM provider connections before agent chat starts a run, including Builder and AI SDK engines.
 - aa345cc: Fix Chrome visual glitchiness (blank/stale regions on scroll, pan, and zoom) in
   plan documents and canvases by removing `backdrop-filter` (`backdrop-blur`) from
@@ -2961,7 +2980,7 @@ visual-plan` / `visual-recap` likewise install only the named skill, while the
   - Exponential backoff with jitter (cap ~15 s) on consecutive network errors.
   - SSE fast-path: wire collab events via the existing `/_agent-native/poll-events` EventSource stream; relax poll to ~12 s while SSE is healthy, fall back to 2 s when SSE drops.
 
-- 66f8e32: Add Presence Kit: Liveblocks/Figma-grade live-cursor and selection primitives.
+- 66f8e32: Add Presence Kit: Liveblocks/collaboration-grade live-cursor and selection primitives.
   - **Fast awareness**: `useCollaborativeDoc` now POSTs awareness state changes within ~150ms (throttled trailing edge) instead of waiting for the 2s poll cycle. The `postAwareness` server handler emits an `AWARENESS_CHANGE_EVENT` that is forwarded through the `/_agent-native/poll-events` SSE stream to connected peers push-style. Polling-only deployments degrade gracefully to poll cadence.
   - **`usePresence(awareness, localClientId)`**: reactive hook that derives `OtherPresence[]` from awareness state. The agent (AGENT_CLIENT_ID) appears as a first-class participant with `isAgent: true`. Returns `setPresence(partial)` to publish arbitrary presence fields (cursor, selection, viewport).
   - **`LiveCursorOverlay`**: absolutely-positioned overlay that renders remote users' cursors from normalized 0–1 coordinates. The agent cursor uses a sparkle icon. Cursors fade out after 10s of inactivity with 120ms CSS transitions.

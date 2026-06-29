@@ -36,11 +36,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
 
 import {
-  MAX_FIG_UPLOAD_BYTES,
+  MAX_BUILDER_INDEX_UPLOAD_BYTES,
+  readBuilderIndexResponse,
   formatFileSize,
-  readFigImportResponse,
-  type FigImportResult,
-} from "./fig-import-response";
+  type BuilderIndexResult,
+} from "./builder-index-response";
 
 interface DesignSystemSetupProps {
   open: boolean;
@@ -105,9 +105,12 @@ export function DesignSystemSetup({
   const [brandNotes, setBrandNotes] = useState("");
   const [customInstructions, setCustomInstructions] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [figParsing, setFigParsing] = useState(false);
-  const [figResult, setFigResult] = useState<FigImportResult | null>(null);
-  const [figError, setFigError] = useState<string | null>(null);
+  const [builderIndexing, setBuilderIndexing] = useState(false);
+  const [builderIndexResult, setBuilderIndexResult] =
+    useState<BuilderIndexResult | null>(null);
+  const [builderIndexError, setBuilderIndexError] = useState<string | null>(
+    null,
+  );
 
   const codeInputRef = useRef<HTMLInputElement>(null);
   const docInputRef = useRef<HTMLInputElement>(null);
@@ -158,9 +161,9 @@ export function DesignSystemSetup({
       setBrandNotes("");
       setCustomInstructions("");
       setSelectedSystemId("");
-      setFigParsing(false);
-      setFigResult(null);
-      setFigError(null);
+      setBuilderIndexing(false);
+      setBuilderIndexResult(null);
+      setBuilderIndexError(null);
     }
   }, [open]);
 
@@ -170,6 +173,7 @@ export function DesignSystemSetup({
       websiteUrls.length > 0 ||
       githubLinks.length > 0 ||
       codeFiles.length > 0 ||
+      builderIndexResult ||
       docFiles.length > 0 ||
       imageFiles.length > 0 ||
       selectedSystemId ||
@@ -181,6 +185,7 @@ export function DesignSystemSetup({
     websiteUrls,
     githubLinks,
     codeFiles,
+    builderIndexResult,
     docFiles,
     imageFiles,
     selectedSystemId,
@@ -238,44 +243,47 @@ export function DesignSystemSetup({
     [t],
   );
 
-  const handleFigImport = useCallback(
+  const handleBuilderIndexUpload = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       event.target.value = "";
       if (!file) return;
       if (!file.name.toLowerCase().endsWith(".fig")) {
-        setFigError(t("designSystemSetup.figFileRequired"));
+        setBuilderIndexError(t("designSystemSetup.figFileRequired"));
         return;
       }
-      if (file.size > MAX_FIG_UPLOAD_BYTES) {
-        setFigError(
+      if (file.size > MAX_BUILDER_INDEX_UPLOAD_BYTES) {
+        setBuilderIndexError(
           t("designSystemSetup.figFileTooLarge", {
-            maxSize: formatFileSize(MAX_FIG_UPLOAD_BYTES),
+            maxSize: formatFileSize(MAX_BUILDER_INDEX_UPLOAD_BYTES),
           }),
         );
         return;
       }
 
-      setFigError(null);
-      setFigResult(null);
-      setFigParsing(true);
+      setBuilderIndexError(null);
+      setBuilderIndexResult(null);
+      setBuilderIndexing(true);
       try {
         const body = new FormData();
         body.append("file", file);
-        const res = await fetch(appApiPath("/api/import-figma-system"), {
-          method: "POST",
-          body,
-        });
-        const parsed = await readFigImportResponse(res);
-        setFigResult(parsed);
+        const res = await fetch(
+          appApiPath("/api/index-design-system-with-builder"),
+          {
+            method: "POST",
+            body,
+          },
+        );
+        const parsed = await readBuilderIndexResponse(res);
+        setBuilderIndexResult(parsed);
       } catch (err) {
-        setFigError(
+        setBuilderIndexError(
           err instanceof Error
             ? err.message
             : t("designSystemSetup.figParseFailed"),
         );
       } finally {
-        setFigParsing(false);
+        setBuilderIndexing(false);
       }
     },
     [t],
@@ -353,6 +361,12 @@ export function DesignSystemSetup({
       }
     }
 
+    if (builderIndexResult) {
+      parts.push(
+        `\n## Builder-Indexed Figma File\nBuilder design-system indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Local selectable design system: ${builderIndexResult.localDesignSystemId ?? "(not returned)"}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for extracted tokens, assets, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
+      );
+    }
+
     if (docFiles.length > 0) {
       const inlined = docFiles.filter((f) => f.textContent);
       const binary = docFiles.filter((f) => !f.textContent);
@@ -419,6 +433,7 @@ export function DesignSystemSetup({
     websiteUrls,
     githubLinks,
     codeFiles,
+    builderIndexResult,
     docFiles,
     imageFiles,
     selectedSystemId,
@@ -469,15 +484,15 @@ export function DesignSystemSetup({
                     <IconBrandFigma className="w-3.5 h-3.5" />
                     {t("designSystemSetup.figmaFile")}
                   </Label>
-                  {!figResult ? (
+                  {!builderIndexResult ? (
                     <>
                       <button
                         type="button"
                         onClick={() => figInputRef.current?.click()}
-                        disabled={figParsing}
+                        disabled={builderIndexing}
                         className="w-full border border-dashed border-border rounded-lg p-4 text-center hover:border-foreground/20 cursor-pointer disabled:cursor-wait disabled:opacity-70"
                       >
-                        {figParsing ? (
+                        {builderIndexing ? (
                           <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
                             <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
                             {t("designSystemSetup.parsingFigmaFile")}
@@ -492,24 +507,24 @@ export function DesignSystemSetup({
                         ref={figInputRef}
                         type="file"
                         accept=".fig"
-                        onChange={handleFigImport}
+                        onChange={handleBuilderIndexUpload}
                         className="hidden"
                       />
-                      {figError && (
+                      {builderIndexError && (
                         <div
                           role="alert"
                           className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
                         >
-                          {figError}
+                          {builderIndexError}
                         </div>
                       )}
                     </>
                   ) : (
-                    <FigImportPreview
-                      result={figResult}
+                    <BuilderIndexPreview
+                      result={builderIndexResult}
                       onReset={() => {
-                        setFigResult(null);
-                        setFigError(null);
+                        setBuilderIndexResult(null);
+                        setBuilderIndexError(null);
                       }}
                     />
                   )}
@@ -842,11 +857,11 @@ function TagList({
   );
 }
 
-function FigImportPreview({
+function BuilderIndexPreview({
   result,
   onReset,
 }: {
-  result: FigImportResult;
+  result: BuilderIndexResult;
   onReset: () => void;
 }) {
   const t = useT();

@@ -56,6 +56,22 @@ describe("gradient serialization", () => {
     expect(parsed?.stops.length).toBe(2);
   });
 
+  it("parses standard ellipse radial gradients as radial, not diamond", () => {
+    const parsed = parseGradientCss(
+      "radial-gradient(ellipse at center, #000 0%, #fff 100%)",
+    );
+
+    expect(parsed?.kind).toBe("radial");
+  });
+
+  it("round-trips design-editor diamond gradients", () => {
+    const parsed = parseGradientCss(
+      "radial-gradient(ellipse closest-side at center, #000 0%, #fff 100%)",
+    );
+
+    expect(parsed?.kind).toBe("diamond");
+  });
+
   it("returns null for non-gradient input", () => {
     expect(parseGradientCss("#ff0000")).toBeNull();
     expect(parseGradientCss("transparent")).toBeNull();

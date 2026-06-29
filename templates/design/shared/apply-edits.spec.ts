@@ -70,9 +70,19 @@ describe("applyEdits", () => {
     );
   });
 
-  it("treats self-overlapping matches as ambiguous", () => {
-    expect(() => applyEdits(`aaa`, [{ search: `aa`, replace: `b` }])).toThrow(
-      /matched 2 places/,
-    );
+  it("resolves self-overlapping exact matches via whitespace-flexible fallback", () => {
+    // Strategy 1 finds 2 overlapping matches of "aa" in "aaa" (at idx 0 and 1).
+    // Strategy 2 runs a non-overlapping scan (/a\s*a/g) and finds 1 match,
+    // so the edit succeeds instead of throwing a misleading ambiguity error.
+    const { content } = applyEdits(`aaa`, [{ search: `aa`, replace: `b` }]);
+    expect(content).toBe(`ba`);
+  });
+
+  it("throws ambiguous when both strategies find multiple matches", () => {
+    // Both exact and whitespace-flexible scans find 2 matches — truly ambiguous.
+    const html = `<span>x</span> <span>x</span>`;
+    expect(() =>
+      applyEdits(html, [{ search: `<span>x</span>`, replace: `y` }]),
+    ).toThrow(/matched/);
   });
 });

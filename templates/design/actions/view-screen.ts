@@ -26,9 +26,8 @@ export default defineAction({
   schema: z.object({}),
   http: false,
   run: async () => {
-    const [navigation, designVariants, designSelection] = await Promise.all([
+    const [navigation, designSelection] = await Promise.all([
       readAppStateForCurrentTab("navigation"),
-      readAppState("design-variants"),
       readAppStateForCurrentTab("design-selection"),
     ]);
     const designId =
@@ -43,6 +42,14 @@ export default defineAction({
         : undefined) ?? (await readAppState("show-questions"));
     const generationSession = designId
       ? await readAppState(designGenerationSessionKey(designId))
+      : undefined;
+    const designVariants = designId
+      ? await readAppState("design-variants").then((value) => {
+          if (!value || typeof value !== "object") return undefined;
+          return (value as { designId?: unknown }).designId === designId
+            ? value
+            : undefined;
+        })
       : undefined;
 
     const screen: Record<string, unknown> = {};
@@ -95,10 +102,9 @@ export default defineAction({
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
           screens: files,
-          activeScreen:
-            files.find((file) => file.id === activeFileId) ??
-            files.find((file) => file.filename === activeFilename) ??
-            null,
+          activeScreen: activeFileId
+            ? (files.find((file) => file.id === activeFileId) ?? null)
+            : (files.find((file) => file.filename === activeFilename) ?? null),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
       }

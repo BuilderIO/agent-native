@@ -6,6 +6,7 @@ const mockGetRequestHeader = vi.hoisted(() => vi.fn());
 const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockStartBuilderDesignSystemIndex = vi.hoisted(() => vi.fn());
+const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
 const MockFeatureNotConfiguredError = vi.hoisted(
   () =>
     class FeatureNotConfiguredError extends Error {
@@ -33,12 +34,20 @@ vi.mock("@agent-native/core/server", () => ({
     mockStartBuilderDesignSystemIndex(...args),
 }));
 
-import { importFigmaSystem } from "./import-figma-system";
+vi.mock("../lib/builder-design-system-proxy.js", () => ({
+  upsertBuilderProxyDesignSystem: (...args: unknown[]) =>
+    mockUpsertBuilderProxyDesignSystem(...args),
+}));
 
-describe("importFigmaSystem", () => {
+import { indexDesignSystemWithBuilder } from "./index-design-system-with-builder";
+
+describe("indexDesignSystemWithBuilder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetSession.mockResolvedValue({ email: "owner@example.com" });
+    mockGetSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
     mockGetRequestHeader.mockReturnValue(null);
     mockReadMultipartFormData.mockResolvedValue([
       {
@@ -57,6 +66,10 @@ describe("importFigmaSystem", () => {
       builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
       status: "in-progress",
     });
+    mockUpsertBuilderProxyDesignSystem.mockResolvedValue({
+      localDesignSystemId: "builder-ds-1",
+      instructions: "Builder design-system indexing has started.",
+    });
   });
 
   it("rejects oversized requests before multipart parsing", async () => {
@@ -64,7 +77,7 @@ describe("importFigmaSystem", () => {
       String(mockMaxFigBytes + 1024 * 1024 + 1),
     );
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockReadMultipartFormData).not.toHaveBeenCalled();
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 413);
@@ -74,7 +87,7 @@ describe("importFigmaSystem", () => {
   it("returns a clear error when multipart parsing fails", async () => {
     mockReadMultipartFormData.mockRejectedValue(new Error("bad multipart"));
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 413);
     expect(result).toEqual({ error: "Upload too large or malformed." });
@@ -89,7 +102,7 @@ describe("importFigmaSystem", () => {
       },
     ]);
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockStartBuilderDesignSystemIndex).not.toHaveBeenCalled();
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 413);
@@ -102,7 +115,7 @@ describe("importFigmaSystem", () => {
       { name: "fig", filename: "brand.fig", data },
     ]);
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockStartBuilderDesignSystemIndex).toHaveBeenCalledWith({
       projectName: "brand",
@@ -119,6 +132,17 @@ describe("importFigmaSystem", () => {
       source: "builder",
       designSystemId: "ds-1",
       jobId: "job-1",
+      localDesignSystemId: "builder-ds-1",
+      uploadedFileCount: 1,
+    });
+    expect(mockUpsertBuilderProxyDesignSystem).toHaveBeenCalledWith({
+      result: expect.objectContaining({
+        designSystemId: "ds-1",
+        jobId: "job-1",
+      }),
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      projectName: "brand",
     });
   });
 
@@ -130,7 +154,7 @@ describe("importFigmaSystem", () => {
       }),
     );
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 412);
     expect(result).toEqual({
@@ -144,7 +168,7 @@ describe("importFigmaSystem", () => {
       new Error("Builder queue unavailable"),
     );
 
-    const result = await importFigmaSystem({} as any);
+    const result = await indexDesignSystemWithBuilder({} as any);
 
     expect(mockSetResponseStatus).toHaveBeenCalledWith(expect.anything(), 502);
     expect(result).toEqual({

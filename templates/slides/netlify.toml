@@ -8,13 +8,10 @@ functions = "templates/slides/.netlify/functions-internal"
 GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
+AGENT_CHAT_DURABLE_BACKGROUND = "true"
 
 # Function wall for the non-agent long-request paths (deck import/export,
-# image generation). NOTE: this does NOT set the agent-chat chunk boundary —
-# on hosted runtimes the agent run soft-timeout is clamped to
-# HOSTED_SOFT_TIMEOUT_CEILING_MS (40s) in @agent-native/core run-manager.ts,
-# regardless of the per-template runSoftTimeoutMs. The agent's hidden
-# auto-continuation hands off at ~40s; this 300s ceiling only protects the
-# longer non-agent HTTP handlers.
+# image generation). Agent chat opts into the separate Netlify background
+# function so hosted creative turns can use the longer background budget.
 [functions."*"]
 timeout = 300

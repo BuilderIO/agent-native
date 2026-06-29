@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
-import { parsePlanMdxFolder, type PlanMdxFolder } from "../server/plan-mdx.js";
+import { parsePlanMdxFolder, planMdxFileSchema } from "../server/plan-mdx.js";
 
 /**
  * Authoritative validation for a local plan MDX folder.
@@ -20,14 +20,6 @@ import { parsePlanMdxFolder, type PlanMdxFolder } from "../server/plan-mdx.js";
 // Covers the CLI's 10 MiB raw asset cap (~13.3 MiB base64) plus MDX text, so
 // large-but-valid plans still get authoritative validation instead of the lint.
 const MAX_MDX_BYTES = 16 * 1024 * 1024;
-
-const mdxFolderSchema = z.object({
-  "plan.mdx": z.string().min(1),
-  "canvas.mdx": z.string().optional(),
-  "prototype.mdx": z.string().optional(),
-  ".plan-state.json": z.string().optional(),
-  "assets/": z.record(z.string(), z.string()).optional(),
-}) satisfies z.ZodType<PlanMdxFolder>;
 
 type ValidationIssue = { path: string; message: string };
 
@@ -73,7 +65,7 @@ export default defineAction({
   description:
     "Validate a local plan MDX folder against the live Plan renderer schema (parsePlanMdxFolder + planContentSchema). Returns { valid, issues } where issues carry the renderer's exact schema path (e.g. blocks[1].data.items[0].id). Use this to confirm a plan will render before handing it off — it is the authoritative check behind `plan local verify`. Pure parse: no database, filesystem, or schema.plans access.",
   schema: z.object({
-    mdx: mdxFolderSchema.describe(
+    mdx: planMdxFileSchema.describe(
       "The plan MDX folder: plan.mdx plus optional canvas.mdx, prototype.mdx, .plan-state.json, and assets/.",
     ),
   }),

@@ -91,7 +91,7 @@ import {
   AutoLayoutMatrix,
   ConstraintsWidget,
   ExportSettingsPanel,
-  FigmaColorPicker,
+  DesignColorPicker,
   ScrubInput,
   SizingField,
   type AlignmentMatrixValue,
@@ -100,13 +100,13 @@ import {
   type AutoLayoutSizingAxis,
   type ConstraintsValue,
   type ExportSettingsValue,
-  type FigmaFillRow,
-  type FigmaFillRowPatch,
-  type FigmaGradientStop,
-  type FigmaGradientStopPatch,
-  type FigmaGradientType,
+  type DesignFillRow,
+  type DesignFillRowPatch,
+  type DesignGradientStop,
+  type DesignGradientStopPatch,
+  type DesignGradientType,
 } from "./inspector";
-import type { FigmaPaintType } from "./inspector/FigmaColorPicker";
+import type { DesignPaintType } from "./inspector/DesignColorPicker";
 import { TweaksPanelContent } from "./TweaksPanel";
 import type { ElementInfo } from "./types";
 
@@ -127,7 +127,7 @@ interface EditPanelProps {
   onRequestTweaks?: (anchor: HTMLElement) => void;
   onStyleChange: (property: string, value: string) => void;
   onStylesChange?: (styles: Record<string, string>) => void;
-  onExport?: (settings: ExportSettingsValue) => void;
+  onExport?: (settings: ExportSettingsValue[]) => void;
   exporting?: boolean;
 }
 
@@ -175,7 +175,10 @@ function PropInput({
   }, [value]);
 
   const commit = () => {
-    if (defaultUnit === undefined) return;
+    if (defaultUnit === undefined) {
+      if (draft !== value) onChange(draft);
+      return;
+    }
     const next = normalizeLengthValue(draft, defaultUnit);
     if (next !== draft) setDraft(next);
     if (next !== value) onChange(next);
@@ -210,7 +213,7 @@ function PropInput({
   );
 }
 
-/** Compact color input: label + Figma-style picker popover. */
+/** Compact color input: label + design-editor picker popover. */
 function ColorInput({
   label,
   value,
@@ -221,6 +224,7 @@ function ColorInput({
   onBlendModeChange,
   supportsLayeredFills = false,
   documentColors,
+  pickerKey,
 }: {
   label: string;
   value: string;
@@ -232,6 +236,7 @@ function ColorInput({
   supportsLayeredFills?: boolean;
   /** Hex strings already in use on the page — forwarded to the color picker swatch grid. */
   documentColors?: string[];
+  pickerKey?: string;
 }) {
   const [draft, setDraft] = useState(value);
   const [selectedFillId, setSelectedFillId] = useState(SOLID_FILL_ID);
@@ -333,7 +338,7 @@ function ColorInput({
       )
     : undefined;
 
-  const handleFillChange = (id: string, patch: FigmaFillRowPatch) => {
+  const handleFillChange = (id: string, patch: DesignFillRowPatch) => {
     if (id === SOLID_FILL_ID) {
       if (patch.value !== undefined) setNext(patch.value);
       if (patch.opacity !== undefined) {
@@ -361,6 +366,7 @@ function ColorInput({
           ...stop,
           opacity: patch.opacity,
         })),
+        gradient.prefix,
       ),
     );
   };
@@ -387,7 +393,7 @@ function ColorInput({
 
   const handleGradientTypeChange =
     activeGradient && activeGradientIndex !== null
-      ? (type: FigmaGradientType) => {
+      ? (type: DesignGradientType) => {
           replaceBackgroundLayer(
             activeGradientIndex,
             buildGradientLayer(type, activeGradient.stops),
@@ -397,13 +403,17 @@ function ColorInput({
 
   const handleGradientStopChange =
     activeGradient && activeGradientIndex !== null
-      ? (id: string, patch: FigmaGradientStopPatch) => {
+      ? (id: string, patch: DesignGradientStopPatch) => {
           const nextStops = activeGradient.stops.map((stop) =>
             stop.id === id ? { ...stop, ...patch } : stop,
           );
           replaceBackgroundLayer(
             activeGradientIndex,
-            buildGradientLayer(activeGradient.type, nextStops),
+            buildGradientLayer(
+              activeGradient.type,
+              nextStops,
+              activeGradient.prefix,
+            ),
           );
         }
       : undefined;
@@ -411,7 +421,7 @@ function ColorInput({
   const handleAddGradientStop = onBackgroundImageChange
     ? () => {
         if (activeGradient && activeGradientIndex !== null) {
-          const nextStop: FigmaGradientStop = {
+          const nextStop: DesignGradientStop = {
             id: `stop-${activeGradient.stops.length}`,
             color: draft || "#000000",
             position: 50,
@@ -419,10 +429,11 @@ function ColorInput({
           };
           replaceBackgroundLayer(
             activeGradientIndex,
-            buildGradientLayer(activeGradient.type, [
-              ...activeGradient.stops,
-              nextStop,
-            ]),
+            buildGradientLayer(
+              activeGradient.type,
+              [...activeGradient.stops, nextStop],
+              activeGradient.prefix,
+            ),
           );
           setSelectedStopId(nextStop.id);
           return;
@@ -448,13 +459,17 @@ function ColorInput({
           );
           replaceBackgroundLayer(
             activeGradientIndex,
-            buildGradientLayer(activeGradient.type, nextStops),
+            buildGradientLayer(
+              activeGradient.type,
+              nextStops,
+              activeGradient.prefix,
+            ),
           );
           setSelectedStopId(nextStops[0]?.id);
         }
       : undefined;
 
-  const selectedPaintType: FigmaPaintType =
+  const selectedPaintType: DesignPaintType =
     selectedFillId !== SOLID_FILL_ID
       ? selectedGradient
         ? selectedGradient.type
@@ -466,8 +481,7 @@ function ColorInput({
     selectedLayerIndex !== null
       ? (backgroundLayers[selectedLayerIndex] ?? draft ?? value ?? "#000000")
       : draft || "#000000";
-
-  const handlePaintTypeChange = (type: FigmaPaintType) => {
+  const handlePaintTypeChange = (type: DesignPaintType) => {
     const selectedLayer = fillLayerIndex(selectedFillId);
     if (type === "solid") {
       if (selectedLayer !== null) removeBackgroundLayer(selectedLayer);
@@ -493,7 +507,7 @@ function ColorInput({
     ) {
       return;
     }
-    const nextType: FigmaGradientType = type;
+    const nextType: DesignGradientType = type;
     const layerIndex = selectedLayer ?? activeGradientIndex;
     if (layerIndex !== null) {
       const currentGradient = parseGradientLayer(
@@ -518,7 +532,8 @@ function ColorInput({
   };
 
   return (
-    <FigmaColorPicker
+    <DesignColorPicker
+      key={pickerKey}
       label={label}
       value={pickerValue}
       onChange={setNext}
@@ -555,8 +570,25 @@ const SOLID_FILL_ID = "solid";
 const FILL_LAYER_PREFIX = "layer:";
 
 interface ParsedGradientLayer {
-  type: FigmaGradientType;
-  stops: FigmaGradientStop[];
+  type: DesignGradientType;
+  prefix?: string;
+  stops: DesignGradientStop[];
+}
+
+const DEFAULT_EXPORT_SETTINGS: ExportSettingsValue = {
+  scale: 1,
+  format: "png",
+  suffix: "",
+};
+
+function elementIdentityKey(element: ElementInfo): string {
+  return [
+    element.sourceId ?? element.id ?? element.selector ?? element.tagName,
+    Math.round(element.boundingRect.x),
+    Math.round(element.boundingRect.y),
+    Math.round(element.boundingRect.width),
+    Math.round(element.boundingRect.height),
+  ].join(":");
 }
 
 function fillLayerId(index: number): string {
@@ -573,9 +605,9 @@ function buildFillRows(
   colorValue: string,
   backgroundLayers: string[],
   selectedFillId: string,
-): FigmaFillRow[] {
+): DesignFillRow[] {
   const solid = parseCssColor(colorValue);
-  const rows: FigmaFillRow[] = [
+  const rows: DesignFillRow[] = [
     {
       id: SOLID_FILL_ID,
       label: "Solid", // i18n-ignore inspector fallback label
@@ -605,7 +637,7 @@ function buildFillRows(
   return rows;
 }
 
-function averageGradientOpacity(stops: FigmaGradientStop[]): number {
+function averageGradientOpacity(stops: DesignGradientStop[]): number {
   if (!stops.length) return 100;
   const total = stops.reduce((sum, stop) => {
     const parsed = parseCssColor(stop.color);
@@ -642,27 +674,28 @@ function joinCssLayers(layers: string[]): string {
   return cleaned.length ? cleaned.join(", ") : "none";
 }
 
-function parseGradientLayer(layer: string): ParsedGradientLayer | null {
+export function parseGradientLayer(layer: string): ParsedGradientLayer | null {
   const match = layer.trim().match(/^(linear|radial|conic)-gradient\((.*)\)$/i);
   if (!match) return null;
 
   const parts = splitCssLayers(match[2] || "");
   const type = gradientTypeFromCss(match[1] || "", layer);
   const firstStop = parseGradientStop(parts[0] || "", 0, parts.length);
+  const prefix = firstStop ? undefined : parts[0]?.trim();
   const stopParts = firstStop ? parts : parts.slice(1);
   const stops = stopParts
     .map((part, index) => parseGradientStop(part, index, stopParts.length))
-    .filter((stop): stop is FigmaGradientStop => Boolean(stop));
+    .filter((stop): stop is DesignGradientStop => Boolean(stop));
 
   if (!stops.length) return null;
-  return { type, stops };
+  return { type, prefix, stops };
 }
 
 function parseGradientStop(
   part: string,
   index: number,
   total: number,
-): FigmaGradientStop | null {
+): DesignGradientStop | null {
   const color = readLeadingColor(part);
   if (!color) return null;
   const parsed = parseCssColor(color.value);
@@ -690,7 +723,7 @@ function readLeadingColor(part: string): { raw: string; value: string } | null {
   if (transparent) {
     return { raw: transparent[0], value: "rgba(0, 0, 0, 0)" };
   }
-  const functionName = trimmed.match(/^(rgb|rgba|hsl|hsla)\(/i);
+  const functionName = trimmed.match(/^[a-z][a-z0-9-]*\(/i);
   if (!functionName) return null;
   let depth = 0;
   for (let index = 0; index < trimmed.length; index += 1) {
@@ -710,29 +743,37 @@ function readLeadingColor(part: string): { raw: string; value: string } | null {
 function gradientTypeFromCss(
   functionName: string,
   layer: string,
-): FigmaGradientType {
+): DesignGradientType {
   if (functionName.toLowerCase() === "conic") return "angular";
   if (/closest-corner/i.test(layer)) return "diamond";
   if (functionName.toLowerCase() === "radial") return "radial";
   return "linear";
 }
 
-function gradientLabel(type: FigmaGradientType): string {
+function gradientLabel(type: DesignGradientType): string {
   if (type === "radial") {
-    return "Radial gradient"; // i18n-ignore Figma inspector paint row
+    return "Radial gradient"; // i18n-ignore design inspector paint row
   }
   if (type === "angular") {
-    return "Angular gradient"; // i18n-ignore Figma inspector paint row
+    return "Angular gradient"; // i18n-ignore design inspector paint row
   }
   if (type === "diamond") {
-    return "Diamond gradient"; // i18n-ignore Figma inspector paint row
+    return "Diamond gradient"; // i18n-ignore design inspector paint row
   }
-  return "Linear gradient"; // i18n-ignore Figma inspector paint row
+  return "Linear gradient"; // i18n-ignore design inspector paint row
 }
 
-function buildGradientLayer(
-  type: FigmaGradientType,
-  stops: FigmaGradientStop[],
+function defaultGradientPrefix(type: DesignGradientType): string {
+  if (type === "radial") return "circle at 50% 50%";
+  if (type === "angular") return "from 0deg at 50% 50%";
+  if (type === "diamond") return "closest-corner at 50% 50%";
+  return "90deg";
+}
+
+export function buildGradientLayer(
+  type: DesignGradientType,
+  stops: DesignGradientStop[],
+  prefix = defaultGradientPrefix(type),
 ): string {
   const stopList = [...stops]
     .sort((a, b) => a.position - b.position)
@@ -746,19 +787,14 @@ function buildGradientLayer(
     })
     .join(", ");
 
-  if (type === "radial") {
-    return `radial-gradient(circle at 50% 50%, ${stopList})`;
+  if (type === "radial" || type === "diamond") {
+    return `radial-gradient(${prefix}, ${stopList})`;
   }
-  if (type === "angular") {
-    return `conic-gradient(from 0deg at 50% 50%, ${stopList})`;
-  }
-  if (type === "diamond") {
-    return `radial-gradient(closest-corner at 50% 50%, ${stopList})`;
-  }
-  return `linear-gradient(90deg, ${stopList})`;
+  if (type === "angular") return `conic-gradient(${prefix}, ${stopList})`;
+  return `linear-gradient(${prefix}, ${stopList})`;
 }
 
-function defaultGradientStops(colorValue: string): FigmaGradientStop[] {
+function defaultGradientStops(colorValue: string): DesignGradientStop[] {
   const parsed =
     parseCssColor(cssColorOrFallback(colorValue, "#000000")) ??
     parseCssColor("#000000");
@@ -773,7 +809,7 @@ function defaultGradientStops(colorValue: string): FigmaGradientStop[] {
   ];
 }
 
-function defaultGradientLayer(type: FigmaGradientType, colorValue: string) {
+function defaultGradientLayer(type: DesignGradientType, colorValue: string) {
   return buildGradientLayer(type, defaultGradientStops(colorValue));
 }
 
@@ -857,14 +893,14 @@ function PropSlider({
 const EmptyScrubIcon = () => null;
 
 /**
- * Figma-style inspector section. Matches Figma's real "Design" panel chrome:
- *   - NO left collapse chevron (Figma has none).
+ * design-editor inspector section. Matches the design editor "Design" panel chrome:
+ *   - NO left collapse chevron (the design editor uses none).
  *   - A thin divider line above each section.
  *   - A bold left-aligned title.
  *   - Right-aligned action icons (add layer, toggles, styles, etc.).
  *
- * The title is still clickable to collapse the body (Figma collapses sections
- * on title click) but renders no chevron glyph, just like Figma.
+ * The title is still clickable to collapse the body (design sections collapse
+ * on title click) but renders no chevron glyph, just the same way.
  */
 function PanelSection({
   title,
@@ -919,7 +955,7 @@ function SubsectionLabel({ children }: { children: ReactNode }) {
   );
 }
 
-function FigmaSpacingControl({
+function DesignSpacingControl({
   label,
   values,
   onChange,
@@ -987,7 +1023,6 @@ function FigmaSpacingControl({
           onChange={setAll}
           unit="px"
           min={0}
-          precision={1}
           labelClassName="w-16"
           inputClassName="h-6"
         />
@@ -1082,9 +1117,11 @@ const ALIGN_SELF_OPTIONS = [
   { value: "stretch", key: "stretch" },
   { value: "baseline", key: "baseline" },
 ] as const;
+// "center" stroke position is omitted: CSS has no native single-property
+// centered stroke; choosing it in the UI caused a confusing revert to "inside"
+// on next render. Inside (border) and outside (outline) are fully supported.
 const STROKE_POSITION_OPTIONS = [
   { value: "inside", key: "inside" },
-  { value: "center", key: "center" },
   { value: "outside", key: "outside" },
 ] as const;
 const BLEND_MODE_OPTIONS = [
@@ -1094,10 +1131,10 @@ const BLEND_MODE_OPTIONS = [
   { value: "overlay", label: "Overlay" },
   { value: "darken", label: "Darken" },
   { value: "lighten", label: "Lighten" },
-  { value: "color-dodge", label: "Color dodge" }, // i18n-ignore Figma blend mode label
-  { value: "color-burn", label: "Color burn" }, // i18n-ignore Figma blend mode label
-  { value: "hard-light", label: "Hard light" }, // i18n-ignore Figma blend mode label
-  { value: "soft-light", label: "Soft light" }, // i18n-ignore Figma blend mode label
+  { value: "color-dodge", label: "Color dodge" }, // i18n-ignore design blend mode label
+  { value: "color-burn", label: "Color burn" }, // i18n-ignore design blend mode label
+  { value: "hard-light", label: "Hard light" }, // i18n-ignore design blend mode label
+  { value: "soft-light", label: "Soft light" }, // i18n-ignore design blend mode label
   { value: "difference", label: "Difference" },
   { value: "exclusion", label: "Exclusion" },
   { value: "hue", label: "Hue" },
@@ -1110,9 +1147,45 @@ function parseNumericValue(value: string): number {
   return parseFloat(value) || 0;
 }
 
+/**
+ * Resolve a CSS line-height value to a unitless ratio for display/editing.
+ * When the browser returns a px-computed value (e.g. "19.2px" for line-height
+ * 1.2 on a 16px font), divide by the font-size to recover the unitless ratio.
+ * Falls back to 1.2 when the value cannot be parsed.
+ */
+function resolveLineHeight(
+  lineHeight: string | undefined,
+  fontSize: string | undefined,
+): number {
+  const lh = lineHeight?.trim() || "";
+  if (!lh || lh === "normal") return 1.2;
+  if (lh.endsWith("px")) {
+    const lhPx = parseFloat(lh);
+    const fsPx = parseFloat(fontSize || "");
+    if (Number.isFinite(lhPx) && Number.isFinite(fsPx) && fsPx > 0) {
+      return Math.round((lhPx / fsPx) * 100) / 100;
+    }
+  }
+  const numeric = parseFloat(lh);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 1.2;
+}
+
 function parseRotationValue(transform: string | undefined): number {
   const match = transform?.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/);
   return match ? Number(match[1]) : 0;
+}
+
+/**
+ * Parse a CSS `scale` property value (e.g. "-1 1", "1", "none") into two
+ * numeric components [scaleX, scaleY]. Defaults both axes to 1 when absent
+ * or unparseable, matching the CSS initial value.
+ */
+function parseScaleValue(value: string | undefined): [number, number] {
+  if (!value || value === "none") return [1, 1];
+  const parts = value.trim().split(/\s+/);
+  const x = Number(parts[0]);
+  const y = parts.length > 1 ? Number(parts[1]) : x;
+  return [Number.isFinite(x) ? x : 1, Number.isFinite(y) ? y : 1];
 }
 
 function mergeRotationValue(transform: string | undefined, degrees: number) {
@@ -1122,6 +1195,26 @@ function mergeRotationValue(transform: string | undefined, degrees: number) {
     return transform.replace(/rotate\((-?\d+(?:\.\d+)?)deg\)/, nextRotate);
   }
   return `${transform} ${nextRotate}`;
+}
+
+/**
+ * Replace or remove a translateX/translateY function within an existing
+ * transform string while preserving all other transform functions (rotate,
+ * scale, skew, etc.). Pass `null` as `value` to strip the function.
+ */
+function mergeTranslateFunction(
+  transform: string | undefined,
+  axis: "X" | "Y",
+  value: string | null,
+): string {
+  const pattern =
+    axis === "X" ? /translateX\([^)]*\)/g : /translateY\([^)]*\)/g;
+  const base = (!transform || transform === "none" ? "" : transform)
+    .replace(pattern, "")
+    .trim();
+  if (value === null) return base || "none";
+  const fn = `translate${axis}(${value})`;
+  return base ? `${fn} ${base}` : fn;
 }
 
 function ScrubStyleInput({
@@ -1307,9 +1400,9 @@ function autoLayoutAlignmentFromStyles(
 }
 
 /**
- * Block-level container tags that act like Figma frames. Selecting any of
+ * Block-level container tags that act the same way frames. Selecting any of
  * these shows the Auto layout section (in an "add" state when not yet flex),
- * mirroring Figma where any frame/container exposes auto-layout controls.
+ * mirroring the editor pattern where any frame/container exposes auto-layout controls.
  */
 const CONTAINER_TAGS = new Set([
   "div",
@@ -1355,7 +1448,7 @@ const LEAF_TAGS = new Set([
  * Whether the element should expose the Auto layout section. True for anything
  * already laid out with flexbox, or any block-level container tag that isn't a
  * known leaf/text element. This is what makes a plain frame/container with
- * children show the full Auto layout section like Figma does.
+ * children show the full Auto layout section the same way does.
  */
 function isContainerElement(element: ElementInfo): boolean {
   if (element.isFlexContainer) return true;
@@ -1386,7 +1479,7 @@ function isTextElement(element: ElementInfo): boolean {
 }
 
 /**
- * Per-axis sizing availability following Figma's contextual rules:
+ * Per-axis sizing availability following the design editor's contextual rules:
  *   - Fixed: always.
  *   - Hug contents: only CONTAINERS (flex/container frames) and TEXT can hug
  *     their content. Leaves like img/svg/input cannot.
@@ -1597,12 +1690,12 @@ function SelectionHeader({ element }: { element: ElementInfo | null }) {
       {/* M3 · Right-aligned quick actions: create-component + dev inspect (</>) */}
       <div className="flex shrink-0 items-center gap-0.5">
         <SectionIconButton
-          label={"Create component" /* i18n-ignore Figma inspector action */}
+          label={"Create component" /* i18n-ignore design inspector action */}
         >
           <IconComponents className="size-3.5" />
         </SectionIconButton>
         <SectionIconButton
-          label={"Inspect code" /* i18n-ignore Figma inspector action */}
+          label={"Inspect code" /* i18n-ignore design inspector action */}
         >
           <IconCode className="size-3.5" />
         </SectionIconButton>
@@ -1633,7 +1726,7 @@ function InspectorTabsHeader({
             value="design"
             className="h-6 rounded-md px-1.5 text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
           >
-            {"Design" /* i18n-ignore Figma inspector tab */}
+            {"Design" /* i18n-ignore design inspector tab */}
           </TabsTrigger>
           <TabsTrigger
             value="tweaks"
@@ -1691,7 +1784,7 @@ function SectionIconButton({
 }
 
 /**
- * Section-header toggle icon (Figma's right-aligned section actions, e.g. the
+ * Section-header toggle icon (the design editor's right-aligned section actions, e.g. the
  * auto-layout ⊞ toggle). Highlights with the accent color when active.
  */
 function SectionIconToggle({
@@ -1922,10 +2015,7 @@ function StrokeLayerControl({
   const t = useT();
   const strokePositionOptions = STROKE_POSITION_OPTIONS.map((option) => ({
     value: option.value,
-    label:
-      option.key === "center"
-        ? t("editPanel.textAligns.center")
-        : t(`editPanel.labels.${option.key}`),
+    label: t(`editPanel.labels.${option.key}`),
   }));
   const prefix = kind === "border" ? "border" : "outline";
   const position = kind === "border" ? "inside" : "outside";
@@ -1944,7 +2034,7 @@ function StrokeLayerControl({
 
   return (
     <div className="space-y-1.5">
-      {/* Figma stroke row: [swatch+hex trigger (flex-1)] [eye] [remove] */}
+      {/* design stroke row: [swatch+hex trigger (flex-1)] [eye] [remove] */}
       <div className="group flex items-center gap-1.5">
         <div className="min-w-0 flex-1">
           <ColorInput
@@ -1986,7 +2076,7 @@ function StrokeLayerControl({
           <IconMinus className="size-3.5" />
         </SectionIconButton>
       </div>
-      {/* Figma stroke geometry: position + weight side by side */}
+      {/* design stroke geometry: position + weight side by side */}
       <div className="grid grid-cols-2 gap-1.5">
         <Select value={position} onValueChange={movePosition}>
           <SelectTrigger className="h-6 rounded-md border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-[11px] shadow-none focus:ring-1 focus:ring-[var(--design-editor-accent-color)]">
@@ -2105,7 +2195,7 @@ function serializeShadowLayers(layers: ShadowLayer[]) {
         `${Math.round(layer.x)}px`,
         `${Math.round(layer.y)}px`,
         `${Math.max(0, Math.round(layer.blur))}px`,
-        `${Math.max(0, Math.round(layer.spread))}px`,
+        `${layer.inset ? Math.round(layer.spread) : Math.max(0, Math.round(layer.spread))}px`,
         layer.color,
       ]
         .filter(Boolean)
@@ -2133,7 +2223,7 @@ function ShadowEffectRow({
   const t = useT();
   return (
     <Popover>
-      {/* Figma effect row: [swatch+label+x,y,blur trigger (flex-1)] [remove] */}
+      {/* design effect row: [swatch+label+x,y,blur trigger (flex-1)] [remove] */}
       <div className="group flex items-center gap-1.5">
         <PopoverTrigger asChild>
           <button
@@ -2216,9 +2306,11 @@ function ShadowEffectRow({
             <ScrubInput
               label={t("editPanel.labels.spread")}
               value={layer.spread}
-              onChange={(value) => onChange({ spread: Math.max(0, value) })}
+              onChange={(value) =>
+                onChange({ spread: layer.inset ? value : Math.max(0, value) })
+              }
               unit="px"
-              min={0}
+              min={layer.inset ? undefined : 0}
               precision={1}
               inputClassName="h-6"
             />
@@ -2304,7 +2396,7 @@ function TypographyProperties({
   }));
   const textAlign = styles.textAlign || "left";
 
-  // M1 · Text resizing mode (auto-width / auto-height / fixed). Figma's text
+  // M1 · Text resizing mode (auto-width / auto-height / fixed). the design editor's text
   // nodes always expose this segment. Infer the current mode from the live CSS:
   // auto-width hugs both axes (width:auto + no wrapping), auto-height hugs the
   // height only (fixed width, content wraps), fixed pins both width and height.
@@ -2337,7 +2429,7 @@ function TypographyProperties({
   };
 
   // M2 · Vertical text alignment (top / middle / bottom). For auto-layout text
-  // containers (display:flex) Figma maps this to `justifyContent`; for normal
+  // containers (display:flex) the design editor maps this to `justifyContent`; for normal
   // text we fall back to `verticalAlign`, which is what an inline/grid text box
   // honors. Read whichever the element currently expresses.
   const display = (styles.display || "").toLowerCase();
@@ -2373,21 +2465,21 @@ function TypographyProperties({
       {/* Row 0: text resizing (auto-width / auto-height / fixed) */}
       <InspectorSegment>
         <InspectorIconButton
-          label={"Auto width" /* i18n-ignore Figma text-resize mode */}
+          label={"Auto width" /* i18n-ignore design text-resize mode */}
           active={resizeMode === "auto-width"}
           onClick={() => setResizeMode("auto-width")}
         >
           <IconArrowAutofitWidth className="size-3.5" />
         </InspectorIconButton>
         <InspectorIconButton
-          label={"Auto height" /* i18n-ignore Figma text-resize mode */}
+          label={"Auto height" /* i18n-ignore design text-resize mode */}
           active={resizeMode === "auto-height"}
           onClick={() => setResizeMode("auto-height")}
         >
           <IconArrowAutofitHeight className="size-3.5" />
         </InspectorIconButton>
         <InspectorIconButton
-          label={"Fixed size" /* i18n-ignore Figma text-resize mode */}
+          label={"Fixed size" /* i18n-ignore design text-resize mode */}
           active={resizeMode === "fixed"}
           onClick={() => setResizeMode("fixed")}
         >
@@ -2454,13 +2546,13 @@ function TypographyProperties({
         />
       </div>
 
-      {/* Row 3: line-height + letter-spacing with Figma-style leading icons */}
+      {/* Row 3: line-height + letter-spacing with design-editor leading icons */}
       <div className="grid grid-cols-2 gap-1.5">
         <ScrubInput
           label={t("editPanel.labels.lineHeight")}
           ariaLabel={t("editPanel.labels.lineHeight")}
           icon={IconLineHeight}
-          value={parseNumericValue(styles.lineHeight || "1.2")}
+          value={resolveLineHeight(styles.lineHeight, styles.fontSize)}
           onChange={(value) =>
             onStyleChange("lineHeight", String(Math.max(0.1, value)))
           }
@@ -2521,21 +2613,21 @@ function TypographyProperties({
         </InspectorSegment>
         <InspectorSegment>
           <InspectorIconButton
-            label={"Align top" /* i18n-ignore Figma vertical text align */}
+            label={"Align top" /* i18n-ignore design vertical text align */}
             active={verticalAlign === "top"}
             onClick={() => setVerticalAlign("top")}
           >
             <IconLayoutAlignTop className="size-3.5" />
           </InspectorIconButton>
           <InspectorIconButton
-            label={"Align middle" /* i18n-ignore Figma vertical text align */}
+            label={"Align middle" /* i18n-ignore design vertical text align */}
             active={verticalAlign === "middle"}
             onClick={() => setVerticalAlign("middle")}
           >
             <IconLayoutAlignMiddle className="size-3.5" />
           </InspectorIconButton>
           <InspectorIconButton
-            label={"Align bottom" /* i18n-ignore Figma vertical text align */}
+            label={"Align bottom" /* i18n-ignore design vertical text align */}
             active={verticalAlign === "bottom"}
             onClick={() => setVerticalAlign("bottom")}
           >
@@ -2660,10 +2752,13 @@ function FlexContainerControls({
         onPaddingLinkedChange={(linked) => {
           setPaddingLinked(linked);
           if (!linked) return;
-          onStyleChange("paddingTop", `${padding.top}px`);
-          onStyleChange("paddingRight", `${padding.top}px`);
-          onStyleChange("paddingBottom", `${padding.top}px`);
-          onStyleChange("paddingLeft", `${padding.top}px`);
+          const avg = Math.round(
+            (padding.top + padding.right + padding.bottom + padding.left) / 4,
+          );
+          onStyleChange("paddingTop", `${avg}px`);
+          onStyleChange("paddingRight", `${avg}px`);
+          onStyleChange("paddingBottom", `${avg}px`);
+          onStyleChange("paddingLeft", `${avg}px`);
         }}
         onClipContentChange={(clipContent) =>
           onStyleChange("overflow", clipContent ? "hidden" : "visible")
@@ -2821,11 +2916,11 @@ function LayoutContextProperties({
   );
 
   // Leaf elements (text, img, svg, etc.) never get auto layout — show the plain
-  // Figma W/H sizing block instead.
+  // design W/H sizing block instead.
   if (!isContainer) {
     return (
       <PanelSection title={t("editPanel.sections.layout")}>
-        {/* Figma-style single-row-per-axis: [W | value | Fixed/Hug/Fill ▾] with
+        {/* design-editor single-row-per-axis: [W | value | Fixed/Hug/Fill ▾] with
             the full sizing menu (modes + min/max + variable) per axis. */}
         <div className="grid grid-cols-2 items-start gap-1.5">
           <SizingField
@@ -2877,7 +2972,7 @@ function LayoutContextProperties({
   }
 
   // Any container element ALREADY has a layout in code — normal flow (block) by
-  // default, or flex when it uses flexbox. Figma never makes you "add" auto
+  // default, or flex when it uses flexbox. the design editor never makes you "add" auto
   // layout for a frame, so we always render the full layout controls and let
   // the Flow control reflect/switch the element's current `display`. Choosing a
   // horizontal/vertical/wrap/grid flow applies `display:flex`; choosing the
@@ -2895,7 +2990,7 @@ function LayoutContextProperties({
 }
 
 /**
- * Figma "Layout grid" / layout-guide section. Shown for frame/container
+ * design layout-guide section. Shown for frame/container
  * elements. Renders an overlay column/row guide by applying a non-destructive
  * `backgroundImage` repeating gradient layer tagged so it can be toggled off
  * without disturbing real fills.
@@ -2903,7 +2998,7 @@ function LayoutContextProperties({
 const LAYOUT_GUIDE_MARKER = "/* an-layout-guide */";
 
 function hasLayoutGuide(styles: Record<string, string>): boolean {
-  return Boolean(styles.backgroundImage?.includes("repeating-linear-gradient"));
+  return Boolean(styles.backgroundImage?.includes(LAYOUT_GUIDE_MARKER));
 }
 
 function LayoutGuideProperties({
@@ -2917,9 +3012,10 @@ function LayoutGuideProperties({
   const active = hasLayoutGuide(styles);
 
   const addGuide = () => {
-    // 12-column overlay guide — Figma's default columns layout grid.
-    const guide =
-      "repeating-linear-gradient(to right, color-mix(in srgb, var(--design-editor-accent-color) 22%, transparent) 0 1px, transparent 1px calc(100% / 12))";
+    // 12-column overlay guide — the design editor's default columns layout grid.
+    // The LAYOUT_GUIDE_MARKER comment is embedded so hasLayoutGuide and removeGuide
+    // can detect/remove it without touching unrelated repeating-linear-gradient fills.
+    const guide = `repeating-linear-gradient(to right, color-mix(in srgb, var(--design-editor-accent-color) 22%, transparent) 0 1px, transparent 1px calc(100% / 12)) ${LAYOUT_GUIDE_MARKER}`;
     const existing = compactCssValue(styles.backgroundImage, "");
     onStyleChange(
       "backgroundImage",
@@ -2929,7 +3025,7 @@ function LayoutGuideProperties({
 
   const removeGuide = () => {
     const layers = splitCssLayers(styles.backgroundImage || "").filter(
-      (layer) => !layer.includes("repeating-linear-gradient"),
+      (layer) => !layer.includes(LAYOUT_GUIDE_MARKER),
     );
     onStyleChange(
       "backgroundImage",
@@ -2939,14 +3035,14 @@ function LayoutGuideProperties({
 
   return (
     <PanelSection
-      title={"Layout guide" /* i18n-ignore Figma inspector label */}
+      title={"Layout guide" /* i18n-ignore design inspector label */}
       defaultCollapsed
       actions={
         <SectionIconButton
           label={
             active
-              ? "Remove layout guide" /* i18n-ignore Figma inspector action */
-              : "Add layout guide" /* i18n-ignore Figma inspector action */
+              ? "Remove layout guide" /* i18n-ignore design inspector action */
+              : "Add layout guide" /* i18n-ignore design inspector action */
           }
           onClick={active ? removeGuide : addGuide}
         >
@@ -2962,13 +3058,13 @@ function LayoutGuideProperties({
         <div className="flex items-center gap-2 rounded-md bg-[var(--design-editor-control-bg)] px-2 py-1.5 text-[11px] text-muted-foreground">
           <IconLayoutGrid className="size-3.5 shrink-0" />
           <span className="min-w-0 flex-1 truncate text-foreground">
-            {"Columns" /* i18n-ignore Figma inspector label */}
+            {"Columns" /* i18n-ignore design inspector label */}
           </span>
           <span className="shrink-0 tabular-nums">12</span>
         </div>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          {"No layout guides" /* i18n-ignore Figma inspector empty state */}
+          {"No layout guides" /* i18n-ignore design inspector empty state */}
         </p>
       )}
     </PanelSection>
@@ -2976,7 +3072,7 @@ function LayoutGuideProperties({
 }
 
 /**
- * Togglable export preview thumbnail (Figma shows a small preview of the export
+ * Togglable export preview thumbnail (the design editor shows a small preview of the export
  * frame above the export rows). Renders a proportional placeholder reflecting
  * the selected element's aspect ratio, fill, radius and dimensions.
  */
@@ -3026,36 +3122,56 @@ function PositionLayoutProperties({
   const styles = element.computedStyles;
   const constrainedPosition =
     styles.position === "absolute" || styles.position === "fixed";
-  // Reflect the active packing in the alignment segments (Figma highlights the
+  // Reflect the active packing in the alignment segments (the design editor highlights the
   // current alignment). For a flex container the main axis is justifyContent.
   const alignH = justifyToHorizontal(styles.justifyContent);
   const alignV = alignToVertical(styles.alignItems);
   const constraintsValue: ConstraintsValue = {
     horizontal:
-      styles.left && styles.right
-        ? "left-right"
-        : styles.right
-          ? "right"
-          : styles.transform?.includes("translateX(-50%)")
-            ? "center"
-            : styles.width === "100%"
-              ? "scale"
+      // Check scale before left+right: "scale" writes width:100% and clears
+      // left/right to auto, but legacy data may have 0px values that are truthy.
+      styles.width === "100%"
+        ? "scale"
+        : styles.left && styles.right
+          ? "left-right"
+          : styles.right
+            ? "right"
+            : styles.transform?.includes("translateX(-50%)")
+              ? "center"
               : "left",
     vertical:
-      styles.top && styles.bottom
-        ? "top-bottom"
-        : styles.bottom
-          ? "bottom"
-          : styles.transform?.includes("translateY(-50%)")
-            ? "center"
-            : styles.height === "100%"
-              ? "scale"
+      styles.height === "100%"
+        ? "scale"
+        : styles.top && styles.bottom
+          ? "top-bottom"
+          : styles.bottom
+            ? "bottom"
+            : styles.transform?.includes("translateY(-50%)")
+              ? "center"
               : "top",
   };
 
   const handleConstraintsChange = useCallback(
     (value: ConstraintsValue) => {
       onStyleChange("position", "absolute");
+
+      // Compute the desired translateX/Y for each axis independently, then
+      // compose both into a single transform write so the two axes don't
+      // overwrite each other when both change simultaneously.
+      const txValue = value.horizontal === "center" ? "-50%" : null;
+      const tyValue = value.vertical === "center" ? "-50%" : null;
+      // Start from the current transform, apply X, then apply Y on top.
+      const transformAfterX = mergeTranslateFunction(
+        styles.transform,
+        "X",
+        txValue,
+      );
+      const transformAfterXY = mergeTranslateFunction(
+        transformAfterX,
+        "Y",
+        tyValue,
+      );
+
       if (value.horizontal === "left") {
         onStyleChange(
           "left",
@@ -3074,10 +3190,11 @@ function PositionLayoutProperties({
       } else if (value.horizontal === "center") {
         onStyleChange("left", "50%");
         onStyleChange("right", "auto");
-        onStyleChange("transform", "translateX(-50%)");
       } else {
-        onStyleChange("left", "0px");
-        onStyleChange("right", "0px");
+        // scale: use auto (not 0px) so the left && right truthiness check
+        // in the reader does not misidentify this as "left-right".
+        onStyleChange("left", "auto");
+        onStyleChange("right", "auto");
         onStyleChange("width", "100%");
       }
 
@@ -3099,12 +3216,15 @@ function PositionLayoutProperties({
       } else if (value.vertical === "center") {
         onStyleChange("top", "50%");
         onStyleChange("bottom", "auto");
-        onStyleChange("transform", "translateY(-50%)");
       } else {
-        onStyleChange("top", "0px");
-        onStyleChange("bottom", "0px");
+        // scale
+        onStyleChange("top", "auto");
+        onStyleChange("bottom", "auto");
         onStyleChange("height", "100%");
       }
+
+      // Write the composed transform once, after both axes are resolved.
+      onStyleChange("transform", transformAfterXY);
     },
     [
       element.boundingRect.x,
@@ -3112,6 +3232,7 @@ function PositionLayoutProperties({
       onStyleChange,
       styles.left,
       styles.top,
+      styles.transform,
     ],
   );
 
@@ -3120,7 +3241,7 @@ function PositionLayoutProperties({
       title={t("editPanel.sections.positionLayout")}
       actions={
         <SectionIconToggle
-          label={"Absolute position" /* i18n-ignore Figma inspector action */}
+          label={"Absolute position" /* i18n-ignore design inspector action */}
           active={constrainedPosition}
           onClick={() =>
             onStyleChange(
@@ -3135,7 +3256,7 @@ function PositionLayoutProperties({
     >
       <div className="space-y-1.5">
         <SubsectionLabel>
-          {"Alignment" /* i18n-ignore Figma inspector label */}
+          {"Alignment" /* i18n-ignore design inspector label */}
         </SubsectionLabel>
         <div className="flex items-center gap-3">
           <InspectorSegment>
@@ -3227,13 +3348,19 @@ function PositionLayoutProperties({
           <InspectorSegment>
             <InspectorIconButton
               label={t("editPanel.labels.flipHorizontal")}
-              onClick={() => onStyleChange("scale", "-1 1")}
+              onClick={() => {
+                const [sx, sy] = parseScaleValue(styles.scale);
+                onStyleChange("scale", `${sx === -1 ? 1 : -1} ${sy}`);
+              }}
             >
               <IconFlipHorizontal className="size-4" />
             </InspectorIconButton>
             <InspectorIconButton
               label={t("editPanel.labels.flipVertical")}
-              onClick={() => onStyleChange("scale", "1 -1")}
+              onClick={() => {
+                const [sx, sy] = parseScaleValue(styles.scale);
+                onStyleChange("scale", `${sx} ${sy === -1 ? 1 : -1}`);
+              }}
             >
               <IconFlipVertical className="size-4" />
             </InspectorIconButton>
@@ -3275,13 +3402,13 @@ function FillProperties({
     isTextElement || colorHasVisibleAlpha(fillValue) || hasBackgroundLayer;
 
   // Non-destructive fill hide: stash the color before hiding so toggling
-  // visible again restores the exact original value (Figma never loses color).
-  // Keyed by `${element.id ?? tagName}:${fillProperty}` so separate elements
+  // visible again restores the exact original value (the design editor never loses color).
+  // Keyed by a stable selected-element identity so anonymous same-tag elements
   // don't share stash slots.
   const [hiddenFillStash, setHiddenFillStash] = useState<
     Record<string, string>
   >({});
-  const stashKey = `${element.id ?? element.tagName}:${fillProperty}`;
+  const stashKey = `${elementIdentityKey(element)}:${fillProperty}`;
   const isHidden = fillValue === "transparent" || fillValue === "";
   const handleFillVisibilityToggle = () => {
     if (isHidden) {
@@ -3324,9 +3451,9 @@ function FillProperties({
       title={t("editPanel.sections.fill")}
       actions={
         <>
-          {/* Figma color-styles affordance (grid icon) to the left of "+". */}
+          {/* design color-styles affordance (grid icon) to the left of "+". */}
           <SectionIconButton
-            label={"Styles" /* i18n-ignore Figma inspector action */}
+            label={"Styles" /* i18n-ignore design inspector action */}
           >
             <IconLayoutGrid className="size-3.5" />
           </SectionIconButton>
@@ -3366,7 +3493,7 @@ function FillProperties({
       {hasVisibleFill ? (
         <div className="space-y-1.5">
           {isTextElement || colorHasVisibleAlpha(fillValue) ? (
-            /* Figma row: [swatch+hex trigger (flex-1)] [eye] [remove] */
+            /* design row: [swatch+hex trigger (flex-1)] [eye] [remove] */
             <div className="group flex items-center gap-1.5">
               <div className="min-w-0 flex-1">
                 <ColorInput
@@ -3385,6 +3512,13 @@ function FillProperties({
                       : (v) => onStyleChange("backgroundBlendMode", v)
                   }
                   documentColors={documentColors}
+                  pickerKey={[
+                    element.sourceId ??
+                      element.id ??
+                      element.selector ??
+                      element.tagName,
+                    fillProperty,
+                  ].join(":")}
                 />
               </div>
               <SectionIconButton
@@ -3432,7 +3566,7 @@ function FillProperties({
                   : 100;
                 const label = gradient
                   ? `${gradientLabel(gradient.type)} ${index + 1}`
-                  : `${"Image" /* i18n-ignore Figma inspector paint row */} ${
+                  : `${"Image" /* i18n-ignore design inspector paint row */} ${
                       index + 1
                     }`;
                 const replaceLayer = (nextLayer: string) => {
@@ -3452,7 +3586,7 @@ function FillProperties({
                 };
 
                 return (
-                  /* Figma row: [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
+                  /* design row: [swatch+label+opacity% trigger (flex-1)] [eye] [remove] */
                   <div
                     key={`${layer}-${index}`}
                     className="group flex items-center gap-1.5"
@@ -3481,7 +3615,7 @@ function FillProperties({
                         sideOffset={8}
                         className="w-80 p-0"
                       >
-                        <FigmaColorPicker
+                        <DesignColorPicker
                           value={gradient?.stops[0]?.color ?? layer}
                           onPaintValueChange={replaceLayer}
                           onChange={(nextColor) => {
@@ -3489,10 +3623,14 @@ function FillProperties({
                             const firstStop = gradient.stops[0];
                             if (!firstStop) return;
                             replaceLayer(
-                              buildGradientLayer(gradient.type, [
-                                { ...firstStop, color: nextColor },
-                                ...gradient.stops.slice(1),
-                              ]),
+                              buildGradientLayer(
+                                gradient.type,
+                                [
+                                  { ...firstStop, color: nextColor },
+                                  ...gradient.stops.slice(1),
+                                ],
+                                gradient.prefix,
+                              ),
                             );
                           }}
                           paintType={gradient?.type ?? "image"}
@@ -3533,6 +3671,7 @@ function FillProperties({
                               ...stop,
                               opacity: opacity <= 0 ? 100 : 0,
                             })),
+                            gradient.prefix,
                           ),
                         );
                       }}
@@ -3576,6 +3715,11 @@ function StrokeProperties({
     styles.outlineWidth,
     styles.outlineStyle,
   );
+  // Render the row whenever a stroke has been configured (non-zero width),
+  // even when its style is "none" (hidden). This mirrors Figma's behavior where
+  // hidden stroke rows remain present so the user can re-show them via the eye icon.
+  const borderExists = cssLengthNumber(styles.borderWidth) > 0;
+  const outlineExists = cssLengthNumber(styles.outlineWidth) > 0;
 
   return (
     <PanelSection
@@ -3640,7 +3784,7 @@ function StrokeProperties({
         </SectionIconButton>
       }
     >
-      {borderVisible ? (
+      {borderExists ? (
         <StrokeLayerControl
           kind="border"
           visible={borderVisible}
@@ -3657,7 +3801,7 @@ function StrokeProperties({
           }}
         />
       ) : null}
-      {outlineVisible ? (
+      {outlineExists ? (
         <StrokeLayerControl
           kind="outline"
           visible={outlineVisible}
@@ -3696,10 +3840,10 @@ function AppearanceProperties({
       title={t("root.commandAppearance")}
       actions={
         <>
-          {/* Opacity / blend-mode affordance — matches Figma's pill icon */}
+          {/* Opacity / blend-mode affordance — matches the design editor's pill icon */}
           <SectionIconButton
             label={
-              "Opacity & blend mode" /* i18n-ignore Figma inspector action */
+              "Opacity & blend mode" /* i18n-ignore design inspector action */
             }
           >
             <IconSlice className="size-3.5" />
@@ -3708,8 +3852,8 @@ function AppearanceProperties({
           <SectionIconToggle
             label={
               hidden
-                ? "Show" /* i18n-ignore Figma inspector action */
-                : "Hide" /* i18n-ignore Figma inspector action */
+                ? "Show" /* i18n-ignore design inspector action */
+                : "Hide" /* i18n-ignore design inspector action */
             }
             active={hidden}
             onClick={() =>
@@ -3722,9 +3866,9 @@ function AppearanceProperties({
               <IconEye className="size-3.5" />
             )}
           </SectionIconToggle>
-          {/* Styles / fill library affordance — matches Figma's droplet icon */}
+          {/* Styles / fill library affordance — matches the design editor's droplet icon */}
           <SectionIconButton
-            label={"Styles" /* i18n-ignore Figma inspector action */}
+            label={"Styles" /* i18n-ignore design inspector action */}
           >
             <IconDroplet className="size-3.5" />
           </SectionIconButton>
@@ -3787,7 +3931,7 @@ function EffectsProperties({
   const t = useT();
   const styles = element.computedStyles;
   const blurValue = readBlurFilter(styles.filter);
-  // M5 · Background (backdrop) blur is a distinct Figma effect type, backed by
+  // M5 · Background (backdrop) blur is a distinct design effect type, backed by
   // CSS `backdrop-filter: blur()` (vs layer blur's `filter: blur()`).
   const backdropBlurValue = readBlurFilter(
     styles.backdropFilter || styles.webkitBackdropFilter,
@@ -3842,7 +3986,7 @@ function EffectsProperties({
               onSelect={addBackgroundBlur}
             >
               <IconBackground className="size-3.5" />
-              {"Background blur" /* i18n-ignore Figma effect type */}
+              {"Background blur" /* i18n-ignore design effect type */}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -3873,7 +4017,7 @@ function EffectsProperties({
         </div>
       ) : null}
       {blurValue > 0 ? (
-        /* Figma effect row for layer blur: flat row matching shadow rows */
+        /* design effect row for layer blur: flat row matching shadow rows */
         <Popover>
           <div className="group flex items-center gap-1.5">
             <PopoverTrigger asChild>
@@ -3907,12 +4051,14 @@ function EffectsProperties({
             <ScrubInput
               label={t("editPanel.labels.blur")}
               value={blurValue}
-              onChange={(value) =>
-                onStyleChange(
-                  "filter",
-                  `blur(${Math.max(0, Math.round(value))}px)`,
-                )
-              }
+              onChange={(value) => {
+                const blurFn = `blur(${Math.max(0, Math.round(value))}px)`;
+                const existing = styles.filter || "";
+                const next = existing.includes("blur(")
+                  ? existing.replace(/blur\([^)]*\)/, blurFn)
+                  : blurFn;
+                onStyleChange("filter", next);
+              }}
               unit="px"
               min={0}
               precision={1}
@@ -3932,7 +4078,7 @@ function EffectsProperties({
                 className="flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] px-1.5 text-left text-[11px] hover:bg-[var(--design-editor-panel-raised-bg)]"
               >
                 <span className="min-w-0 flex-1 truncate font-medium text-foreground">
-                  {"Background blur" /* i18n-ignore Figma effect type */}
+                  {"Background blur" /* i18n-ignore design effect type */}
                 </span>
                 <span className="shrink-0 tabular-nums text-muted-foreground">
                   {Math.round(backdropBlurValue)}px
@@ -4007,7 +4153,7 @@ function selectionColorValues(element: ElementInfo): SelectionColorValue[] {
     });
 }
 
-/** Uppercase 6-char hex (no #) for a CSS color, matching Figma's row readout. */
+/** Uppercase 6-char hex (no #) for a CSS color, matching the design editor's row readout. */
 function selectionDisplayHex(value: string): string {
   const parsed = parseCssColor(value);
   if (!parsed) return value.replace(/^#/, "").toUpperCase();
@@ -4021,7 +4167,7 @@ function SelectionColorsProperties({
   element: ElementInfo;
   onStyleChange: (property: string, value: string) => void;
 }) {
-  // M6 · Figma's Selection colors collapses to a single "Show selection colors"
+  // M6 · the design editor's Selection colors collapses to a single "Show selection colors"
   // affordance, expanding to one editable [swatch · hex · opacity] row per
   // unique color — matching the Fill row grammar instead of a swatch strip.
   const [expanded, setExpanded] = useState(false);
@@ -4030,7 +4176,7 @@ function SelectionColorsProperties({
 
   return (
     <PanelSection
-      title={"Selection colors" /* i18n-ignore Figma inspector label */}
+      title={"Selection colors" /* i18n-ignore design inspector label */}
     >
       {expanded ? (
         <div className="space-y-1.5">
@@ -4063,7 +4209,7 @@ function SelectionColorsProperties({
                   sideOffset={8}
                   className="w-80 p-0"
                 >
-                  <FigmaColorPicker
+                  <DesignColorPicker
                     value={cssColorOrFallback(color.value, "#000000")}
                     onChange={(value) => onStyleChange(color.property, value)}
                   />
@@ -4079,7 +4225,7 @@ function SelectionColorsProperties({
           onClick={() => setExpanded(true)}
         >
           <span className="truncate">
-            {"Show selection colors" /* i18n-ignore Figma inspector label */}
+            {"Show selection colors" /* i18n-ignore design inspector label */}
           </span>
           <div className="flex shrink-0 items-center -space-x-1">
             {colors.slice(0, 3).map((color, index) => (
@@ -4130,12 +4276,13 @@ export function EditPanel({
   exporting = false,
 }: EditPanelProps) {
   const t = useT();
-  const [exportSettings, setExportSettings] = useState<ExportSettingsValue>({
-    scale: 1,
-    format: "png",
-    suffix: "",
-  });
+  const [exportSettings, setExportSettings] = useState<ExportSettingsValue>(
+    DEFAULT_EXPORT_SETTINGS,
+  );
   const [showExportPreview, setShowExportPreview] = useState(false);
+  const selectedElementKey = selectedElement
+    ? elementIdentityKey(selectedElement)
+    : "none";
   const isTextElement = selectedElement
     ? TEXT_TAGS.has(selectedElement.tagName)
     : false;
@@ -4149,6 +4296,11 @@ export function EditPanel({
     },
     [onTweakChange],
   );
+
+  useEffect(() => {
+    setExportSettings(DEFAULT_EXPORT_SETTINGS);
+    setShowExportPreview(false);
+  }, [selectedElementKey]);
 
   return (
     <div
@@ -4231,8 +4383,8 @@ export function EditPanel({
                   <SectionIconToggle
                     label={
                       showExportPreview
-                        ? "Hide preview" /* i18n-ignore Figma inspector action */
-                        : "Show preview" /* i18n-ignore Figma inspector action */
+                        ? "Hide preview" /* i18n-ignore design inspector action */
+                        : "Show preview" /* i18n-ignore design inspector action */
                     }
                     active={showExportPreview}
                     onClick={() => setShowExportPreview((shown) => !shown)}
@@ -4242,6 +4394,7 @@ export function EditPanel({
                 }
               >
                 <ExportSettingsPanel
+                  key={selectedElementKey}
                   value={exportSettings}
                   formats={["png", "svg"]}
                   exporting={exporting}

@@ -1,5 +1,5 @@
 import { IconPhotoPlus, IconX } from "@tabler/icons-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import {
@@ -45,7 +45,7 @@ function imageFitMarker(fit: ImageFitMode): string {
 
 /**
  * Build the CSS `background` shorthand for an image fill.
- * Maps Figma's fit semantics onto background-size / background-repeat:
+ * Maps the design editor's fit semantics onto background-size / background-repeat:
  *  - Fill → cover, no-repeat
  *  - Fit  → contain, no-repeat
  *  - Crop → cover, no-repeat (cropped to the box; identical CSS to Fill but
@@ -79,6 +79,11 @@ export function parseImageFillCss(value: string): ImageFillValue | null {
   const url = match[2];
   const marker = value.match(FIT_MARKER_RE)?.[1] as ImageFitMode | undefined;
   if (marker) return { url, fit: marker };
+  // Heuristic fallback when no marker comment is present (e.g. CSS pasted from
+  // DevTools or Figma inspect). Note: "crop" and "fill" produce identical CSS
+  // (center / cover no-repeat), so external CSS without the marker comment will
+  // always parse as "fill". Crop mode is only recoverable via the proprietary
+  // agent-native-image-fit marker written by imageFillToCss.
   let fit: ImageFitMode = "fill";
   if (/contain/i.test(value)) fit = "fit";
   else if (/repeat(?!\s+no)/i.test(value) && !/no-repeat/i.test(value))
@@ -104,6 +109,10 @@ export function ImageFillControls({
 }: ImageFillControlsProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [urlDraft, setUrlDraft] = useState(value.url);
+
+  useEffect(() => {
+    setUrlDraft(value.url);
+  }, [value.url]);
 
   const commitUrl = () => {
     onChange({ ...value, url: urlDraft.trim() });
@@ -132,7 +141,7 @@ export function ImageFillControls({
         className="relative h-24 w-full overflow-hidden rounded-md border border-border/60"
         style={{
           backgroundImage: value.url
-            ? `url("${value.url}")`
+            ? `url("${value.url.trim().replace(/["')]/g, encodeURIComponent)}")`
             : CHECKERBOARD_IMAGE,
           backgroundSize: value.url
             ? value.fit === "fit"
@@ -142,7 +151,7 @@ export function ImageFillControls({
                 : "cover"
             : "8px 8px, 8px 8px, 8px 8px, 8px 8px",
           backgroundRepeat: value.fit === "tile" ? "repeat" : "no-repeat",
-          backgroundPosition: "center",
+          backgroundPosition: value.fit === "tile" ? "top left" : "center",
         }}
       >
         {!value.url && (

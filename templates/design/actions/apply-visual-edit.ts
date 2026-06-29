@@ -32,18 +32,28 @@ function parseJsonString(value: unknown): unknown {
 
 const sourceSchema = z.preprocess(
   parseJsonString,
-  z.object({
-    kind: z
-      .enum(["design-file", "inline-html", "local-file", "remote-url"])
-      .default("design-file"),
-    designId: z.string().optional(),
-    fileId: z.string().optional(),
-    filename: z.string().optional().default("index.html"),
-    path: z.string().optional(),
-    url: z.string().optional(),
-    revision: z.string().optional(),
-    html: z.string().optional(),
-  }),
+  z
+    .object({
+      kind: z
+        .enum(["design-file", "inline-html", "local-file", "remote-url"])
+        .default("design-file"),
+      designId: z.string().optional(),
+      fileId: z.string().optional(),
+      filename: z.string().optional().default("index.html"),
+      path: z.string().optional(),
+      url: z.string().optional(),
+      revision: z.string().optional(),
+      html: z.string().optional(),
+    })
+    .superRefine((source, ctx) => {
+      if (source.kind === "design-file" && !source.designId && !source.fileId) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["designId"],
+          message: "designId or fileId is required for design-file sources",
+        });
+      }
+    }),
 );
 
 const targetSchema = z.object({

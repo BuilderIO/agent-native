@@ -124,7 +124,7 @@ export function Layout({ children }: LayoutProps) {
             ? "flex-1 overflow-y-auto"
             : isAskRoute
               ? "flex-1 overflow-hidden p-0"
-              : "flex-1 overflow-y-auto p-4 md:p-6 lg:p-8"
+              : "flex-1 overflow-y-auto p-6 pt-2"
         }
       >
         {children}

@@ -14,7 +14,7 @@ modelo de colaboração nativo do agente.
 
 ## Visão {#vision}
 
-Editar junto com o agente é como trabalhar no Google Docs ou no Figma com
+Editar junto com o agente é como trabalhar em um editor colaborativo com
 um colega de trabalho instantâneo e incansável:
 
 Se você só precisa que UI seja atualizado quando o agente ou outro usuário grava em SQL, você não precisa de nada disso - use [`useDbSync`](/docs/client). Esta página é para coedição em nível de caractere de um único documento rich text (cursores compartilhados, mesclagem sem conflitos). Ambos utilizam o mesmo canal `/_agent-native/poll`.
@@ -361,7 +361,7 @@ pnpm action edit-document --id doc123 --find "delete me" --replace ""
 
 ## Kit de presença {#presence-kit}
 
-O kit de presença fornece cursor ao vivo de nível Liveblocks/Figma e primitivas de seleção na parte superior da camada de reconhecimento existente.
+O kit de presença fornece cursor ao vivo e primitivas de seleção de nível colaborativo sobre a camada de reconhecimento existente.
 
 Importe a presença e o editor do lado do cliente UI do subcaminho do navegador em foco:
 
