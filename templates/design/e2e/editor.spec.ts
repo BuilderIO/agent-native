@@ -80,6 +80,32 @@ test("the layers panel lists layers and a layer row selects on the canvas", asyn
   ).toBeVisible();
 });
 
+test("deeply nested layer rows keep a clickable hit target", async ({
+  page,
+}) => {
+  const deepLayer = page.getByRole("button", {
+    name: "Deep Layer Button",
+    exact: true,
+  });
+
+  for (let attempt = 0; attempt < 12 && !(await deepLayer.count()); attempt++) {
+    const expand = page.getByRole("button", { name: "Expand layer" }).first();
+    if (!(await expand.count())) break;
+    await expand.click();
+  }
+
+  await expect(deepLayer).toBeVisible();
+
+  const box = await deepLayer.boundingBox();
+  expect(box).toBeTruthy();
+  expect(box!.width).toBeGreaterThanOrEqual(44);
+
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await expect(
+    page.locator('[role="treeitem"][aria-selected="true"]'),
+  ).toContainText("Deep Layer Button");
+});
+
 test("dragging an element on the canvas drives the bridge (move/reorder)", async ({
   page,
 }) => {

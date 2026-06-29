@@ -15,6 +15,7 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = Number(process.env.E2E_PORT ?? 9333);
 const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`;
+const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -33,7 +34,15 @@ export default defineConfig({
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: BROWSER_CHANNEL ? `chromium-${BROWSER_CHANNEL}` : "chromium",
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(BROWSER_CHANNEL ? { channel: BROWSER_CHANNEL } : {}),
+      },
+    },
+  ],
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : {
