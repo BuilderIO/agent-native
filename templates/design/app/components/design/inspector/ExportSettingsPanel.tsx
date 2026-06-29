@@ -30,6 +30,8 @@ export interface ExportSettingsPanelLabels {
   format: string;
   suffix: string;
   export: string;
+  addExport: string;
+  removeExport: string;
 }
 
 export interface ExportSettingsPanelProps {
@@ -49,6 +51,8 @@ const DEFAULT_LABELS: ExportSettingsPanelLabels = {
   format: "Format", // i18n-ignore fallback component label
   suffix: "Suffix", // i18n-ignore fallback component label
   export: "Export", // i18n-ignore fallback component label
+  addExport: "Add export", // i18n-ignore fallback component label
+  removeExport: "Remove export", // i18n-ignore fallback component label
 };
 
 const DEFAULT_FORMATS: ExportFormat[] = ["png", "jpg", "svg", "pdf", "webp"];
@@ -60,7 +64,7 @@ const SCALE_PRESETS: { label: string; value: ExportScale }[] = [
   { label: "2x", value: "2" },
   { label: "3x", value: "3" },
   { label: "4x", value: "4" },
-  { label: "Custom…", value: "custom" },
+  { label: "Custom…", value: "custom" }, // i18n-ignore fixed scale preset label
 ];
 
 /**
@@ -241,7 +245,7 @@ export function ExportSettingsPanel({
         </span>
         <button
           type="button"
-          aria-label="Add export"
+          aria-label={copy.addExport}
           disabled={isDisabled}
           className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
           onClick={addRow}
@@ -256,6 +260,7 @@ export function ExportSettingsPanel({
           key={row.id}
           row={row}
           formats={formats}
+          labels={copy}
           isDisabled={isDisabled}
           canRemove={rows.length > 1}
           onPatchRow={patchRow}
@@ -282,6 +287,7 @@ export function ExportSettingsPanel({
 function ExportRow({
   row,
   formats,
+  labels,
   isDisabled,
   canRemove,
   onPatchRow,
@@ -289,6 +295,7 @@ function ExportRow({
 }: {
   row: ExportRow;
   formats: ExportFormat[];
+  labels: ExportSettingsPanelLabels;
   isDisabled: boolean;
   canRemove: boolean;
   onPatchRow: (id: number, patch: Partial<ExportRow>) => void;
@@ -368,15 +375,15 @@ function ExportRow({
         value={row.suffix}
         disabled={isDisabled}
         onChange={(e) => onPatchRow(row.id, { suffix: e.target.value })}
-        placeholder="Suffix"
+        placeholder={labels.suffix}
         className="h-6 min-w-0 flex-1 px-1.5 text-[11px]"
-        aria-label="Suffix"
+        aria-label={labels.suffix}
       />
 
       {/* Remove row button — matches Figma's × on each export entry */}
       <button
         type="button"
-        aria-label="Remove export"
+        aria-label={labels.removeExport}
         disabled={isDisabled || !canRemove}
         className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
         onClick={() => onRemoveRow(row.id)}
