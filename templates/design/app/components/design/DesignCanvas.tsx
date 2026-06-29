@@ -256,6 +256,17 @@ const EDITOR_CHROME_BRIDGE_SCRIPT = `
   document.documentElement.style.setProperty('--agent-native-editor-chrome-scale-y', String(editorChromeScaleY));
   document.documentElement.style.setProperty('--agent-native-editor-chrome-line-scale', String(Math.max(editorChromeScaleX, editorChromeScaleY)));
 
+  // Ease the constant-size selection chrome to its new size when overview zoom
+  // settles (parent posts set-editor-chrome-scale), matching the canvas chrome.
+  // Only chrome-scale-driven props animate; the overlay's live position is excluded.
+  (function () {
+    var chromeTransitionStyle = document.createElement('style');
+    chromeTransitionStyle.textContent =
+      '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
+      '[data-agent-native-edge-handle],[data-agent-native-edit-handle],[data-agent-native-rotate-handle]{transition:width 150ms ease-out,height 150ms ease-out,border-width 150ms ease-out,top 150ms ease-out,bottom 150ms ease-out,left 150ms ease-out,right 150ms ease-out}';
+    (document.head || document.documentElement).appendChild(chromeTransitionStyle);
+  })();
+
   function escapeIdent(value) {
     if (window.CSS && typeof window.CSS.escape === 'function') {
       return window.CSS.escape(value);
