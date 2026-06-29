@@ -2292,7 +2292,9 @@ export default function DesignEditor() {
   const [pinMode, setPinMode] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [showTweakPrompt, setShowTweakPrompt] = useState(false);
+  const [pngExporting, setPngExporting] = useState(false);
   const [svgExporting, setSvgExporting] = useState(false);
+  const pngExportingRef = useRef(false);
   const generateBtnRef = useRef<HTMLButtonElement | null>(null);
   const promptAnchorRef = useRef<HTMLElement | null>(null);
   const tweakPromptAnchorRef = useRef<HTMLElement | null>(null);
@@ -5799,6 +5801,7 @@ export default function DesignEditor() {
 
   const handleDownloadPng = useCallback(
     async (settings?: Partial<ExportSettingsValue>) => {
+      if (pngExportingRef.current) return;
       const iframe = document.querySelector<HTMLIFrameElement>(
         "iframe[data-design-preview-iframe]",
       );
@@ -5807,6 +5810,8 @@ export default function DesignEditor() {
         toast.error(t("designEditor.toasts.openScreenPng"));
         return;
       }
+      pngExportingRef.current = true;
+      setPngExporting(true);
       try {
         const html2canvas = (await import("html2canvas")).default;
         const width = Math.max(
@@ -5834,30 +5839,37 @@ export default function DesignEditor() {
           useCORS: true,
           backgroundColor: null,
         });
-        canvas.toBlob((blob) => {
-          try {
-            if (!blob) {
-              toast.error(t("designEditor.toasts.pngCreateError"));
-              return;
+        await new Promise<void>((resolve) => {
+          canvas.toBlob((blob) => {
+            try {
+              if (!blob) {
+                toast.error(t("designEditor.toasts.pngCreateError"));
+                return;
+              }
+              triggerBlobDownload(
+                blob,
+                fallbackExportName("png", settings?.suffix),
+              );
+              toast.success(t("designEditor.toasts.pngDownloaded"));
+            } catch (callbackError) {
+              // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
+              // either of which can throw inside this async callback — outside
+              // the outer try/catch. Surface the failure instead of silently
+              // dropping it.
+              console.error(
+                "PNG export failed during download:",
+                callbackError,
+              );
+              toast.error(
+                callbackError instanceof Error
+                  ? callbackError.message
+                  : t("designEditor.toasts.pngSaveError"),
+              );
+            } finally {
+              resolve();
             }
-            triggerBlobDownload(
-              blob,
-              fallbackExportName("png", settings?.suffix),
-            );
-            toast.success(t("designEditor.toasts.pngDownloaded"));
-          } catch (callbackError) {
-            // `triggerBlobDownload` does DOM mutation + `URL.createObjectURL`,
-            // either of which can throw inside this async callback — outside
-            // the outer try/catch. Surface the failure instead of silently
-            // dropping it.
-            console.error("PNG export failed during download:", callbackError);
-            toast.error(
-              callbackError instanceof Error
-                ? callbackError.message
-                : t("designEditor.toasts.pngSaveError"),
-            );
-          }
-        }, "image/png");
+          }, "image/png");
+        });
       } catch (error) {
         console.error("PNG export failed:", error);
         toast.error(
@@ -5865,6 +5877,9 @@ export default function DesignEditor() {
             ? error.message
             : t("designEditor.toasts.pngExportError"),
         );
+      } finally {
+        pngExportingRef.current = false;
+        setPngExporting(false);
       }
     },
     [fallbackExportName, t, triggerBlobDownload],
@@ -6768,7 +6783,7 @@ ${serializedHtml}
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => void handleDownloadPng()}
-              disabled={!activeFile}
+              disabled={!activeFile || pngExporting}
             >
               <IconPhoto className="mr-2 h-4 w-4" />
               {t("designEditor.downloadPng")}
@@ -7054,7 +7069,7 @@ ${serializedHtml}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => void handleDownloadPng()}
-                    disabled={!activeFile}
+                    disabled={!activeFile || pngExporting}
                   >
                     <IconPhoto className="mr-2 h-4 w-4" />
                     {t("designEditor.downloadPng")}
@@ -7823,7 +7838,7 @@ ${serializedHtml}
                   onStyleChange={handleStyleChange}
                   onStylesChange={handleStylesChange}
                   onExport={handleInspectorExport}
-                  exporting={svgExporting}
+                  exporting={pngExporting || svgExporting}
                 />
               </div>
             ) : (

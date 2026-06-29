@@ -2649,7 +2649,7 @@ export function DesignCanvas({
         sandbox={
           externalPreviewUrl
             ? "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin"
-            : "allow-scripts allow-popups allow-popups-to-escape-sandbox"
+            : "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
         }
         data-design-preview-iframe
         className="block h-full w-full border-0 bg-transparent"
