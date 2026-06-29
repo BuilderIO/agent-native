@@ -309,7 +309,8 @@ function upsertFrontmatter(
     return body;
   }
 
-  return `---\n${nextLines.filter(Boolean).join("\n")}\n---\n\n${body}`;
+  const frontmatterBlock = `---\n${nextLines.filter(Boolean).join("\n")}\n---\n`;
+  return body ? `${frontmatterBlock}\n${body}` : frontmatterBlock;
 }
 
 function stripDuplicateTitleHeading(content: string, title: string) {
