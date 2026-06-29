@@ -114,6 +114,10 @@ export function useVariantFlow(designId: string | undefined) {
   // responses with the same designId cannot re-open the grid, even if the
   // server DELETE is delayed or the user picks while a poll is in-flight.
   const consumedDesignIdRef = useRef<string | null>(null);
+  // Bounded suppression window (epoch ms). After it elapses we stop suppressing
+  // so a failed DELETE or a fast follow-up present-design-variants for the same
+  // design can't keep the picker hidden indefinitely.
+  const consumedUntilRef = useRef(0);
 
   const { data } = useQuery({
     queryKey: ["design-variants"],
@@ -138,17 +142,24 @@ export function useVariantFlow(designId: string | undefined) {
     const hasVariants = Boolean(
       data?.variants && data.variants.length > 0 && data.designId === designId,
     );
-    // Suppress any polled data whose designId matches a consumed (already-picked)
-    // variant set so stale in-flight polls can't re-open the grid.
-    if (data?.designId && data.designId === consumedDesignIdRef.current) {
-      // Re-arm the consumed marker once the server confirms the state is gone.
+    // Suppression after a pick covers two things: the brief window where a stale
+    // in-flight poll could re-open the just-picked grid, and the gap until the
+    // server DELETE lands. It is bounded in time so a failed DELETE (server state
+    // never clears) or a fast follow-up variant set for the same design can't
+    // keep the picker hidden forever.
+    const windowElapsed = Date.now() >= consumedUntilRef.current;
+    if ((consumedDesignIdRef.current || pickedRef.current) && windowElapsed) {
+      consumedDesignIdRef.current = null;
+      pickedRef.current = false;
+    } else if (
+      data?.designId &&
+      data.designId === consumedDesignIdRef.current
+    ) {
+      // Re-arm early once the server confirms the consumed state is gone.
       if (!hasVariants) consumedDesignIdRef.current = null;
       setState(null);
       return;
-    }
-    // After a pick, keep the grid hidden until the server-side variant state is
-    // actually cleared (DELETE landed), then re-arm for any future variant set.
-    if (pickedRef.current) {
+    } else if (pickedRef.current) {
       if (!hasVariants) pickedRef.current = false;
       setState(null);
       return;
@@ -164,6 +175,7 @@ export function useVariantFlow(designId: string | undefined) {
       // even if the network request is delayed.
       if (consumedId) {
         consumedDesignIdRef.current = consumedId;
+        consumedUntilRef.current = Date.now() + 6000;
       }
       qc.setQueryData(["design-variants"], null);
       try {
@@ -200,6 +212,9 @@ export function useVariantFlow(designId: string | undefined) {
       if (pickingRef.current) return;
       pickingRef.current = true;
       pickedRef.current = true;
+      // Start the bounded suppression window so the just-picked grid stays hidden
+      // through the DELETE round-trip + a poll cycle, but not indefinitely.
+      consumedUntilRef.current = Date.now() + 6000;
       try {
         // Persist the chosen variant as the design's primary file via the
         // agent's own action endpoint so every host lands on the same design.

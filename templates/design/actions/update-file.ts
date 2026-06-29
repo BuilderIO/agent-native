@@ -70,34 +70,40 @@ export default defineAction({
 
     await assertAccess("design", file.designId, "editor");
 
-    // Reject a rename that would collide with an existing filename in the same design
-    if (filename !== undefined) {
-      const [collision] = await db
-        .select({ id: schema.designFiles.id })
-        .from(schema.designFiles)
-        .where(
-          and(
-            eq(schema.designFiles.designId, file.designId),
-            eq(schema.designFiles.filename, filename),
-          ),
-        )
-        .limit(1);
-      if (collision && collision.id !== id) {
-        throw new Error(
-          `File "${filename}" already exists in design ${file.designId}`,
-        );
+    // Reject a rename that would collide with an existing filename in the same
+    // design. The collision check and the write run in one transaction so they
+    // can't be interleaved by a concurrent rename. (A DB-level UNIQUE index on
+    // (designId, filename) would be the strongest guarantee but is a non-additive
+    // schema change on existing data, so it's deferred.)
+    await db.transaction(async (tx) => {
+      if (filename !== undefined) {
+        const [collision] = await tx
+          .select({ id: schema.designFiles.id })
+          .from(schema.designFiles)
+          .where(
+            and(
+              eq(schema.designFiles.designId, file.designId),
+              eq(schema.designFiles.filename, filename),
+            ),
+          )
+          .limit(1);
+        if (collision && collision.id !== id) {
+          throw new Error(
+            `File "${filename}" already exists in design ${file.designId}`,
+          );
+        }
       }
-    }
 
-    const updates: Record<string, unknown> = { updatedAt: now };
-    if (content !== undefined) updates.content = content;
-    if (filename !== undefined) updates.filename = filename;
-    if (fileType !== undefined) updates.fileType = fileType;
+      const updates: Record<string, unknown> = { updatedAt: now };
+      if (content !== undefined) updates.content = content;
+      if (filename !== undefined) updates.filename = filename;
+      if (fileType !== undefined) updates.fileType = fileType;
 
-    await db
-      .update(schema.designFiles)
-      .set(updates)
-      .where(eq(schema.designFiles.id, id));
+      await tx
+        .update(schema.designFiles)
+        .set(updates)
+        .where(eq(schema.designFiles.id, id));
+    });
 
     // Push content through the collab layer so live editors see the change
     if (content !== undefined && syncCollab) {

@@ -225,7 +225,11 @@ export function DrawOverlay({
         lineWidth,
       );
     }
-  }, [strokes, currentStroke, color, lineWidth, resizeTick]);
+    // `zoom` is a dependency because it scales the canvas via a CSS transform,
+    // which changes getBoundingClientRect() without firing ResizeObserver — the
+    // effect must re-run on zoom change to redraw the fraction-based strokes at
+    // the new visual size.
+  }, [strokes, currentStroke, color, lineWidth, resizeTick, zoom]);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
