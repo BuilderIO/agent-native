@@ -2317,6 +2317,9 @@ export default function DesignEditor() {
   const [overviewSelectAllRequest, setOverviewSelectAllRequest] = useState(0);
   const [overviewClearSelectionRequest, setOverviewClearSelectionRequest] =
     useState(0);
+  const [overviewSelectedScreenIds, setOverviewSelectedScreenIds] = useState<
+    string[]
+  >([]);
   const [hasCanvasClipboard, setHasCanvasClipboard] = useState(false);
   const [hasPropsClipboard, setHasPropsClipboard] = useState(false);
   const copiedLayerHtmlRef = useRef<string | null>(null);
@@ -4476,7 +4479,7 @@ export default function DesignEditor() {
       files: UploadedFile[],
       options: PromptComposerSubmitOptions,
     ) => {
-      if (!design) return;
+      if (!design || generating || pendingGenerationActive) return;
       const trimmed = prompt.trim();
       if (!trimmed) return;
       const fileContext = formatUploadedFileContext(files);
@@ -4542,7 +4545,13 @@ export default function DesignEditor() {
         fileType: file.fileType,
       })),
       selectedScreenIds:
-        viewMode === "overview" && activeFile?.id ? [activeFile.id] : [],
+        viewMode === "overview"
+          ? overviewSelectedScreenIds.length
+            ? overviewSelectedScreenIds
+            : activeFile?.id
+              ? [activeFile.id]
+              : []
+          : [],
       selectedElement,
       hoveredElement,
       mode,
@@ -4596,6 +4605,7 @@ export default function DesignEditor() {
     mode,
     activeTool,
     activeInspectorTab,
+    overviewSelectedScreenIds,
     viewMode,
     zoom,
   ]);
@@ -4653,7 +4663,13 @@ export default function DesignEditor() {
         fileType: file.fileType,
       })),
       selectedScreenIds:
-        viewMode === "overview" && activeFile?.id ? [activeFile.id] : [],
+        viewMode === "overview"
+          ? overviewSelectedScreenIds.length
+            ? overviewSelectedScreenIds
+            : activeFile?.id
+              ? [activeFile.id]
+              : []
+          : [],
       selectedElement,
       mode,
       activeTool,
@@ -4668,6 +4684,7 @@ export default function DesignEditor() {
       files,
       id,
       mode,
+      overviewSelectedScreenIds,
       selectedElement,
       tweakSelections,
       viewMode,
@@ -5227,20 +5244,46 @@ export default function DesignEditor() {
     [activeContent, activeFile, applyLocalContentUpdate, t],
   );
 
+  const handlePasteOverSelection = useCallback(() => {
+    if (!activeFile || !copiedLayerHtmlRef.current) return;
+    if (selectedElement?.boundingRect) {
+      const { x, y } = selectedElement.boundingRect;
+      const nextContent = cloneHtmlLayerAtPosition(
+        activeContent,
+        copiedLayerHtmlRef.current,
+        { x, y },
+      );
+      if (!nextContent) return;
+      applyLocalContentUpdate(nextContent);
+      toast.success(t("designEditor.toasts.pasted"));
+    } else {
+      handlePasteSelection();
+    }
+  }, [
+    activeContent,
+    activeFile,
+    applyLocalContentUpdate,
+    handlePasteSelection,
+    selectedElement,
+    t,
+  ]);
+
   const handleDuplicateSelection = useCallback(() => {
     if (selectedElement?.selector) {
       const html = getElementOuterHtml(activeContent, selectedElement.selector);
-      if (html) {
-        const rect = selectedElement.boundingRect;
-        const nextContent = cloneHtmlLayerAtPosition(activeContent, html, {
-          x: rect.x + 16,
-          y: rect.y + 16,
-        });
-        if (nextContent) {
-          applyLocalContentUpdate(nextContent);
-          return;
-        }
+      const rect = selectedElement.boundingRect;
+      const nextContent = html
+        ? cloneHtmlLayerAtPosition(activeContent, html, {
+            x: rect.x + 16,
+            y: rect.y + 16,
+          })
+        : null;
+      if (nextContent) {
+        applyLocalContentUpdate(nextContent);
+      } else {
+        toast.error(t("designEditor.toasts.duplicateElementFailed"));
       }
+      return;
     }
     if (activeFile) handleDuplicateScreen(activeFile.id);
   }, [
@@ -5863,10 +5906,10 @@ export default function DesignEditor() {
     onCopy: handleCopySelection,
     onCut: handleCutSelection,
     onPaste: () => handlePasteSelection(),
-    onPasteOver: () => handlePasteSelection(),
+    onPasteOver: handlePasteOverSelection,
     onCopyProps: handleCopyProps,
     onPasteProps: handlePasteProps,
-    onCopyAsCode: handleCopySelection,
+    onCopyAsCode: () => handleCopyCodingHandoff(),
     onDuplicate: handleDuplicateSelection,
     onDelete: handleDeleteSelection,
     onRename: () => {
@@ -6963,6 +7006,27 @@ ${serializedHtml}
 
   const getContextCanvasPoint = useCallback(
     ({ clientX, clientY }: { clientX: number; clientY: number }) => {
+      // In single-screen mode the iframe is inside a scale(zoom/100) wrapper
+      // that also centers the content. Using the iframe's own
+      // getBoundingClientRect() already incorporates centering/pan because the
+      // rect is measured in screen space after the CSS transform. Dividing by
+      // the zoom factor converts from post-scale screen-pixels back to the
+      // document coordinate space written into left/top by cloneHtmlLayerAtPosition.
+      if (viewMode === "single") {
+        const iframe = canvasContainerRef.current?.querySelector<HTMLElement>(
+          "[data-design-preview-iframe]",
+        );
+        if (iframe) {
+          const iframeRect = iframe.getBoundingClientRect();
+          const factor = zoom / 100;
+          return {
+            x: Math.max(0, (clientX - iframeRect.left) / factor),
+            y: Math.max(0, (clientY - iframeRect.top) / factor),
+          };
+        }
+      }
+      // Overview mode: fall back to container-relative coords (overview uses its
+      // own coordinate mapping for paste; this value is a best-effort fallback).
       const rect = canvasContainerRef.current?.getBoundingClientRect();
       if (!rect) return { x: 120, y: 120 };
       return {
@@ -6970,7 +7034,7 @@ ${serializedHtml}
         y: Math.max(0, clientY - rect.top),
       };
     },
-    [],
+    [zoom, viewMode],
   );
 
   const zoomLabel = `${Math.round(zoom)}%`;
@@ -7895,7 +7959,7 @@ ${serializedHtml}
             canPasteHere={hasCanvasClipboard && Boolean(activeFile)}
             canSelectAll={files.length > 0}
             canZoomToFit={Boolean(activeFile)}
-            canZoomToSelection={Boolean(activeFile)}
+            canZoomToSelection={Boolean(selectedElement) || viewMode === "overview"}
             canCopy={Boolean(selectedElement?.selector)}
             canPaste={hasCanvasClipboard && Boolean(activeFile)}
             canPasteOver={hasCanvasClipboard && Boolean(activeFile)}
@@ -7926,10 +7990,12 @@ ${serializedHtml}
               setActiveTool("move");
               setZoom(100);
             }}
-            onZoomToSelection={() => setZoom(150)}
+            onZoomToSelection={() => {
+              if (selectedElement || viewMode === "overview") setZoom(150);
+            }}
             onCopy={handleCopySelection}
             onPaste={() => handlePasteSelection()}
-            onPasteOver={() => handlePasteSelection()}
+            onPasteOver={handlePasteOverSelection}
             onDuplicate={handleDuplicateSelection}
             onDelete={handleDeleteSelection}
             onBringForward={() => changeSelectedZIndex("forward")}
@@ -7948,7 +8014,7 @@ ${serializedHtml}
             }}
             onCopyProps={handleCopyProps}
             onPasteProps={handlePasteProps}
-            onCopyAsCode={handleCopySelection}
+            onCopyAsCode={handleCopyCodingHandoff}
           >
             {activeFile ? (
               <div
@@ -7974,6 +8040,7 @@ ${serializedHtml}
                     onCreatePrimitive={handleCreatePrimitive}
                     onCreateScreenFrame={handleCreateScreenFrame}
                     onDeleteSelection={handleDeleteOverviewSelection}
+                    onSelectionChange={setOverviewSelectedScreenIds}
                     onPick={(id) => {
                       setSelectedElement(null);
                       setSelectedLayerIdsState([id]);
@@ -8296,6 +8363,7 @@ ${serializedHtml}
         title={t("designEditor.tweaksPromptTitle")}
         placeholder={t("designEditor.tweaksPlaceholder")}
         onSubmit={handleTweakPromptSubmit}
+        loading={generating || pendingGenerationActive}
         anchorRef={tweakPromptAnchorRef}
       />
     </div>

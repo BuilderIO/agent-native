@@ -70,6 +70,25 @@ export default defineAction({
 
     await assertAccess("design", file.designId, "editor");
 
+    // Reject a rename that would collide with an existing filename in the same design
+    if (filename !== undefined) {
+      const [collision] = await db
+        .select({ id: schema.designFiles.id })
+        .from(schema.designFiles)
+        .where(
+          and(
+            eq(schema.designFiles.designId, file.designId),
+            eq(schema.designFiles.filename, filename),
+          ),
+        )
+        .limit(1);
+      if (collision && collision.id !== id) {
+        throw new Error(
+          `File "${filename}" already exists in design ${file.designId}`,
+        );
+      }
+    }
+
     const updates: Record<string, unknown> = { updatedAt: now };
     if (content !== undefined) updates.content = content;
     if (filename !== undefined) updates.filename = filename;

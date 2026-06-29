@@ -4,6 +4,7 @@ import {
   callAction,
   isEmbedAuthActive,
 } from "@agent-native/core/client";
+import { toast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useCallback, useRef, useState } from "react";
 
@@ -194,8 +195,14 @@ export function useVariantFlow(designId: string | undefined) {
             );
           }
         } catch {
-          // Network error: report the choice below so the agent still records it;
-          // the grid still clears so the user isn't stuck.
+          // Network error: show a visible error and keep the grid open so
+          // the user can retry rather than silently losing their choice.
+          toast({
+            title: "Couldn't save your pick",
+            description:
+              "Saving didn't finish. Try again or refresh and re-pick.",
+            variant: "destructive",
+          });
         }
 
         const refineHint = persisted
@@ -240,7 +247,14 @@ export function useVariantFlow(designId: string | undefined) {
           });
         }
 
-        clear();
+        // Only clear the grid when the variant was successfully persisted.
+        // If saving failed, keep the grid open so the user can retry.
+        if (persisted) {
+          clear();
+        } else {
+          // Re-arm the picking latch so the user can try again.
+          pickedRef.current = false;
+        }
       } finally {
         pickingRef.current = false;
       }

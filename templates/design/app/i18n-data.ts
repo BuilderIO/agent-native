@@ -421,6 +421,7 @@ const enUS = {
       propsPasted: "Properties pasted",
       primitiveInsertFailed: "Could not add that layer to the screen",
       layerMoveFailed: "Could not move that layer",
+      duplicateElementFailed: "Could not duplicate that element",
       saveCopyError: "Could not save a copy of this design",
     },
   },

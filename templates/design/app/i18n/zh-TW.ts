@@ -409,6 +409,7 @@ const messages = {
       propsPasted: "屬性已貼上",
       primitiveInsertFailed: "無法將該圖層新增到畫面",
       layerMoveFailed: "無法移動該圖層",
+      duplicateElementFailed: "無法複製該元素",
       saveCopyError: "無法儲存這個設計的副本",
     },
   },

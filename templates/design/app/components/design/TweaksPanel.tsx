@@ -285,19 +285,32 @@ function TweakControl({
 
       {tweak.type === "slider" && (
         <div className="flex h-6 items-center gap-1.5">
-          <Slider
-            min={tweak.min ?? 0}
-            max={tweak.max ?? 100}
-            step={tweak.step ?? 1}
-            value={[typeof value === "number" ? value : 50]}
-            onValueChange={([v]) => onChange(v)}
-            className="flex-1"
-          />
-          <span className="min-w-[2ch] text-right text-[11px] tabular-nums text-muted-foreground">
-            {typeof value === "number" ? value : 50}
-            {tweak.unit ??
-              (tweak.cssVar?.toLowerCase().includes("radius") ? "px" : "")}
-          </span>
+          {(() => {
+            const sliderMin = tweak.min ?? 0;
+            const sliderMax = tweak.max ?? 100;
+            const rawNum =
+              typeof value === "number" ? value : Number(value);
+            const sliderValue = Number.isFinite(rawNum)
+              ? Math.min(sliderMax, Math.max(sliderMin, rawNum))
+              : sliderMin;
+            return (
+              <>
+                <Slider
+                  min={sliderMin}
+                  max={sliderMax}
+                  step={tweak.step ?? 1}
+                  value={[sliderValue]}
+                  onValueChange={([v]) => onChange(v)}
+                  className="flex-1"
+                />
+                <span className="min-w-[2ch] text-right text-[11px] tabular-nums text-muted-foreground">
+                  {sliderValue}
+                  {tweak.unit ??
+                    (tweak.cssVar?.toLowerCase().includes("radius") ? "px" : "")}
+                </span>
+              </>
+            );
+          })()}
         </div>
       )}
     </div>

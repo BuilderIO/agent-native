@@ -487,9 +487,20 @@ export function LayersPanel({
     ) => {
       let nextIds: string[];
       if (options.range && lastSelectionAnchorRef.current) {
-        const from = selectableVisibleIds.indexOf(
-          lastSelectionAnchorRef.current,
-        );
+        let anchor = lastSelectionAnchorRef.current;
+        if (selectableVisibleIds.indexOf(anchor) < 0) {
+          // Stale anchor (deleted / filtered / collapsed out of view): pivot from
+          // the last selected layer that is still visible & selectable, matching
+          // Figma's behavior instead of dropping the range to a single select.
+          const fallback = [...selectedIds]
+            .reverse()
+            .find((sid) => selectableVisibleIds.includes(sid));
+          if (fallback) {
+            anchor = fallback;
+            lastSelectionAnchorRef.current = fallback;
+          }
+        }
+        const from = selectableVisibleIds.indexOf(anchor);
         const to = selectableVisibleIds.indexOf(id);
         if (from >= 0 && to >= 0) {
           const [start, end] = from < to ? [from, to] : [to, from];
