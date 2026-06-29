@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.13.4
+
+### Patch Changes
+
+- 1d77419: Keep Dispatch cron schedule validation compatible with the shared lint and release gates.
+
 ## 0.13.3
 
 ### Patch Changes

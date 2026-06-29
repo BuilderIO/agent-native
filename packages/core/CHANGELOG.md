@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.80.1
+
+### Patch Changes
+
+- 1d77419: Route design-system indexing through Builder-managed design-system APIs while preserving the public Figma parser export.
+- 1d77419: Fix avatar lookup routes so profile photos load for users signed in through legacy Google OAuth sessions.
+- 1d77419: Keep shared app shell outlines visible around the top corners when app content fills the main surface.
+
 ## 0.80.0
 
 ### Minor Changes
