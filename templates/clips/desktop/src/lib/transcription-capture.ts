@@ -361,12 +361,16 @@ export async function startTranscriptionCapture(
         console.log(`[clips-recorder] transcription resumed (${engine})`);
       }
     } catch (err) {
-      // Transition failed; stay where we are and don't loop retrying.
-      desiredPaused = paused;
+      // Transition failed. Keep `desiredPaused` as the still-unmet intent (don't
+      // reset it) so the next pause/resume toggle retries and converges, and
+      // return early so we don't busy-loop re-applying a persistently failing
+      // transition. `paused` still reflects the real engine state.
       console.warn(
-        `[clips-recorder] transcription ${desiredPaused ? "resume" : "pause"} failed; staying ${paused ? "paused" : "live"}:`,
+        `[clips-recorder] transcription ${desiredPaused ? "pause" : "resume"} failed; engine still ${paused ? "paused" : "live"}:`,
         err,
       );
+      // `finally` resets `transitioning`; returning skips the auto re-apply.
+      return;
     } finally {
       transitioning = false;
     }
