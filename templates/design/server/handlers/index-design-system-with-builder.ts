@@ -10,6 +10,8 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { upsertBuilderProxyDesignSystem } from "../lib/builder-design-system-proxy.js";
+
 const MAX_FIG_BYTES = 200 * 1024 * 1024;
 const MULTIPART_OVERHEAD_BYTES = 1024 * 1024;
 
@@ -75,7 +77,7 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
         .trim() || "Imported brand";
 
     try {
-      return await startBuilderDesignSystemIndex({
+      const result = await startBuilderDesignSystemIndex({
         projectName: suggestedTitle,
         files: [
           {
@@ -85,6 +87,17 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
           },
         ],
       });
+      const proxy = await upsertBuilderProxyDesignSystem({
+        result,
+        ownerEmail: session.email,
+        orgId: session.orgId ?? null,
+        projectName: suggestedTitle,
+      });
+      return {
+        ...result,
+        ...proxy,
+        uploadedFileCount: 1,
+      };
     } catch (err) {
       if (err instanceof FeatureNotConfiguredError) {
         setResponseStatus(event, 412);

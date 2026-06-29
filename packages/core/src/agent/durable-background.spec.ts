@@ -17,8 +17,9 @@ import {
 /**
  * The single gate that decides whether a long agent-chat turn is routed through
  * the server-driven background worker. Phase-1 GUARDRAIL: this must be false
- * (→ unchanged synchronous path) unless ALL of {flag truthy, hosted runtime,
- * A2A_SECRET set} hold. These tests pin every leg of that AND.
+ * (→ unchanged synchronous path) unless ALL of {deploy-emitted background
+ * function, hosted runtime, A2A_SECRET set} hold. These tests pin every leg of
+ * that AND.
  */
 
 // Env keys the gate reads, snapshotted/cleared so each case is isolated.
@@ -78,9 +79,17 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
   });
 
-  it("is ON when an app opts in through plugin options (hosted + secret)", () => {
+  it("is OFF for a single-template app opt-in when the deploy-time env flag is unset", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
+    delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(false);
+  });
+
+  it("is ON when a workspace app opts in through plugin options (hosted + secret)", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "design";
     delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
     expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(true);
   });
@@ -110,6 +119,14 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
       process.env.AGENT_CHAT_DURABLE_BACKGROUND = val;
       expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
     }
+  });
+
+  it("lets an explicit false env flag disable workspace app opt-in", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "design";
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: true })).toBe(false);
   });
 
   it("stays OFF when opted in but NOT hosted (local dev keeps inline path)", () => {

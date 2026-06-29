@@ -152,6 +152,7 @@ export interface LayersPanelProps {
   onHoverLayer?: (id: string) => void;
   onLeaveLayer?: (id: string) => void;
   onMoveLayer?: (intent: LayersPanelMoveIntent) => void;
+  canMoveLayer?: (intent: LayersPanelMoveIntent) => boolean;
 }
 
 interface FlatLayerRow {
@@ -394,6 +395,7 @@ export function LayersPanel({
   onHoverLayer,
   onLeaveLayer,
   onMoveLayer,
+  canMoveLayer,
 }: LayersPanelProps) {
   const t = useT();
   const labels = useMemo(() => mergeLabels(labelsProp, t), [labelsProp, t]);
@@ -732,6 +734,7 @@ export function LayersPanel({
                 onHoverLayer={onHoverLayer}
                 onLeaveLayer={onLeaveLayer}
                 onMoveLayer={onMoveLayer}
+                canMoveLayer={canMoveLayer}
                 dropIndicator={dropIndicator}
                 onDropIndicatorChange={setDropIndicator}
                 selectedIds={selectedIds}
@@ -770,6 +773,7 @@ function LayerRow({
   onHoverLayer,
   onLeaveLayer,
   onMoveLayer,
+  canMoveLayer,
   dropIndicator,
   onDropIndicatorChange,
   selectedIds,
@@ -802,6 +806,7 @@ function LayerRow({
   onHoverLayer?: (id: string) => void;
   onLeaveLayer?: (id: string) => void;
   onMoveLayer?: (intent: LayersPanelMoveIntent) => void;
+  canMoveLayer?: (intent: LayersPanelMoveIntent) => boolean;
   dropIndicator: LayersPanelMoveIntent | null;
   onDropIndicatorChange: (intent: LayersPanelMoveIntent | null) => void;
   selectedIds: readonly string[];
@@ -828,9 +833,63 @@ function LayerRow({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === "Enter") {
+    const focusVisibleButton = (nextIndex: number) => {
+      const tree = event.currentTarget.closest('[role="tree"]');
+      if (!tree) return false;
+      const buttons = Array.from(
+        tree.querySelectorAll<HTMLButtonElement>("[data-layer-row-button]"),
+      ).filter((button) => !button.disabled);
+      const target =
+        buttons[Math.max(0, Math.min(buttons.length - 1, nextIndex))];
+      target?.focus();
+      return Boolean(target);
+    };
+    const focusNodeButton = (nodeId: string) => {
+      const tree = event.currentTarget.closest('[role="tree"]');
+      const target = tree?.querySelector<HTMLButtonElement>(
+        `[data-layer-node-id="${CSS.escape(nodeId)}"]`,
+      );
+      if (!target || target.disabled) return false;
+      target.focus();
+      return true;
+    };
+    const currentIndex = visibleRows.findIndex(
+      (visibleRow) => visibleRow.rowKey === row.rowKey,
+    );
+
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (!selectable) return;
+      onSelect(node.id, {
+        additive: event.metaKey || event.ctrlKey,
+        range: event.shiftKey,
+        source: "keyboard",
+      });
+      return;
+    }
+    if (event.key === "F2") {
       event.preventDefault();
       onStartRename(node);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusVisibleButton(currentIndex + 1);
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusVisibleButton(currentIndex - 1);
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      focusVisibleButton(0);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      focusVisibleButton(visibleRows.length - 1);
       return;
     }
     if (event.key === "ArrowRight" && hasChildren && !isExpanded) {
@@ -838,9 +897,23 @@ function LayerRow({
       onToggleExpanded(true);
       return;
     }
+    if (event.key === "ArrowRight" && hasChildren && isExpanded) {
+      event.preventDefault();
+      const child = visibleRows[currentIndex + 1];
+      if (child?.ancestorIds.includes(node.id)) {
+        focusVisibleButton(currentIndex + 1);
+      }
+      return;
+    }
     if (event.key === "ArrowLeft" && hasChildren && isExpanded) {
       event.preventDefault();
       onToggleExpanded(false);
+      return;
+    }
+    if (event.key === "ArrowLeft" && row.ancestorIds.length > 0) {
+      event.preventDefault();
+      const parentId = row.ancestorIds[row.ancestorIds.length - 1];
+      if (parentId) focusNodeButton(parentId);
     }
   };
 
@@ -883,13 +956,15 @@ function LayerRow({
       (id) => id && id !== node.id && !id.startsWith("__"),
     );
     if (cleanedIds.length === 0) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    onDropIndicatorChange({
+    const intent = {
       draggedIds: cleanedIds,
       targetId: node.id,
       placement: dropPlacementForEvent(event, hasChildren),
-    });
+    } satisfies LayersPanelMoveIntent;
+    if (canMoveLayer && !canMoveLayer(intent)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    onDropIndicatorChange(intent);
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -919,12 +994,14 @@ function LayerRow({
     if (cleanedIds.length > 0) {
       // Recompute placement from the drop event position rather than relying on
       // React state (dropIndicator) which may be stale or null.
-      const placement = dropPlacementForEvent(event, hasChildren);
-      onMoveLayer({
+      const intent = {
         draggedIds: cleanedIds,
         targetId: node.id,
-        placement,
-      });
+        placement: dropPlacementForEvent(event, hasChildren),
+      } satisfies LayersPanelMoveIntent;
+      if (!canMoveLayer || canMoveLayer(intent)) {
+        onMoveLayer(intent);
+      }
     }
     onDropIndicatorChange(null);
   };
@@ -1008,6 +1085,8 @@ function LayerRow({
         <button
           type="button"
           disabled={!selectable}
+          data-layer-row-button
+          data-layer-node-id={node.id}
           className={cn(
             "flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-sm px-0.5 py-0 text-left outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
             selectable ? "cursor-default" : "cursor-default opacity-80",

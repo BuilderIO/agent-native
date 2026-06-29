@@ -3081,7 +3081,7 @@ function Screen({
         <button
           type="button"
           className={cn(
-            "flex h-5 max-w-[46%] shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
+            "relative z-40 flex h-5 max-w-[46%] shrink-0 items-center gap-1 overflow-hidden rounded-md border border-border bg-background/95 px-1.5 text-[10px] font-medium text-foreground opacity-0 shadow-sm transition-opacity",
             "hover:bg-accent hover:text-accent-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             "group-hover/frame:opacity-100 group-focus-within/frame:opacity-100",
             emphasized && "opacity-100",

@@ -54,6 +54,9 @@ interface BuilderIndexResult {
   designSystemId: string;
   builderUrl: string;
   status: "in-progress";
+  localDesignSystemId?: string;
+  uploadedFileCount?: number;
+  instructions?: string;
 }
 
 export default function DesignSystemSetup() {
@@ -390,7 +393,7 @@ export default function DesignSystemSetup() {
 
     if (builderIndexResult) {
       parts.push(
-        `\n## Builder-Indexed Figma File\nBuilder design-system indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for extracted tokens, assets, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
+        `\n## Builder-Indexed Figma File\nBuilder design-system indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Local selectable design system: ${builderIndexResult.localDesignSystemId ?? "(not returned)"}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for extracted tokens, assets, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
       );
     }
 

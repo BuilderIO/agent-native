@@ -7,6 +7,9 @@ export interface BuilderIndexResult {
   designSystemId: string;
   builderUrl: string;
   status: "in-progress";
+  localDesignSystemId?: string;
+  uploadedFileCount?: number;
+  instructions?: string;
   builderConnectUrl?: string;
 }
 

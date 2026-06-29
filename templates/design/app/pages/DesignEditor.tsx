@@ -24,7 +24,8 @@ import {
   LiveCursorOverlay,
   useT,
   useChangeVersion,
-  useAgentChatContext,
+  setAgentChatContextItem,
+  removeAgentChatContextItem,
   useAvatarUrl,
   type CollabUser,
   type PromptComposerSubmitOptions,
@@ -1222,8 +1223,8 @@ function codeLayerTreeToPanelNodes(
       renamable: node.renamable,
       lockable: true,
       hideable: true,
-      locked: selfLocked,
-      hidden: selfHidden,
+      locked,
+      hidden,
       children: codeLayerTreeToPanelNodes(
         node.children,
         lockedIds,
@@ -2094,8 +2095,6 @@ export default function DesignEditor() {
   const copiedLayerHtmlRef = useRef<string | null>(null);
   const copiedStylePropsRef = useRef<Record<string, string> | null>(null);
   const spaceHandPreviousToolRef = useRef<DesignTool | null>(null);
-  const { set: setAgentChatContextItem, remove: removeAgentChatContextItem } =
-    useAgentChatContext();
   const hasSelectedElement = Boolean(selectedElement);
 
   useEffect(() => {
@@ -4333,15 +4332,7 @@ export default function DesignEditor() {
       context: contextLines.join("\n"),
       openSidebar: false,
     });
-  }, [
-    activeFile,
-    design?.title,
-    id,
-    removeAgentChatContextItem,
-    selectedCodeLayerNode,
-    selectedElement,
-    setAgentChatContextItem,
-  ]);
+  }, [activeFile, design?.title, id, selectedCodeLayerNode, selectedElement]);
 
   const designExtensionContext = useMemo<DesignExtensionSlotContext>(
     () => ({
@@ -6258,8 +6249,33 @@ ${serializedHtml}
     activeLayerId && hiddenLayerIds.has(activeLayerId),
   );
 
+  const canMoveLayer = useCallback(
+    (intent: LayersPanelMoveIntent) => {
+      const targetOwner = codeLayerOwnerByNodeId.get(intent.targetId);
+      if (
+        !targetOwner ||
+        lockedLayerIds.has(intent.targetId) ||
+        hiddenLayerIds.has(intent.targetId)
+      ) {
+        return false;
+      }
+      return intent.draggedIds.some((draggedId) => {
+        const draggedOwner = codeLayerOwnerByNodeId.get(draggedId);
+        return (
+          draggedId !== intent.targetId &&
+          !!draggedOwner &&
+          draggedOwner.fileId === targetOwner.fileId &&
+          !lockedLayerIds.has(draggedId) &&
+          !hiddenLayerIds.has(draggedId)
+        );
+      });
+    },
+    [codeLayerOwnerByNodeId, hiddenLayerIds, lockedLayerIds],
+  );
+
   const handleLayerMove = useCallback(
     (intent: LayersPanelMoveIntent) => {
+      if (!canMoveLayer(intent)) return;
       const targetOwner = codeLayerOwnerByNodeId.get(intent.targetId);
       if (!targetOwner) return;
       if (
@@ -6311,6 +6327,7 @@ ${serializedHtml}
       activeContent,
       activeFile?.id,
       applyFileContentUpdate,
+      canMoveLayer,
       codeLayerOwnerByNodeId,
       files,
       hiddenLayerIds,
@@ -7259,6 +7276,7 @@ ${serializedHtml}
                 onHoverLayer={handleLayerHover}
                 onLeaveLayer={handleLayerLeave}
                 onMoveLayer={handleLayerMove}
+                canMoveLayer={canMoveLayer}
               />
             </div>
             <div

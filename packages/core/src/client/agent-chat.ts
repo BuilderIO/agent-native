@@ -188,6 +188,7 @@ let agentChatContextState: AgentChatContextState = {
   updatedAt: 0,
 };
 const agentChatContextListeners = new Set<() => void>();
+let agentChatContextNotifyQueued = false;
 
 /**
  * Listen for chatRunning messages from the frame (postMessage)
@@ -345,7 +346,17 @@ function withReplacedAgentChatContextItem(
 }
 
 function notifyAgentChatContextListeners(): void {
-  for (const listener of agentChatContextListeners) listener();
+  if (agentChatContextNotifyQueued) return;
+  agentChatContextNotifyQueued = true;
+  const notify = () => {
+    agentChatContextNotifyQueued = false;
+    for (const listener of Array.from(agentChatContextListeners)) listener();
+  };
+  if (typeof queueMicrotask === "function") {
+    queueMicrotask(notify);
+  } else {
+    setTimeout(notify, 0);
+  }
 }
 
 function persistAgentChatContextState(state: AgentChatContextState): void {

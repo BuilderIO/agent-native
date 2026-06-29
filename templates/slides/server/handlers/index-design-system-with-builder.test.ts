@@ -6,6 +6,7 @@ const mockGetRequestHeader = vi.hoisted(() => vi.fn());
 const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
 const mockStartBuilderDesignSystemIndex = vi.hoisted(() => vi.fn());
+const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
 const MockFeatureNotConfiguredError = vi.hoisted(
   () =>
     class FeatureNotConfiguredError extends Error {
@@ -33,12 +34,20 @@ vi.mock("@agent-native/core/server", () => ({
     mockStartBuilderDesignSystemIndex(...args),
 }));
 
+vi.mock("../lib/builder-design-system-proxy.js", () => ({
+  upsertBuilderProxyDesignSystem: (...args: unknown[]) =>
+    mockUpsertBuilderProxyDesignSystem(...args),
+}));
+
 import { indexDesignSystemWithBuilder } from "./index-design-system-with-builder";
 
 describe("indexDesignSystemWithBuilder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockGetSession.mockResolvedValue({ email: "owner@example.com" });
+    mockGetSession.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
     mockGetRequestHeader.mockReturnValue(null);
     mockReadMultipartFormData.mockResolvedValue([
       {
@@ -56,6 +65,10 @@ describe("indexDesignSystemWithBuilder", () => {
       designSystemId: "ds-1",
       builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
       status: "in-progress",
+    });
+    mockUpsertBuilderProxyDesignSystem.mockResolvedValue({
+      localDesignSystemId: "builder-ds-1",
+      instructions: "Builder design-system indexing has started.",
     });
   });
 
@@ -119,6 +132,17 @@ describe("indexDesignSystemWithBuilder", () => {
       source: "builder",
       designSystemId: "ds-1",
       jobId: "job-1",
+      localDesignSystemId: "builder-ds-1",
+      uploadedFileCount: 1,
+    });
+    expect(mockUpsertBuilderProxyDesignSystem).toHaveBeenCalledWith({
+      result: expect.objectContaining({
+        designSystemId: "ds-1",
+        jobId: "job-1",
+      }),
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      projectName: "brand",
     });
   });
 
