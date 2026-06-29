@@ -79,6 +79,7 @@ import {
   ExportSettingsPanel,
   FigmaColorPicker,
   ScrubInput,
+  SizingField,
   type AlignmentMatrixValue,
   type AutoLayoutMatrixValue,
   type AutoLayoutSizing,
@@ -1335,17 +1336,101 @@ function parentFlexDirection(element: ElementInfo): AutoLayoutSizingAxis {
     : "horizontal";
 }
 
+function isTextElement(element: ElementInfo): boolean {
+  return TEXT_TAGS.has((element.tagName || "").toLowerCase());
+}
+
+/**
+ * Per-axis sizing availability following Figma's contextual rules:
+ *   - Fixed: always.
+ *   - Hug contents: only CONTAINERS (flex/container frames) and TEXT can hug
+ *     their content. Leaves like img/svg/input cannot.
+ *   - Fill container: only when the element is a CHILD of a flex/grid (auto
+ *     layout) parent, OR a block-flow child (which fills via width:100%).
+ * Hug applies to width and height independently; the same set is offered on
+ * both axes here and the per-axis CSS in `commitElementSizing` resolves the
+ * exact behavior (main-axis grow vs cross-axis stretch).
+ */
 function availableSizingForElement(
   element: ElementInfo,
 ): Partial<Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>> {
-  const options: AutoLayoutSizing[] =
-    isParentFlex(element) || isParentGrid(element)
-      ? ["hug", "fill", "fixed"]
-      : ["hug", "fixed"];
-  return {
-    horizontal: options,
-    vertical: options,
+  const canHug = isContainerElement(element) || isTextElement(element);
+  const isFlexChildEl = isParentFlex(element) || isParentGrid(element);
+  // Block-flow children can still "fill" via width:100% on the horizontal axis.
+  const isBlockChild = Boolean(element.parentDisplay) && !isFlexChildEl;
+
+  const buildAxis = (axis: AutoLayoutSizingAxis): AutoLayoutSizing[] => {
+    const options: AutoLayoutSizing[] = ["fixed"];
+    if (canHug) options.push("hug");
+    // Fill: flex/grid child on either axis; block child only fills width.
+    if (isFlexChildEl || (isBlockChild && axis === "horizontal")) {
+      options.push("fill");
+    }
+    return options;
   };
+
+  return {
+    horizontal: buildAxis("horizontal"),
+    vertical: buildAxis("vertical"),
+  };
+}
+
+/** Read the currently-set min/max constraints (px) for a sizing axis. */
+function readElementMinMax(
+  element: ElementInfo,
+  axis: AutoLayoutSizingAxis,
+): { min: number | null; max: number | null } {
+  const styles = element.computedStyles;
+  const minRaw = axis === "horizontal" ? styles.minWidth : styles.minHeight;
+  const maxRaw = axis === "horizontal" ? styles.maxWidth : styles.maxHeight;
+  return {
+    min: parseConstraintLength(minRaw),
+    max: parseConstraintLength(maxRaw),
+  };
+}
+
+/**
+ * Parse a min/max CSS length into a px number, or null when unset. Browser
+ * computed values are "0px"/"none" for the defaults — both read as "not set"
+ * so we don't surface a constraint sub-row the user never added.
+ */
+function parseConstraintLength(value: string | undefined): number | null {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    !normalized ||
+    normalized === "none" ||
+    normalized === "auto" ||
+    normalized === "0px" ||
+    normalized === "0"
+  ) {
+    return null;
+  }
+  const parsed = Number.parseFloat(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Commit a single min/max constraint (px) or clear it when value is null. */
+function commitElementMinMax(
+  axis: AutoLayoutSizingAxis,
+  kind: "min" | "max",
+  value: number | null,
+  onStyleChange: (property: string, value: string) => void,
+) {
+  const isHorizontal = axis === "horizontal";
+  const property =
+    kind === "min"
+      ? isHorizontal
+        ? "minWidth"
+        : "minHeight"
+      : isHorizontal
+        ? "maxWidth"
+        : "maxHeight";
+  if (value == null) {
+    // Clearing: min → 0 (CSS initial), max → none (CSS initial).
+    onStyleChange(property, kind === "min" ? "0px" : "none");
+    return;
+  }
+  onStyleChange(property, `${Math.max(0, Math.round(value))}px`);
 }
 
 function inferElementSizing(
@@ -1355,11 +1440,15 @@ function inferElementSizing(
   const styles = element.computedStyles;
   const size = axis === "horizontal" ? styles.width : styles.height;
   const parentDirection = parentFlexDirection(element);
-  const isMainFlexAxis = isParentFlex(element) && parentDirection === axis;
+  const isFlex = isParentFlex(element);
+  const isMainFlexAxis = isFlex && parentDirection === axis;
+  const isCrossFlexAxis = isFlex && parentDirection !== axis;
+  const alignSelf = (styles.alignSelf || "").toLowerCase();
 
   if (
     size === "100%" ||
-    (isMainFlexAxis && Number.parseFloat(styles.flexGrow || "0") > 0)
+    (isMainFlexAxis && Number.parseFloat(styles.flexGrow || "0") > 0) ||
+    (isCrossFlexAxis && alignSelf === "stretch")
   ) {
     return "fill";
   }
@@ -1391,29 +1480,43 @@ function commitElementSizing(
   const patch: Record<string, string> = {};
 
   if (sizing === "fixed") {
+    // Fixed → explicit px dimension. Reset any grow/stretch on the flex
+    // main-axis so the pixel value sticks.
     patch[sizeProperty] = `${resolvedSize}px`;
     if (isMainFlexAxis) {
       patch.flexGrow = "0";
       patch.flexShrink = "0";
       patch.flexBasis = "auto";
     }
-  } else if (sizing === "fill") {
+  } else if (sizing === "hug") {
+    // Hug contents → shrink to fit children/content.
+    patch[sizeProperty] = "fit-content";
     if (isMainFlexAxis) {
-      patch[sizeProperty] = "auto";
-      patch.flexGrow = "1";
-      patch.flexShrink = "1";
-      patch.flexBasis = "0px";
-    } else {
-      patch[sizeProperty] = "100%";
-      if (isFlex) patch.alignSelf = "stretch";
-      if (isGrid) patch[isHorizontal ? "justifySelf" : "alignSelf"] = "stretch";
+      // A flex container hugging on its main axis uses flex-basis:auto + no
+      // stretch (spec: "flex-basis: auto + no stretch").
+      patch.flexGrow = "0";
+      patch.flexShrink = "0";
+      patch.flexBasis = "auto";
     }
   } else {
-    patch[sizeProperty] = "auto";
+    // Fill container.
     if (isMainFlexAxis) {
-      patch.flexGrow = "0";
-      patch.flexShrink = "1";
-      patch.flexBasis = "auto";
+      // Parent main axis → grow into available space: flex: 1 0 0.
+      patch.flexGrow = "1";
+      patch.flexShrink = "0";
+      patch.flexBasis = "0";
+      // Clear any explicit dimension so flex-basis governs.
+      patch[sizeProperty] = "auto";
+    } else if (isFlex) {
+      // Parent cross axis → stretch to the parent's cross size.
+      patch.alignSelf = "stretch";
+      patch[sizeProperty] = "auto";
+    } else if (isGrid) {
+      patch[isHorizontal ? "justifySelf" : "alignSelf"] = "stretch";
+      patch[sizeProperty] = "auto";
+    } else {
+      // Child of a non-flex (block) parent → fill width with 100%.
+      patch[sizeProperty] = "100%";
     }
   }
 
@@ -1597,57 +1700,6 @@ function InspectorSegment({ children }: { children: ReactNode }) {
     <div className="flex min-w-0 overflow-hidden rounded-md bg-[var(--design-editor-control-bg)]">
       {children}
     </div>
-  );
-}
-
-function sizingModeLabel(mode: AutoLayoutSizing): string {
-  if (mode === "hug") return "Hug"; // i18n-ignore Figma inspector sizing mode
-  if (mode === "fill") return "Fill"; // i18n-ignore Figma inspector sizing mode
-  return "Fixed"; // i18n-ignore Figma inspector sizing mode
-}
-
-function SizingModeButton({
-  axis,
-  value,
-  resolvedSize,
-  options,
-  onChange,
-}: {
-  axis: "W" | "H";
-  value: AutoLayoutSizing;
-  resolvedSize: number;
-  options: AutoLayoutSizing[];
-  onChange: (value: AutoLayoutSizing) => void;
-}) {
-  const validOptions = options.includes(value) ? options : [...options, value];
-  const currentIndex = validOptions.indexOf(value);
-  const nextValue =
-    validOptions[(currentIndex + 1) % validOptions.length] ?? "fixed";
-  const label = `${axis} ${sizingModeLabel(value)}`;
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label={label}
-          onClick={() => onChange(nextValue)}
-          className="h-6 justify-start rounded-md bg-[var(--design-editor-control-bg)] px-0 text-[11px] font-normal text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]"
-        >
-          <span className="flex h-full w-6 shrink-0 items-center justify-center rounded-l-md border-r border-border/60 text-muted-foreground">
-            {axis}
-          </span>
-          <span className="min-w-0 flex-1 truncate px-1 text-left tabular-nums text-muted-foreground">
-            {Math.round(resolvedSize)}
-          </span>
-          <span className="flex h-full min-w-8 items-center justify-center border-l border-border/60 px-1.5 font-medium text-foreground">
-            {sizingModeLabel(value)}
-          </span>
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
   );
 }
 
@@ -2364,6 +2416,10 @@ function FlexContainerControls({
       horizontal: inferElementSizing(element, "horizontal"),
       vertical: inferElementSizing(element, "vertical"),
     },
+    childMinMax: {
+      horizontal: readElementMinMax(element, "horizontal"),
+      vertical: readElementMinMax(element, "vertical"),
+    },
     clipContent: styles.overflow === "hidden",
     resolvedSize: {
       horizontal: element.boundingRect.width,
@@ -2448,6 +2504,9 @@ function FlexContainerControls({
             onStylesChange,
           );
         }}
+        onChildMinMaxChange={(axis, kind, val) =>
+          commitElementMinMax(axis, kind, val, onStyleChange)
+        }
       />
     </div>
   );
@@ -2581,13 +2640,17 @@ function LayoutContextProperties({
   if (!isContainer) {
     return (
       <PanelSection title={t("editPanel.sections.layout")}>
-        {/* Figma-style single-row-per-axis: [W | value | Fixed/Hug ▾] */}
-        <div className="grid grid-cols-2 gap-1.5">
-          <SizingModeButton
+        {/* Figma-style single-row-per-axis: [W | value | Fixed/Hug/Fill ▾] with
+            the full sizing menu (modes + min/max + variable) per axis. */}
+        <div className="grid grid-cols-2 items-start gap-1.5">
+          <SizingField
             axis="W"
+            sizingAxis="horizontal"
             value={inferElementSizing(element, "horizontal")}
             resolvedSize={element.boundingRect.width}
-            options={availableSizing.horizontal ?? ["hug", "fixed"]}
+            minMax={readElementMinMax(element, "horizontal")}
+            options={availableSizing.horizontal ?? ["fixed"]}
+            disabled={false}
             onChange={(mode) =>
               commitElementSizing(
                 element,
@@ -2597,12 +2660,18 @@ function LayoutContextProperties({
                 onStylesChange,
               )
             }
+            onMinMaxChange={(axis, kind, val) =>
+              commitElementMinMax(axis, kind, val, onStyleChange)
+            }
           />
-          <SizingModeButton
+          <SizingField
             axis="H"
+            sizingAxis="vertical"
             value={inferElementSizing(element, "vertical")}
             resolvedSize={element.boundingRect.height}
-            options={availableSizing.vertical ?? ["hug", "fixed"]}
+            minMax={readElementMinMax(element, "vertical")}
+            options={availableSizing.vertical ?? ["fixed"]}
+            disabled={false}
             onChange={(mode) =>
               commitElementSizing(
                 element,
@@ -2611,6 +2680,9 @@ function LayoutContextProperties({
                 onStyleChange,
                 onStylesChange,
               )
+            }
+            onMinMaxChange={(axis, kind, val) =>
+              commitElementMinMax(axis, kind, val, onStyleChange)
             }
           />
         </div>

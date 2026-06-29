@@ -1,5 +1,5 @@
 import { IconArrowBackUp } from "@tabler/icons-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -7,6 +7,8 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -30,6 +32,13 @@ import {
   IconGap,
   IconPaddingHorizontal,
   IconPaddingVertical,
+  IconSizingFill,
+  IconSizingFixed,
+  IconSizingHug,
+  IconSizingMax,
+  IconSizingMin,
+  IconSizingRemove,
+  IconSizingVariable,
 } from "./figma-icons";
 import { ScrubInput } from "./ScrubInput";
 
@@ -68,6 +77,15 @@ export interface AutoLayoutMatrixValue {
     vertical: AutoLayoutSizing;
   };
   /**
+   * Currently-set min/max constraints per axis, in px. `null` means the
+   * constraint is not set (Figma shows the "Add min/max…" menu item instead of
+   * a sub-row). Optional so existing callers are unaffected.
+   */
+  childMinMax?: {
+    horizontal?: { min?: number | null; max?: number | null };
+    vertical?: { min?: number | null; max?: number | null };
+  };
+  /**
    * Optional layout-mode hint. When "block" the control renders the
    * normal-flow (non-flex) state — the first flow icon is active and gap is
    * treated as disabled. Defaults to flex when omitted so existing callers are
@@ -97,6 +115,20 @@ export interface AutoLayoutMatrixLabels {
   fill: string;
   fixed: string;
   clipContent: string;
+  fixedWidth: string;
+  fixedHeight: string;
+  hugContents: string;
+  fillContainer: string;
+  addMinWidth: string;
+  addMaxWidth: string;
+  addMinHeight: string;
+  addMaxHeight: string;
+  minWidth: string;
+  maxWidth: string;
+  minHeight: string;
+  maxHeight: string;
+  applyVariable: string;
+  removeConstraint: string;
 }
 
 export interface AutoLayoutMatrixProps {
@@ -114,6 +146,22 @@ export interface AutoLayoutMatrixProps {
     sizing: AutoLayoutSizing,
   ) => void;
   /**
+   * Set or clear a min/max constraint on an axis. `value === null` clears it.
+   * Optional — when omitted the "Add min/max…" rows and constraint sub-rows are
+   * hidden, so existing callers are unaffected.
+   */
+  onChildMinMaxChange?: (
+    axis: AutoLayoutSizingAxis,
+    kind: "min" | "max",
+    value: number | null,
+  ) => void;
+  /**
+   * Invoked when the user picks "Apply variable…". Optional — when omitted the
+   * variable row is still shown but disabled (placeholder), matching Figma when
+   * no variable collections exist.
+   */
+  onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
+  /**
    * Emitted when the user picks a flow that changes the layout mode between
    * normal-flow (block) and flex. Pass this so selecting the first ("normal")
    * flow icon can turn auto layout off, and selecting a flex flow can turn it
@@ -128,7 +176,8 @@ export interface AutoLayoutMatrixProps {
   className?: string;
 }
 
-const DEFAULT_LABELS: AutoLayoutMatrixLabels = {
+/** Default English labels for the auto-layout matrix and SizingField. */
+export const DEFAULT_AUTO_LAYOUT_LABELS: AutoLayoutMatrixLabels = {
   title: "Auto layout", // i18n-ignore fallback component label
   alignment: "Alignment", // i18n-ignore fallback component label
   direction: "Direction", // i18n-ignore fallback component label
@@ -149,6 +198,20 @@ const DEFAULT_LABELS: AutoLayoutMatrixLabels = {
   fill: "Fill", // i18n-ignore fallback component label
   fixed: "Fixed", // i18n-ignore fallback component label
   clipContent: "Clip content", // i18n-ignore fallback component label
+  fixedWidth: "Fixed width", // i18n-ignore fallback component label
+  fixedHeight: "Fixed height", // i18n-ignore fallback component label
+  hugContents: "Hug contents", // i18n-ignore fallback component label
+  fillContainer: "Fill container", // i18n-ignore fallback component label
+  addMinWidth: "Add min width…", // i18n-ignore fallback component label
+  addMaxWidth: "Add max width…", // i18n-ignore fallback component label
+  addMinHeight: "Add min height…", // i18n-ignore fallback component label
+  addMaxHeight: "Add max height…", // i18n-ignore fallback component label
+  minWidth: "Min width", // i18n-ignore fallback component label
+  maxWidth: "Max width", // i18n-ignore fallback component label
+  minHeight: "Min height", // i18n-ignore fallback component label
+  maxHeight: "Max height", // i18n-ignore fallback component label
+  applyVariable: "Apply variable…", // i18n-ignore fallback component label
+  removeConstraint: "Remove", // i18n-ignore fallback component label
 };
 
 const SIZING_OPTIONS: AutoLayoutSizing[] = ["hug", "fill", "fixed"];
@@ -172,13 +235,15 @@ export function AutoLayoutMatrix({
   onClipContentChange,
   onDistribute,
   onChildSizingChange,
+  onChildMinMaxChange,
+  onApplyVariable,
   onDisplayChange,
   availableChildSizing,
   labels,
   disabled = false,
   className,
 }: AutoLayoutMatrixProps) {
-  const copy = { ...DEFAULT_LABELS, ...labels };
+  const copy = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labels };
 
   const horizontalPaddingValue = Math.round(
     (value.padding.left + value.padding.right) / 2,
@@ -284,11 +349,13 @@ export function AutoLayoutMatrix({
           <ControlLabel>
             {"Resizing" /* i18n-ignore Figma inspector label */}
           </ControlLabel>
-          <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-1.5">
+          <div className="grid grid-cols-[1fr_1fr_auto] items-start gap-1.5">
             <SizingField
               axis="W"
+              sizingAxis="horizontal"
               value={value.childSizing.horizontal}
               resolvedSize={value.resolvedSize?.horizontal}
+              minMax={value.childMinMax?.horizontal}
               options={resolveSizingOptions(
                 availableChildSizing?.horizontal,
                 value.childSizing.horizontal,
@@ -296,11 +363,15 @@ export function AutoLayoutMatrix({
               labels={copy}
               disabled={disabled}
               onChange={(next) => onChildSizingChange("horizontal", next)}
+              onMinMaxChange={onChildMinMaxChange}
+              onApplyVariable={onApplyVariable}
             />
             <SizingField
               axis="H"
+              sizingAxis="vertical"
               value={value.childSizing.vertical}
               resolvedSize={value.resolvedSize?.vertical}
+              minMax={value.childMinMax?.vertical}
               options={resolveSizingOptions(
                 availableChildSizing?.vertical,
                 value.childSizing.vertical,
@@ -308,6 +379,8 @@ export function AutoLayoutMatrix({
               labels={copy}
               disabled={disabled}
               onChange={(next) => onChildSizingChange("vertical", next)}
+              onMinMaxChange={onChildMinMaxChange}
+              onApplyVariable={onApplyVariable}
             />
             {/* Resize-to-fit icon button */}
             <Tooltip>
@@ -893,87 +966,330 @@ function PaddingLinkButton({
   );
 }
 
-/** Figma-style sizing field: [axis | value | mode ▾]. */
-function SizingField({
-  axis,
-  value,
-  resolvedSize,
-  options = SIZING_OPTIONS,
-  labels,
-  disabled,
-  onChange,
-}: {
+interface SizingFieldMinMax {
+  min?: number | null;
+  max?: number | null;
+}
+
+export interface SizingFieldProps {
+  /** Display letter ("W" / "H"). */
   axis: string;
+  /** Logical axis used by min/max + variable callbacks. */
+  sizingAxis: AutoLayoutSizingAxis;
   value: AutoLayoutSizing;
   resolvedSize?: number;
+  /** Currently-set min/max constraints (px). */
+  minMax?: SizingFieldMinMax;
   options?: AutoLayoutSizing[];
-  labels: AutoLayoutMatrixLabels;
+  /** Optional label overrides; English defaults are used for any omitted key. */
+  labels?: Partial<AutoLayoutMatrixLabels>;
   disabled: boolean;
   onChange: (value: AutoLayoutSizing) => void;
-}) {
-  const validOptions: AutoLayoutSizing[] = options.includes(value)
-    ? options
-    : [...options, value];
+  onMinMaxChange?: (
+    axis: AutoLayoutSizingAxis,
+    kind: "min" | "max",
+    value: number | null,
+  ) => void;
+  onApplyVariable?: (axis: AutoLayoutSizingAxis) => void;
+}
+
+/**
+ * Figma-style sizing field. Trigger renders `[axis | value | mode ▾]`; the menu
+ * is the full Figma resizing dropdown:
+ *   Fixed · Hug contents · Fill container
+ *   ──────────────────────
+ *   Add min … · Add max …
+ *   ──────────────────────
+ *   Apply variable …
+ * "Add min/max" reveals an inline number input; set constraints render as a
+ * small sub-row below the trigger with a remove (×). Hug/Fill rows are gated by
+ * the `options` list (per-axis availability); Fixed is always present.
+ */
+export function SizingField({
+  axis,
+  sizingAxis,
+  value,
+  resolvedSize,
+  minMax,
+  options = SIZING_OPTIONS,
+  labels: labelOverrides,
+  disabled,
+  onChange,
+  onMinMaxChange,
+  onApplyVariable,
+}: SizingFieldProps) {
+  const labels = { ...DEFAULT_AUTO_LAYOUT_LABELS, ...labelOverrides };
+  const isWidth = sizingAxis === "horizontal";
+  // Which inline "add" editor is currently open (none by default).
+  const [editing, setEditing] = useState<null | "min" | "max">(null);
+
+  const minValue = minMax?.min ?? null;
+  const maxValue = minMax?.max ?? null;
+  const hasMin = minValue != null;
+  const hasMax = maxValue != null;
+
+  const canHug = options.includes("hug");
+  const canFill = options.includes("fill");
 
   // Figma rule: when Fixed, show ONLY the numeric value + chevron (no word).
   // When Hug / Fill, show value + the mode word.
   const showWord = value !== "fixed";
 
+  const addMinLabel = isWidth ? labels.addMinWidth : labels.addMinHeight;
+  const addMaxLabel = isWidth ? labels.addMaxWidth : labels.addMaxHeight;
+  const minLabel = isWidth ? labels.minWidth : labels.minHeight;
+  const maxLabel = isWidth ? labels.maxWidth : labels.maxHeight;
+
+  const openEditor = (kind: "min" | "max") => {
+    // Seed a sensible default when first adding the constraint.
+    const seed = Math.max(0, Math.round(resolvedSize ?? 0));
+    onMinMaxChange?.(sizingAxis, kind, kind === "min" ? seed : seed || 1);
+    setEditing(kind);
+  };
+
   return (
-    <DropdownMenu>
+    <div className="flex min-w-0 flex-col gap-1">
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label={`${axis} ${Math.round(resolvedSize ?? 0)} ${labels[value]}`}
+                disabled={disabled}
+                className={cn(
+                  "flex h-7 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
+                  "bg-[var(--design-editor-control-bg)] text-[11px]",
+                  "hover:bg-[var(--design-editor-panel-raised-bg)]",
+                  "disabled:pointer-events-none disabled:opacity-40",
+                  "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
+                )}
+              >
+                {/* Axis letter */}
+                <span className="shrink-0 text-muted-foreground">{axis}</span>
+                {/* Resolved size */}
+                <span className="min-w-0 flex-1 truncate text-left tabular-nums text-foreground">
+                  {Math.round(resolvedSize ?? 0)}
+                </span>
+                {/* Mode word (Hug/Fill only) */}
+                {showWord ? (
+                  <span className="shrink-0 truncate text-muted-foreground">
+                    {labels[value]}
+                  </span>
+                ) : null}
+                {/* Caret */}
+                <span className="flex shrink-0 items-center text-muted-foreground">
+                  <ChevronDownMini />
+                </span>
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{`${axis} · ${labels[value]}`}</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent
+          align="start"
+          className="min-w-[180px] text-[12px]"
+          sideOffset={4}
+        >
+          {/* ── Modes ── */}
+          <SizingMenuItem
+            icon={<IconSizingFixed />}
+            label={labels.fixed}
+            active={value === "fixed"}
+            onSelect={() => onChange("fixed")}
+          />
+          {canHug ? (
+            <SizingMenuItem
+              icon={<IconSizingHug />}
+              label={labels.hugContents}
+              active={value === "hug"}
+              onSelect={() => onChange("hug")}
+            />
+          ) : null}
+          {canFill ? (
+            <SizingMenuItem
+              icon={<IconSizingFill />}
+              label={labels.fillContainer}
+              active={value === "fill"}
+              onSelect={() => onChange("fill")}
+            />
+          ) : null}
+
+          {/* ── Min / Max ── */}
+          {onMinMaxChange ? (
+            <>
+              <DropdownMenuSeparator />
+              <SizingMenuItem
+                icon={<IconSizingMin />}
+                label={addMinLabel}
+                active={hasMin}
+                disabled={hasMin}
+                onSelect={() => openEditor("min")}
+              />
+              <SizingMenuItem
+                icon={<IconSizingMax />}
+                label={addMaxLabel}
+                active={hasMax}
+                disabled={hasMax}
+                onSelect={() => openEditor("max")}
+              />
+            </>
+          ) : null}
+
+          {/* ── Variable ── */}
+          <DropdownMenuSeparator />
+          <SizingMenuItem
+            icon={<IconSizingVariable />}
+            label={labels.applyVariable}
+            disabled={!onApplyVariable}
+            onSelect={() => onApplyVariable?.(sizingAxis)}
+          />
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      {/* ── Constraint sub-rows ── */}
+      {hasMin ? (
+        <ConstraintSubRow
+          label={minLabel}
+          value={minValue ?? 0}
+          disabled={disabled}
+          removeLabel={labels.removeConstraint}
+          onChange={(next) => onMinMaxChange?.(sizingAxis, "min", next)}
+          onRemove={() => {
+            onMinMaxChange?.(sizingAxis, "min", null);
+            setEditing((cur) => (cur === "min" ? null : cur));
+          }}
+        />
+      ) : null}
+      {hasMax ? (
+        <ConstraintSubRow
+          label={maxLabel}
+          value={maxValue ?? 0}
+          disabled={disabled}
+          removeLabel={labels.removeConstraint}
+          onChange={(next) => onMinMaxChange?.(sizingAxis, "max", next)}
+          onRemove={() => {
+            onMinMaxChange?.(sizingAxis, "max", null);
+            setEditing((cur) => (cur === "max" ? null : cur));
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/** A single icon + label row in the sizing menu, with an active checkmark. */
+function SizingMenuItem({
+  icon,
+  label,
+  active = false,
+  disabled = false,
+  onSelect,
+}: {
+  icon: ReactNode;
+  label: string;
+  active?: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <DropdownMenuItem
+      disabled={disabled}
+      onSelect={(event) => {
+        // Keep the menu's selection semantics but route through our handler.
+        event.preventDefault();
+        onSelect();
+      }}
+      className="gap-2 pl-2 pr-2 text-[12px]"
+    >
+      <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="flex size-3.5 shrink-0 items-center justify-center text-[var(--design-editor-accent-color,hsl(var(--primary)))]">
+        {active ? <CheckMini /> : null}
+      </span>
+    </DropdownMenuItem>
+  );
+}
+
+/** Inline min/max constraint editor row with a remove (×) affordance. */
+function ConstraintSubRow({
+  label,
+  value,
+  disabled,
+  removeLabel,
+  onChange,
+  onRemove,
+}: {
+  label: string;
+  value: number;
+  disabled: boolean;
+  removeLabel: string;
+  onChange: (value: number) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex h-6 min-w-0 items-center rounded-md bg-[var(--design-editor-control-bg)] pl-1.5",
+        disabled && "opacity-40",
+      )}
+    >
+      <ScrubInput
+        label={label}
+        ariaLabel={label}
+        value={value}
+        onChange={(next) => onChange(Math.max(0, Math.round(next)))}
+        unit="px"
+        min={0}
+        step={1}
+        precision={1}
+        disabled={disabled}
+        className="min-w-0 flex-1 gap-0"
+        labelClassName="hidden"
+        inputClassName="h-5 border-0 bg-transparent px-1 text-[11px] shadow-none focus-visible:ring-0"
+      />
       <Tooltip>
         <TooltipTrigger asChild>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label={`${axis} ${Math.round(resolvedSize ?? 0)} ${labels[value]}`}
-              disabled={disabled}
-              className={cn(
-                "flex h-7 w-full items-center gap-1 overflow-hidden rounded-md px-1.5",
-                "bg-[var(--design-editor-control-bg)] text-[11px]",
-                "hover:bg-[var(--design-editor-panel-raised-bg)]",
-                "disabled:pointer-events-none disabled:opacity-40",
-                "focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color,hsl(var(--primary)))]",
-              )}
-            >
-              {/* Axis letter */}
-              <span className="shrink-0 text-muted-foreground">{axis}</span>
-              {/* Resolved size */}
-              <span className="min-w-0 flex-1 truncate text-left tabular-nums text-foreground">
-                {Math.round(resolvedSize ?? 0)}
-              </span>
-              {/* Mode word (Hug/Fill only) */}
-              {showWord ? (
-                <span className="shrink-0 truncate text-muted-foreground">
-                  {labels[value]}
-                </span>
-              ) : null}
-              {/* Caret */}
-              <span className="flex shrink-0 items-center text-muted-foreground">
-                <ChevronDownMini />
-              </span>
-            </button>
-          </DropdownMenuTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{`${axis} · ${labels[value]}`}</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent
-        align="start"
-        className="min-w-[110px] text-[12px]"
-        sideOffset={4}
-      >
-        {validOptions.map((opt) => (
-          <DropdownMenuCheckboxItem
-            key={opt}
-            checked={opt === value}
-            onSelect={() => onChange(opt)}
-            className="text-[12px]"
+          <button
+            type="button"
+            aria-label={removeLabel}
+            disabled={disabled}
+            onClick={onRemove}
+            className={cn(
+              "flex h-6 w-5 shrink-0 items-center justify-center rounded-r-md",
+              "text-muted-foreground hover:text-foreground",
+              "disabled:pointer-events-none disabled:opacity-40",
+            )}
           >
-            {labels[opt]}
-          </DropdownMenuCheckboxItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+            <IconSizingRemove />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>{removeLabel}</TooltipContent>
+      </Tooltip>
+    </div>
+  );
+}
+
+/** Small check glyph for the active menu row. */
+function CheckMini() {
+  return (
+    <svg
+      viewBox="0 0 14 14"
+      width={12}
+      height={12}
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M2.5 7.5 L5.5 10.5 L11.5 3.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 
