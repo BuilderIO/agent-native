@@ -319,6 +319,7 @@ describe("@agent-native/skills", () => {
         "assets",
         "content",
         "design-exploration",
+        "visual-edit",
         "context-xray",
       ],
       publicSkillSource: repo,

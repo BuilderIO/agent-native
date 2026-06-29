@@ -13,6 +13,8 @@ import {
   IconArchive,
   IconDots,
   IconEdit,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
   IconPin,
   IconPlus,
 } from "@tabler/icons-react";
@@ -37,6 +39,12 @@ import { cn } from "@/lib/utils";
 
 const BRAIN_CHAT_STORAGE_KEY = "brain";
 const BRAIN_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${BRAIN_CHAT_STORAGE_KEY}`;
+
+interface SidebarProps {
+  collapsed?: boolean;
+  collapsible?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+}
 
 function formatThreadAge(updatedAt: number) {
   const diffMs = Math.max(0, Date.now() - updatedAt);
@@ -324,25 +332,73 @@ function BrainChatsSection() {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({
+  collapsed = false,
+  collapsible = true,
+  onCollapsedChange,
+}: SidebarProps) {
   const location = useLocation();
   const navigate = useNavigate();
   const t = useT();
   const isAskRoute = location.pathname === "/";
+  const ToggleIcon = collapsed
+    ? IconLayoutSidebarLeftExpand
+    : IconLayoutSidebarLeftCollapse;
   const navClass = ({ isActive }: { isActive: boolean }) =>
     cn(
-      "flex h-9 items-center gap-3 rounded-md px-3 text-sm transition-colors",
+      "flex items-center text-sm transition-colors",
+      collapsed
+        ? "h-10 w-10 justify-center rounded-md"
+        : "h-9 gap-3 rounded-md px-3",
       isActive
         ? "bg-sidebar-accent text-sidebar-accent-foreground"
         : "text-sidebar-foreground hover:bg-sidebar-accent/65 hover:text-sidebar-accent-foreground",
     );
+  const collapseButton = collapsible ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => onCollapsedChange?.(!collapsed)}
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={
+            collapsed
+              ? t("navigation.expandSidebar")
+              : t("navigation.collapseSidebar")
+          }
+        >
+          <ToggleIcon className="size-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {collapsed
+          ? t("navigation.expandSidebar")
+          : t("navigation.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  ) : null;
 
   return (
-    <aside className="flex h-full w-60 min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-sidebar-border px-4">
+    <aside
+      data-collapsed={collapsed ? "true" : "false"}
+      className={cn(
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
+        collapsed ? "w-12" : "w-60",
+      )}
+    >
+      <div
+        className={cn(
+          "flex h-14 shrink-0 items-center border-b border-sidebar-border",
+          collapsed ? "justify-center px-0" : "gap-3 px-4",
+        )}
+      >
         <Link
           to="/"
-          className="flex min-w-0 items-center gap-3 rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            collapsed ? "size-8 justify-center" : "flex-1 gap-3",
+          )}
+          aria-label={collapsed ? t("navigation.brand") : undefined}
         >
           <img
             src={appPath("/agent-native-icon-light.svg")}
@@ -356,44 +412,67 @@ export function Sidebar() {
             aria-hidden="true"
             className="hidden h-4 w-auto shrink-0 dark:block"
           />
-          <div className="min-w-0">
+          <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
               {t("navigation.brand")}
             </p>
           </div>
         </Link>
+        {!collapsed ? collapseButton : null}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-3">
-        <div className="grid gap-1">
+      <nav
+        className={cn(
+          "flex-1 overflow-y-auto",
+          collapsed ? "px-1 py-2" : "px-2 py-3",
+        )}
+      >
+        <div
+          className={cn(
+            "grid",
+            collapsed ? "justify-items-center gap-1" : "gap-1",
+          )}
+        >
           {navItems.map((item) => {
             const Icon = item.icon;
+            const label = t(`navigation.${item.view}`);
+            const link = (
+              <NavLink
+                to={item.href}
+                end={item.href === "/"}
+                onClick={(event) => {
+                  if (
+                    item.view === "ask" &&
+                    !isAskRoute &&
+                    !event.metaKey &&
+                    !event.ctrlKey &&
+                    !event.shiftKey &&
+                    !event.altKey
+                  ) {
+                    event.preventDefault();
+                    navigateWithAgentChatViewTransition(navigate, "/");
+                  }
+                }}
+                className={navClass}
+                aria-label={collapsed ? label : undefined}
+              >
+                <Icon className="size-4 shrink-0" />
+                <span className={collapsed ? "sr-only" : "truncate"}>
+                  {label}
+                </span>
+              </NavLink>
+            );
             return (
               <div key={item.href}>
-                <NavLink
-                  to={item.href}
-                  end={item.href === "/"}
-                  onClick={(event) => {
-                    if (
-                      item.view === "ask" &&
-                      !isAskRoute &&
-                      !event.metaKey &&
-                      !event.ctrlKey &&
-                      !event.shiftKey &&
-                      !event.altKey
-                    ) {
-                      event.preventDefault();
-                      navigateWithAgentChatViewTransition(navigate, "/");
-                    }
-                  }}
-                  className={navClass}
-                >
-                  <Icon className="size-4 shrink-0" />
-                  <span className="truncate">
-                    {t(`navigation.${item.view}`)}
-                  </span>
-                </NavLink>
-                {item.view === "ask" && isAskRoute ? (
+                {collapsed ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>{link}</TooltipTrigger>
+                    <TooltipContent side="right">{label}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  link
+                )}
+                {!collapsed && item.view === "ask" && isAskRoute ? (
                   <BrainChatsSection />
                 ) : null}
               </div>
@@ -403,18 +482,28 @@ export function Sidebar() {
       </nav>
 
       <div className="mt-auto shrink-0">
-        <div className="border-t border-sidebar-border px-2 py-1">
-          <ExtensionsSidebarSection />
-        </div>
+        {!collapsed ? (
+          <div className="px-2 py-1">
+            <ExtensionsSidebarSection />
+          </div>
+        ) : null}
 
-        <div className="border-t border-sidebar-border px-3 py-2">
-          <OrgSwitcher reserveSpace />
-        </div>
+        {!collapsed ? (
+          <div className="px-3 py-2">
+            <OrgSwitcher reserveSpace />
+          </div>
+        ) : null}
 
-        <div className="border-t border-sidebar-border px-3 py-2">
-          <DevDatabaseLink />
-          <FeedbackButton />
-        </div>
+        {!collapsed ? (
+          <div className="px-3 py-2">
+            <DevDatabaseLink />
+            <FeedbackButton />
+          </div>
+        ) : null}
+
+        {collapseButton ? (
+          <div className="flex justify-center px-2 py-2">{collapseButton}</div>
+        ) : null}
       </div>
     </aside>
   );

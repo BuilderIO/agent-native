@@ -25,6 +25,8 @@ const messages = {
     created: "建立於 {{date}}",
   },
   sidebar: {
+    collapseSidebar: "收合側邊欄",
+    expandSidebar: "展開側邊欄",
     collapseDashboards: "收起儀表板",
     expandDashboards: "展開儀表板",
     collapseAnalyses: "收起分析",

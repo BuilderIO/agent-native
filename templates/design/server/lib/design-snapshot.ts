@@ -78,7 +78,7 @@ export async function buildDesignSnapshot(
     try {
       if (await hasCollabState(f.id)) {
         const live = await getText(f.id, "content");
-        if (typeof live === "string" && live.length > 0) {
+        if (typeof live === "string") {
           content = live;
           source = "collab";
         }

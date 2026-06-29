@@ -44,6 +44,8 @@ const messages = {
     suggestionExport: "응답을 CSV로 내보내기",
   },
   sidebar: {
+    collapseSidebar: "사이드바 접기",
+    expandSidebar: "사이드바 펼치기",
     formGenerationStale:
       "양식 생성이 예상보다 오래 걸립니다. 다시 시도할 수 있습니다.",
     untitledForm: "제목 없는 양식",

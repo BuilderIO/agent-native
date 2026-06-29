@@ -427,6 +427,7 @@ export default function SqlDashboardPage() {
   const navigate = useNavigate();
   const dashboardId = searchParams.get("id") || routeId;
   const reportScreenshot = searchParams.get("reportScreenshot") === "1";
+  const reportSettingsRequested = searchParams.get("reportSettings") === "1";
   const reportPanelLimit = reportScreenshot
     ? parseReportPanelLimit(searchParams.get("reportPanelLimit"))
     : null;
@@ -1033,6 +1034,28 @@ export default function SqlDashboardPage() {
     return out;
   }, [dashboard?.filters, searchParams]);
 
+  useEffect(() => {
+    if (!reportScreenshot && reportSettingsRequested) {
+      setEmailReportOpen(true);
+    }
+  }, [reportScreenshot, reportSettingsRequested]);
+
+  const handleEmailReportOpenChange = useCallback(
+    (open: boolean) => {
+      setEmailReportOpen(open);
+      if (open || !reportSettingsRequested) return;
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("reportSettings");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [reportSettingsRequested, setSearchParams],
+  );
+
   // Distinct tab values across panels in declaration order. When this is
   // non-empty the dashboard renders a tab strip and filters panels by tab.
   const tabs = useMemo<string[]>(() => {
@@ -1453,7 +1476,7 @@ export default function SqlDashboardPage() {
         {dashboardId ? (
           <EmailReportDialog
             open={emailReportOpen}
-            onOpenChange={setEmailReportOpen}
+            onOpenChange={handleEmailReportOpenChange}
             dashboardId={dashboardId}
             dashboardName={dashboard.name}
             filters={currentReportFilters}
@@ -1565,7 +1588,7 @@ export default function SqlDashboardPage() {
           placeholder={t("sqlDashboard.addDescriptionPlaceholder")}
           className="text-sm resize-y"
         />
-      ) : dashboard.description ? (
+      ) : !reportScreenshot && dashboard.description ? (
         <button
           className={
             canEdit
@@ -1637,12 +1660,14 @@ export default function SqlDashboardPage() {
       )}
 
       {/* Filters */}
-      {dashboard.filters && dashboard.filters.length > 0 && (
-        <DashboardFilterBar
-          filters={dashboard.filters}
-          onSaveView={canEdit ? handleSaveView : undefined}
-        />
-      )}
+      {!reportScreenshot &&
+        dashboard.filters &&
+        dashboard.filters.length > 0 && (
+          <DashboardFilterBar
+            filters={dashboard.filters}
+            onSaveView={canEdit ? handleSaveView : undefined}
+          />
+        )}
 
       {/* Panels grid */}
       {dashboard.panels.length === 0 ? (

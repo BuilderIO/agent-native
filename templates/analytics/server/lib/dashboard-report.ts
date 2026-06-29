@@ -27,6 +27,7 @@ type ReportSnapshot = {
   description?: string;
   filters: Record<string, string>;
   dashboardUrl: string;
+  reportSettingsUrl: string;
   generatedAt: string;
 };
 
@@ -39,6 +40,7 @@ const DEFAULT_SERVERLESS_CHROMIUM_PACK_URL =
   "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
 const DASHBOARD_REPORT_SCREENSHOT_PARAM = "reportScreenshot";
 const DASHBOARD_REPORT_PANEL_LIMIT_PARAM = "reportPanelLimit";
+const DASHBOARD_REPORT_SETTINGS_PARAM = "reportSettings";
 const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
 const COMPACT_REPORT_PANEL_LIMIT = 12;
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
@@ -114,7 +116,11 @@ function dashboardBaseUrl(): string {
 function buildDashboardPath(
   dashboardId: string,
   filters: Record<string, string>,
-  options?: { reportScreenshot?: boolean; panelLimit?: number },
+  options?: {
+    reportScreenshot?: boolean;
+    reportSettings?: boolean;
+    panelLimit?: number;
+  },
 ): string {
   const url = new URL(
     `/dashboards/${encodeURIComponent(dashboardId)}`,
@@ -125,6 +131,9 @@ function buildDashboardPath(
   }
   if (options?.reportScreenshot) {
     url.searchParams.set(DASHBOARD_REPORT_SCREENSHOT_PARAM, "1");
+  }
+  if (options?.reportSettings) {
+    url.searchParams.set(DASHBOARD_REPORT_SETTINGS_PARAM, "1");
   }
   if (options?.panelLimit && options.panelLimit > 0) {
     url.searchParams.set(
@@ -138,7 +147,11 @@ function buildDashboardPath(
 function buildDashboardUrl(
   dashboardId: string,
   filters: Record<string, string>,
-  options?: { reportScreenshot?: boolean; panelLimit?: number },
+  options?: {
+    reportScreenshot?: boolean;
+    reportSettings?: boolean;
+    panelLimit?: number;
+  },
 ): string {
   const path = buildDashboardPath(dashboardId, filters, options);
   const url = new URL(path, `${dashboardBaseUrl()}/`);
@@ -178,6 +191,9 @@ async function collectReportSnapshot(
     description: config.description,
     filters,
     dashboardUrl: buildDashboardUrl(sub.dashboardId, filters),
+    reportSettingsUrl: buildDashboardUrl(sub.dashboardId, filters, {
+      reportSettings: true,
+    }),
     generatedAt: new Date().toISOString(),
   };
 }
@@ -335,7 +351,10 @@ async function captureDashboardPng(
       deviceScaleFactor: 1,
     });
     page.setDefaultTimeout(timeout);
-    await page.emulateMedia({ media: "screen" });
+    await page.emulateMedia({ media: "screen", colorScheme: "light" });
+    await page.addInitScript(() => {
+      window.localStorage.setItem("theme", "light");
+    });
     await page.goto(screenshotUrl.toString(), {
       waitUntil: "domcontentloaded",
       timeout,
@@ -423,10 +442,8 @@ function renderReportEmailHtml(
 ): string {
   const title = escapeHtml(snapshot.title);
   const dashboardUrl = escapeHtml(snapshot.dashboardUrl);
+  const reportSettingsUrl = escapeHtml(snapshot.reportSettingsUrl);
   const date = escapeHtml(reportDate(snapshot));
-  const description = snapshot.description
-    ? `<p style="margin:8px 0 18px;color:#525866;font-size:14px;line-height:1.5;">${escapeHtml(snapshot.description)}</p>`
-    : "";
   const screenshotBlock = options.screenshotAttached
     ? `<a href="${dashboardUrl}" style="display:block;text-decoration:none;">
       <img src="cid:${DASHBOARD_REPORT_CID}" alt="${title}" width="100%" style="display:block;width:100%;max-width:1280px;height:auto;border:1px solid #e5e7eb;border-radius:8px;" />
@@ -441,10 +458,14 @@ function renderReportEmailHtml(
     <h3 style="margin:0 0 8px;font-size:18px;line-height:1.35;font-weight:600;">
       Here's the report of <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">${title}</a> for ${date}.
     </h3>
-    ${description}
     ${screenshotBlock}
     <p style="margin:18px 0 0;color:#525866;font-size:13px;line-height:1.45;">
       <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">Open dashboard</a>
+      <span style="color:#9ca3af;"> · </span>
+      <a href="${reportSettingsUrl}" style="color:#2563eb;text-decoration:none;">Edit subscription settings</a>
+    </p>
+    <p style="margin:6px 0 0;color:#6b7280;font-size:12px;line-height:1.45;">
+      Change recipients, delivery time, filters, or turn this report on/off.
     </p>
   </body>
 </html>`;
@@ -458,6 +479,7 @@ function renderReportText(
     `Daily dashboard report: ${snapshot.title}`,
     `Date: ${reportDate(snapshot)}`,
     `Open dashboard: ${snapshot.dashboardUrl}`,
+    `Edit subscription settings: ${snapshot.reportSettingsUrl}`,
   ];
   if (!options.screenshotAttached) {
     lines.push("Dashboard image unavailable for this run.");

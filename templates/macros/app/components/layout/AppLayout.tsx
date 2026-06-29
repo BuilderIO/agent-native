@@ -279,11 +279,11 @@ function SidebarContent({
 
       {!collapsed && (
         <>
-          <div className="border-t border-border px-2 py-2">
+          <div className="px-2 py-2">
             <ExtensionsSidebarSection />
           </div>
 
-          <div className="space-y-2 border-t border-border px-3 py-2">
+          <div className="space-y-2 px-3 py-2">
             <DevDatabaseLink />
             <FeedbackButton />
             <OrgSwitcher />

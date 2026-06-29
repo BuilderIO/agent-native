@@ -45,6 +45,8 @@ const messages = {
     suggestionSlow: "放慢開場動畫",
   },
   sidebar: {
+    collapseSidebar: "收合側邊欄",
+    expandSidebar: "展開側邊欄",
     navigation: "導覽",
     openNavigation: "開啟導覽",
   },

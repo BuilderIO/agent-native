@@ -146,10 +146,6 @@
   display: none;
 }
 
-.dark .analytics-ask-page {
-  background: hsl(var(--secondary) / 0.38);
-}
-
 .dark .analytics-ask-page .analytics-chat-panel {
   background: transparent;
 }

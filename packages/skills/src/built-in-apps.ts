@@ -96,8 +96,8 @@ export const BUILT_IN_APP_MCP: BuiltInAppMcp[] = [
     // core skills.ts:1762 (id), :1763 (displayName)
     appId: "design",
     displayName: "Design",
-    // core skills.ts:1759 (skillName)
-    skillNames: ["design-exploration"],
+    // core skills.ts:1759 (skillName) + Design extraSkills
+    skillNames: ["design-exploration", "visual-edit"],
     // core skills.ts:1770 (mcp.serverName)
     serverName: "agent-native-design",
     // core skills.ts:1768 (hosted.mcpUrl)

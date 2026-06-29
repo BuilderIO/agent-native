@@ -46,6 +46,8 @@ const messages = {
     suggestionSlow: "इंट्रो एनिमेशन धीमा करें",
   },
   sidebar: {
+    collapseSidebar: "साइडबार समेटें",
+    expandSidebar: "साइडबार फैलाएं",
     navigation: "नेविगेशन",
     openNavigation: "नेविगेशन खोलें",
   },

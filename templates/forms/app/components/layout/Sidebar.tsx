@@ -17,6 +17,8 @@ import {
   IconMessageCircle,
   IconSettings,
   IconForms,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -41,6 +43,8 @@ import { useCreateForm } from "@/hooks/use-forms";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
+const SIDEBAR_COLLAPSE_KEY = "forms.sidebar.collapsed";
+
 export function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -55,6 +59,15 @@ export function Sidebar() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isMobile = useIsMobile();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const effectiveCollapsed = collapsed && !isMobile;
 
   useEffect(() => {
     if (popoverOpen) {
@@ -62,6 +75,15 @@ export function Sidebar() {
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
   }, [popoverOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, collapsed ? "1" : "0");
+    } catch {
+      // Ignore storage failures; the in-memory preference still works.
+    }
+  }, [collapsed]);
 
   function handleSkip() {
     setPopoverOpen(false);
@@ -170,10 +192,113 @@ export function Sidebar() {
     </PopoverContent>
   );
 
-  const sidebarContent = (
+  const sidebarContent = effectiveCollapsed ? (
+    <div className="agent-layout-left-drawer flex h-screen w-12 min-w-0 shrink-0 flex-col items-center overflow-hidden border-e border-border bg-muted/30 py-2 transition-[width] duration-200 ease-out">
+      <TooltipProvider delayDuration={0}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setCollapsed(false)}
+              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-accent/50 hover:text-muted-foreground"
+              aria-label={t("sidebar.expandSidebar")}
+            >
+              <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {t("sidebar.expandSidebar")}
+          </TooltipContent>
+        </Tooltip>
+
+        <nav className="mt-1 flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/ask"
+                onClick={navigateHomeChat}
+                aria-label={t("navigation.askForms")}
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                  location.pathname === "/ask" || location.pathname === "/"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+              >
+                <IconMessageCircle className="h-4 w-4" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("navigation.askForms")}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/forms"
+                aria-label={t("navigation.allForms")}
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                  location.pathname.startsWith("/forms")
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+              >
+                <IconForms className="h-4 w-4" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("navigation.allForms")}
+            </TooltipContent>
+          </Tooltip>
+
+          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("sidebar.newForm")}
+                    className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                  >
+                    <IconPlus className="h-4 w-4" />
+                  </button>
+                </PopoverTrigger>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("sidebar.newForm")}
+              </TooltipContent>
+            </Tooltip>
+            {newFormPopover}
+          </Popover>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
+                to="/settings"
+                aria-label={t("navigation.settings")}
+                className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                  location.pathname === "/settings"
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+              >
+                <IconSettings className="h-4 w-4" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("navigation.settings")}
+            </TooltipContent>
+          </Tooltip>
+        </nav>
+      </TooltipProvider>
+    </div>
+  ) : (
     <div
       className={cn(
-        "agent-layout-left-drawer flex h-screen w-60 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-muted/30",
+        "agent-layout-left-drawer flex h-screen w-60 min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-muted/30 transition-[width] duration-200 ease-out",
         isMobile && "w-full",
       )}
     >
@@ -185,7 +310,7 @@ export function Sidebar() {
               <button
                 type="button"
                 aria-label={t("sidebar.openAskFullScreen")}
-                className="flex min-w-0 items-center gap-2 rounded-md text-base font-semibold tracking-tight text-foreground transition-colors hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex min-w-0 items-center gap-2 rounded-md text-base font-semibold tracking-tight text-muted-foreground/80 transition-colors hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={toggleLogoView}
               >
                 <img
@@ -217,6 +342,24 @@ export function Sidebar() {
           >
             <IconX size={18} />
           </Button>
+        )}
+        {!isMobile && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground/55 hover:bg-accent/50 hover:text-muted-foreground"
+                onClick={() => setCollapsed(true)}
+                aria-label={t("sidebar.collapseSidebar")}
+              >
+                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("sidebar.collapseSidebar")}
+            </TooltipContent>
+          </Tooltip>
         )}
       </div>
 
@@ -267,7 +410,7 @@ export function Sidebar() {
       </ScrollArea>
 
       {/* Pinned nav + footer */}
-      <div className="shrink-0 border-t border-border px-3 py-1.5">
+      <div className="shrink-0 px-3 py-1.5">
         <Link
           to="/settings"
           onClick={() => isMobile && setMobileOpen(false)}
@@ -284,12 +427,12 @@ export function Sidebar() {
       </div>
 
       {/* Tools */}
-      <div className="shrink-0 border-t border-border px-1.5 py-1.5">
+      <div className="shrink-0 px-1.5 py-1.5">
         <ExtensionsSidebarSection />
       </div>
 
       {/* Footer */}
-      <div className="shrink-0 space-y-2 border-t border-border px-3 py-2">
+      <div className="shrink-0 space-y-2 px-3 py-2">
         <OrgSwitcher />
         <DevDatabaseLink />
         <div className="flex items-center gap-2">

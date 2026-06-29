@@ -43,6 +43,8 @@ const messages = {
     suggestionExport: "Responses को CSV में export करें",
   },
   sidebar: {
+    collapseSidebar: "साइडबार समेटें",
+    expandSidebar: "साइडबार फैलाएं",
     formGenerationStale:
       "Form generation उम्मीद से ज्यादा समय ले रहा है। आप फिर कोशिश कर सकते हैं।",
     untitledForm: "शीर्षक रहित प्रपत्र",

@@ -161,6 +161,8 @@ const enUS = {
       "Synced {{count}} events from Google Calendar",
   },
   sidebar: {
+    collapseSidebar: "Collapse sidebar",
+    expandSidebar: "Expand sidebar",
     addGoogleAccount: "Add Google account",
     colorByMeetingType:
       "Color by meeting type (external, internal, 1:1, group, etc.)",
@@ -6133,6 +6135,8 @@ const translatedCalendarRemainingRaw = {
         "已从 Google Calendar 同步 {{count}} 个事件",
     },
     sidebar: {
+      collapseSidebar: "折叠侧边栏",
+      expandSidebar: "展开侧边栏",
       addGoogleAccount: "添加 Google 账号",
       colorByMeetingType: "按会议类型着色（外部、内部、一对一、小组等）",
       googleCalendarSettings: "Google Calendar 设置",
@@ -6254,6 +6258,8 @@ const translatedCalendarRemainingRaw = {
         "{{count}} eventos sincronizados desde Google Calendar",
     },
     sidebar: {
+      collapseSidebar: "Contraer barra lateral",
+      expandSidebar: "Expandir barra lateral",
       addGoogleAccount: "Añadir cuenta de Google",
       colorByMeetingType:
         "Color por tipo de reunión (externa, interna, 1:1, grupo, etc.)",
@@ -6592,6 +6598,8 @@ const translatedCalendarExactCleanup = {
         "{{count}} événements synchronisés depuis Google Calendar",
     },
     sidebar: {
+      collapseSidebar: "Réduire la barre latérale",
+      expandSidebar: "Développer la barre latérale",
       addGoogleAccount: "Ajouter un compte Google",
       colorByMeetingType:
         "Couleur par type de réunion (externe, interne, 1:1, groupe, etc.)",
@@ -6772,6 +6780,8 @@ const translatedCalendarExactCleanup = {
         "{{count}} Termine aus Google Calendar synchronisiert",
     },
     sidebar: {
+      collapseSidebar: "Seitenleiste einklappen",
+      expandSidebar: "Seitenleiste erweitern",
       addGoogleAccount: "Google-Konto hinzufügen",
       colorByMeetingType:
         "Nach Meetingtyp einfärben (extern, intern, 1:1, Gruppe usw.)",
@@ -6941,6 +6951,8 @@ const translatedCalendarExactCleanup = {
         "Google Calendar から {{count}} 件の予定を同期しました",
     },
     sidebar: {
+      collapseSidebar: "サイドバーを折りたたむ",
+      expandSidebar: "サイドバーを展開",
       addGoogleAccount: "Google アカウントを追加",
       colorByMeetingType:
         "会議タイプ別に色分け (外部、内部、1:1、グループなど)",
@@ -7106,6 +7118,8 @@ const translatedCalendarExactCleanup = {
         "Google Calendar에서 이벤트 {{count}}개 동기화됨",
     },
     sidebar: {
+      collapseSidebar: "사이드바 접기",
+      expandSidebar: "사이드바 펼치기",
       addGoogleAccount: "Google 계정 추가",
       colorByMeetingType: "회의 유형별 색상 지정(외부, 내부, 1:1, 그룹 등)",
       googleCalendarSettings: "Google Calendar 설정",
@@ -7285,6 +7299,8 @@ const translatedCalendarExactCleanup = {
         "{{count}} eventos sincronizados do Google Calendar",
     },
     sidebar: {
+      collapseSidebar: "Recolher barra lateral",
+      expandSidebar: "Expandir barra lateral",
       addGoogleAccount: "Adicionar conta Google",
       colorByMeetingType:
         "Colorir por tipo de reunião (externa, interna, 1:1, grupo etc.)",
@@ -7452,6 +7468,8 @@ const translatedCalendarExactCleanup = {
       syncedFromGoogleCalendar_other: "Google Calendar से {{count}} इवेंट सिंक हुए",
     },
     sidebar: {
+      collapseSidebar: "साइडबार समेटें",
+      expandSidebar: "साइडबार फैलाएं",
       addGoogleAccount: "Google खाता जोड़ें",
       colorByMeetingType: "मीटिंग प्रकार से रंग दें (बाहरी, आंतरिक, 1:1, समूह आदि)",
       googleCalendarSettings: "Google Calendar सेटिंग",
@@ -7634,6 +7652,8 @@ const translatedCalendarExactCleanup = {
         "تمت مزامنة {{count}} حدث من Google Calendar",
     },
     sidebar: {
+      collapseSidebar: "طي الشريط الجانبي",
+      expandSidebar: "توسيع الشريط الجانبي",
       addGoogleAccount: "إضافة حساب Google",
       colorByMeetingType:
         "التلوين حسب نوع الاجتماع (خارجي، داخلي، 1:1، مجموعة، إلخ)",

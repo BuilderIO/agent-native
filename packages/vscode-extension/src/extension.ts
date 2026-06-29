@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 
-import { buildConnectCommand, ConnectScope } from "./connect";
+import {
+  buildConnectCommand,
+  buildDesignConnectCommand,
+  ConnectScope,
+} from "./connect";
 import { DEFAULT_APP_URL, normalizeOpenUrl, titleForUrl } from "./links";
 
 type OpenResult = {
@@ -31,6 +35,11 @@ export function activate(context: vscode.ExtensionContext): void {
       "agentNative.connectWorkspace",
       (appUrl?: string, scope?: ConnectScope) =>
         controller.connectWorkspace(appUrl, scope),
+    ),
+    vscode.commands.registerCommand(
+      "agentNative.openDesignCanvas",
+      (devServerUrl?: string, port?: number) =>
+        controller.openDesignCanvas(devServerUrl, port),
     ),
     vscode.commands.registerCommand(
       "agentNative._getLastOpenedUrl",
@@ -113,6 +122,49 @@ class AgentNativeController {
     const terminal = vscode.window.createTerminal("Agent Native MCP");
     terminal.show();
     terminal.sendText(command);
+    return command;
+  }
+
+  async openDesignCanvas(
+    input?: string,
+    bridgePortInput?: number,
+  ): Promise<string | undefined> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      await vscode.window.showErrorMessage(
+        "Open a workspace folder before starting the Design Canvas bridge.",
+      );
+      return undefined;
+    }
+
+    const devServerUrl =
+      input ??
+      (await vscode.window.showInputBox({
+        title: "Open Design Canvas",
+        prompt: "URL of the running local app to edit visually.",
+        value: "http://localhost:5173",
+      }));
+    if (!devServerUrl) return undefined;
+
+    const normalized = normalizeOpenUrl(devServerUrl);
+    if (!normalized) {
+      await vscode.window.showErrorMessage(
+        "Enter an http(s) local dev server URL.",
+      );
+      return undefined;
+    }
+
+    const command = buildDesignConnectCommand({
+      devServerUrl: normalized,
+      rootPath: workspaceFolder.uri.fsPath,
+      port: bridgePortInput,
+    });
+    const terminal = vscode.window.createTerminal("Agent Native Design");
+    terminal.show();
+    terminal.sendText(command);
+    await vscode.window.showInformationMessage(
+      "Agent Native Design bridge is starting. Open the Design app and choose Localhost to connect.",
+    );
     return command;
   }
 

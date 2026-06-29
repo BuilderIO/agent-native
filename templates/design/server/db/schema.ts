@@ -55,3 +55,29 @@ export const designVersions = table("design_versions", {
   snapshot: text("snapshot").notNull(),
   createdAt: text("created_at").default(now()),
 });
+
+export const designLocalhostConnections = table(
+  "design_localhost_connections",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    sourceType: text("source_type", { enum: ["localhost"] })
+      .notNull()
+      .default("localhost"),
+    devServerUrl: text("dev_server_url").notNull(),
+    bridgeUrl: text("bridge_url"),
+    rootPath: text("root_path"),
+    routeManifest: text("route_manifest").notNull().default("{}"),
+    capabilities: text("capabilities").notNull().default("[]"),
+    status: text("status", {
+      enum: ["connected", "detected", "manual", "error"],
+    })
+      .notNull()
+      .default("connected"),
+    lastSeenAt: text("last_seen_at"),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    createdAt: text("created_at").default(now()),
+    updatedAt: text("updated_at").default(now()),
+  },
+);

@@ -21,7 +21,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-interface VocabularyEntry {
+export interface VocabularyEntry {
   id: string;
   term: string;
   replacement: string;
@@ -37,13 +37,9 @@ export function configureVocabularyClient(url: string): void {
   serverUrl = url.replace(/\/+$/, "");
 }
 
-/**
- * Fetch the current user's vocabulary from the server. Cached for 60s so
- * the dictation start path stays snappy on rapid Fn re-presses.
- */
-export async function loadVocabulary(): Promise<string[]> {
+export async function loadVocabularyEntries(): Promise<VocabularyEntry[]> {
   if (cachedVocabulary && Date.now() - cachedAt < 60_000) {
-    return cachedVocabulary.map((v) => v.replacement);
+    return cachedVocabulary;
   }
   if (!serverUrl) return [];
   try {
@@ -55,11 +51,20 @@ export async function loadVocabulary(): Promise<string[]> {
     const data = (await res.json()) as { vocabulary?: VocabularyEntry[] };
     cachedVocabulary = data.vocabulary ?? [];
     cachedAt = Date.now();
-    return cachedVocabulary.map((v) => v.replacement);
+    return cachedVocabulary;
   } catch (err) {
     console.warn("[personal-vocabulary] loadVocabulary failed:", err);
     return [];
   }
+}
+
+/**
+ * Fetch the current user's vocabulary from the server. Cached for 60s so
+ * the dictation start path stays snappy on rapid Fn re-presses.
+ */
+export async function loadVocabulary(): Promise<string[]> {
+  const vocabulary = await loadVocabularyEntries();
+  return vocabulary.map((v) => v.replacement);
 }
 
 /**

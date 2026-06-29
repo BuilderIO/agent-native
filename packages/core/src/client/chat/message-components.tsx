@@ -950,7 +950,7 @@ export function RunningActivityStatus({ label }: { label: string }) {
 }
 
 export function ThinkingIndicator({
-  label = "thinking",
+  label = "Thinking",
 }: { label?: string } = {}) {
   return (
     <div

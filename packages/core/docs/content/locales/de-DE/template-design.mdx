@@ -348,6 +348,57 @@ Der Agent weiß immer, was Sie offen haben. Das aktuelle Design, die geöffnete 
 
 Da es sich bei einem Design lediglich um eigenständige HTML/JSX-Dateien handelt, bearbeitet der Agent dieselbe Quelle, die der Iframe rendert, und jeder Export stammt aus – es gibt kein separates „AI-Mockup“-Format zum Übersetzen. Ein verknüpftes Designsystem liefert Token und `custom_instructions`, die der Agent bei jedem Generationsdurchlauf ehrt. Wählen Sie in der Vorschau Text oder einen Bereich aus und drücken Sie Befehl+I, um den Agenten genau auf diesen Teil zu konzentrieren.
 
+### Editor-Modell
+
+Design ist bei Arbeit mit mehreren Bildschirmen übersichtsorientiert. Nach der
+Generierung oder größeren Aktualisierungen öffnet der Editor die
+Bildschirmübersicht: eine unendliche Arbeitsfläche, auf der jeder Bildschirm ein
+statischer Rahmen ist, den Sie auswählen, verschieben, skalieren, ablegen oder
+duplizieren können. Verwenden Sie die Vollansicht-Schaltfläche des Rahmens, wenn ein Bildschirm
+fokussiertes Scrollen oder Prototypinteraktion benötigt.
+
+Der Einzelbildschirmmodus ist für Scrollen, Interaktion mit Prototypverhalten
+und Bearbeitung der DOM-/Code-Ebenen in einer gerenderten Datei gedacht. Das
+Ebenenfenster spiegelt diese Trennung wider: Bildschirme sind Rahmen der
+obersten Ebene, darunter liegen die DOM-/Code-Ebenen des aktiven Bildschirms.
+
+Für stabile Ebenennamen fügen Sie wichtigen Elementen
+`data-agent-native-layer-name` hinzu. Design verwendet dies vor
+semantischen/textbasierten Fallbacks und kann Umbenennungen durch Bearbeiten
+dieses Attributs speichern. Inline-HTML unterstützt lokale Code-Ebenen-Edits
+für Text, Klassen, Stile, Attribute, Quellreihenfolge und kleine strukturelle
+Änderungen; visuelle Code-Ebenen-Edits sind heute HTML-only. Der
+localhost-Quellmodus kann lokale Routen-Artboards registrieren und auflösen,
+aber lokale Datei-Lese-/Schreibvorgänge bleiben ein Bridge-Vertrag, bis
+explizite Berechtigungskontrollen gehärtet sind.
+
+### Erweiterungen im Design-Editor
+
+Der Editor enthält nach **Tweaks** eine **Extensions**-Inspektorregisterkarte.
+Sie funktioniert wie eine Design-spezifische Plugin-Spur: Benutzer können auf
+**+ Extension** klicken, um den Agenten eine Erweiterung erstellen zu lassen,
+oder eine Erweiterung installieren, die den Slot `design.editor.inspector`
+deklariert.
+
+Design-Erweiterungen werden über die Standard-Erweiterungssandbox inline neben
+der Arbeitsfläche gerendert. Der Host übergibt `window.slotContext` und
+`window.onSlotContext(...)`-Updates mit der aktuellen `designId`, der aktiven
+Datei, der Bildschirmliste, ausgewählten Bildschirm-IDs, Metadaten des
+ausgewählten Elements, Ansichtsmodus, Zoom, aktivem Werkzeug und Tweak-Werten.
+So kann eine Erweiterung Informationen zur aktuellen Auswahl anzeigen,
+Stilsteuerungen anbieten oder kompakte Workflows rund um das geöffnete Design
+erstellen.
+
+Für deterministische Arbeit können Erweiterungen App-Aktionen über die
+Erweiterungsbrücke aufrufen. Für KI-gesteuerte Änderungen sollte die Erweiterung
+`agentNative.chat.send(...)` mit dem Selektor/Quell-ID des ausgewählten Elements
+und der gewünschten Änderung aufrufen. Der Agent sollte zuerst `view-screen`
+aufrufen und dann `apply-visual-edit` für Stil-, Klassen-, Text- oder
+Verschiebungsänderungen an Elementen verwenden, oder `update-design` /
+`generate-design` mit `canvasFrames` für Änderungen an der Platzierung der
+Arbeitsfläche. Siehe [Extensions](/docs/extensions#what-an-extension-can-do)
+für Sandbox, persistente Daten und Bridge-APIs.
+
 ### Anpassen
 
 Design ist eine vollständige, klonbare Vorlage. Einige praktische Erweiterungsideen:

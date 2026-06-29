@@ -348,6 +348,56 @@ El agente siempre sabe lo que tienes abierto. `view-screen` devuelve el diseño 
 
 Debido a que un diseño son solo archivos HTML/JSX independientes, el agente edita la misma fuente que representa el iframe y de donde proviene cada exportación; no hay un formato de "maqueta de IA" independiente para traducir. Un sistema de diseño vinculado proporciona tokens y `custom_instructions` el agente honra en cada paso de generación. Seleccione texto o una región en la vista previa y presione Cmd+I para enfocar al agente exactamente en esa parte.
 
+### Modelo del editor
+
+Design prioriza la vista general para el trabajo con varias pantallas. Después
+de generar o aplicar actualizaciones amplias, el editor abre la vista general de
+pantallas: un lienzo infinito donde cada pantalla es un marco estático que se
+puede seleccionar, mover, redimensionar, soltar o duplicar. Usa el botón de vista completa del marco cuando una pantalla necesite
+desplazamiento enfocado o interacción de prototipo.
+
+El modo de una sola pantalla sirve para desplazarse, interactuar con el
+comportamiento del prototipo y editar las capas DOM/código dentro de un archivo
+renderizado. El panel de capas refleja esa división: las pantallas son marcos de
+nivel superior, con capas DOM/código anidadas para la pantalla activa.
+
+Para nombres de capa estables, agrega `data-agent-native-layer-name` a los
+elementos importantes. Design lo usa antes de los respaldos semánticos/de texto
+y puede persistir cambios de nombre editando ese atributo. HTML inline admite
+ediciones locales de capas de código para texto, clases, estilos, atributos,
+orden del código fuente y pequeños cambios estructurales; las ediciones visuales
+de capas de código solo admiten HTML por ahora. El modo de fuente localhost
+puede registrar y resolver artboards de rutas locales, pero las lecturas y
+escrituras de archivos locales siguen siendo un contrato de puente hasta que se
+endurezcan los controles explícitos de permisos.
+
+### Extensiones del editor de Design
+
+El editor incluye una pestaña de inspector **Extensions** después de
+**Tweaks**. Funciona como un carril de plugins específico de Design: los
+usuarios pueden hacer clic en **+ Extension** para pedirle al agente que cree
+una extensión, o instalar una extensión que declare el slot
+`design.editor.inspector`.
+
+Las extensiones de Design se renderizan en línea junto al artboard mediante el
+sandbox estándar de extensiones. El host pasa actualizaciones de
+`window.slotContext` y `window.onSlotContext(...)` con el `designId` actual, el
+archivo activo, la lista de pantallas, los ids de pantalla seleccionados, los
+metadatos del elemento seleccionado, el modo de vista, el zoom, la herramienta
+activa y los valores de tweaks. Eso permite que una extensión muestre
+información sobre la selección actual, ofrezca controles de estilo o construya
+flujos compactos alrededor del diseño abierto.
+
+Para trabajo determinista, las extensiones pueden llamar acciones de la app a
+través del puente de extensiones. Para cambios impulsados por IA, haz que la
+extensión llame `agentNative.chat.send(...)` con el selector/id de origen del
+elemento seleccionado y el cambio solicitado. El agente debe llamar primero
+`view-screen`, luego usar `apply-visual-edit` para cambios de estilo, clase,
+texto o movimiento de elementos, o `update-design` / `generate-design` con
+`canvasFrames` para cambios de colocación del artboard. Consulta
+[Extensions](/docs/extensions#what-an-extension-can-do) para el sandbox, el
+estado persistente y las APIs del puente.
+
 ### Personalizarlo
 
 El diseño es una plantilla completa y clonable. Algunas ideas prácticas de extensión:

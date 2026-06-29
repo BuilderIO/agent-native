@@ -140,8 +140,7 @@ export function buildChatModelGroups({
         ),
         configured:
           requiredEnvVars.length === 0 ||
-          requiredEnvVars.some((key) => configured.has(key)) ||
-          engine.name === currentEngineName,
+          requiredEnvVars.some((key) => configured.has(key)),
       };
     })
     .filter((group) => group.models.length > 0);

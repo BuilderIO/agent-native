@@ -20,6 +20,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  applyVoiceContextReplacements,
+  type VoiceContextPack,
+} from "../../voice/index.js";
 import { agentNativePath } from "../api-path.js";
 
 export type VoiceProvider =
@@ -38,11 +42,25 @@ export interface VoicePrefs {
   provider: VoiceProvider;
   transcriptionMode?: TranscriptionMode;
   instructions?: string;
+  cleanupEnabled?: boolean;
 }
 
+export interface VoiceCleanupPrefs {
+  enabled?: boolean;
+}
+
+type VoiceContextPackSource =
+  | VoiceContextPack
+  | (() => VoiceContextPack | undefined | Promise<VoiceContextPack | undefined>)
+  | undefined;
+
 const PREFS_KEY = "voice-transcription-prefs";
+const CLEANUP_PREFS_KEY = "voice-cleanup-prefs";
 const PREFS_URL = agentNativePath(
   `/_agent-native/application-state/${PREFS_KEY}`,
+);
+const CLEANUP_PREFS_URL = agentNativePath(
+  `/_agent-native/application-state/${CLEANUP_PREFS_KEY}`,
 );
 const TRANSCRIBE_URL = agentNativePath("/_agent-native/transcribe-voice");
 const GOOGLE_REALTIME_SESSION_URL = agentNativePath(
@@ -98,6 +116,7 @@ export interface UseVoiceDictationOptions {
   onError?: (message: string) => void;
   /** Called with (accumulatedFinalText, currentInterimText) as speech is recognized in real time. */
   onLiveUpdate?: (finalText: string, interimText: string) => void;
+  contextPack?: VoiceContextPackSource;
 }
 
 export interface VoiceDictationApi {
@@ -114,9 +133,15 @@ export interface VoiceDictationApi {
 }
 
 async function readVoicePrefs(): Promise<VoicePrefs> {
+  const cleanupPrefs = await readVoiceCleanupPrefs();
   try {
     const res = await fetch(PREFS_URL);
-    if (!res.ok) return { provider: await defaultProvider() };
+    if (!res.ok) {
+      return {
+        provider: await defaultProvider(),
+        cleanupEnabled: cleanupPrefs.enabled,
+      };
+    }
     const body = (await res.json()) as
       | VoicePrefs
       | { value?: VoicePrefs }
@@ -141,6 +166,7 @@ async function readVoicePrefs(): Promise<VoicePrefs> {
       return {
         transcriptionMode: mode,
         provider,
+        cleanupEnabled: cleanupPrefs.enabled,
         instructions:
           typeof instructions === "string" ? instructions.trim() : undefined,
       };
@@ -148,7 +174,27 @@ async function readVoicePrefs(): Promise<VoicePrefs> {
   } catch {
     /* fall through */
   }
-  return { provider: await defaultProvider() };
+  return {
+    provider: await defaultProvider(),
+    cleanupEnabled: cleanupPrefs.enabled,
+  };
+}
+
+async function readVoiceCleanupPrefs(): Promise<VoiceCleanupPrefs> {
+  try {
+    const res = await fetch(CLEANUP_PREFS_URL);
+    if (!res.ok) return {};
+    const body = (await res.json()) as
+      | VoiceCleanupPrefs
+      | { value?: VoiceCleanupPrefs }
+      | null;
+    const value =
+      (body as { value?: VoiceCleanupPrefs } | null)?.value ??
+      (body as VoiceCleanupPrefs | null);
+    return { enabled: value?.enabled === true };
+  } catch {
+    return {};
+  }
 }
 
 function getSpeechRecognitionCtor(): any {
@@ -176,6 +222,70 @@ function pickMimeType(): string {
     }
   }
   return "audio/webm";
+}
+
+async function resolveVoiceContextPack(
+  source: VoiceContextPackSource,
+): Promise<VoiceContextPack | undefined> {
+  try {
+    const value = typeof source === "function" ? await source() : source;
+    return value && typeof value === "object" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function appendVoiceContext(
+  form: FormData,
+  contextPack: VoiceContextPack | undefined,
+): void {
+  if (!contextPack) return;
+  try {
+    form.append("voiceContext", JSON.stringify(contextPack));
+  } catch {
+    /* best effort */
+  }
+}
+
+export function providerForTextCleanup(provider: VoiceProvider): VoiceProvider {
+  return provider === "google-realtime" ? "auto" : provider;
+}
+
+async function cleanupRecognizedText({
+  text,
+  provider,
+  instructions,
+  contextPack,
+}: {
+  text: string;
+  provider: VoiceProvider;
+  instructions?: string;
+  contextPack?: VoiceContextPack;
+}): Promise<string> {
+  if (provider === "browser") {
+    return applyVoiceContextReplacements(text, contextPack);
+  }
+
+  const form = new FormData();
+  form.append("text", text);
+  form.append("provider", providerForTextCleanup(provider));
+  if (instructions?.trim()) {
+    form.append("instructions", instructions.trim());
+  }
+  appendVoiceContext(form, contextPack);
+
+  const res = await fetch(TRANSCRIBE_URL, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ error: `HTTP ${res.status}` }));
+    throw new Error(body.error || `Transcript cleanup failed (${res.status})`);
+  }
+  const data = (await res.json()) as { text?: string };
+  return (data.text ?? "").trim() || text;
 }
 
 type BrowserDocumentPolicy = {
@@ -249,13 +359,15 @@ function voiceDictationSpeechErrorMessage(error: string | undefined): string {
 export function useVoiceDictation(
   options: UseVoiceDictationOptions,
 ): VoiceDictationApi {
-  const { onTranscript, onError, onLiveUpdate } = options;
+  const { onTranscript, onError, onLiveUpdate, contextPack } = options;
   const onTranscriptRef = useRef(onTranscript);
   const onErrorRef = useRef(onError);
   const onLiveUpdateRef = useRef(onLiveUpdate);
+  const contextPackRef = useRef(contextPack);
   onTranscriptRef.current = onTranscript;
   onErrorRef.current = onError;
   onLiveUpdateRef.current = onLiveUpdate;
+  contextPackRef.current = contextPack;
 
   const [state, setState] = useState<VoiceState>("idle");
   const [amplitude, setAmplitude] = useState(0);
@@ -366,6 +478,11 @@ export function useVoiceDictation(
     [teardown],
   );
 
+  const getVoiceContextPack = useCallback(
+    () => resolveVoiceContextPack(contextPackRef.current),
+    [],
+  );
+
   const startMeter = useCallback((stream: MediaStream) => {
     try {
       const AudioCtor =
@@ -456,6 +573,7 @@ export function useVoiceDictation(
           if (instructions?.trim()) {
             form.append("instructions", instructions.trim());
           }
+          appendVoiceContext(form, await getVoiceContextPack());
           const res = await fetch(TRANSCRIBE_URL, {
             method: "POST",
             body: form,
@@ -550,288 +668,339 @@ export function useVoiceDictation(
         }
       }
     },
-    [startMeter, startTimer, teardown, failWith],
+    [startMeter, startTimer, teardown, failWith, getVoiceContextPack],
   );
 
-  const startBrowser = useCallback(async () => {
-    const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor) {
-      throw new Error(
-        "Your browser doesn't support speech recognition. Add an OpenAI API key in settings for Whisper transcription.",
-      );
-    }
-    // Still request mic to drive the amplitude meter, so the UI doesn't look
-    // dead while the user talks. SpeechRecognition manages its own capture
-    // under the hood in most browsers.
-    let stream: MediaStream | null = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaStreamRef.current = stream;
-      startMeter(stream);
-    } catch {
-      /* non-fatal — recognition can still work without our analyser */
-    }
-
-    if (cancelledRef.current) {
-      if (stream) for (const track of stream.getTracks()) track.stop();
-      mediaStreamRef.current = null;
-      cancelledRef.current = false;
-      setState("idle");
-      return;
-    }
-
-    const recognition = new Ctor();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang =
-      (typeof navigator !== "undefined" && navigator.language) || "en-US";
-    speechRef.current = recognition;
-    speechTranscriptRef.current = "";
-
-    recognition.onresult = (event: any) => {
-      let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const text = result[0]?.transcript ?? "";
-        if (result.isFinal) {
-          speechTranscriptRef.current += text;
-        } else {
-          interim += text;
-        }
+  const startBrowser = useCallback(
+    async (prefs: VoicePrefs) => {
+      const Ctor = getSpeechRecognitionCtor();
+      if (!Ctor) {
+        throw new Error(
+          "Your browser doesn't support speech recognition. Add an OpenAI API key in settings for Whisper transcription.",
+        );
       }
-      onLiveUpdateRef.current?.(speechTranscriptRef.current, interim);
-    };
-    recognition.onerror = (event: any) => {
-      if (event?.error === "no-speech" || event?.error === "aborted") return;
-      failWith(voiceDictationSpeechErrorMessage(event?.error));
-    };
-    recognition.onend = () => {
-      const text = speechTranscriptRef.current.trim();
-      const wasCancelled = cancelledRef.current;
-      cancelledRef.current = false;
-      teardown();
-      if (!wasCancelled && text) onTranscriptRef.current?.(text);
-      setState("idle");
-    };
+      // Still request mic to drive the amplitude meter, so the UI doesn't look
+      // dead while the user talks. SpeechRecognition manages its own capture
+      // under the hood in most browsers.
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
+        startMeter(stream);
+      } catch {
+        /* non-fatal — recognition can still work without our analyser */
+      }
 
-    startTimer();
-    setState("recording");
-    recognition.start();
-  }, [startMeter, startTimer, teardown, failWith]);
-
-  const startGoogleRealtime = useCallback(async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    if (cancelledRef.current) {
-      for (const track of stream.getTracks()) track.stop();
-      cancelledRef.current = false;
-      setState("idle");
-      return;
-    }
-
-    const sessionRes = await fetch(GOOGLE_REALTIME_SESSION_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        language:
-          (typeof navigator !== "undefined" && navigator.language) || "en-US",
-      }),
-    });
-    const sessionBody = (await sessionRes
-      .json()
-      .catch(() => ({ error: `HTTP ${sessionRes.status}` }))) as {
-      websocketUrl?: string;
-      websocketProtocol?: string;
-      sessionToken?: string;
-      error?: string;
-    };
-    if (
-      !sessionRes.ok ||
-      !sessionBody.websocketUrl ||
-      !sessionBody.sessionToken
-    ) {
-      for (const track of stream.getTracks()) track.stop();
-      throw new Error(
-        sessionBody.error ||
-          `Could not start Google realtime transcription (${sessionRes.status})`,
-      );
-    }
-    if (cancelledRef.current) {
-      for (const track of stream.getTracks()) track.stop();
-      cancelledRef.current = false;
-      setState("idle");
-      return;
-    }
-
-    mediaStreamRef.current = stream;
-    const mimeType = pickMimeType();
-    const recorder = new MediaRecorder(stream, { mimeType });
-    mediaRecorderRef.current = recorder;
-    realtimeFinalRef.current = "";
-    realtimeInterimRef.current = "";
-
-    let finalized = false;
-    let recorderStarted = false;
-    const finish = (errorMessage?: string) => {
-      if (finalized) return;
-      finalized = true;
-      const finalText = realtimeFinalRef.current.trim();
-      const interimText = realtimeInterimRef.current.trim();
-      const text = [finalText, interimText].filter(Boolean).join(" ").trim();
-      teardown();
       if (cancelledRef.current) {
+        if (stream) for (const track of stream.getTracks()) track.stop();
+        mediaStreamRef.current = null;
         cancelledRef.current = false;
         setState("idle");
         return;
       }
-      if (text) {
-        onTranscriptRef.current?.(text);
+
+      const recognition = new Ctor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang =
+        (typeof navigator !== "undefined" && navigator.language) || "en-US";
+      speechRef.current = recognition;
+      speechTranscriptRef.current = "";
+
+      recognition.onresult = (event: any) => {
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const result = event.results[i];
+          const text = result[0]?.transcript ?? "";
+          if (result.isFinal) {
+            speechTranscriptRef.current += text;
+          } else {
+            interim += text;
+          }
+        }
+        onLiveUpdateRef.current?.(speechTranscriptRef.current, interim);
+      };
+      recognition.onerror = (event: any) => {
+        if (event?.error === "no-speech" || event?.error === "aborted") return;
+        failWith(voiceDictationSpeechErrorMessage(event?.error));
+      };
+      recognition.onend = () => {
+        const text = speechTranscriptRef.current.trim();
+        const wasCancelled = cancelledRef.current;
+        cancelledRef.current = false;
+        teardown();
+        if (wasCancelled || !text) {
+          setState("idle");
+          return;
+        }
+        void (async () => {
+          let finalText = text;
+          if (prefs.cleanupEnabled) {
+            setState("transcribing");
+            try {
+              finalText = await cleanupRecognizedText({
+                text,
+                provider: prefs.provider,
+                instructions: prefs.instructions,
+                contextPack: await getVoiceContextPack(),
+              });
+            } catch {
+              finalText = text;
+            }
+          }
+          if (!cancelledRef.current && finalText) {
+            onTranscriptRef.current?.(finalText);
+          }
+          cancelledRef.current = false;
+          setState("idle");
+        })();
+      };
+
+      startTimer();
+      setState("recording");
+      recognition.start();
+    },
+    [startMeter, startTimer, teardown, failWith, getVoiceContextPack],
+  );
+
+  const startGoogleRealtime = useCallback(
+    async (prefs: VoicePrefs) => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (cancelledRef.current) {
+        for (const track of stream.getTracks()) track.stop();
+        cancelledRef.current = false;
         setState("idle");
         return;
       }
-      if (errorMessage) {
-        failWith(errorMessage);
-        return;
-      }
-      setState("idle");
-    };
 
-    recorder.ondataavailable = async (event) => {
-      if (!event.data || event.data.size === 0) return;
-      const socket = realtimeSocketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) return;
-      try {
-        socket.send(await event.data.arrayBuffer());
-      } catch (err) {
-        finish((err as Error)?.message ?? "Realtime audio upload failed");
+      const sessionRes = await fetch(GOOGLE_REALTIME_SESSION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          language:
+            (typeof navigator !== "undefined" && navigator.language) || "en-US",
+        }),
+      });
+      const sessionBody = (await sessionRes
+        .json()
+        .catch(() => ({ error: `HTTP ${sessionRes.status}` }))) as {
+        websocketUrl?: string;
+        websocketProtocol?: string;
+        sessionToken?: string;
+        error?: string;
+      };
+      if (
+        !sessionRes.ok ||
+        !sessionBody.websocketUrl ||
+        !sessionBody.sessionToken
+      ) {
+        for (const track of stream.getTracks()) track.stop();
+        throw new Error(
+          sessionBody.error ||
+            `Could not start Google realtime transcription (${sessionRes.status})`,
+        );
       }
-    };
+      if (cancelledRef.current) {
+        for (const track of stream.getTracks()) track.stop();
+        cancelledRef.current = false;
+        setState("idle");
+        return;
+      }
 
-    recorder.onstop = () => {
-      const socket = realtimeSocketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        finish();
-        return;
-      }
-      setState("transcribing");
-      try {
-        socket.send(JSON.stringify({ type: "stop" }));
-      } catch {
-        finish();
-        return;
-      }
-      realtimeStopTimeoutRef.current = window.setTimeout(() => {
-        const activeSocket = realtimeSocketRef.current;
-        if (activeSocket?.readyState === WebSocket.OPEN) {
-          try {
-            activeSocket.close();
-          } catch {
-            finish();
+      mediaStreamRef.current = stream;
+      const mimeType = pickMimeType();
+      const recorder = new MediaRecorder(stream, { mimeType });
+      mediaRecorderRef.current = recorder;
+      realtimeFinalRef.current = "";
+      realtimeInterimRef.current = "";
+
+      let finalized = false;
+      let recorderStarted = false;
+      const finish = (errorMessage?: string) => {
+        if (finalized) return;
+        finalized = true;
+        void (async () => {
+          const finalText = realtimeFinalRef.current.trim();
+          const interimText = realtimeInterimRef.current.trim();
+          const text = [finalText, interimText]
+            .filter(Boolean)
+            .join(" ")
+            .trim();
+          teardown();
+          if (cancelledRef.current) {
+            cancelledRef.current = false;
+            setState("idle");
+            return;
+          }
+          if (text) {
+            let cleanedText = text;
+            if (prefs.cleanupEnabled) {
+              setState("transcribing");
+              try {
+                cleanedText = await cleanupRecognizedText({
+                  text,
+                  provider: prefs.provider,
+                  instructions: prefs.instructions,
+                  contextPack: await getVoiceContextPack(),
+                });
+              } catch {
+                cleanedText = text;
+              }
+            }
+            if (!cancelledRef.current && cleanedText) {
+              onTranscriptRef.current?.(cleanedText);
+            }
+            cancelledRef.current = false;
+            setState("idle");
+            return;
+          }
+          if (errorMessage) {
+            failWith(errorMessage);
+            return;
+          }
+          setState("idle");
+        })();
+      };
+
+      recorder.ondataavailable = async (event) => {
+        if (!event.data || event.data.size === 0) return;
+        const socket = realtimeSocketRef.current;
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        try {
+          socket.send(await event.data.arrayBuffer());
+        } catch (err) {
+          finish((err as Error)?.message ?? "Realtime audio upload failed");
+        }
+      };
+
+      recorder.onstop = () => {
+        const socket = realtimeSocketRef.current;
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          finish();
+          return;
+        }
+        setState("transcribing");
+        try {
+          socket.send(JSON.stringify({ type: "stop" }));
+        } catch {
+          finish();
+          return;
+        }
+        realtimeStopTimeoutRef.current = window.setTimeout(() => {
+          const activeSocket = realtimeSocketRef.current;
+          if (activeSocket?.readyState === WebSocket.OPEN) {
+            try {
+              activeSocket.close();
+            } catch {
+              finish();
+            }
+            return;
+          }
+          finish();
+        }, 10000);
+      };
+
+      const socket = new WebSocket(sessionBody.websocketUrl, [
+        sessionBody.websocketProtocol || GOOGLE_REALTIME_WS_PROTOCOL,
+        sessionBody.sessionToken,
+      ]);
+      socket.binaryType = "arraybuffer";
+      realtimeSocketRef.current = socket;
+
+      socket.onmessage = (event) => {
+        if (cancelledRef.current) {
+          finish();
+          return;
+        }
+        const raw =
+          typeof event.data === "string"
+            ? event.data
+            : event.data instanceof Blob
+              ? null
+              : new TextDecoder().decode(event.data);
+        if (!raw) return;
+        let message:
+          | {
+              type?: string;
+              text?: string;
+              error?: string;
+            }
+          | undefined;
+        try {
+          message = JSON.parse(raw);
+        } catch {
+          return;
+        }
+        if (!message?.type) return;
+        if (message.type === "ready") {
+          if (!recorderStarted) {
+            recorderStarted = true;
+            startMeter(stream);
+            startTimer();
+            setState("recording");
+            recorder.start(100);
           }
           return;
         }
-        finish();
-      }, 10000);
-    };
-
-    const socket = new WebSocket(sessionBody.websocketUrl, [
-      sessionBody.websocketProtocol || GOOGLE_REALTIME_WS_PROTOCOL,
-      sessionBody.sessionToken,
-    ]);
-    socket.binaryType = "arraybuffer";
-    realtimeSocketRef.current = socket;
-
-    socket.onmessage = (event) => {
-      if (cancelledRef.current) {
-        finish();
-        return;
-      }
-      const raw =
-        typeof event.data === "string"
-          ? event.data
-          : event.data instanceof Blob
-            ? null
-            : new TextDecoder().decode(event.data);
-      if (!raw) return;
-      let message:
-        | {
-            type?: string;
-            text?: string;
-            error?: string;
+        if (message.type === "partial") {
+          realtimeInterimRef.current = (message.text ?? "").trim();
+          onLiveUpdateRef.current?.(
+            realtimeFinalRef.current,
+            realtimeInterimRef.current,
+          );
+          return;
+        }
+        if (message.type === "final") {
+          const next = (message.text ?? "").trim();
+          if (next) {
+            realtimeFinalRef.current = [realtimeFinalRef.current.trim(), next]
+              .filter(Boolean)
+              .join(" ");
           }
-        | undefined;
-      try {
-        message = JSON.parse(raw);
-      } catch {
-        return;
-      }
-      if (!message?.type) return;
-      if (message.type === "ready") {
-        if (!recorderStarted) {
-          recorderStarted = true;
-          startMeter(stream);
-          startTimer();
-          setState("recording");
-          recorder.start(100);
+          realtimeInterimRef.current = "";
+          onLiveUpdateRef.current?.(realtimeFinalRef.current, "");
+          return;
         }
-        return;
-      }
-      if (message.type === "partial") {
-        realtimeInterimRef.current = (message.text ?? "").trim();
-        onLiveUpdateRef.current?.(
-          realtimeFinalRef.current,
-          realtimeInterimRef.current,
-        );
-        return;
-      }
-      if (message.type === "final") {
-        const next = (message.text ?? "").trim();
-        if (next) {
-          realtimeFinalRef.current = [realtimeFinalRef.current.trim(), next]
-            .filter(Boolean)
-            .join(" ");
+        if (message.type === "error") {
+          finish(message.error || "Google realtime transcription failed");
+          return;
         }
-        realtimeInterimRef.current = "";
-        onLiveUpdateRef.current?.(realtimeFinalRef.current, "");
-        return;
-      }
-      if (message.type === "error") {
-        finish(message.error || "Google realtime transcription failed");
-        return;
-      }
-      if (message.type === "end") {
+        if (message.type === "end") {
+          finish();
+        }
+      };
+
+      socket.onerror = () => {
+        finish("Google realtime transcription connection failed");
+      };
+
+      socket.onclose = () => {
         finish();
-      }
-    };
+      };
 
-    socket.onerror = () => {
-      finish("Google realtime transcription connection failed");
-    };
-
-    socket.onclose = () => {
-      finish();
-    };
-
-    socket.onopen = () => {
-      if (cancelledRef.current) {
-        finish();
-        return;
-      }
-      try {
-        socket.send(
-          JSON.stringify({
-            type: "start",
-            language:
-              (typeof navigator !== "undefined" && navigator.language) ||
-              "en-US",
-            interimResults: true,
-            mimeType,
-          }),
-        );
-      } catch (err) {
-        finish((err as Error)?.message ?? "Could not start realtime stream");
-      }
-    };
-  }, [startMeter, startTimer, teardown, failWith]);
+      socket.onopen = () => {
+        if (cancelledRef.current) {
+          finish();
+          return;
+        }
+        try {
+          socket.send(
+            JSON.stringify({
+              type: "start",
+              language:
+                (typeof navigator !== "undefined" && navigator.language) ||
+                "en-US",
+              interimResults: true,
+              mimeType,
+            }),
+          );
+        } catch (err) {
+          finish((err as Error)?.message ?? "Could not start realtime stream");
+        }
+      };
+    },
+    [startMeter, startTimer, teardown, failWith, getVoiceContextPack],
+  );
 
   const start = useCallback(async () => {
     if (state === "recording" || state === "starting") return;
@@ -875,9 +1044,9 @@ export function useVoiceDictation(
             "Your browser doesn't support audio recording, so Google realtime transcription can't start.",
           );
         }
-        await startGoogleRealtime();
+        await startGoogleRealtime(prefs);
       } else {
-        await startBrowser();
+        await startBrowser(prefs);
       }
     } catch (err) {
       if (cancelledRef.current) {

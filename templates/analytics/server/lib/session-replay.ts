@@ -988,11 +988,18 @@ function rowToSessionRecordingSummary(
 }
 
 function hasVisibleSessionRecordingIdentity(row: any): boolean {
-  return Boolean(replayEmail(row.userId) || replayString(row.anonymousId));
+  return Boolean(replayEmail(row.userId) || replayEmail(row.userKey));
+}
+
+function hasPlayableSessionRecordingEvents(row: any): boolean {
+  return Number(row.chunkCount ?? 0) > 0 && Number(row.eventCount ?? 0) > 0;
 }
 
 function isVisibleSessionRecording(row: any): boolean {
-  return hasVisibleSessionRecordingIdentity(row);
+  return (
+    hasVisibleSessionRecordingIdentity(row) &&
+    hasPlayableSessionRecordingEvents(row)
+  );
 }
 
 function mergeReplayMetadata(
@@ -1045,7 +1052,14 @@ function replayTextContains(column: unknown, query: string) {
 function replayVisibleIdentityCondition() {
   return or(
     replayTextContains(schema.sessionRecordings.userId, "@"),
-    sql`nullif(trim(coalesce(${schema.sessionRecordings.anonymousId}, '')), '') is not null`,
+    replayTextContains(schema.sessionRecordings.userKey, "@"),
+  );
+}
+
+function replayPlayableEventsCondition() {
+  return and(
+    gte(schema.sessionRecordings.chunkCount, 1),
+    gte(schema.sessionRecordings.eventCount, 1),
   );
 }
 
@@ -1353,6 +1367,7 @@ export async function listSessionRecordings(
       orgId: scope.orgId ?? undefined,
     }),
     replayVisibleIdentityCondition(),
+    replayPlayableEventsCondition(),
   ];
   if (filters.app)
     conditions.push(eq(schema.sessionRecordings.app, filters.app));
@@ -1363,7 +1378,12 @@ export async function listSessionRecordings(
     conditions.push(eq(schema.sessionRecordings.sessionId, filters.sessionId));
   }
   if (filters.userId) {
-    conditions.push(eq(schema.sessionRecordings.userId, filters.userId));
+    conditions.push(
+      or(
+        eq(schema.sessionRecordings.userId, filters.userId),
+        eq(schema.sessionRecordings.userKey, filters.userId),
+      ),
+    );
   }
   if (filters.anonymousId) {
     conditions.push(
