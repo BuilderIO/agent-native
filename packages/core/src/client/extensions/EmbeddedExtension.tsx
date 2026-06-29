@@ -29,6 +29,7 @@ import {
 } from "./delete-extension.js";
 import {
   extensionLoadError,
+  extensionLoadErrorStatus,
   shouldRetryExtensionLoad,
 } from "./extension-load-error.js";
 import {
@@ -78,6 +79,11 @@ export interface EmbeddedExtensionProps {
    * first height report, or iframe load as a fallback. Hosts that gate on
    * content paint (e.g. dashboard report screenshots) use this. */
   onReady?: () => void;
+  /** Fires when the extension can't be loaded for this viewer (e.g. 403/404 —
+   * the extension isn't shared with them or no longer exists). Hosts can use
+   * this to render an explanatory fallback instead of a blank panel. By default
+   * the component renders nothing on failure (slot-style silent skip). */
+  onUnavailable?: (status?: number) => void;
 }
 
 /**
@@ -92,6 +98,7 @@ export function EmbeddedExtension({
   className,
   initialHeight = 80,
   onReady,
+  onUnavailable,
 }: EmbeddedExtensionProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   // Latch the readiness signal so onReady fires at most once per iframe
@@ -135,6 +142,8 @@ export function EmbeddedExtension({
     data: extension,
     isFetching,
     isLoading,
+    isError,
+    error,
   } = useQuery<Extension>({
     queryKey: ["extension", extensionId],
     queryFn: async () => {
@@ -155,6 +164,21 @@ export function EmbeddedExtension({
     retry: shouldRetryExtensionLoad,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
   });
+
+  // Notify the host once when the extension can't be loaded for this viewer so
+  // it can show a fallback instead of a blank panel.
+  const onUnavailableRef = useRef(onUnavailable);
+  onUnavailableRef.current = onUnavailable;
+  const unavailableFiredRef = useRef(false);
+  useEffect(() => {
+    unavailableFiredRef.current = false;
+  }, [extensionId]);
+  useEffect(() => {
+    if (isError && !isFetching && !unavailableFiredRef.current) {
+      unavailableFiredRef.current = true;
+      onUnavailableRef.current?.(extensionLoadErrorStatus(error));
+    }
+  }, [isError, isFetching, error]);
 
   // Initial dark state is baked into the URL on first load only; subsequent
   // theme toggles update the iframe's <html class="dark"> via postMessage so

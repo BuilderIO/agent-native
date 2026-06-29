@@ -1070,9 +1070,25 @@ function DashboardExtensionPanel({
   extensionId: string;
   panelId: string;
 }) {
+  const t = useT();
   // Hold the report-readiness marker until the extension iframe paints so
   // dashboard report screenshots don't capture a blank extension panel.
   const [ready, setReady] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+
+  // Embedding never grants access to the extension itself (same model as
+  // ExtensionSlots). A viewer with dashboard-only access who can't see the
+  // referenced extension gets a clear message instead of a blank panel.
+  if (unavailable) {
+    return (
+      <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
+        <p className="text-sm text-muted-foreground text-center">
+          {t("sqlDashboard.extensionUnavailable")}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div
       className="w-full"
@@ -1083,6 +1099,11 @@ function DashboardExtensionPanel({
         slotId={`dashboard-panel-${panelId}`}
         className="w-full"
         onReady={() => setReady(true)}
+        onUnavailable={() => {
+          // Clear the report-loading gate so report capture doesn't hang.
+          setReady(true);
+          setUnavailable(true);
+        }}
       />
     </div>
   );
