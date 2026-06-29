@@ -7959,7 +7959,9 @@ ${serializedHtml}
             canPasteHere={hasCanvasClipboard && Boolean(activeFile)}
             canSelectAll={files.length > 0}
             canZoomToFit={Boolean(activeFile)}
-            canZoomToSelection={Boolean(selectedElement) || viewMode === "overview"}
+            canZoomToSelection={
+              Boolean(selectedElement) || viewMode === "overview"
+            }
             canCopy={Boolean(selectedElement?.selector)}
             canPaste={hasCanvasClipboard && Boolean(activeFile)}
             canPasteOver={hasCanvasClipboard && Boolean(activeFile)}

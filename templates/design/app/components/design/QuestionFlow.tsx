@@ -62,7 +62,8 @@ export function QuestionFlow({
 
   const isAnswered = (q: GuidedQuestion) => {
     const v = answers[q.id];
-    if (q.type === "freeform" && typeof v === "string") return v.trim().length > 0;
+    if (q.type === "freeform" && typeof v === "string")
+      return v.trim().length > 0;
     return hasGuidedAnswer(v);
   };
   const answeredCount = guidedQuestions.filter(isAnswered).length;

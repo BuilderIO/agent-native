@@ -4,9 +4,10 @@ import {
   callAction,
   isEmbedAuthActive,
 } from "@agent-native/core/client";
-import { toast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useCallback, useRef, useState } from "react";
+
+import { toast } from "@/hooks/use-toast";
 
 export const DESIGN_VARIANT_PICKED_EVENT = "agent-native-design-variant-picked";
 

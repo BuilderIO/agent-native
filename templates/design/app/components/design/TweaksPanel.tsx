@@ -288,8 +288,7 @@ function TweakControl({
           {(() => {
             const sliderMin = tweak.min ?? 0;
             const sliderMax = tweak.max ?? 100;
-            const rawNum =
-              typeof value === "number" ? value : Number(value);
+            const rawNum = typeof value === "number" ? value : Number(value);
             const sliderValue = Number.isFinite(rawNum)
               ? Math.min(sliderMax, Math.max(sliderMin, rawNum))
               : sliderMin;
@@ -306,7 +305,9 @@ function TweakControl({
                 <span className="min-w-[2ch] text-right text-[11px] tabular-nums text-muted-foreground">
                   {sliderValue}
                   {tweak.unit ??
-                    (tweak.cssVar?.toLowerCase().includes("radius") ? "px" : "")}
+                    (tweak.cssVar?.toLowerCase().includes("radius")
+                      ? "px"
+                      : "")}
                 </span>
               </>
             );
