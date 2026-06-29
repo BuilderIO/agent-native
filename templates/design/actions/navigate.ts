@@ -50,61 +50,74 @@ const designEditorToolSchema = z.enum([
 export default defineAction({
   description:
     "Navigate the UI to a specific view or path. Views: list, editor, design-systems, present, templates, settings. Use --designId with editor/present views and --designSystemId with design-systems. For designs, use editorView=overview to show the infinite screens canvas, or editorView=single with fileId/filename/screen to focus a screen. Use inspectorTab=extensions to focus the in-editor extension panel. Use tool to activate a design editor tool.",
-  schema: z.object({
-    view: z
-      .enum([
-        "list",
-        "editor",
-        "design-systems",
-        "present",
-        "templates",
-        "examples",
-        "settings",
-      ])
-      .optional()
-      .describe("View name to navigate to"),
-    designId: z.string().optional().describe("Design ID for editor/present"),
-    editorView: z
-      .enum(["single", "overview"])
-      .optional()
-      .describe(
-        "Design editor view: overview for the infinite screens canvas, single for a focused screen",
-      ),
-    viewMode: z
-      .enum(["single", "overview"])
-      .optional()
-      .describe("Alias for editorView"),
-    inspectorTab: z
-      .enum(["design", "tweaks", "extensions"])
-      .optional()
-      .describe("Design editor inspector tab to focus"),
-    inspector: z
-      .enum(["design", "tweaks", "extensions"])
-      .optional()
-      .describe("Alias for inspectorTab"),
-    fileId: z.string().optional().describe("Design file/screen ID to focus"),
-    screenId: z.string().optional().describe("Alias for fileId"),
-    filename: z
-      .string()
-      .optional()
-      .describe("Design screen filename to focus, such as checkout.html"),
-    screen: z
-      .string()
-      .optional()
-      .describe("Screen id, filename, or name to focus"),
-    zoom: z
-      .number()
-      .optional()
-      .describe("Optional design canvas zoom percentage"),
-    tool: designEditorToolSchema
-      .optional()
-      .describe("Optional design editor tool to activate"),
-    designSystemId: z
-      .string()
-      .optional()
-      .describe("Design system ID for design-systems view"),
-    path: z.string().optional().describe("URL path to navigate to"),
-  }),
+  schema: z
+    .object({
+      view: z
+        .enum([
+          "list",
+          "editor",
+          "design-systems",
+          "present",
+          "templates",
+          "examples",
+          "settings",
+        ])
+        .optional()
+        .describe("View name to navigate to"),
+      designId: z.string().optional().describe("Design ID for editor/present"),
+      editorView: z
+        .enum(["single", "overview"])
+        .optional()
+        .describe(
+          "Design editor view: overview for the infinite screens canvas, single for a focused screen",
+        ),
+      viewMode: z
+        .enum(["single", "overview"])
+        .optional()
+        .describe("Alias for editorView"),
+      inspectorTab: z
+        .enum(["design", "tweaks", "extensions"])
+        .optional()
+        .describe("Design editor inspector tab to focus"),
+      inspector: z
+        .enum(["design", "tweaks", "extensions"])
+        .optional()
+        .describe("Alias for inspectorTab"),
+      fileId: z.string().optional().describe("Design file/screen ID to focus"),
+      screenId: z.string().optional().describe("Alias for fileId"),
+      filename: z
+        .string()
+        .optional()
+        .describe("Design screen filename to focus, such as checkout.html"),
+      screen: z
+        .string()
+        .optional()
+        .describe("Screen id, filename, or name to focus"),
+      zoom: z
+        .number()
+        .optional()
+        .describe("Optional design canvas zoom percentage"),
+      tool: designEditorToolSchema
+        .optional()
+        .describe("Optional design editor tool to activate"),
+      designSystemId: z
+        .string()
+        .optional()
+        .describe("Design system ID for design-systems view"),
+      path: z.string().optional().describe("URL path to navigate to"),
+    })
+    .superRefine((args, ctx) => {
+      if (
+        (args.view === "editor" || args.view === "present") &&
+        !args.designId
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["designId"],
+          message: `designId is required for ${args.view} view`,
+        });
+      }
+    }),
   http: false,
   run: async (args) => {
     if (!args.view && !args.path) {

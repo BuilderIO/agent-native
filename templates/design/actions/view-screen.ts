@@ -95,10 +95,9 @@ export default defineAction({
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
           screens: files,
-          activeScreen:
-            files.find((file) => file.id === activeFileId) ??
-            files.find((file) => file.filename === activeFilename) ??
-            null,
+          activeScreen: activeFileId
+            ? (files.find((file) => file.id === activeFileId) ?? null)
+            : (files.find((file) => file.filename === activeFilename) ?? null),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
       }

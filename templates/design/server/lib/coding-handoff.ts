@@ -114,7 +114,10 @@ function injectResolvedTokensIntoHtml(
 ): string {
   const entries = Object.entries(resolvedCssVars);
   if (entries.length === 0) return content;
-  if (/applied-design-tokens/.test(content)) return content;
+  if (
+    /data-applied-design-tokens|\/\* applied-design-tokens \*\//.test(content)
+  )
+    return content;
 
   const decls = entries
     .map(([name, value]) => `  ${name}: ${value}; /* applied-design-tokens */`)
@@ -124,9 +127,35 @@ function injectResolvedTokensIntoHtml(
   const rootOpen = content.lastIndexOf(":root");
   if (rootOpen !== -1) {
     const braceOpen = content.indexOf("{", rootOpen);
-    const braceClose = content.indexOf("}", braceOpen);
-    if (braceOpen !== -1 && braceClose !== -1) {
-      return `${content.slice(0, braceClose)}\n${decls}\n${content.slice(braceClose)}`;
+    if (braceOpen !== -1) {
+      // Walk forward with a brace-depth counter so values containing `}`
+      // (e.g. url("}"), attr() fallbacks) don't fool us into injecting inside
+      // the value rather than at the end of the :root block.
+      let depth = 0;
+      let braceClose = -1;
+      let inSingle = false;
+      let inDouble = false;
+      for (let i = braceOpen; i < content.length; i++) {
+        const ch = content[i];
+        if (ch === "'" && !inDouble) {
+          inSingle = !inSingle;
+        } else if (ch === '"' && !inSingle) {
+          inDouble = !inDouble;
+        } else if (!inSingle && !inDouble) {
+          if (ch === "{") {
+            depth++;
+          } else if (ch === "}") {
+            depth--;
+            if (depth === 0) {
+              braceClose = i;
+              break;
+            }
+          }
+        }
+      }
+      if (braceClose !== -1) {
+        return `${content.slice(0, braceClose)}\n${decls}\n${content.slice(braceClose)}`;
+      }
     }
   }
 
