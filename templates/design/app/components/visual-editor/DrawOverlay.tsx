@@ -439,7 +439,7 @@ export function DrawOverlay({
       ref={containerRef}
       data-draw-overlay
       className={cn(
-        "absolute inset-0 z-30",
+        "absolute inset-0 z-[100]",
         canvasInteractive ? "pointer-events-auto" : "pointer-events-none",
       )}
     >
@@ -530,7 +530,7 @@ export function DrawOverlay({
       {/* Bottom toolbar */}
       <div
         data-draw-toolbar
-        className="pointer-events-auto absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
+        className="pointer-events-auto fixed bottom-4 left-1/2 z-[110] flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
       >
         {/* Color picker */}
         <div className="flex gap-1">
