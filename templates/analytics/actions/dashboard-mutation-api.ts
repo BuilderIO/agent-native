@@ -28,6 +28,8 @@ type DashboardPatch = {
   columns?: number;
   filters?: unknown[];
   variables?: Record<string, string>;
+  /** Id of another dashboard to nest this one under in the sidebar. */
+  parentId?: string;
 };
 
 type PanelPatch = {
