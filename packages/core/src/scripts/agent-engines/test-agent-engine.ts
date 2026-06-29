@@ -5,8 +5,18 @@
 import {
   getAgentEngineEntry,
   registerBuiltinEngines,
+  type AgentEngineEntry,
 } from "../../agent/engine/index.js";
+import {
+  normalizeOpenAiBaseUrl,
+  OPENAI_BASE_URL_ENV_VAR,
+} from "../../agent/engine/openai-compatible-endpoint.js";
 import type { ActionTool } from "../../agent/types.js";
+import {
+  canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
+  resolveSecret,
+} from "../../server/credential-provider.js";
 
 export const tool: ActionTool = {
   description:
@@ -24,10 +34,53 @@ export const tool: ActionTool = {
         description:
           "Model to use for the test. Defaults to the engine's default model.",
       },
+      baseUrl: {
+        type: "string",
+        description:
+          'Optional OpenAI-compatible endpoint URL to test with "ai-sdk:openai". Uses the saved endpoint when omitted.',
+      },
     },
     required: [],
   },
 };
+
+async function resolveAgentEngineSecret(
+  key: string,
+): Promise<string | undefined> {
+  try {
+    const value = await resolveSecret(key);
+    if (value) return value;
+  } catch {
+    // Fall through to deploy env when this request is allowed to use it.
+  }
+  return canUseDeployCredentialFallbackForRequest()
+    ? readDeployCredentialEnv(key)
+    : undefined;
+}
+
+async function createEngineConfig(
+  entry: AgentEngineEntry,
+  args: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  const config: Record<string, unknown> = {
+    apiKey:
+      entry.requiredEnvVars.length > 0
+        ? await resolveAgentEngineSecret(entry.requiredEnvVars[0])
+        : undefined,
+    allowEnvFallback: canUseDeployCredentialFallbackForRequest(),
+  };
+
+  if (entry.name === "ai-sdk:openai") {
+    const rawBaseUrl = args.baseUrl?.trim()
+      ? args.baseUrl
+      : await resolveAgentEngineSecret(OPENAI_BASE_URL_ENV_VAR);
+    if (rawBaseUrl) {
+      config.baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
+    }
+  }
+
+  return config;
+}
 
 export async function run(args: Record<string, string>): Promise<string> {
   registerBuiltinEngines();
@@ -44,12 +97,7 @@ export async function run(args: Record<string, string>): Promise<string> {
   const model = args.model ?? entry.defaultModel;
 
   try {
-    const engine = entry.create({
-      apiKey:
-        entry.requiredEnvVars.length > 0
-          ? process.env[entry.requiredEnvVars[0]]
-          : undefined,
-    });
+    const engine = entry.create(await createEngineConfig(entry, args));
 
     const start = Date.now();
     const controller = new AbortController();

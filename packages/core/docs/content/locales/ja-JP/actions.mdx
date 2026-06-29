@@ -1,0 +1,666 @@
+---
+title: "Actions"
+description: "defineAction — エージェント ツール、型指定されたフロントエンド フック、フレームワーク トランスポート、MCP ツール、および CLI コマンドとなる単一の定義。"
+---
+
+# Actions
+
+Actions は、アプリの動作に関する唯一の信頼できる情報源です。 `defineAction()` でアクションを一度定義し、それを `actions/` にドロップすると、次のようにすぐに使用できるようになります。
+
+- **エージェント ツール** — エージェントは zod 派生の JSON スキーマを使用してそれを認識し、チャットで呼び出すことができます。
+- **タイプセーフ React フック** — フロントエンドの `useActionQuery("name")` および `useActionMutation("name")`、タイプはスキーマから推論されます。
+- **命令型クライアント呼び出し** — フックが適合しない場合の `callAction("name", params)`。
+- **フレームワーク トランスポート** — これらのフックの背後にあるフレームワークによって自動マウントされ、外部 HTTP クライアントが利用できます。
+- **MCP ツール** — Claude、ChatGPT カスタム MCP アプリ、Claude デスクトップ/コード、カーソル、Codex、およびその他の MCP クライアントに公開されます。
+- **A2A ツール** — A2A 経由で他のエージェント ネイティブ アプリによって呼び出されます。
+- **A CLI コマンド** — スクリプト作成および開発ループ用の `pnpm action <name>`。
+
+1 つの定義、7 人の消費者。これは [ladder](/docs/what-is-agent-native#the-ladder) の 3 行目です。
+操作をヘッドレス、チャット、またはチャットで公開するかどうかを決定している場合
+埋め込みサイドカー、またはアプリの全画面として、[Agent Surfaces](/docs/agent-surfaces) を参照してください。
+
+<Diagram id="doc-block-1qbhmx6" title={"1 つの定義、7 人の消費者"} summary={"単一の defineAction() は、1 つの検証済みスキーマと 1 つの run() 本体を備えたすべてのサーフェス (エージェント、UI、HTTP、MCP、A2A、および CLI) にファンアウトされます。"}>
+
+```html
+<div class="diagram-fanout">
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">defineAction()</span
+    ><small class="diagram-muted">schema + run()、一度だけ定義</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-grid">
+    <div class="diagram-node">
+      エージェントツール<br /><small class="diagram-muted"
+        >コンテキスト内の JSON Schema</small
+      >
+    </div>
+    <div class="diagram-node">
+      React フック<br /><small class="diagram-muted"
+        >useActionQuery/Mutation</small
+      >
+    </div>
+    <div class="diagram-node">
+      callAction()<br /><small class="diagram-muted">命令型クライアント</small>
+    </div>
+    <div class="diagram-node">
+      HTTP<br /><small class="diagram-muted"
+        >/_agent-native/actions/:name</small
+      >
+    </div>
+    <div class="diagram-node">
+      MCP ツール<br /><small class="diagram-muted">外部ホスト</small>
+    </div>
+    <div class="diagram-node">
+      A2Aツール<br /><small class="diagram-muted"
+        >他の agent-native アプリ</small
+      >
+    </div>
+    <div class="diagram-node">
+      CLI<br /><small class="diagram-muted">pnpm action &lt;name&gt;</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fanout {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-fanout .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-fanout .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-fanout .diagram-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+```
+
+</Diagram>
+
+UI とエージェントの両方が何かを行う必要がある場合は、カスタムではなくアクションを実行します
+ルート。ルート型プロトコルが適切な呼び出しである場合については、「Actions を優先する
+アプリ操作用](/docs/server#actions-first)。
+
+## まずは 1 つのアクションから始めましょう {#hello-action}
+
+プリミティブファーストオンランプは 1 つのアクションであり、テンプレートではありません。首なし
+`agent-native create my-agent --headless` などの足場。
+最初のアプリ全体:
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "ローカルエージェントから挨拶します。",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+同じフォルダーから実行します。
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+CLI は、構造化されたものと一致する JSON オブジェクトをアクション入力として受け入れます。
+エージェントがすでに作成したツール呼び出し。単純なフラグは、迅速な手動実行でも機能します:
+
+```bash
+pnpm action hello --name Steve
+```
+
+次に、フォルダーに対して app-agent ループを実行します。
+
+```bash
+pnpm agent "Call hello for Steve and explain the result"
+```
+
+これは、スケジュールされたジョブ、チャット UI、外部 MCP と同じアプリとエージェントのループです
+ツール、および将来の画面で使用されます。チャットとドメインのテンプレートは、UI
+actions 付近ですが、アクション自体の必要な前提条件ではありません。
+
+## アクションの定義 {#defining}
+
+<AnnotatedCode
+  id="doc-block-6tp7g5"
+  title={"アクションの構造"}
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    await db.insert(replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "5",
+      label: "ツール面",
+      note: "`description` は、エージェントがこれをいつ呼び出すか判断するために読む内容です。各フィールドの `.describe()` も JSON Schema に反映されます。",
+    },
+    {
+      lines: "6-9",
+      label: "型付き契約",
+      note: "1つの schema が**すべて**のサーフェスからの入力を検証し、モデル向けに JSON Schema へ変換します。無効な入力が `run` に届くことはありません。",
+    },
+    {
+      lines: "10-13",
+      label: "単一の実装",
+      note: "`run` 本体が唯一の信頼できる実装です。UI ボタンとエージェントツールはどちらもこれをそのまま実行します。",
+    },
+  ]}
+/>
+
+それだけです。フレームワークは、`actions/` 内のすべてのファイルを自動検出し、起動時にそれらをマウントします。
+
+### スキーマ オプション {#schemas}
+
+`schema` は、[Standard Schema](https://standardschema.dev) 互換ライブラリを受け入れます:
+
+- **Zod** (v4) — 最も一般的で最良の型推論、JSON スキーマに自動変換されます。
+- **Valibot** — 重要な場合の最小バンドル サイズ。
+- **ArkType** — 構文が気に入った場合。
+
+スキーマは、Claude API ツール定義の JSON スキーマに変換され、実行時に _および_ `run()` が起動する前に入力を検証するために使用されます。無効な入力はハンドラーに到達しません。
+
+### 戻り値の検証 {#output-schema}
+
+`schema` は _inputs_ を検証します。アクションが**返す**ことも検証するには、`outputSchema` (標準スキーマ互換のスキーマ - Zod、Valibot、ArkType、`schema` と同じサーフェス) を渡します。フレームワークは、`run()` の解決後、入力検証を組み合わせて結果を検証します。入力は `run` の前に検証され、出力は後に検証されます。
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` は、不一致の場合に何が起こるかを制御します:
+
+| 戦略         | 不一致時の動作                                                                          |
+| ------------ | --------------------------------------------------------------------------------------- |
+| `"warn"`     | **Default.** `console.warn` 問題を解決し、**元の** 結果を変更せずに返します。壊れない。 |
+| `"strict"`   | 明らかなエラーをスローして、バグのあるアクションが大々的に表面化するようにします。      |
+| `"fallback"` | 無効な結果の代わりに、指定された `outputFallback` 値を返します。                        |
+
+成功すると、**validated** 値が返されるため、`outputSchema` で定義された強制またはデフォルトが有効になります (入力パスをミラーリングします)。 `outputSchema` が指定されていない場合、動作はバイトごとに変更されず、ラッピングは行われません。これは Mastra/Flue の構造化出力から借用されており、アクション層では依存関係がありません。
+
+### HTTP 構成 {#http}
+
+デフォルトでは、すべてのアクションは `POST /_agent-native/actions/<name>` として公開されます。 `http` オプションでオーバーライドします:
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+`GET` アクションの場合、`leadId` はクエリ パラメーター `/_agent-native/actions/get-lead?leadId=abc` として渡されます。
+
+<Endpoint id="doc-block-1md4rwo" title={"自動マウントされる action エンドポイント"} method="GET" path="/_agent-native/actions/get-lead" summary={"すべての action はここに自動でマウントされます。ファイル名が action 名になります。"} auth={"セッション cookie。フロントエンド呼び出しには `X-Agent-Native-Frontend: 1` が付きます"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "GET 引数は query params として届き、POST 引数は JSON body に届きます。"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "action の戻り値を JSON として返します。"
+  },
+  {
+    "status": "400",
+    "description": "run() が実行される前に入力が schema 検証に失敗しました。"
+  }
+]}>
+
+デフォルトは POST です。`http: { method: "GET" }` で GET になります。React フック と `callAction` は、`http.path` の上書きに関係なく常にこのパスを名前で呼び出します。
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`** — デフォルトは `POST`。 `GET` actions は `readOnly` に自動マークされるため、呼び出しが成功しても UI ポーリング更新はトリガーされません。
+- **`http: { path: "..." }`** — `/_agent-native/actions/` の下にマウントされた URL をオーバーライドします。デフォルトはファイル名です。 **パス オーバーライドは、直接 HTTP 呼び出し元に対してのみ URL を変更します** — `useActionQuery`、`useActionMutation`、および `callAction` は、このオーバーライドに関係なく常に `/_agent-native/actions/<name>` を呼び出すため、パスをオーバーライドするとそれらのフックが 404 になります。パス オーバーライドは、外部 HTTP 呼び出し元に対してのみ使用してください。また、オーバーライド パス内の `:param` ルート セグメントは、`run()` 引数に解析されない\*\*ことにも注意してください。解析されるのは、クエリ文字列パラメータと JSON 本体フィールドのみです。
+- **`http: false`** — HTTP エンドポイントを完全に無効にします。エージェント + CLI のみ。
+- **`readOnly: true`** — 変異しない POST actions の場合でも、ポーリング更新を明示的にスキップします。
+- **`parallelSafe: true`** — 変更アクションを他の同じターンのツール呼び出しと同時に実行できるようにします。これは、アクションが内部的に同時実行性が安全で、順序に依存しない場合にのみ設定します。デフォルトで actions シリアル化を変更します。
+
+### アクション面を小さく保つ {#small-surface}
+
+エージェントが認識できるすべてのアクションはモデルのコンテキスト ウィンドウ内のツールであり、重複する長いツール リストはモデルのツール選択の品質を低下させます。 UI アフォーダンスごとに 1 つのアクションではなく、維持する API のようにアクション サーフェスを設計します。
+
+- フィールドごとに N 個の actions (`update-name`、`update-order`、`update-color` など) よりもオプションのフィールドのパッチを取る **1 つの CRUD スタイル `update`** を優先します。呼び出し元は変更されたもののみを送信します。
+- クエリ/フィルターごとに新しい読み取りアクションを追加する前に、一般的なエスケープ ハッチ、プロバイダー データの場合は [provider API trio](/docs/template-dispatch) (`provider-api-catalog` / `provider-api-docs` / `provider-api-request`)、アプリ データの場合は dev `db-query` ツールを使用します。
+- UI 専用またはプログラム的な actions [`agentTool: false`](#agent-tool) をマークすると、モデルのツール リストのスロットを消費せずにフロントエンド/HTTP 呼び出し可能のままになります。
+- UI が使用しなくなった actions をモデルに公開したままにするのではなく、削除または非表示にします。
+
+リポジトリレベルのアドバイザリーヘルパー `node scripts/audit-template-actions.mjs [template ...]` (別名 `pnpm actions:audit`) は、テンプレートの `actions/` を静的にスキャンし、UI が無効である可能性のある actions と冗長なフィールドごとのクラスターにフラグを立てます。これはアドバイスのみであり (常に 0 で終了し、CI が失敗することはありません)、保守的なヒューリスティックを使用するため、提案をエラーとして扱うのではなく確認してください。
+
+### 露出フラグ {#exposure-flags}
+
+4 つのフラグは、誰がアクションを呼び出せるかを制御します。デフォルトではすべて許容値に設定されているため、特定のサーフェスを締め付けるには 1 つだけを設定します。この表は一目でわかる概要を示しています。サブセクションでは、それぞれに必要な詳細を 1 つ追加します。
+
+| 旗              | デフォルト          | 制限値 → 引き続き通話できる人                                                          | 一般的な使用法                                                           |
+| --------------- | ------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `agentTool`     | `true`              | `false` → UI、HTTP、CLI のみ — **モデルから非表示**、MCP、および A2A                   | UI のみ / ツール スロットを消費しないプログラム的な actions              |
+| `toolCallable`  | `true`              | `false` → **サンドボックス拡張機能 iframe ブリッジ (403) を除く**すべて                | 認証に隣接する操作 (アカウントの削除、組織のメンバーシップ/ロールの変更) |
+| `publicAgent`   | オフ (プライベート) | `{ expose: true }` → **パブリック** MCP/A2A/OpenAPI サーフェスにアクションを追加します | 認証なしでアクセス可能な安全な読み取り/取り込みツール                    |
+| `needsApproval` | `false`             | `true` → エージェントは **一時停止**;人間が特定の呼び出しを承認する必要があります      | 結果的な副作用 (メールの送信、カードの請求、削除)                        |
+
+これらは独立しています: `agentTool` はモデルのビューを制御し、`toolCallable` は拡張機能 iframe のみを制御し、`publicAgent` はオプトイン パブリック サーフェスを追加し (パブリック Web ルートがパブリック ツールの公開を暗黙することはありません)、`needsApproval` は呼び出しが行われた後に実行をゲートします — 以下の [Human-in-the-loop approval](#needs-approval) を参照してください。
+
+#### `agentTool` — モデルから隠す {#agent-tool}
+
+デフォルトでは、すべてのアクションは呼び出し可能なエージェント ツールです。 `agentTool: false` を、すべてのエージェント ツール リストから削除しながら、フレームワークの認証 + アクション サーフェスの背後に保持するように設定します。これは、UI (`useActionMutation` / `callAction`)、CLI、および `/_agent-native/actions/<name>` から呼び出し可能なままです。
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only — not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+UI 専用または純粋にプログラム的なアクションを追加する場合、またはモデルに公開したままにするアクションの使用を UI が停止する場合に、このアクションを実行してください。
+
+#### `toolCallable` — 拡張機能 iframe をブロックする {#tool-callable}
+
+拡張機能 ([Alpine.js mini-apps in sandboxed iframes](/docs/extensions)) は、`appAction(name, params)` 経由で actions を呼び出し、_viewer_ の権限、シークレット、および SQL スコープで実行されます。高爆発範囲の操作の場合、デフォルトでは信頼が高すぎます。 UI、エージェント、CLI、MCP、および A2A からアクションを呼び出し可能な状態に保ちながら、拡張ブリッジが 403 を返すように `toolCallable: false` を設定します。
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+アカウント/組織の削除または転送、認証状態の変更、組織メンバーシップの変更、または共有アクセスの付与を行う actions に使用します。フレームワークの組み込み `share-resource`、`unshare-resource`、および `set-resource-visibility` はすでにオプトアウトされています。強制は、iframe 呼び出しのスプーフィング不可能なホストセット ヘッダーによって行われます。通常の UI/agent/CLI/MCP/A2A 呼び出しは影響を受けません。詳細については、[Security](/docs/security) を参照してください。
+
+### 実行コンテキスト (2 番目の引数) {#run-context}
+
+`run` は、オプションの 2 番目の引数 `ctx` を受け取り、解決されたリクエスト ID とアクションを呼び出したサーフェスを保持します。 `getRequestUserEmail()` / `getRequestOrgId()` を手動で呼び出す代わりにそれを読み取り、`ctx` 全体を追跡に渡します。
+
+```ts
+export default defineAction({
+  description: "Log an audit entry for the current request.",
+  schema: z.object({ event: z.string() }),
+  run: async (args, ctx) => {
+    // ctx is undefined-safe: a 1-arg `run(args)` is still valid.
+    const actor = ctx?.userEmail ?? "system";
+    if (ctx?.caller === "frontend") {
+      // tighter rules for browser-initiated calls, looser for "tool"/"cli"
+    }
+    await db.insert(audit).values({
+      actor,
+      orgId: ctx?.orgId ?? null,
+      source: ctx?.caller ?? "unknown",
+      event: args.event,
+    });
+    return { ok: true };
+  },
+});
+```
+
+`ActionRunContext` フィールド:
+
+| フィールド    | タイプ                  | メモ                                                                                                                                                                       |
+| ------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `userEmail`   | `string \| undefined`   | Resolved request user. **Never defaulted to a dev identity** — `undefined` when the request has no authenticated user. Apply your own fallback if you need one.            |
+| `orgId`       | `string \| null`        | Resolved org id, or `null` when the request has no org.                                                                                                                    |
+| `caller`      | `ActionCaller`          | アクションがどのように呼び出されたか (下記を参照)。                                                                                                                        |
+| `send`        | `(event) => void`       | オプション。 SSE イベントをクライアントに送信します。エージェント ツール ループ (`caller: "tool"`) 内にのみ存在します。 `undefined` は別の場所。                           |
+| `attachments` | `AgentChatAttachment[]` | 現在のエージェント ターンで送信されたファイル、画像、および貼り付けられたテキスト ブロック。 `caller: "tool"` の場合にのみ設定されます。他のすべての表面では `undefined`。 |
+
+`caller` は共用体 `"tool" | "http" | "frontend" | "cli" | "mcp" | "a2a"` です:
+
+| `caller`     | 次の場合に設定します…                                                                                                                                                        |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"tool"`     | アプリ内エージェント ループ、サブエージェント/エージェント チーム、または A2A リクエスト (A2A は同じエージェント ループを駆動するため、そのツール呼び出しは `"tool"` です)。 |
+| `"frontend"` | `useActionMutation` / `useActionQuery` / `callAction` (`X-Agent-Native-Frontend: 1` ヘッダーでタグ付け) を介したブラウザー呼び出し。                                         |
+| `"http"`     | フロントエンド マーカーのない、裸のプログラム `POST` / `GET` から `/_agent-native/actions/<name>` まで。                                                                     |
+| `"cli"`      | `pnpm action <name>` (CLI ランナー)。                                                                                                                                        |
+| `"mcp"`      | MCP `tools/call` エンドポイント上の外部エージェント。                                                                                                                        |
+| `"a2a"`      | 将来の直接 A2A アクション ディスパッチのために予約されています。現在、A2A はエージェント ループを介して実行されるため、これらの呼び出しは `"tool"` になります。              |
+
+`run` は下位互換性を維持します。既存の 1 引数ハンドラーと `{ send }` を構造化するだけのハンドラーは、引き続き変更されずに動作します。
+
+### actions のアクセス制御 {#access-control}
+
+ユーザー所有のテーブルは、`accessFilter` を介して読み取り、`assertAccess` を介して書き込みをスコープする必要があります。これは、フレームワークの共有システムが使用するのと同じヘルパーです。これは、すぐに貼り付けられる完全な例です:
+
+```ts
+// actions/create-lead.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+export default defineAction({
+  description: "Create a lead in the CRM.",
+  schema: z.object({ name: z.string(), company: z.string() }),
+  run: async ({ name, company }, ctx) => {
+    const db = getDb();
+    await db.insert(schema.leads).values({
+      id: crypto.randomUUID(),
+      name,
+      company,
+      ownerEmail: ctx?.userEmail ?? "system",
+    });
+    return { ok: true };
+  },
+});
+```
+
+リストおよび読み取り actions の場合、`accessFilter` を使用してクエリの範囲を現在のユーザーと組織に設定します。特定の行を更新または削除する actions の場合は、書き込む前に `assertAccess` を使用して呼び出し元が許可されていることを確認してください。完全なヘルパー API については、[Security](/docs/security#access-guards) および [Sharing](/docs/sharing) を参照してください。
+
+### 人間参加者の承認 {#needs-approval}
+
+少数の actions は、電子メールの送信、カードへのチャージ、アカウントの削除など、エージェントを自律的に実行させるには重大すぎます。これらの場合は、`needsApproval` を設定してループを一時停止し、`run()` が実行される前に人間による特定の呼び出しの承認を要求します。
+
+```ts
+export default defineAction({
+  description: "Send an email via Gmail.",
+  schema: z.object({ to: z.string(), subject: z.string(), body: z.string() }),
+  needsApproval: true, // pause; a human must approve this specific send
+  run: async (args) => {
+    /* ...actually send... */
+  },
+});
+```
+
+`needsApproval` は、条件付きでゲートするための述語 `(args, ctx) => boolean | Promise<boolean>` も受け入れます (例: 外部受信者のみ、しきい値を超えた場合のみ)。 **失敗して閉じられる**ため、スローは「承認が必要」としてカウントされます。ゲートが真実で未承認の場合、ループはターンを停止し、チャット UI で人間が承認するまで副作用は発生しません。
+
+> [!WARNING]
+> 承認は稀に保ちます。各ゲート アクションはエージェント ループのハード ストップです。デフォルトは **オフ** であり、ほとんどすべてのアクションではオフのままにする必要があります。述語 API、`approval_required` イベント、および完全なフローについては、「[Human-in-the-Loop Approvals](/docs/human-approval)」を参照してください。
+
+### 監査ログ {#audit}
+
+すべての変更アクションは **自動的に監査**されます。フレームワークは、誰が、いつ、どのサーフェスから実行し、(エージェントだった場合は) どのスレッド/ターンを実行したかを、認証情報が編集された入力とともに記録します。読み取り専用 (`GET`) actions はスキップされます。このためのコードを記述する必要はありません。それは `defineAction` の継ぎ目で発生します。
+
+`audit` ブロックを \_tune_capture にのみ追加します。これは、アクションが変更されたリソースを宣言して、変更がそのリソースの所有者の証跡に表示されるようにするのに最も役立ちます。
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+その他のノブ: `audit: { onRead: true }` は機密読み取り (秘密アクセス、一括エクスポート) を監査します。 `audit: { enabled: false }` はノイズの多い書き込みを選択します。 `audit: { recordInputs: false }` は引数のキャプチャをスキップします。内蔵の `list-audit-events` / `get-audit-event` actions を使用してトレイルを読み取ります。詳細については、[Audit Log](/docs/audit-log) をご覧ください。
+
+## UI からの呼び出し {#ui}
+
+フックが 2 つあり、両方とも `@agent-native/core/client` です。型は `defineAction` スキーマから推論されます。手動で型を宣言する必要はありません。
+
+### `useActionMutation` {#use-action-mutation}
+
+状態が変化する actions の場合:
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client";
+
+const { mutate, isPending } = useActionMutation("reply-to-email");
+
+<Button
+  disabled={isPending}
+  onClick={() => mutate({ emailId, body: "Thanks!" })}
+>
+  Send Reply
+</Button>;
+```
+
+成功すると、フレームワークは `source: "action"` で変更イベントを発行し、`useActionQuery` コンシューマーとアクティブなクエリ オブザーバーが自動的に再フェッチします。 [Live Sync](/docs/key-concepts#polling-sync) を参照してください。
+
+### `useActionQuery` {#use-action-query}
+
+読み取り専用 GET actions の場合:
+
+```ts
+import { useActionQuery } from "@agent-native/core/client";
+
+const { data, isLoading } = useActionQuery("get-lead", { leadId });
+```
+
+クエリは `["action", "get-lead", { leadId }]` の下にキャッシュされ、変更アクションが完了すると自動的に無効になります。
+
+## ネイティブ チャット UI をレンダリング中 {#native-chat-ui}
+
+Actions は、アプリ内チャットがレンダリングする構造化ウィジェット データを返すことができます
+ネイティブ。これは、再利用可能なテーブル、グラフ、セットアップのためのファーストパーティ チャット パスです
+summaries, and insight cards; use [MCP Apps](/docs/mcp-apps) for inline UI in
+外部 MCP ホスト。
+
+```ts
+import { defineAction } from "@agent-native/core/action";
+import { ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER } from "@agent-native/core/action-ui";
+import {
+  createDataInsightsWidgetResult,
+  dataInsightsWidgetResultSchema,
+} from "@agent-native/core/data-widgets";
+
+export default defineAction({
+  description: "Summarize response trends.",
+  readOnly: true,
+  outputSchema: dataInsightsWidgetResultSchema,
+  chatUI: { renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER },
+  run: async () =>
+    createDataInsightsWidgetResult({
+      title: "Response trends",
+      chartSeries: {
+        type: "line",
+        xKey: "day",
+        series: [{ key: "responses", label: "Responses" }],
+        data: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+      table: {
+        columns: [
+          { key: "day", label: "Day" },
+          { key: "responses", label: "Responses", align: "right" },
+        ],
+        rows: [
+          { day: "Mon", responses: 12 },
+          { day: "Tue", responses: 18 },
+        ],
+      },
+    }),
+});
+```
+
+組み込みの判別式は `"data-table"`、`"data-chart"`、および
+`"data-insights"`、サーバーセーフなビルダーとスキーマを含む
+`@agent-native/core/data-widgets`。 [Native チャット UI](/docs/native-chat-ui)
+完全な結果契約と BYO ランタイム ガイダンスの場合、または
+同じアクションを維持する方法については [Agent Surfaces](/docs/agent-surfaces)
+ヘッドレス、チャットでのレンダリング、または全画面表示。
+
+## CLI からの呼び出し {#cli}
+
+すべてのアクションは `pnpm action` 経由で実行可能です:
+
+```bash
+pnpm action reply-to-email '{"emailId":"thread-123","body":"Thanks!"}'
+```
+
+JSON 入力は、エージェントおよび複雑なオブジェクトに推奨される形状です。フラグは
+単純な手動実行と既存のスキーマ形状に引き続き解析されます
+スクリプト。エージェント開発ループ、スクリプト、および cron に役立ちます。
+
+## 別のエージェント (A2A) からの呼び出し {#a2a}
+
+アプリが [A2A](/docs/a2a-protocol) ピアである場合、他のエージェント ネイティブ アプリは actions を自動的に検出し、名前で呼び出すことができます。同一オリジンのデプロイでは JWT 署名がスキップされます。クロスオリジンは共有 `A2A_SECRET` を使用します。
+
+## MCP 上で公開 {#mcp}
+
+MCP を有効にすると、actions はフレームワークの MCP サーバー (`/_agent-native/mcp`) に表示されます。すべての呼び出し元は、デフォルトでコンパクトなカタログ (アプリ向けの組み込みとテンプレートで宣言されたアプリ actions) を取得します。また、`tool-search` は常に存在するため、他のツールはオンデマンドでアクセスできます。完全なアクション サーフェスは明示的なオプトイン (`--full-catalog` トークンまたは `AGENT_NATIVE_MCP_FULL_CATALOG=1`) でのみ提供され、`publicAgent.expose` はパブリック サーフェスへの安全な読み取り/取り込みツールを選択します。カタログ層、認証、および `mcpApp` リソースの詳細については、「[MCP Protocol](/docs/mcp-protocol)」を参照してください。
+
+UI 対応の MCP ホストの場合、アクションは `mcpApp` フィールド (および一致する `link`) を介してオプションの MCP アプリ リソースを宣言できるため、対応するホストは結果をインラインでレンダリングします。 `link` と `mcpApp` が同じルートを指す必要がある場合、`embedRoute()` は 1 つの純粋なパス ビルダーから両方を構築します。
+
+```ts
+import { embedRoute } from "@agent-native/core";
+
+export default defineAction({
+  description: "Create an email draft for review.",
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => ({ body }),
+  ...embedRoute({
+    title: "Review draft",
+    openLabel: "Open in Mail",
+    path: ({ result }) => ({
+      label: "Open draft in Mail",
+      url: "/_agent-native/open?app=mail&view=inbox",
+    }),
+  }),
+});
+```
+
+`link` を CLI および非 UI MCP クライアントのフォールバックとして保持します。これは、埋め込みの起動ターゲットでもあります。埋め込みブリッジ (署名付き埋め込み開始セッション、移植対制御フレーム レンダリング、`ui/*` ホスト ブリッジ、CSP、および高さクランプ) は、[External Agents](/docs/external-agents#mcp-app-bridge) によって所有されています。
+
+## 標準 actions {#standard-actions}
+
+すべてのテンプレートには、[context awareness](/docs/context-awareness) の次の 2 つを含める必要があります:
+
+### 画面表示 {#view-screen}
+
+現在のナビゲーション状態を読み取り、コンテキスト データをフェッチし、ユーザーに表示されているもののスナップショットを返します。エージェントは、画面をもう一度確認する必要があるときにこれを呼び出します。
+
+```ts
+// actions/view-screen.ts
+import { defineAction } from "@agent-native/core/action";
+import { readAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Read the current screen state for context.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const navigation = await readAppState("navigation");
+    const screen: Record<string, unknown> = { navigation };
+
+    if (navigation?.view === "inbox") {
+      screen.emailList = await listEmailsForLabel(navigation.label);
+    }
+
+    return screen;
+  },
+});
+```
+
+### ナビゲート {#navigate}
+
+ワンショット ナビゲーション コマンドをアプリケーション状態に書き込みます。 UI は、エントリを読み取り、ナビゲートし、エントリを削除します。
+
+```ts
+// actions/navigate.ts
+import { defineAction } from "@agent-native/core/action";
+import { writeAppState } from "@agent-native/core/application-state";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Navigate the user to a view.",
+  schema: z.object({
+    view: z.string(),
+    threadId: z.string().optional(),
+  }),
+  run: async (args) => {
+    await writeAppState("navigate", args);
+    return { ok: true };
+  },
+});
+```
+
+## レガシー CLI スタイル actions {#legacy-cli-actions}
+
+フレームワークは、`defineAction` でラップされていない古い `export default async function(args)` actions を引き続きサポートしています。これは、エージェント/HTTP の公開を必要としない 1 回限りの開発スクリプトに役立ちます。これらは CLI のみです。これらはエージェント ツールとして表示されず、HTTP エンドポイントをマウントせず、タイプセーフなフロントエンド フックを取得しません。
+
+```ts
+// actions/debug-dump.ts — CLI-only
+import { parseArgs } from "@agent-native/core";
+
+export default async function main(args: string[]) {
+  const { table } = parseArgs(args);
+  // one-off script you wouldn't want the agent to call
+}
+```
+
+新しいコードでは `defineAction()` を優先する必要があります。このパターンは、アクションをエージェントまたは UI に意図的に公開したくない場合にのみ使用してください。
+
+### `parseArgs(args)` {#parseargs}
+
+レガシー スタイル actions のヘルパー。 CLI 引数を `--key value` または `--key=value` 形式で解析します:
+
+```ts
+import { parseArgs } from "@agent-native/core";
+
+const args = parseArgs(["--name", "Steve", "--verbose", "--count=3"]);
+// { name: "Steve", verbose: "true", count: "3" }
+```
+
+## ユーティリティ関数 {#utility-functions}
+
+| 機能                    | 返品      | 説明                                                                   |
+| ----------------------- | --------- | ---------------------------------------------------------------------- |
+| `loadEnv(path?)`        | `void`    | プロジェクト ルート (またはカスタム パス) から `.env` をロードします。 |
+| `camelCaseArgs(args)`   | `Record`  | ケバブケースのキーをキャメルケースに変換します。                       |
+| `isValidPath(p)`        | `boolean` | 相対パスを検証します (トラバーサルなし、絶対パスなし)。                |
+| `isValidProjectPath(p)` | `boolean` | プロジェクト スラグ (例: `my-project`) を検証します。                  |
+| `ensureDir(dir)`        | `void`    | `mkdir -p` ヘルパー。                                                  |
+| `fail(message)`         | `never`   | 標準エラー出力と `exit(1)` に出力します。                              |
+
+## 次は何ですか
+
+- [**Audit Log**](/docs/audit-log) — すべてのアクションに関する誰が何を変更したかを自動的に記録する
+- [**Human-in-the-Loop Approvals**](/docs/human-approval) — `needsApproval` ゲートの詳細
+- [**Drop-in Agent**](/docs/drop-in-agent) — `useActionMutation` / `useActionQuery` (React)
+- [**Context Awareness**](/docs/context-awareness) — `view-screen` + `navigate` パターンの詳細
+- [**A2A Protocol**](/docs/a2a-protocol) — 他のエージェントがあなたの actions を検出して呼び出す方法
+- [**MCP Protocol**](/docs/mcp-protocol) — MCP 上で actions を公開

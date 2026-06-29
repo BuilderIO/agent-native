@@ -1,0 +1,499 @@
+---
+title: "PR ビジュアルの要約"
+description: "すべての PR でリポジトリのビジュアル要約スキルを実行する GitHub アクション。 LLM コーディング エージェントは、差分を読み取り、インタラクティブな要約プランを公開し、情報チェックを表示し、インライン スクリーンショットを含む粘着性のある PR コメントを投稿します。情報提供のみであり、非ブロック的です。"
+---
+
+# PR ビジュアルの要約
+
+PR Visual Recap は、すべてのプル リクエストを **ビジュアル コード レビュー**に変える GitHub アクションです。プッシュごとに、LLM コーディング エージェントは、バンドルされている最新の [`visual-recap`](/docs/template-plan) スキル (または `VISUAL_RECAP_SKILL_SOURCE=repo` の場合はリポジトリのコミットされたコピー) を PR 差分に対して実行し、ホストされているプラン アプリに構造化された要約プランを公開し、実行中に情報の `Visual Recap` チェックを表示し、**インライン スクリーンショット**が直接埋め込まれたインタラクティブ プランにリンクする **1 つのスティッキー PR コメント**をアップサートします。コメント。
+
+これは決定論的な差分レンダラーではありません。このアクションは実際のコーディング エージェント (デフォルトでは Claude コード CLI、または OpenAI Codex CLI) を呼び出します。エージェントは変更を読み取り、何が重要かを判断し、計画 MCP ツール `create-visual-recap` (`/visual-recap` スラッシュ コマンドで使用するのと同じツール) を呼び出して要約を作成します。生の差分の壁ではなく、高高度のスキーマ/API/変更前と変更後のビューが得られます。
+
+この要約は**情報提供を目的としたものであり、ブロックするものではありません**。生成が進行中であることをレビュー担当者が確認できるようにチェック行が作成されますが、これは必須のチェックではなく、PR をブロックしたり、実際の差分の読み取りを置き換えたりすることはありません。付箋コメントはレビューを支援するものであり、承認するものではありません。
+
+## 機能
+
+各 PR プッシュのワークフロー:
+
+1. PR ベースとヘッド間の境界差分を収集します。
+2. `Visual recap in progress` を使用して、情報 `Visual Recap` GitHub チェックを作成します。
+3. その差分に対して構成されたコーディング エージェントを実行します。エージェントは、バンドルされている `visual-recap` スキル ガイダンス (またはリポジトリに固定されたコピー) を読み取り、要約を作成し、`create-visual-recap` で公開します。
+4. エージェントが `recap-url.txt` に書き込んだ公開プラン URL を読み取ります。
+5. ヘッドレス Chrome で URL を開き、レンダリングされたプランをライト モードとダーク モードでスクリーンショットします。
+6. プラン アプリの署名付きパブリック イメージ ルートに PNG をアップロードします。
+7. インタラクティブな要約へのリンクの隣に、`<picture>` 要素 (GitHub の迷彩画像プロキシを通じて提供される) を含むスクリーンショットを**インライン**で埋め込む単一のスティッキー PR コメントをアップサートします。
+8. `Visual Recap` チェックを成功、スキップ、または中立として完了します。
+
+<Diagram id="doc-block-dc6lft" title={"各 PR プッシュで何が起こるか"} summary={"有界差分は実際のコーディング エージェントにフィードされ、要約が作成されます。ワークフローはそれをスクリーンショットし、1 つの付箋コメントを更新挿入します。"}>
+
+```html
+<div class="diagram-recap">
+  <div class="diagram-node">
+    PR プッシュ<br /><small class="diagram-muted"
+      >bounded base&hellip;head diff</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    コーディングエージェント<br /><small class="diagram-muted"
+      >Claude Code / Codex が diff を読む</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">create-visual-recap</span
+    ><small class="diagram-muted">publishes recap plan</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    ヘッドレス Chrome<br /><small class="diagram-muted"
+      >light + dark screenshots</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    固定 PR コメント 1 件<br /><small class="diagram-muted"
+      >inline screenshot + plan link</small
+    >
+  </div>
+</div>
+<div class="diagram-foot diagram-muted">
+  Plus an informational <span class="diagram-pill">Visual Recap</span> check
+  &mdash; non-blocking, never required.
+</div>
+```
+
+```css
+.diagram-recap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-recap .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-recap .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-recap .diagram-foot {
+  flex-basis: 100%;
+  margin-top: 10px;
+  font-size: 13px;
+}
+```
+
+</Diagram>
+
+再プッシュすると、同じプランと同じスティッキー コメントが更新されます。孤立したプランやコメント スパムはありません。
+
+## インストール中
+
+プランを対話的にインストールすると、Agent-Native CLI が追加するかどうかを尋ねます
+自動 PR ビジュアル要約。 「はい」と答えて GitHub アクションを書き込むか、追加します
+いつでも明示的に:
+
+```bash
+npx @agent-native/core@latest skills add visual-plan --with-github-action
+```
+
+これにより、`visual-plan` スキル (アクションが実行する `visual-recap` スキルを含む) がインストールされ、`.github/workflows/pr-visual-recap.yml` がリポジトリに書き込まれます。ワークフローは、`npx @agent-native/core@latest recap <subcommand>` を通じて **公開された CLI サブコマンド**を呼び出します。これには、`gate`、`collect-diff`、`block-reference`、`scan`、`build-prompt`、`publish`、`shot`、`comment`、`check`、および`usage` — したがって、ヘルパー スクリプトとしてリポジトリには何もコピーされません。 `setup` および `doctor` は、ローカルで実行する対話型ヘルパーです。 `gate` は、ワークフローが毎回の要約の前に実行するセキュリティ ゲート ステップです。
+
+次に、ガイド付きセットアップ ヘルパーを実行します。
+
+```bash
+npx @agent-native/core@latest recap setup
+npx @agent-native/core@latest recap doctor
+```
+
+`recap setup` はワークフローを更新し、`gh` を使用して GitHub Actions を設定します
+環境またはローカル プランから値を取得できる場合のシークレット/変数
+トークン ストアを発行し、それができないものについては欠落しているコマンドを正確に出力します
+セット。シークレット値は、コマンド引数ではなく標準入力を介して `gh` に送信されます。コミット
+生成されたワークフロー ファイルを開き、PR を開いて実行を確認します。
+
+デフォルトでは、ワークフローは最新のバンドルからエージェント プロンプトを構築します
+`@agent-native/core@latest` における `visual-recap` ガイダンス (兄弟を含む)
+スキルに付属する参照ファイル。リポジトリが意図的にカスタマイズされている場合
+コミットされた `visual-recap` フォルダーを固定し、リポジトリ変数を設定します
+`VISUAL_RECAP_SKILL_SOURCE=repo`.
+
+## バックエンドの選択
+
+`VISUAL_RECAP_AGENT` リポジトリ変数を使用してスキルを実行するコーディング エージェントを選択します:
+
+| `VISUAL_RECAP_AGENT`    | コーディング エージェント | 必須 API キー       |
+| ----------------------- | ------------------------- | ------------------- |
+| `claude` _(デフォルト)_ | Claude コード CLI         | `ANTHROPIC_API_KEY` |
+| `codex`                 | OpenAI Codex CLI          | `OPENAI_API_KEY`    |
+
+変数が設定されていない場合、アクションは `claude` を使用します。
+
+## モデルと推論
+
+バックエンドを超えて、2 つのリポジトリ変数がエージェントの実行方法を調整します。
+
+- **`VISUAL_RECAP_MODEL`** は、CLI (`--model`) に渡されるモデルを固定します。たとえば、Codex の場合は `gpt-5.5`、または Claude モデル ID です。 CLI 独自のデフォルト モデルを使用するには、未設定のままにしておきます。
+- **`VISUAL_RECAP_REASONING`** は推論の深さを設定します: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。これは Codex バックエンドに適用されます。 Claude の推論はモデル駆動型であるため、この変数は無視されます。
+- **`VISUAL_RECAP_SKILL_SOURCE`** はプロンプトの鮮度を制御します。`auto`/unset は最新のバンドルされたスキル ガイダンスを使用しますが、`repo` はコミットされたリポジトリのローカル `visual-recap` スキル フォルダーに固定されます。
+
+たとえば、GPT-5.5 を使用して Codex の要約を高度な推論で実行するには、リポジトリ変数 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.5`、および `VISUAL_RECAP_REASONING=high` を設定します。
+
+## シークレットと変数
+
+これらをリポジトリの **設定 → シークレットと変数 → Actions** で設定します。
+
+### シークレット (必須は 2 つだけ)
+
+| 秘密                | 目的                                                                                                                                               |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PLAN_RECAP_TOKEN`  | `npx @agent-native/core@latest connect` によって作成された取り消し可能なトークン。まとめ計画の公開とスクリーンショットのアップロードを承認します。 |
+| `ANTHROPIC_API_KEY` | デフォルトの Claude コード バックエンドの LLM キー。                                                                                               |
+
+**Teams: 組織サービス トークンを使用します。** 個人トークンは個人にバインドされます
+誰が作成したか — 彼らが組織を離れるかトークンを取り消した場合、すべてのリポジトリは
+そのシークレットは 401 で失敗し始め、CI で作成されたプランはそのシークレットによって所有されます
+チームではなく個人。組織サービス トークンは、
+**組織**: サービス プリンシパル (`svc-<name>@service.<orgId>`) として機能します。
+個人が退職しても存続し、公開される要約は組織に表示されます。
+組織の所有者または管理者は誰でも、組織をリストしたり取り消したりできます。 1 つを作成します (組織所有者/管理者のみ):
+
+```bash
+npx @agent-native/core@latest connect https://plan.agent-native.com --service-token pr-recap
+```
+
+コマンドはブラウザでユーザーを認証し、サービス トークンを出力します
+必ず 1 回 — `PLAN_RECAP_TOKEN` シークレットとして保存します。後で
+の `list-org-service-tokens` および `revoke-org-service-token` actions
+プラン アプリ
+
+**Solo: 個人トークンはまだ機能します。** `npx @agent-native/core@latest connect` で作成してください
+プラン アプリに対して。ホストされているアプリの場合、ローカル
+`npx @agent-native/core@latest recap setup` が読み取ることができる発行トークン ファイル:
+
+```bash
+npx @agent-native/core@latest connect https://plan.agent-native.com --client codex
+npx @agent-native/core@latest recap setup
+```
+
+手動セットアップを希望する場合は、トークンを GitHub シークレットに貼り付けます。
+`plan_recap_xxxxxxxxxxxxxxxx` のようなプレースホルダは例としてのみ使用します。決してコミットしないでください
+本物のトークン。
+
+### オプション (デフォルトを変更する場合のみ)
+
+| シークレット / 変数      | デフォルト                      | 必要なとき                                                                                                                                                             |
+| ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                               | 秘密。代わりに Codex で要約を実行するには、`VISUAL_RECAP_AGENT=codex` と一緒に設定します。                                                                             |
+| `VISUAL_RECAP_AGENT`     | `claude`                        | 変数。コーディング エージェント バックエンド (`claude` または `codex`) を選択します。                                                                                  |
+| `VISUAL_RECAP_MODEL`     | 各 CLI のデフォルト             | 変数。モデルを固定します — 例: Codex の場合は `gpt-5.5`、または Claude モデル ID。設定を解除すると、CLI 独自のデフォルトが使用されます。                               |
+| `VISUAL_RECAP_REASONING` | 各モデルのデフォルト            | 変数。推論の深さ: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。 Codex バックエンドに適用されます。                                                      |
+| `RECAP_CLI_VERSION`      | `latest`                        | 変数。ワークフローがインストールする `@agent-native/core` CLI バージョンを固定します。 `1.5.0`。 [Version pinning](#version-pinning-copy-variant) を参照してください。 |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。プラン アプリを別のオリジンで自己ホストする場合のみ。                                                                                                            |
+
+ワークフローはヘルパー CLI (このモノリポジ内のローカル ソース、他の場所で公開された `@agent-native/core`) を呼び出す方法を自動検出するため、`RECAP_CLI` 変数を設定する必要はありません。
+
+## コメント内のインライン スクリーンショット
+
+エージェントが要約を公開した後、ワークフローはヘッドレス Chrome でレンダリングされたプランのスクリーンショットをライト モードとダーク モードの両方で取得し、PNG をプラン アプリの署名付きパブリック イメージ ルートにアップロードします。次に、スティッキー PR コメントは、これらのスクリーンショットを `<picture>` 要素とともに **インライン** 埋め込みます。GitHub は、迷彩プロキシを通じてスクリーンショットを再提供するため、レビュー担当者は何も開かずに、コメント内で GitHub テーマに一致するプレビューを直接確認できます。完全なインタラクティブ プランへのリンクは、探索、コメント、または注釈を付けるときに使用できるようにそのすぐ隣に表示されます。
+
+## フォーク PR
+
+### デフォルトの動作 (アクションは必要ありません)
+
+メインの `pr-visual-recap.yml` ワークフローは、`pull_request_target` ではなく、プレーン `pull_request` トリガーで起動します。したがって、フォーク PR は **リポジトリ シークレットへのアクセスなし**で実行されるため、ワークフローでは `PLAN_RECAP_TOKEN` が検出されず、まったく操作が行われません。公開の失敗や資格情報の公開はありません。リキャップは、シークレットが利用可能な同じリポジトリ内のブランチからの PR に対して自動的に実行されます。
+
+これは、シークレットが存在する **前** にワークフロー ファイルをマージできることも意味します。トークンが設定されていない場合、シークレットを設定するまではすべての実行が静かに何も行われません。 `gate` ステップでは、ドラフト PR とボット作成 PR も自動的にスキップされるため、デフォルトではどちらのトリガーの要約も実行されません。
+
+### ラベルゲート フォーク ワークフローをオプトインする
+
+フォーク PR の要約を生成したい場合は、2 番目のワークフロー ファイル `.github/workflows/pr-visual-recap-fork.yml` を使用できます。これは `pull_request_target` (ベース リポジトリのシークレットで実行されます) を使用しますが、フォーク コードをチェックアウトしたり実行したりすることはありません。 GitHub 作成者関連付け `OWNER`、`MEMBER`、または `COLLABORATOR` を持つトラステッド フォーク作成者は自動的に実行されます。外部フォーク PR では、リキャップ エージェントが実行される前に、新しい `recap` ラベル イベントを介して明示的な **ヘッドごとのメンテナー オプトイン**が必要です。
+
+これをインストールするには、[BuilderIO/agent-native](https://github.com/BuilderIO/agent-native/blob/main/.github/workflows/pr-visual-recap-fork.yml) からリポジトリの `.github/workflows/` ディレクトリに、既存の `pr-visual-recap.yml` と一緒にファイルをコピーします。同じシークレット (`PLAN_RECAP_TOKEN`、`ANTHROPIC_API_KEY`) が適用されます。
+
+<Diagram id="doc-block-14gdxba" title={"フォーク PR 同意ゲート"} summary={"フォーク PR はデフォルトではシークレットを取得しません。信頼できる作成者は自動的に実行され、外部の寄稿者は新しいメンテナの要約ラベルを必要とします。"}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-node">
+    Fork PR が開かれました<br /><small class="diagram-muted"
+      >main workflow has no secrets</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">信頼済み作者</span
+    ><small class="diagram-muted">OWNER、MEMBER、COLLABORATOR は自動実行</small>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill warn">外部コントリビューター</span
+    ><small class="diagram-muted"
+      >メンテナーが diff を確認してから適用 <code>recap</code></small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    ゲートチェック<br /><small class="diagram-muted"
+      >fork PR? &amp; trusted or fresh label?</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box ok">
+    要約実行<br /><small class="diagram-muted"
+      >base repo のコードのみ · fork diff はテキスト入力</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+.diagram-fork .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+}
+```
+
+</Diagram>
+
+### ラベル ゲートの仕組み
+
+1. フォークの貢献者が PR を開きます。 GitHub はフォークの実行からシークレットを差し控えるため、通常の `pull_request` ワークフローはスキップされます。
+2. フォーク ワークフローは PR 著者の関連付けをチェックします。信頼できる作成者 (`OWNER`、`MEMBER`、または `COLLABORATOR`) は、オープン、同期、再オープン、およびレビュー準備完了イベントで自動的に実行されます。
+3. 外部寄稿者は、メンテナに現在の差分を確認して (特にプロンプトインジェクション形式のコンテンツの場合 - 以下を参照)、その後 PR に `recap` ラベルを適用する必要があります。
+4. 外部コントリビュータのラベル ゲートはヘッド SHA ごとです。コントリビュータがさらにコミットをプッシュした場合、メンテナが新しい差分を確認した後に `recap` を削除して再適用するまで、次の同期イベントはスキップされます。
+
+### フォーク ワークフローの機能と NOT の機能
+
+| ワークフロー DOES                                                                                                                        | ワークフローは NOT を実行します                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **ベース ブランチ参照**で**ベース リポジトリ**をチェックアウトします — 信頼できるコードのみ                                              | フォークからコードをチェックアウトまたは実行します                                                                        |
+| フォークヘッドをリモート参照 (`git fetch origin pull/<n>/head:refs/recap/fork-head`) としてフェッチします — コミットのフェッチは安全です | フォークからパッケージをインストールする、フォーク スクリプトを実行する、またはフォークのコンテンツをコードとして評価する |
+| `git diff base...refs/recap/fork-head` を実行します — すでにフェッチされた 2 つのオブジェクトの純粋なテキストの差分                      | LLM へのテキスト入力以外の目的で diff を使用します                                                                        |
+| **ベース リポジトリ** のビジュアル要約スキルとエージェント構成を実行します                                                               | フォークからスキルまたは構成をロードします                                                                                |
+| ファーストパーティ PR と同じシークレット スキャン ステップ (フェイルクローズ) を介して差分を渡します                                     | シークレットスキャンをスキップ                                                                                            |
+| 差分コンテンツを信頼できないものとしてマークする明示的なプロンプト強化メモをエージェント プロンプトに追加します                          | 通常の要約エージェントを超える追加の権限をエージェントに付与します                                                        |
+
+### ラベルを付ける前に差分を確認する必要がある理由
+
+フォークの差分は、要約エージェントが入力として読み取る、攻撃者が制御するテキストです。慎重に作成された diff には、要約エージェントに意図しない actions を取得させることを目的としたプロンプト挿入コンテンツ (たとえば、エージェントの指示のように見える差分行) が含まれる可能性があります (たとえば、公開トークンの抽出や誤解を招く要約コンテンツの作成など)。
+
+`recap` ラベルを適用する前に、以下の差分をざっと確認してください。
+
+- 直接のコマンドまたは役割の指示のように見える行 (「前の指示を無視してください...」、「現在は...」、「トークンを...に書き込みます」)。
+- システム プロンプトとして誤って読み取られる可能性がある異常なファイル名。
+- 命令にデコードされる可能性のある追加ファイル内のエンコードされたコンテンツ。
+
+これらの緩和策はすでにワークフローに階層化されています (秘密のスキャン、機密パス ゲート、プロンプト強化メモ、制限付きエージェント ツールの許可リスト) ですが、ラベルの確認が主な防御線です。
+
+### メインのワークフローとの関係
+
+2 つのワークフロー ファイルは独立しています。非フォーク PR 更新の場合、実行されるワークフローは `pr-visual-recap.yml` のみです。フォーク PR の場合、通常のワークフローはフォーク ゲートで終了し、信頼できる同じ組織の作成者に対しては `pr-visual-recap-fork.yml` が自動的に実行されるか、外部貢献者に対しては新しいメンテナー `recap` ラベルが付けられた後に `pr-visual-recap-fork.yml` が実行されます。これらは同じスティッキー コメント マーカーとプラン ID スレッドを共有するため、PR とフォーク PR の両方が同じ PR 上に 1 つの更新/挿入されたコメントを生成します。
+
+### 自己修正ガード {#self-modifying-guard}
+
+PR が次のパスのいずれかに触れると、`gate` ステップは要約を完全にスキップします。そのため、信頼された要約ジョブがロードするワークフロー、スキル、エージェント構成を PR が書き換えてシークレットを抽出することはできません。
+
+| パスパターン                               | 理由                                     |
+| ------------------------------------------ | ---------------------------------------- |
+| `.github/workflows/pr-visual-recap.yml`    | ワークフロー自体                         |
+| `**/skills/visual-(recap\|plan\|plans)/**` | The visual-recap skill the agent follows |
+| `**/.claude/**`                            | ランナーがロードするエージェント設定     |
+| `**/CLAUDE.md`                             | ランナーがロードするエージェントの指示   |
+| `**/AGENTS.md`                             | ランナーがロードするエージェントの指示   |
+| `**/.mcp.json`                             | ランナーがロードする MCP サーバー構成    |
+
+`BuilderIO/agent-native` モノリポジトリでは、ワークフローは PR ヘッド ソースではなく信頼できるベースブランチ ソースから要約 CLI を実行します。これにより、`packages/core/**` を含む通常のパッケージ変更は、PR で修正された CLI コードを実行せずに要約の対象となり続けます。
+
+## ローカル ファイル プライバシー モード
+
+GitHub アクションは、ホストされ、共有可能な PR レビュー用に設計されています。ご希望の場合は
+要約コンテンツを Agent-Native 計画データベースに送信せずに要約するには、
+代わりに、同じヘルパー フローがローカル ファイル モードでローカルに表示されます:
+
+```bash
+npx @agent-native/core@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+npx @agent-native/core@latest recap scan --diff recap.diff
+npx @agent-native/core@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+```
+
+生成された `recap-prompt.md` をコーディング エージェントに渡します。ローカルファイルモード
+プロンプトはエージェントに `plans/pr-123-visual-recap/plan.mdx` を書くように指示します
+オプションのビジュアル ファイルを追加して、次を実行します。
+
+```bash
+npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap --kind recap --open
+```
+
+ブラウザが要約 MDX を読み取る間、返された URL はホストされたプラン UI を開きます
+ローカルホストブリッジから。要約コンテンツはホストされたプランに書き込まれません
+データベース、URL はブリッジを実行しているマシン上でのみ動作します。走れば
+同じ `PLAN_LOCAL_DIR` を使用してローカルにプラン アプリを作成します。
+`/local-plans/pr-123-visual-recap` ルートも有効です。リポジトリにバックアップされたフォルダーは、
+`/local-plans/pr-123-visual-recap?path=plans%2Fpr-123-visual-recap` として開きます。
+このモードでは、ホストされたスティッキー PR コメント、インライン スクリーンショットのアップロードが無効になります。
+明示的に公開するまで、使用状況の添付ファイルとブラウザのコメント。
+
+## これは情報提供であり、ゲートではありません
+
+要約は、通常の PR フローの上に重ねられたレビュー補助です:
+
+- 可視性のために `Visual Recap` チェック行が表示されますが、**必須のチェックではありません**し、マージをブロックすることもありません。
+- 生成または公開の失敗は中立的に完了し、無関係なコードに赤い X が表示されるのではなく、説明用の付箋コメントとして表示されます。
+- 要約とそのスクリーンショットは、**差分がレビューされたことを意味するものではありません**。レビュー担当者は実際に変更された行を読む必要があります。
+
+## バージョンの固定 (コピー バリアント) {#version-pinning-copy-variant}
+
+デフォルトでは、コピーバリアント ワークフローは実行時に `@agent-native/core@latest` をインストールするため、要約を実行するたびに最新の CLI が自動的に選択されます。 CI に再現可能なツールが必要な場合は、**`RECAP_CLI_VERSION`** リポジトリ変数を設定して、インストールされているバージョンを固定します。
+
+1. リポジトリの **[設定] → [シークレットと変数] → [Actions] → [変数]** に移動します。
+2. `1.5.0` のような値を持つ `RECAP_CLI_VERSION` という名前の変数を作成します。
+
+変数はオプションです。最新のリリースを追跡するには、未設定のままにしておきます (または `latest` に設定します)。
+
+再利用可能な呼び出し側バリアントの場合は、代わりに `cli-version` 入力を使用します (再利用可能なセクションの [Version pinning](#version-pinning) を参照)。
+
+## シークレットスキャン許可リスト
+
+要約を公開する前に、ワークフローは `npx @agent-native/core@latest recap scan` を実行して差分内の可能性のあるシークレットを検出します。差分が既知の秘密パターンと一致する PR は、説明コメントでブロックされます。要約は公開されず、差分コンテンツはコーディング エージェントに送信されません。
+
+まれに、リポジトリに意図的なテスト フィクスチャや、表面的に秘密のパターンに似た非秘密の文字列 (テスト ファイル内のフィクスチャ キーなど) が含まれる場合があります。誤検知を抑制するには、リポジトリのルートに `.github/recap-scan-allowlist` を作成します。
+
+### フォーマット
+
+空白でもコメントでもない各行は、**リテラル部分文字列** または **`/regex/flags`** パターンのいずれかです。
+
+```
+# # で始まる行はコメントです。
+
+# リテラル部分文字列 — この文字列を含む diff 行は許可されます。
+sk-test-fixture1234567890abcdef
+
+# Regex pattern — written as /pattern/flags (JS syntax).
+/^.STRIPE_KEY=sk-test-/i
+
+# もう一つの文字通り。
+EXAMPLE_API_KEY=placeholder-value
+```
+
+ルール:
+
+- 行にリテラルが含まれている場合、または行全体が正規表現に一致する場合、行は **抑制** (許可) されます。
+- ファイルは**フェールクローズ**されています。ファイルが存在しない場合、抑制は適用されません。スキャナは以前と同様に動作します。
+- 空のファイルはファイルがないのと同じです。
+- 不正な正規表現行はリテラル文字列として扱われます。
+
+ホワイトリストはシークレットスキャンゲートによってのみ参照されます。コーディング エージェントが読み取る内容には影響しません。ゲートを通過した場合、エージェントは関係なく完全な diff を受け取ります。
+
+## 再利用可能なワークフローとして採用
+
+### なぜ再利用可能なバリアントを使用するのですか?
+
+デフォルトのインストーラーは、約 360 行の完全なワークフロー YAML をリポジトリにコピーします (**コピー** オプション)。これは、エアギャップ リポジトリや、実行内容のすべての行を監査する必要があるリポジトリに最適です。欠点は、バグ修正や改善が決して届かないことです。リリースごとに `npx @agent-native/core@latest recap setup` を手動で再実行する必要があります。
+
+**再利用可能** オプションは、代わりに約 20 行の薄い呼び出し元を書き込みます。 `uses:` 経由で `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` に委任します。すべての呼び出し元は、ワークフローの実行時に最新のロジックを自動的に取得し、ローカル更新は必要ありません。
+
+|                                    | コピー (デフォルト)                   | 再利用可能                               |
+| ---------------------------------- | ------------------------------------- | ---------------------------------------- |
+| リポジトリ内のワークフローのサイズ | ~360 行                               | ~20 行                                   |
+| 修正を自動的に取得します           | いいえ — `recap setup` を再実行します | はい                                     |
+| エアギャップ / 完全な監査可能性    | はい                                  | いいえ                                   |
+| 特定のバージョンに固定可能         | ローカルで編集する場合のみ            | はい — `uses:` に `@v1.2.3` を設定します |
+
+### 発信者のスニペット
+
+これは `npx @agent-native/core@latest recap setup --reusable` が書いたものです (または手動で貼り付けることもできます):
+
+```yaml
+name: PR Visual Recap
+
+# シン呼び出し元 — 完全なワークフロー ロジックは BuilderIO/agent-native にあります。
+# 修正と改善は、実行のたびに自動的にこのリポジトリに到達します。
+# 再現性を高めるために特定のバージョンをピン留めするには、'@main' を
+# タグまたは SHA、e.g。 '@<x2/>' または '@abc1234'。
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+
+jobs:
+  visual-recap:
+    permissions:
+      actions: write
+      contents: read
+      checks: write
+      issues: write
+      pull-requests: write
+    uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main
+    secrets:
+      PLAN_RECAP_TOKEN: ${{ secrets.PLAN_RECAP_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}
+    with:
+      agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}
+      model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
+      reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
+      skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
+      # cli-version: "latest"  # pin to a specific @agent-native/core version
+```
+
+[Secrets and variables](#secrets-and-variables) で説明されているものと同じシークレットと変数が適用されます。コピー バリアントと同じ方法でリポジトリ設定に設定します。
+
+### CLI 経由でのインストール
+
+```bash
+# 完全なコピーの代わりにシン呼び出し元を作成します。
+npx @agent-native/core@latest recap setup --reusable
+
+# または、再現性を高めるために固定された参照を使用します。
+npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
+```
+
+どちらのバリアントもワークフローを `.github/workflows/pr-visual-recap.yml` に書き込みます。既存のワークフローがすでに存在し、異なる場合、コマンドは拒否され、上書きするために `--force` を渡すように指示されます。
+
+書き込み後、通常どおり `npx @agent-native/core@latest recap doctor` を実行して、シークレットが構成されていることを確認します。
+
+### バージョンの固定
+
+デフォルトでは、呼び出し元は `@main` を参照し、常に再利用可能なワークフローの最新の公開バージョンを使用します。再現可能な CI が必要な本番リポジトリの場合は、タグまたは SHA に固定します:
+
+```yaml
+uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@v1.2.3
+```
+
+`cli-version` 入力は、ワークフロー内でどの `@agent-native/core` CLI バージョンを実行するかを制御します。最新のリリースを追跡するには `"latest"` のままにし、完全な再現性を得るためにバージョン文字列 (例: `"1.5.0"`) に固定します。
+
+### workflow_call イベント コンテキスト
+
+`workflow_call` ワークフローは、**呼び出し元**のイベント コンテキストを継承します。再利用可能なワークフローは、`github.event.pull_request.*` 式を使用して PR 番号、ヘッド SHA、ベース SHA、マージ タイムスタンプ、および PR メタデータを読み取ります。これらは、呼び出し元が `pull_request` でトリガーした場合にのみ正しく機能します。上記の呼び出し元のスニペットには、正しいイベント タイプがすでに含まれています。 `closed` イベントが含まれているため、マージされた PR 要約に `merged_at` のスタンプが付けられ、後で出荷された作品として検索できます。
+
+`workflow_dispatch` または `push` で呼び出し元をトリガーしないでください。これらのイベントには `pull_request` ペイロードが含まれず、ゲートは「pull_request ペイロードなし」で要約をスキップします。
+
+## 関連
+
+- [Visual Plans](/docs/template-plan) — `/visual-plan` および `/visual-recap` skills、ホストされたプラン コネクタ、およびこのアクションが公開される対話型レビュー サーフェス。
+- [Skills](/docs/skills-guide) — コーディング エージェントにエージェント ネイティブ skills をインストールします。

@@ -1,4 +1,4 @@
-import { PoweredByBadge, appPath } from "@agent-native/core/client";
+import { PoweredByBadge, appPath, useT } from "@agent-native/core/client";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import {
@@ -18,6 +18,7 @@ import {
 } from "@/components/meetings/attendee-stack";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import enMessages from "@/i18n/en-US";
 
 import { getDb, schema } from "../../server/db";
 
@@ -120,10 +121,12 @@ export async function loader({
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   const m = loaderData?.meeting;
-  const title = m?.title ? `${m.title} · Clips` : "Meeting notes · Clips";
+  const title = m?.title
+    ? `${m.title} · Clips`
+    : enMessages.shareMeeting.pageTitle;
   const description = m?.title
     ? `AI meeting notes for "${m.title}"`
-    : "AI meeting notes shared via Clips.";
+    : enMessages.shareMeeting.description;
   return [
     { title },
     { name: "description", content: description },
@@ -156,13 +159,14 @@ function formatDateTime(iso?: string | null): string {
 }
 
 export default function ShareMeetingRoute() {
+  const t = useT();
   const data = useLoaderData<LoaderData>();
 
   if (!data.meeting) {
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full gap-3 text-center px-4 bg-background">
         <p className="text-sm text-muted-foreground">
-          This meeting is private or no longer available.
+          {t("shareMeeting.unavailable")}
         </p>
         <PoweredByBadge />
       </div>
@@ -183,11 +187,11 @@ export default function ShareMeetingRoute() {
       <header className="border-b border-border">
         <div className="max-w-2xl mx-auto flex items-center gap-3 px-4 py-3">
           <h1 className="min-w-0 flex-1 truncate text-sm font-medium">
-            {meeting.title || "Untitled meeting"}
+            {meeting.title || t("meetingDetail.untitledMeeting")}
           </h1>
           <Button variant="ghost" size="sm" asChild className="shrink-0">
             <a href={appPath("/")} className="gap-1.5">
-              Try Clips
+              {t("shareMeeting.tryClips")}
               <IconExternalLink className="h-3.5 w-3.5" />
             </a>
           </Button>
@@ -206,8 +210,7 @@ export default function ShareMeetingRoute() {
               <IconUsers className="h-3.5 w-3.5" />
               <AttendeeStack participants={attendees} max={5} size="xs" />
               <span>
-                {attendees.length} attendee
-                {attendees.length === 1 ? "" : "s"}
+                {t("shareMeeting.attendees", { count: attendees.length })}
               </span>
             </span>
           )}
@@ -215,7 +218,7 @@ export default function ShareMeetingRoute() {
 
         {!hasNotes ? (
           <p className="text-sm text-muted-foreground italic">
-            AI notes haven't been generated yet for this meeting.
+            {t("shareMeeting.noAiNotes")}
           </p>
         ) : (
           <div className="space-y-8">
@@ -223,7 +226,7 @@ export default function ShareMeetingRoute() {
               <section>
                 <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
                   <IconWand className="h-3.5 w-3.5" />
-                  Summary
+                  {t("shareMeeting.summary")}
                 </div>
                 <div className="text-sm leading-relaxed whitespace-pre-wrap">
                   {meeting.summaryMd}
@@ -235,7 +238,7 @@ export default function ShareMeetingRoute() {
               <section>
                 <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
                   <IconWand className="h-3.5 w-3.5" />
-                  Key points
+                  {t("shareMeeting.keyPoints")}
                 </div>
                 <ul className="space-y-2">
                   {bullets.map((b, i) => (
@@ -255,7 +258,7 @@ export default function ShareMeetingRoute() {
               <section>
                 <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
                   <IconListCheck className="h-3.5 w-3.5" />
-                  Action items
+                  {t("shareMeeting.actionItems")}
                 </div>
                 <ul className="space-y-2">
                   {meeting.actionItems.map((item, i) => (

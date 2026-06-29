@@ -72,6 +72,7 @@ import {
   retryOnDdlRace,
   describeDbError,
 } from "../db/client.js";
+import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { readBody } from "../server/h3-helpers.js";
 import { putSetting } from "../settings/store.js";
@@ -841,6 +842,11 @@ function publicAuthError(
 }
 
 function isAuthEmailValidationMessage(message: string): boolean {
+  // Credential failures (e.g. Better Auth's "Invalid email or password") mention
+  // "email" + "invalid" but are NOT email-format errors — don't rewrite them to
+  // the "enter a valid email" message, or every wrong-password attempt looks like
+  // a malformed-email error.
+  if (/password|credential/i.test(message)) return false;
   return (
     /\bemail\b/i.test(message) &&
     /(invalid|input|required|format)/i.test(message)
@@ -865,15 +871,32 @@ async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
     _sessionInitPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
+      const createSql = `
           CREATE TABLE IF NOT EXISTS sessions (
             token TEXT PRIMARY KEY,
             email TEXT,
             created_at ${intType()} NOT NULL
           )
-        `),
-      );
+        `;
+
+      // PG guard: probe information_schema first (no lock), run DDL only when
+      // missing, bounded by a transaction-scoped lock_timeout.
+      if (isPostgres()) {
+        await ensureTableExists("sessions", createSql);
+        await ensureColumnExists(
+          "sessions",
+          "email",
+          `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS email TEXT`,
+        );
+        // Older deployments have a 32-bit `created_at`; on Postgres the
+        // `Date.now()` written on session create overflows int4. Widen in place
+        // (no-op once done / on fresh DBs).
+        await widenIntColumnsToBigInt("sessions", ["created_at"]);
+        return;
+      }
+
+      // SQLite (local dev): no lock problem — keep the original behaviour.
+      await retryOnDdlRace(() => client.execute(createSql));
       try {
         await client.execute(`ALTER TABLE sessions ADD COLUMN email TEXT`);
       } catch {
@@ -1111,6 +1134,8 @@ const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
 const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "tauri://localhost",
+  "http://tauri.localhost",
+  "https://tauri.localhost",
   "http://localhost:1420",
 ]);
 

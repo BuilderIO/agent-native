@@ -8,6 +8,7 @@ export {
   unregisterFileUploadProvider,
   listFileUploadProviders,
   getActiveFileUploadProvider,
+  getActiveFileUploadProviderForRequest,
   uploadFile,
 } from "./registry.js";
 export { builderFileUploadProvider } from "./builder.js";

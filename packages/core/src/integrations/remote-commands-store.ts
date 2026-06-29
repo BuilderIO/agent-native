@@ -4,6 +4,7 @@ import {
   isPostgres,
   retryOnDdlRace,
 } from "../db/client.js";
+import { ensureTableExists, ensureIndexExists } from "../db/ddl-guard.js";
 import type {
   RemoteCommand,
   RemoteCommandKind,
@@ -29,29 +30,42 @@ async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
-      await retryOnDdlRace(() =>
-        client.execute(`
-          CREATE TABLE IF NOT EXISTS integration_remote_commands (
-            id TEXT PRIMARY KEY,
-            device_id TEXT NOT NULL,
-            owner_email TEXT NOT NULL,
-            org_id TEXT,
-            kind TEXT NOT NULL,
-            params_json TEXT NOT NULL,
-            status TEXT NOT NULL,
-            result_json TEXT,
-            platform TEXT,
-            external_thread_id TEXT,
-            attempts ${intType()} NOT NULL DEFAULT 0,
-            next_check_at ${intType()} NOT NULL,
-            claimed_at ${intType()},
-            completed_at ${intType()},
-            error_message TEXT,
-            created_at ${intType()} NOT NULL,
-            updated_at ${intType()} NOT NULL
-          )
-        `),
-      );
+      const createSql = `CREATE TABLE IF NOT EXISTS integration_remote_commands (
+  id TEXT PRIMARY KEY,
+  device_id TEXT NOT NULL,
+  owner_email TEXT NOT NULL,
+  org_id TEXT,
+  kind TEXT NOT NULL,
+  params_json TEXT NOT NULL,
+  status TEXT NOT NULL,
+  result_json TEXT,
+  platform TEXT,
+  external_thread_id TEXT,
+  attempts ${intType()} NOT NULL DEFAULT 0,
+  next_check_at ${intType()} NOT NULL,
+  claimed_at ${intType()},
+  completed_at ${intType()},
+  error_message TEXT,
+  created_at ${intType()} NOT NULL,
+  updated_at ${intType()} NOT NULL
+)`;
+
+      if (isPostgres()) {
+        // PG guard: probe via information_schema, only issue DDL if missing, bounded lock_timeout
+        await ensureTableExists("integration_remote_commands", createSql);
+        await ensureIndexExists(
+          "idx_remote_commands_device_status_next",
+          `CREATE INDEX IF NOT EXISTS idx_remote_commands_device_status_next ON integration_remote_commands(device_id, status, next_check_at)`,
+        );
+        await ensureIndexExists(
+          "idx_remote_commands_owner",
+          `CREATE INDEX IF NOT EXISTS idx_remote_commands_owner ON integration_remote_commands(owner_email, org_id)`,
+        );
+        return;
+      }
+
+      // SQLite: keep existing behavior
+      await retryOnDdlRace(() => client.execute(createSql));
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_remote_commands_device_status_next ON integration_remote_commands(device_id, status, next_check_at)`,

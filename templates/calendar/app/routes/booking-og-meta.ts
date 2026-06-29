@@ -4,6 +4,8 @@ import type {
   MetaDescriptor,
 } from "react-router";
 
+import { messagesByLocale } from "@/i18n-data";
+
 export interface BookingOgLoaderData {
   ogImageUrl: string;
 }
@@ -32,12 +34,12 @@ function appBasePath(): string {
 
 export function bookingOgLoader({
   params,
-  url,
+  request,
 }: LoaderFunctionArgs): BookingOgLoaderData {
   const slug = params.slug ?? "";
   const imageUrl = new URL(
     `${appBasePath()}/api/public/booking-links/${encodeURIComponent(slug)}/og.png`,
-    url,
+    request.url,
   );
   if (params.username) imageUrl.searchParams.set("username", params.username);
   return { ogImageUrl: imageUrl.toString() };
@@ -47,9 +49,10 @@ export function bookingOgMeta({
   loaderData,
 }: MetaArgs<typeof bookingOgLoader>): MetaDescriptor[] {
   const image = loaderData?.ogImageUrl;
+  const title = messagesByLocale["en-US"].routeTitles.bookMeeting;
   return [
-    { title: "Book a Meeting" },
-    { property: "og:title", content: "Book a Meeting" },
+    { title },
+    { property: "og:title", content: title },
     { property: "og:type", content: "website" },
     ...(image
       ? [

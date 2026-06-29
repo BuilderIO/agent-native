@@ -105,10 +105,52 @@ describe("secrets storage bootstrap", () => {
     const { readAppSecret } = await import("./storage.js");
     await readAppSecret(userRef);
 
-    const createSql = String(execute.mock.calls[0]?.[0]);
-    expect(createSql).toContain("CREATE TABLE IF NOT EXISTS app_secrets");
+    // On Postgres ensureTable now probes information_schema first (no lock) and
+    // only issues DDL for what is missing. With an empty fake DB every probe
+    // reports "missing", so the CREATE TABLE still runs — just not as call[0].
+    // Existence probes are passed as { sql, args }; DDL as a raw string.
+    const allSql = execute.mock.calls.map((c) => {
+      const input = c[0] as string | { sql: string };
+      return typeof input === "string" ? input : input.sql;
+    });
+    const createSql = allSql.find((s) =>
+      s.includes("CREATE TABLE IF NOT EXISTS app_secrets"),
+    );
+    expect(createSql).toBeDefined();
     expect(createSql).toContain("BIGINT");
     expect(createSql).not.toMatch(/\bINTEGER\b/);
+
+    // The first statement is the cheap existence probe, not DDL — proving the
+    // hot path takes no ACCESS EXCLUSIVE lock when the schema already exists.
+    expect(allSql[0]).toContain("information_schema.tables");
+  });
+
+  it("skips all DDL on Postgres when the table and columns already exist", async () => {
+    // information_schema probes report the table and both additive columns as
+    // present, so NO CREATE / ALTER should run (no ACCESS EXCLUSIVE lock).
+    const execute = vi.fn(async (input: unknown) => {
+      const sql = typeof input === "string" ? input : (input as any).sql;
+      if (/information_schema/i.test(String(sql))) {
+        return { rows: [{ "?column?": 1 }] as unknown[] };
+      }
+      return { rows: [] as unknown[] };
+    });
+
+    vi.doMock("../db/client.js", () => ({
+      getDialect: () => "postgres",
+      getDbExec: () => ({ execute }),
+      isPostgres: () => true,
+    }));
+
+    const { readAppSecret } = await import("./storage.js");
+    await readAppSecret(userRef);
+
+    const allSql = execute.mock.calls.map((c) => {
+      const input = c[0] as string | { sql: string };
+      return typeof input === "string" ? input : input.sql;
+    });
+    expect(allSql.some((s) => /CREATE TABLE/i.test(s))).toBe(false);
+    expect(allSql.some((s) => /ALTER TABLE/i.test(s))).toBe(false);
   });
 });
 

@@ -12,6 +12,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/client", () => ({
   focusAgentChat: vi.fn(),
+  useT: () => (key: string) =>
+    (
+      ({
+        "raw.agentWorking": "Agent is working",
+        "raw.openChat": "Open chat",
+      }) as Record<string, string>
+    )[key] ?? key,
 }));
 
 import {

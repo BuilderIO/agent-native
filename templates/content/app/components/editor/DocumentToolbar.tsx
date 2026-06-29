@@ -4,6 +4,7 @@ import {
   PresenceBar,
   appPath,
   useActionMutation,
+  useT,
   type CollabUser,
 } from "@agent-native/core/client";
 import { ShareButton } from "@agent-native/core/client";
@@ -26,6 +27,7 @@ import {
   IconFolderOpen,
   IconPlus,
   IconHistory,
+  IconLink,
   IconRefresh,
   IconShare3,
 } from "@tabler/icons-react";
@@ -151,10 +153,105 @@ function NotionIcon({ className }: { className?: string }) {
   );
 }
 
+function formatEditedLabel(updatedAt?: string | null) {
+  if (!updatedAt) return null;
+  const timestamp = new Date(updatedAt).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diffMs < minute) return "Edited just now";
+  if (diffMs < hour) {
+    const minutes = Math.max(1, Math.round(diffMs / minute));
+    return `Edited ${minutes}m ago`;
+  }
+  if (diffMs < day) {
+    const hours = Math.max(1, Math.round(diffMs / hour));
+    return `Edited ${hours}h ago`;
+  }
+  if (diffMs < 7 * day) {
+    const days = Math.max(1, Math.round(diffMs / day));
+    return `Edited ${days}d ago`;
+  }
+
+  return `Edited ${new Date(updatedAt).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  })}`;
+}
+
+function ToolbarBreadcrumb({
+  items,
+  currentDocumentId,
+  ariaLabel,
+  untitledLabel,
+  onOpen,
+}: {
+  items: { id?: string; title: string; icon?: string | null }[];
+  currentDocumentId: string;
+  ariaLabel: string;
+  untitledLabel: string;
+  onOpen: (id: string) => void;
+}) {
+  return (
+    <nav
+      aria-label={ariaLabel}
+      className="flex min-w-0 flex-1 items-center gap-1 text-sm text-foreground"
+    >
+      {items.map((item, index) => {
+        const isLast = index === items.length - 1;
+        const label = item.title.trim() || untitledLabel;
+        const content = (
+          <>
+            {item.icon ? (
+              <span className="shrink-0 text-sm leading-none">{item.icon}</span>
+            ) : null}
+            <span className="truncate">{label}</span>
+          </>
+        );
+
+        return (
+          <div
+            key={`${item.id ?? label}-${index}`}
+            className="flex min-w-0 items-center gap-1"
+          >
+            {item.id && item.id !== currentDocumentId ? (
+              <button
+                type="button"
+                className="flex min-w-0 max-w-48 items-center gap-1 rounded px-1.5 py-1 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => onOpen(item.id!)}
+              >
+                {content}
+              </button>
+            ) : (
+              <span
+                className={cn(
+                  "flex min-w-0 max-w-56 items-center gap-1 truncate px-1.5 py-1",
+                  isLast ? "text-foreground" : "text-muted-foreground",
+                )}
+              >
+                {content}
+              </span>
+            )}
+            {!isLast ? (
+              <span className="shrink-0 text-muted-foreground/70">/</span>
+            ) : null}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
+
 interface DocumentToolbarProps {
   documentId: string;
   documentTitle?: string;
   documentContent?: string;
+  breadcrumbItems?: { id?: string; title: string; icon?: string | null }[];
+  documentUpdatedAt?: string | null;
   activeUsers?: CollabUser[];
   agentPresent?: boolean;
   agentActive?: boolean;
@@ -168,6 +265,8 @@ export function DocumentToolbar({
   documentId,
   documentTitle,
   documentContent,
+  breadcrumbItems = [],
+  documentUpdatedAt,
   activeUsers,
   agentPresent,
   agentActive,
@@ -176,6 +275,7 @@ export function DocumentToolbar({
   hideFromSearch = false,
   source,
 }: DocumentToolbarProps) {
+  const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
@@ -236,7 +336,13 @@ export function DocumentToolbar({
     typeof window === "undefined"
       ? `/p/${documentId}`
       : `${window.location.origin}${appPath(`/p/${documentId}`)}`;
+  const pageUrl =
+    typeof window === "undefined"
+      ? `/page/${documentId}`
+      : `${window.location.origin}${appPath(`/page/${documentId}`)}`;
+  const copyPageUrl = isLocalFileDocument ? pageUrl : shareUrl;
   const effectiveHideFromSearch = pendingHideFromSearch ?? hideFromSearch;
+  const editedLabel = formatEditedLabel(documentUpdatedAt);
 
   const { data: searchResults, isLoading: searchLoading } =
     useSearchNotionPages(debouncedQuery, open && isConnected && !isLinked);
@@ -281,9 +387,9 @@ export function DocumentToolbar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        toast.error("Failed to update sharing", {
+        toast.error(t("editor.toolbar.failedToUpdateSharing"), {
           description:
-            err instanceof Error ? err.message : "Something went wrong",
+            err instanceof Error ? err.message : t("empty.genericError"),
         });
         throw err;
       } finally {
@@ -296,51 +402,69 @@ export function DocumentToolbar({
         });
       }
     },
-    [documentId, hideFromSearch, queryClient, setDocumentDiscoverability],
+    [documentId, hideFromSearch, queryClient, setDocumentDiscoverability, t],
   );
 
   const handleCopyLocalRelativePath = useCallback(() => {
     const filePath = source?.path;
     if (!filePath) return;
     void navigator.clipboard?.writeText(filePath);
-    toast.success("Copied relative path");
-  }, [source?.path]);
+    toast.success(t("editor.toolbar.copiedRelativePath"));
+  }, [source?.path, t]);
 
   const handleCopyLocalAbsolutePath = useCallback(async () => {
     const filePath = await localSourceAbsolutePath(source);
     if (!filePath) {
-      toast.error("Absolute path is not available in this browser", {
-        description:
-          "Chrome does not expose absolute paths for browser-picked folders.",
+      toast.error(t("editor.toolbar.absolutePathUnavailable"), {
+        description: t("editor.toolbar.absolutePathUnavailableDescription"),
       });
       return;
     }
     void navigator.clipboard?.writeText(filePath);
-    toast.success("Copied absolute path");
-  }, [source]);
+    toast.success(t("editor.toolbar.copiedAbsolutePath"));
+  }, [source, t]);
+
+  const handleCopyPageLink = useCallback(async () => {
+    if (!navigator.clipboard?.writeText) {
+      toast.error(t("editor.toolbar.couldNotCopyLink"), {
+        description: t("editor.toolbar.clipboardAccessUnavailable"),
+      });
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(copyPageUrl);
+      toast.success(t("editor.toolbar.copiedPageLink"));
+    } catch (error) {
+      toast.error(t("editor.toolbar.couldNotCopyLink"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    }
+  }, [copyPageUrl, t]);
 
   const handleRevealLocalPath = useCallback(async () => {
     try {
       const result = await revealLinkedLocalSourceFile(source);
       if (result.ok) {
-        toast.success("Revealed local file");
+        toast.success(t("editor.toolbar.revealedLocalFile"));
         return;
       }
       if (source?.absolutePath) {
         await revealLocalSource.mutateAsync({ id: documentId });
-        toast.success("Revealed local file");
+        toast.success(t("editor.toolbar.revealedLocalFile"));
         return;
       }
-      toast.error("Could not reveal local file", {
+      toast.error(t("editor.toolbar.couldNotRevealLocalFile"), {
         description: result.error,
       });
     } catch (error) {
-      toast.error("Could not reveal local file", {
+      toast.error(t("editor.toolbar.couldNotRevealLocalFile"), {
         description:
-          error instanceof Error ? error.message : "Something went wrong",
+          error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [documentId, revealLocalSource, source]);
+  }, [documentId, revealLocalSource, source, t]);
 
   const handleShareLocalFile = useCallback(async () => {
     try {
@@ -348,20 +472,20 @@ export function DocumentToolbar({
         id: documentId,
       })) as { id?: string; title?: string };
       if (!result?.id) {
-        throw new Error("The shareable copy was not created.");
+        throw new Error(t("editor.toolbar.shareableCopyWasNotCreated"));
       }
       await queryClient.invalidateQueries({ queryKey: ["action"] });
-      toast.success("Shareable copy ready", {
-        description: "This copy is stored in the database for sharing.",
+      toast.success(t("editor.toolbar.shareableCopyReady"), {
+        description: t("editor.toolbar.shareableCopyReadyDescription"),
       });
       navigate(`/page/${result.id}?share=1`);
     } catch (error) {
-      toast.error("Could not create shareable copy", {
+      toast.error(t("editor.toolbar.couldNotCreateShareableCopy"), {
         description:
-          error instanceof Error ? error.message : "Something went wrong",
+          error instanceof Error ? error.message : t("empty.genericError"),
       });
     }
-  }, [documentId, navigate, queryClient, shareLocalFile]);
+  }, [documentId, navigate, queryClient, shareLocalFile, t]);
 
   const handleDbShareOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -410,43 +534,55 @@ export function DocumentToolbar({
       setLinkingPageId(pageId);
       try {
         await linkDocument.mutateAsync({ pageIdOrUrl: pageId });
-        toast.success("Linked to Notion page.");
+        toast.success(t("editor.toolbar.linkedToNotionPage"));
         setSearchQuery("");
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "Failed to link.");
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("editor.toolbar.failedToLink"),
+        );
       } finally {
         setLinkingPageId(null);
       }
     },
-    [linkDocument],
+    [linkDocument, t],
   );
 
   const handlePull = useCallback(async () => {
     try {
       await pullDocument.mutateAsync();
-      toast.success("Pulled from Notion.");
+      toast.success(t("editor.toolbar.pulledFromNotion"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Pull failed.");
+      toast.error(
+        error instanceof Error ? error.message : t("editor.toolbar.pullFailed"),
+      );
     }
-  }, [pullDocument]);
+  }, [pullDocument, t]);
 
   const handlePush = useCallback(async () => {
     try {
       await pushDocument.mutateAsync();
-      toast.success("Pushed to Notion.");
+      toast.success(t("editor.toolbar.pushedToNotion"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Push failed.");
+      toast.error(
+        error instanceof Error ? error.message : t("editor.toolbar.pushFailed"),
+      );
     }
-  }, [pushDocument]);
+  }, [pushDocument, t]);
 
   const handleUnlink = useCallback(async () => {
     try {
       await unlinkDocument.mutateAsync();
-      toast.success("Unlinked from Notion.");
+      toast.success(t("editor.toolbar.unlinkedFromNotion"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unlink failed.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("editor.toolbar.unlinkFailed"),
+      );
     }
-  }, [unlinkDocument]);
+  }, [unlinkDocument, t]);
 
   const handleCreateAndLink = useCallback(
     (parentPageIdOrUrl?: string) => {
@@ -455,23 +591,25 @@ export function DocumentToolbar({
         parentPageIdOrUrl ? { parentPageIdOrUrl } : undefined,
         {
           onSuccess: () => {
-            toast.success("Created and linked to new Notion page.");
+            toast.success(t("editor.toolbar.createdAndLinkedToNotionPage"));
             setSearchQuery("");
           },
           onError: (error) => {
             toast.error(
-              error instanceof Error ? error.message : "Failed to create page.",
+              error instanceof Error
+                ? error.message
+                : t("editor.toolbar.failedToCreatePage"),
             );
           },
           onSettled: () => setCreatingParentPageId(null),
         },
       );
     },
-    [createAndLink],
+    [createAndLink, t],
   );
 
   const handleSetup = () => {
-    toast.info("Set up Notion in the sidebar first — click the Notion icon.");
+    toast.info(t("editor.toolbar.setUpNotionFirst"));
     setOpen(false);
   };
 
@@ -487,523 +625,583 @@ export function DocumentToolbar({
 
         if (result.print) {
           printExportHtml(result);
-          toast.success("Print dialog opened", {
-            description: "Choose Save as PDF to finish the export.",
+          toast.success(t("editor.toolbar.printDialogOpened"), {
+            description: t("editor.toolbar.printDialogOpenedDescription"),
           });
           return;
         }
 
         downloadExportFile(result);
         toast.success(
-          `Exported ${format === "markdown" ? "Markdown" : "HTML"}`,
+          t(
+            format === "markdown"
+              ? "editor.toolbar.exportedMarkdown"
+              : "editor.toolbar.exportedHtml",
+          ),
         );
       } catch (error) {
-        toast.error("Export failed", {
+        toast.error(t("editor.toolbar.exportFailed"), {
           description:
-            error instanceof Error ? error.message : "Something went wrong",
+            error instanceof Error ? error.message : t("empty.genericError"),
         });
       }
     },
-    [documentContent, documentId, documentTitle, exportDocument],
+    [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
   return (
     <>
-      <div className="absolute top-2 end-2 z-10 flex items-center gap-0.5 rounded-xl border border-border/70 bg-background/95 p-1 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:top-3 sm:end-4 sm:gap-1">
-        {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
-        <PresenceBar
-          activeUsers={activeUsers ?? []}
-          agentPresent={agentPresent}
-          agentActive={agentActive}
-          currentUserEmail={currentUserEmail}
-          className="me-1"
+      <div className="relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4">
+        <ToolbarBreadcrumb
+          items={
+            breadcrumbItems.length
+              ? breadcrumbItems
+              : [{ id: documentId, title: documentTitle || "Untitled" }]
+          }
+          currentDocumentId={documentId}
+          ariaLabel={t("editor.toolbar.pageBreadcrumb")}
+          untitledLabel={t("sidebar.untitled")}
+          onOpen={(id) => navigate(`/page/${id}`, { flushSync: true })}
         />
-        {isLocalFileDocument ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-9 gap-1.5 rounded-lg px-3"
-            disabled={shareLocalFile.isPending}
-            onClick={() => void handleShareLocalFile()}
-          >
-            {shareLocalFile.isPending ? (
-              <IconLoader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <IconShare3 className="h-4 w-4" />
-            )}
-            <span className="hidden sm:inline">Share</span>
-          </Button>
-        ) : (
-          <>
-            <ShareButton
-              resourceType="document"
-              resourceId={documentId}
-              resourceTitle={documentTitle}
-              shareUrl={shareUrl}
-              defaultOpen={openShareOnLoad}
-              onOpenChange={handleDbShareOpenChange}
-              visibilityCopy={{
-                org: {
-                  description: effectiveHideFromSearch
-                    ? "Anyone in your organization with the link can view"
-                    : "Anyone in your organization can find and view",
-                },
-              }}
-              hideInSearchControl={{
-                checked: effectiveHideFromSearch,
-                pending: setDocumentDiscoverability.isPending,
-                label: "Hide in search",
-                description:
-                  "Hide from Organization and search. People with the link can still view.",
-                onCheckedChange: handleHideFromSearchChange,
-              }}
-              variant="compact"
-            />
 
-            <VersionHistoryPanel
-              documentId={documentId}
-              open={historyOpen}
-              onOpenChange={setHistoryOpen}
-              canRestore={canEdit}
-              activeUsers={activeUsers}
-            />
-          </>
-        )}
+        <div className="ml-auto flex min-w-0 items-center gap-0.5 sm:gap-1">
+          {editedLabel ? (
+            <span className="hidden shrink-0 px-2 text-sm text-muted-foreground lg:inline">
+              {editedLabel}
+            </span>
+          ) : null}
 
-        <DropdownMenu modal={false}>
+          {/* Presence — shared PresenceBar (agent + collaborator avatars) */}
+          <PresenceBar
+            activeUsers={activeUsers ?? []}
+            agentPresent={agentPresent}
+            agentActive={agentActive}
+            currentUserEmail={currentUserEmail}
+            className="mr-1"
+          />
+          {isLocalFileDocument ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 gap-1.5 rounded-lg px-3"
+              disabled={shareLocalFile.isPending}
+              onClick={() => void handleShareLocalFile()}
+            >
+              {shareLocalFile.isPending ? (
+                <IconLoader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <IconShare3 className="h-4 w-4" />
+              )}
+              <span className="hidden sm:inline">
+                {t("editor.toolbar.share")}
+              </span>
+            </Button>
+          ) : (
+            <>
+              <ShareButton
+                resourceType="document"
+                resourceId={documentId}
+                resourceTitle={documentTitle}
+                shareUrl={shareUrl}
+                defaultOpen={openShareOnLoad}
+                onOpenChange={handleDbShareOpenChange}
+                visibilityCopy={{
+                  org: {
+                    description: effectiveHideFromSearch
+                      ? t("editor.toolbar.orgLinkCanView")
+                      : t("editor.toolbar.orgCanFindAndView"),
+                  },
+                }}
+                hideInSearchControl={{
+                  checked: effectiveHideFromSearch,
+                  pending: setDocumentDiscoverability.isPending,
+                  label: t("editor.toolbar.hideInSearch"),
+                  description: t("editor.toolbar.hideInSearchDescription"),
+                  onCheckedChange: handleHideFromSearchChange,
+                }}
+                variant="compact"
+              />
+
+              <VersionHistoryPanel
+                documentId={documentId}
+                open={historyOpen}
+                onOpenChange={setHistoryOpen}
+                canRestore={canEdit}
+                activeUsers={activeUsers}
+              />
+            </>
+          )}
+
           <Tooltip>
             <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <button
-                  className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-                  aria-label="More page actions"
-                >
-                  <IconDotsVertical size={16} />
-                </button>
-              </DropdownMenuTrigger>
+              <button
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={t("editor.toolbar.copyPageLink")}
+                onClick={() => void handleCopyPageLink()}
+              >
+                <IconLink size={16} />
+              </button>
             </TooltipTrigger>
-            <TooltipContent>More page actions</TooltipContent>
+            <TooltipContent>{t("editor.toolbar.copyPageLink")}</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent align="end" className="w-60">
-            {isLocalFileDocument ? (
-              <DropdownMenuGroup>
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  Local file
-                </DropdownMenuLabel>
-                <DropdownMenuItem disabled className="min-w-0">
-                  <IconFileText className="me-2 h-4 w-4 shrink-0" />
-                  <span className="truncate">{source?.path}</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={revealLocalSource.isPending}
-                  onSelect={() => void handleRevealLocalPath()}
-                >
-                  <IconFolderOpen className="me-2 h-4 w-4" />
-                  Reveal in Finder
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={handleCopyLocalRelativePath}>
-                  <IconCopy className="me-2 h-4 w-4" />
-                  Copy relative path
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={() => void handleCopyLocalAbsolutePath()}
-                >
-                  <IconCopy className="me-2 h-4 w-4" />
-                  Copy absolute path
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            ) : (
-              <>
+
+          <DropdownMenu modal={false}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+                    aria-label={t("editor.toolbar.morePageActions")}
+                  >
+                    <IconDotsVertical size={16} />
+                  </button>
+                </DropdownMenuTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                {t("editor.toolbar.morePageActions")}
+              </TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent align="end" className="w-60">
+              {isLocalFileDocument ? (
                 <DropdownMenuGroup>
-                  <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
-                    <IconHistory className="me-2 h-4 w-4" />
-                    Version history
+                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                    {t("editor.toolbar.localFile")}
+                  </DropdownMenuLabel>
+                  <DropdownMenuItem disabled className="min-w-0">
+                    <IconFileText className="me-2 h-4 w-4 shrink-0" />
+                    <span className="truncate">{source?.path}</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={revealLocalSource.isPending}
+                    onSelect={() => void handleRevealLocalPath()}
+                  >
+                    <IconFolderOpen className="me-2 h-4 w-4" />
+                    {t("editor.toolbar.revealInFinder")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={handleCopyLocalRelativePath}>
+                    <IconCopy className="me-2 h-4 w-4" />
+                    {t("editor.toolbar.copyRelativePath")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => void handleCopyLocalAbsolutePath()}
+                  >
+                    <IconCopy className="me-2 h-4 w-4" />
+                    {t("editor.toolbar.copyAbsolutePath")}
                   </DropdownMenuItem>
                 </DropdownMenuGroup>
-                <DropdownMenuSeparator />
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
-                    {exportDocument.isPending ? (
-                      <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <IconDownload className="me-2 h-4 w-4" />
-                    )}
-                    Export
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-44">
-                    <DropdownMenuItem
-                      disabled={exportDocument.isPending}
-                      onSelect={() => void handleExport("pdf")}
-                    >
-                      <IconFileTypePdf className="me-2 h-4 w-4" />
-                      PDF
+              ) : (
+                <>
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem onSelect={() => setHistoryOpen(true)}>
+                      <IconHistory className="me-2 h-4 w-4" />
+                      {t("editor.toolbar.versionHistory")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={exportDocument.isPending}
-                      onSelect={() => void handleExport("markdown")}
-                    >
-                      <IconMarkdown className="me-2 h-4 w-4" />
-                      Markdown
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      disabled={exportDocument.isPending}
-                      onSelect={() => void handleExport("html")}
-                    >
-                      <IconFileTypeHtml className="me-2 h-4 w-4" />
-                      HTML
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-              </>
-            )}
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              {canEdit && !isLocalFileDocument ? (
-                <Popover open={open} onOpenChange={setOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className={cn(
-                        "flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
-                        isLinked ? "text-foreground" : "text-muted-foreground",
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger disabled={exportDocument.isPending}>
+                      {exportDocument.isPending ? (
+                        <IconLoader2 className="me-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <IconDownload className="me-2 h-4 w-4" />
                       )}
-                    >
-                      <span className="me-2 flex h-4 w-4 shrink-0 items-center justify-center">
-                        {hasConflict ? (
-                          <span className="relative">
-                            <NotionIcon className="h-4 w-4" />
-                            <IconAlertTriangle
-                              size={8}
-                              className="absolute -end-1 -top-1 text-amber-500"
-                            />
-                          </span>
-                        ) : isLinked && autoSync ? (
-                          <span className="relative">
-                            <NotionIcon className="h-4 w-4" />
-                            <span className="absolute -end-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
-                          </span>
-                        ) : (
-                          <NotionIcon className="h-4 w-4" />
+                      {t("editor.toolbar.export")}
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-44">
+                      <DropdownMenuItem
+                        disabled={exportDocument.isPending}
+                        onSelect={() => void handleExport("pdf")}
+                      >
+                        <IconFileTypePdf className="me-2 h-4 w-4" />
+                        PDF
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={exportDocument.isPending}
+                        onSelect={() => void handleExport("markdown")}
+                      >
+                        <IconMarkdown className="me-2 h-4 w-4" />
+                        Markdown
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={exportDocument.isPending}
+                        onSelect={() => void handleExport("html")}
+                      >
+                        <IconFileTypeHtml className="me-2 h-4 w-4" />
+                        HTML
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                </>
+              )}
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                {canEdit && !isLocalFileDocument ? (
+                  <Popover open={open} onOpenChange={setOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex w-full items-center rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground",
+                          isLinked
+                            ? "text-foreground"
+                            : "text-muted-foreground",
                         )}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-start">
-                        {isLinked
-                          ? "Notion sync"
-                          : isConnected
-                            ? "Link to Notion"
-                            : "Connect Notion"}
-                      </span>
-                    </button>
-                  </PopoverTrigger>
-
-                  <PopoverContent
-                    side="left"
-                    align="start"
-                    sideOffset={8}
-                    className="w-80 p-0"
-                    onOpenAutoFocus={(e) => e.preventDefault()}
-                  >
-                    {!isConnected ? (
-                      /* ─── Not connected ─── */
-                      <div className="p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <NotionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                          <p className="text-sm font-medium">Connect Notion</p>
-                        </div>
-                        <p className="text-xs text-muted-foreground mb-3">
-                          Set up Notion to sync this document.
-                        </p>
-                        <Button
-                          size="sm"
-                          className="w-full"
-                          onClick={handleSetup}
-                        >
-                          Set up Notion
-                        </Button>
-                      </div>
-                    ) : isLinked ? (
-                      /* ─── Linked — show sync actions ─── */
-                      <div>
-                        <div className="px-4 py-3 border-b border-border">
-                          <div className="flex items-center gap-2">
-                            <NotionIcon className="h-3.5 w-3.5 shrink-0" />
-                            <span className="text-xs font-medium truncate">
-                              Linked to Notion
+                      >
+                        <span className="me-2 flex h-4 w-4 shrink-0 items-center justify-center">
+                          {hasConflict ? (
+                            <span className="relative">
+                              <NotionIcon className="h-4 w-4" />
+                              <IconAlertTriangle
+                                size={8}
+                                className="absolute -end-1 -top-1 text-amber-500"
+                              />
                             </span>
-                            {autoSync && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
-                                <IconRefresh size={9} />
-                                Auto
-                              </span>
-                            )}
+                          ) : isLinked && autoSync ? (
+                            <span className="relative">
+                              <NotionIcon className="h-4 w-4" />
+                              <span className="absolute -end-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-500" />
+                            </span>
+                          ) : (
+                            <NotionIcon className="h-4 w-4" />
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-start">
+                          {isLinked
+                            ? t("editor.toolbar.notionSync")
+                            : isConnected
+                              ? t("editor.toolbar.linkToNotion")
+                              : t("editor.toolbar.connectNotion")}
+                        </span>
+                      </button>
+                    </PopoverTrigger>
+
+                    <PopoverContent
+                      side="left"
+                      align="start"
+                      sideOffset={8}
+                      className="w-80 p-0"
+                      onOpenAutoFocus={(e) => e.preventDefault()}
+                    >
+                      {!isConnected ? (
+                        /* ─── Not connected ─── */
+                        <div className="p-4">
+                          <div className="flex items-center gap-2 mb-2">
+                            <NotionIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            <p className="text-sm font-medium">
+                              {t("editor.toolbar.connectNotion")}
+                            </p>
                           </div>
-                          {syncStatus?.lastSyncedAt && (
-                            <p className="mt-1 text-[10px] text-muted-foreground">
-                              Last synced{" "}
-                              {new Date(
-                                syncStatus.lastSyncedAt,
-                              ).toLocaleString()}
-                            </p>
-                          )}
-                          {syncStatus?.lastError && (
-                            <p className="mt-1 text-[10px] text-destructive">
-                              {syncStatus.lastError}
-                            </p>
-                          )}
-                          {syncStatus?.warnings?.length ? (
-                            <div className="mt-1.5 space-y-1">
-                              {syncStatus.warnings
-                                .slice(0, 3)
-                                .map((warning, index) => (
-                                  <p
-                                    key={`${warning}-${index}`}
-                                    className="text-[10px] text-muted-foreground"
-                                  >
-                                    {warning}
-                                  </p>
-                                ))}
-                            </div>
-                          ) : null}
-                        </div>
-
-                        {/* Conflict is shown via NotionConflictBanner above the title */}
-
-                        <div className="p-1.5">
-                          <button
-                            onClick={() => setAutoSync(!autoSync)}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent rounded-md"
+                          <p className="text-xs text-muted-foreground mb-3">
+                            {t("editor.toolbar.setUpNotionToSync")}
+                          </p>
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={handleSetup}
                           >
-                            <IconRefresh
-                              size={12}
-                              className={
-                                autoSync
-                                  ? "text-emerald-500"
-                                  : "text-muted-foreground"
-                              }
-                            />
-                            <span
-                              className={
-                                autoSync
-                                  ? "text-foreground font-medium"
-                                  : "text-muted-foreground"
-                              }
-                            >
-                              Auto-sync
-                            </span>
-                            <span
-                              className={cn(
-                                "ml-auto h-4 w-7 rounded-full relative",
-                                autoSync
-                                  ? "bg-emerald-500"
-                                  : "bg-muted-foreground/30",
+                            {t("editor.toolbar.setUpNotion")}
+                          </Button>
+                        </div>
+                      ) : isLinked ? (
+                        /* ─── Linked — show sync actions ─── */
+                        <div>
+                          <div className="px-4 py-3 border-b border-border">
+                            <div className="flex items-center gap-2">
+                              <NotionIcon className="h-3.5 w-3.5 shrink-0" />
+                              <span className="text-xs font-medium truncate">
+                                {t("editor.toolbar.linkedToNotion")}
+                              </span>
+                              {autoSync && (
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                                  <IconRefresh size={9} />
+                                  {t("editor.toolbar.auto")}
+                                </span>
                               )}
+                            </div>
+                            {syncStatus?.lastSyncedAt && (
+                              <p className="mt-1 text-[10px] text-muted-foreground">
+                                {t("editor.toolbar.lastSynced")}{" "}
+                                {new Date(
+                                  syncStatus.lastSyncedAt,
+                                ).toLocaleString()}
+                              </p>
+                            )}
+                            {syncStatus?.lastError && (
+                              <p className="mt-1 text-[10px] text-destructive">
+                                {syncStatus.lastError}
+                              </p>
+                            )}
+                            {syncStatus?.warnings?.length ? (
+                              <div className="mt-1.5 space-y-1">
+                                {syncStatus.warnings
+                                  .slice(0, 3)
+                                  .map((warning, index) => (
+                                    <p
+                                      key={`${warning}-${index}`}
+                                      className="text-[10px] text-muted-foreground"
+                                    >
+                                      {warning}
+                                    </p>
+                                  ))}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          {/* Conflict is shown via NotionConflictBanner above the title */}
+
+                          <div className="p-1.5">
+                            <button
+                              onClick={() => setAutoSync(!autoSync)}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-accent rounded-md"
                             >
+                              <IconRefresh
+                                size={12}
+                                className={
+                                  autoSync
+                                    ? "text-emerald-500"
+                                    : "text-muted-foreground"
+                                }
+                              />
+                              <span
+                                className={
+                                  autoSync
+                                    ? "text-foreground font-medium"
+                                    : "text-muted-foreground"
+                                }
+                              >
+                                {t("editor.toolbar.autoSync")}
+                              </span>
                               <span
                                 className={cn(
-                                  "absolute top-0.5 h-3 w-3 rounded-full bg-white",
-                                  autoSync ? "right-0.5" : "left-0.5",
+                                  "ml-auto h-4 w-7 rounded-full relative",
+                                  autoSync
+                                    ? "bg-emerald-500"
+                                    : "bg-muted-foreground/30",
                                 )}
-                              />
-                            </span>
-                          </button>
-                          <button
-                            onClick={handlePull}
-                            disabled={isWorking}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
-                          >
-                            {pullDocument.isPending ? (
-                              <IconLoader2 size={12} className="animate-spin" />
-                            ) : (
-                              <IconArrowBarDown size={12} />
-                            )}
-                            Pull from Notion
-                          </button>
-                          <button
-                            onClick={handlePush}
-                            disabled={isWorking}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
-                          >
-                            {pushDocument.isPending ? (
-                              <IconLoader2 size={12} className="animate-spin" />
-                            ) : (
-                              <IconArrowBarUp size={12} />
-                            )}
-                            Push to Notion
-                          </button>
-                          {syncStatus?.pageUrl && (
-                            <a
-                              href={syncStatus.pageUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
-                            >
-                              <IconExternalLink size={12} />
-                              Open in Notion
-                            </a>
-                          )}
-                          <button
-                            onClick={handleUnlink}
-                            disabled={isWorking}
-                            className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md disabled:opacity-40"
-                          >
-                            <IconLinkOff size={12} />
-                            Unlink
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      /* ─── Not linked — show search ─── */
-                      <div>
-                        <div className="p-3 pb-2">
-                          <div className="flex items-center gap-2 mb-2">
-                            <NotionIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                            <span className="text-xs font-medium">
-                              Link to Notion page
-                            </span>
-                          </div>
-                          <div className="relative">
-                            <IconSearch
-                              size={13}
-                              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-                            />
-                            <input
-                              ref={searchInputRef}
-                              type="text"
-                              value={searchQuery}
-                              onChange={(e) => setSearchQuery(e.target.value)}
-                              placeholder="Search Notion pages..."
-                              className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="max-h-64 overflow-y-auto border-t border-border">
-                          {/* Create new page option */}
-                          <div className="p-1.5 border-b border-border">
-                            <button
-                              onClick={() => handleCreateAndLink()}
-                              disabled={isWorking}
-                              className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
-                            >
-                              <span className="flex h-5 w-5 shrink-0 items-center justify-center">
-                                {createAndLink.isPending ? (
-                                  <IconLoader2
-                                    size={14}
-                                    className="animate-spin text-muted-foreground"
-                                  />
-                                ) : (
-                                  <IconPlus
-                                    size={14}
-                                    className="text-muted-foreground"
-                                  />
-                                )}
-                              </span>
-                              <span className="text-xs font-medium">
-                                Create new page in Notion
+                              >
+                                <span
+                                  className={cn(
+                                    "absolute top-0.5 h-3 w-3 rounded-full bg-white",
+                                    autoSync ? "right-0.5" : "left-0.5",
+                                  )}
+                                />
                               </span>
                             </button>
+                            <button
+                              onClick={handlePull}
+                              disabled={isWorking}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
+                            >
+                              {pullDocument.isPending ? (
+                                <IconLoader2
+                                  size={12}
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <IconArrowBarDown size={12} />
+                              )}
+                              {t("editor.toolbar.pullFromNotion")}
+                            </button>
+                            <button
+                              onClick={handlePush}
+                              disabled={isWorking}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md disabled:opacity-40"
+                            >
+                              {pushDocument.isPending ? (
+                                <IconLoader2
+                                  size={12}
+                                  className="animate-spin"
+                                />
+                              ) : (
+                                <IconArrowBarUp size={12} />
+                              )}
+                              {t("editor.toolbar.pushToNotion")}
+                            </button>
+                            {syncStatus?.pageUrl && (
+                              <a
+                                href={syncStatus.pageUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-accent rounded-md"
+                              >
+                                <IconExternalLink size={12} />
+                                {t("editor.toolbar.openInNotion")}
+                              </a>
+                            )}
+                            <button
+                              onClick={handleUnlink}
+                              disabled={isWorking}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-md disabled:opacity-40"
+                            >
+                              <IconLinkOff size={12} />
+                              {t("editor.toolbar.unlink")}
+                            </button>
                           </div>
-
-                          {searchLoading ? (
-                            <div className="flex items-center justify-center py-6">
-                              <IconLoader2
-                                size={16}
-                                className="animate-spin text-muted-foreground"
+                        </div>
+                      ) : (
+                        /* ─── Not linked — show search ─── */
+                        <div>
+                          <div className="p-3 pb-2">
+                            <div className="flex items-center gap-2 mb-2">
+                              <NotionIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                              <span className="text-xs font-medium">
+                                {t("editor.toolbar.linkToNotionPage")}
+                              </span>
+                            </div>
+                            <div className="relative">
+                              <IconSearch
+                                size={13}
+                                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                              />
+                              <input
+                                ref={searchInputRef}
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder={t(
+                                  "editor.toolbar.searchNotionPages",
+                                )}
+                                className="w-full rounded-md border border-input bg-background pl-8 pr-3 py-1.5 text-xs outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground"
                               />
                             </div>
-                          ) : searchResults?.results.length ? (
-                            <div className="p-1.5">
-                              {searchResults.results.map((page) => (
-                                <div
-                                  key={page.id}
-                                  className="flex items-center gap-1 rounded-md hover:bg-accent"
-                                >
-                                  <button
-                                    onClick={() => handleLink(page.id)}
-                                    disabled={isWorking}
-                                    className="min-w-0 flex-1 flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md disabled:opacity-40"
+                          </div>
+
+                          <div className="max-h-64 overflow-y-auto border-t border-border">
+                            {/* Create new page option */}
+                            <div className="p-1.5 border-b border-border">
+                              <button
+                                onClick={() => handleCreateAndLink()}
+                                disabled={isWorking}
+                                className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md hover:bg-accent disabled:opacity-40"
+                              >
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center">
+                                  {createAndLink.isPending ? (
+                                    <IconLoader2
+                                      size={14}
+                                      className="animate-spin text-muted-foreground"
+                                    />
+                                  ) : (
+                                    <IconPlus
+                                      size={14}
+                                      className="text-muted-foreground"
+                                    />
+                                  )}
+                                </span>
+                                <span className="text-xs font-medium">
+                                  {t("editor.toolbar.createNewPageInNotion")}
+                                </span>
+                              </button>
+                            </div>
+
+                            {searchLoading ? (
+                              <div className="flex items-center justify-center py-6">
+                                <IconLoader2
+                                  size={16}
+                                  className="animate-spin text-muted-foreground"
+                                />
+                              </div>
+                            ) : searchResults?.results.length ? (
+                              <div className="p-1.5">
+                                {searchResults.results.map((page) => (
+                                  <div
+                                    key={page.id}
+                                    className="flex items-center gap-1 rounded-md hover:bg-accent"
                                   >
-                                    <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">
-                                      {linkingPageId === page.id ? (
-                                        <IconLoader2
-                                          size={14}
-                                          className="animate-spin text-muted-foreground"
-                                        />
-                                      ) : (
-                                        page.icon || (
-                                          <IconFileText
-                                            size={14}
-                                            className="text-muted-foreground"
-                                          />
-                                        )
-                                      )}
-                                    </span>
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-xs font-medium truncate">
-                                        {page.title}
-                                      </p>
-                                      {linkingPageId === page.id ? (
-                                        <p className="text-[10px] text-muted-foreground">
-                                          Importing from Notion…
-                                        </p>
-                                      ) : page.lastEditedTime ? (
-                                        <p className="text-[10px] text-muted-foreground">
-                                          Edited{" "}
-                                          {new Date(
-                                            page.lastEditedTime,
-                                          ).toLocaleDateString()}
-                                        </p>
-                                      ) : null}
-                                    </div>
-                                  </button>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <button
-                                        onClick={() =>
-                                          handleCreateAndLink(page.id)
-                                        }
-                                        disabled={isWorking}
-                                        className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
-                                        aria-label={`Create new page inside ${page.title}`}
-                                      >
-                                        {creatingParentPageId === page.id ? (
+                                    <button
+                                      onClick={() => handleLink(page.id)}
+                                      disabled={isWorking}
+                                      className="min-w-0 flex-1 flex items-center gap-2.5 px-2.5 py-2 text-left rounded-md disabled:opacity-40"
+                                    >
+                                      <span className="flex h-5 w-5 shrink-0 items-center justify-center text-sm">
+                                        {linkingPageId === page.id ? (
                                           <IconLoader2
-                                            size={13}
-                                            className="animate-spin"
+                                            size={14}
+                                            className="animate-spin text-muted-foreground"
                                           />
                                         ) : (
-                                          <IconPlus size={13} />
+                                          page.icon || (
+                                            <IconFileText
+                                              size={14}
+                                              className="text-muted-foreground"
+                                            />
+                                          )
                                         )}
-                                      </button>
-                                    </TooltipTrigger>
-                                    <TooltipContent>
-                                      Create new page inside this page
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </div>
-                              ))}
-                            </div>
-                          ) : debouncedQuery || searchResults ? (
-                            <div className="py-6 text-center text-xs text-muted-foreground">
-                              No pages found
-                            </div>
-                          ) : null}
+                                      </span>
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-xs font-medium truncate">
+                                          {page.title}
+                                        </p>
+                                        {linkingPageId === page.id ? (
+                                          <p className="text-[10px] text-muted-foreground">
+                                            {t(
+                                              "editor.toolbar.importingFromNotion",
+                                            )}
+                                          </p>
+                                        ) : page.lastEditedTime ? (
+                                          <p className="text-[10px] text-muted-foreground">
+                                            {t("editor.toolbar.edited")}{" "}
+                                            {new Date(
+                                              page.lastEditedTime,
+                                            ).toLocaleDateString()}
+                                          </p>
+                                        ) : null}
+                                      </div>
+                                    </button>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <button
+                                          onClick={() =>
+                                            handleCreateAndLink(page.id)
+                                          }
+                                          disabled={isWorking}
+                                          className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground disabled:opacity-40"
+                                          aria-label={t(
+                                            "editor.toolbar.createNewPageInside",
+                                            { title: page.title },
+                                          )}
+                                        >
+                                          {creatingParentPageId === page.id ? (
+                                            <IconLoader2
+                                              size={13}
+                                              className="animate-spin"
+                                            />
+                                          ) : (
+                                            <IconPlus size={13} />
+                                          )}
+                                        </button>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        {t(
+                                          "editor.toolbar.createNewPageInsideThisPage",
+                                        )}
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : debouncedQuery || searchResults ? (
+                              <div className="py-6 text-center text-xs text-muted-foreground">
+                                {t("editor.toolbar.noPagesFound")}
+                              </div>
+                            ) : null}
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </PopoverContent>
-                </Popover>
-              ) : null}
-              <div className="group relative">
-                <NotificationsBell className="!h-8 !w-full !justify-start !rounded-sm !px-2 !py-1.5 !text-sm hover:!bg-accent hover:!text-accent-foreground focus-visible:!ring-0" />
-                <span className="pointer-events-none absolute start-8 top-1/2 -translate-y-1/2 text-sm text-muted-foreground group-hover:text-accent-foreground">
-                  Notifications
-                </span>
-              </div>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <AgentToggleButton />
+                      )}
+                    </PopoverContent>
+                  </Popover>
+                ) : null}
+                <div className="group relative">
+                  <NotificationsBell className="!h-8 !w-full !justify-start !rounded-sm !px-2 !py-1.5 !text-sm hover:!bg-accent hover:!text-accent-foreground focus-visible:!ring-0" />
+                  <span className="pointer-events-none absolute start-8 top-1/2 -translate-y-1/2 text-sm text-muted-foreground group-hover:text-accent-foreground">
+                    {t("editor.toolbar.notifications")}
+                  </span>
+                </div>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <AgentToggleButton />
+        </div>
       </div>
     </>
   );

@@ -1,4 +1,7 @@
 import "./overlay.css";
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("overlay");
 
 // The overlay runs as an extension-origin iframe injected into the page by the
 // content script. Each iframe renders one "part" of the Loom-style recording UI
@@ -166,6 +169,9 @@ async function initBubble(): Promise<void> {
     postBubble("camera-ready");
   } catch (err) {
     console.warn("[clips-overlay] camera getUserMedia failed:", err);
+    captureExtensionError(err, {
+      tags: { surface: "overlay", overlayPart: "bubble" },
+    });
     const empty = document.createElement("div");
     empty.className = "bubble-empty";
     empty.innerHTML = ICONS.cameraOff;

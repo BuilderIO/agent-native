@@ -1,0 +1,360 @@
+---
+title: "Analyses"
+description: "Posez des questions d'analyse dans un anglais simple, récupérez des graphiques et des tableaux de bord. Un remplacement open source pour Amplitude, Mixpanel et Looker."
+---
+
+# Analyses
+
+Posez des questions d'analyse dans un anglais simple, récupérez des graphiques et des tableaux de bord. L'agent se connecte à BigQuery, GA4, Amplitude, le collecteur d'événements propriétaire intégré, HubSpot, Jira et une douzaine d'autres sources, écrit la requête pour vous, la valide et affiche la réponse sous forme de graphique, de tableau ou de panneau de tableau de bord enregistré.
+
+<WireframeBlock id="doc-block-1af9kv7">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Templates Agent-Native</h1><p class='wf-muted' style='margin:0'>Adoption et engagement sur les 12 dernières semaines.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Utilisateurs actifs hebdomadaires</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>Nouvelles inscriptions</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>MRR de revenus</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Utilisateurs actifs hebdomadaires</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenus dans le temps</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Inscriptions par source</strong><br/><small class='wf-muted'>Le graphique inférieur commence sous les graphiques principaux.</small></div></div>"
+    }
+  />
+</WireframeBlock>
+
+Il s'agit d'un remplacement open source d'Amplitude, Mixpanel et Looker, destiné aux équipes qui souhaitent posséder le code, les requêtes et les données.
+
+<Diagram id="doc-block-1xecsoz" title={"Question à tracer"} summary={"L'agent consulte le dictionnaire de données, écrit SQL, le valide par rapport à l'entrepôt, puis restitue un graphique ou enregistre un panneau."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-node">Langage simple<br />question</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">reads data dictionary</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>Écrit du SQL</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill ok">Valider en dry-run</div>
+    <small class="diagram-muted">BigQuery / origine</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Graphique, tableau ou<br />saved panel</div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Ce que vous pouvez en faire
+
+- **Posez des questions sur les données dans un anglais simple.** "Quel pourcentage d'inscriptions le mois dernier ont été converties en inscriptions payantes ?" ou "Montrez-moi les utilisateurs actifs hebdomadaires au cours des 6 derniers mois." L'agent sélectionne la bonne source, écrit le SQL et restitue le graphique.
+- **Créez des tableaux de bord SQL réutilisables** avec des filtres, des vues enregistrées et des requêtes paramétriques.
+- **Exécutez des analyses ad hoc** qui croisent plusieurs sources de données, enregistrées sous forme d'enquêtes réexécutables avec la question, les instructions et les résultats d'origine.
+- **Maintenez un dictionnaire de données évolutif** de métriques, de tables et de recettes SQL afin que l'agent utilise les bons noms de colonnes à chaque fois (plus besoin de deviner `is_closed` alors qu'il s'agit en réalité de `hs_is_closed`).
+- **Partagez des tableaux de bord** avec votre équipe : privés par défaut, partageables par utilisateur ou par organisation avec des rôles de lecteur/éditeur/administrateur.
+- **Connectez-vous à de nombreuses sources** prêtes à l'emploi : BigQuery, GA4, Mixpanel, Amplitude, PostHog, HubSpot, Jira, Apollo, Pylon, Gong, Common Room, Twitter, ainsi que des sources SEO spécifiques aux applications.
+- **Réutiliser les intégrations d'espace de travail** lorsqu'un espace de travail est déjà connecté et
+  a attribué un fournisseur à Analytics. Le fournisseur de magasins d'intégration partagés
+  références d'identité et d'informations d'identification ; Analytics conserve la sélection de sources spécifiques à l'application,
+  Entrées du dictionnaire de données, tableau de bord SQL et historique d'analyse.
+
+## Démarrer
+
+Démo en direct : [analytics.agent-native.com](https://analytics.agent-native.com).
+
+Lorsque vous ouvrez l'application pour la première fois :
+
+1. Connectez-vous avec Google.
+2. Ouvrez la page **Sources de données** à partir de la barre latérale.
+3. Chaque source est accompagnée d'une procédure pas à pas : connectez celles dont vous avez besoin (commencez par une seule, comme BigQuery, GA4, Amplitude ou un suivi propriétaire).
+4. Ouvrez une nouvelle discussion avec l'agent et posez une question : "Combien d'inscriptions avons-nous reçu la semaine dernière ?"
+
+La première question suffit à confirmer que la connexion fonctionne. À partir de là, demandez à l'agent de « enregistrer ceci en tant que tableau de bord » ou de « créer un tableau de bord de présentation à 4 panneaux pour nos indicateurs clés ».
+
+### Invites utiles
+
+- "Créez un tableau de bord montrant les utilisateurs actifs hebdomadaires au cours des 6 derniers mois."
+- "Quel pourcentage d'inscriptions le mois dernier ont été converties en inscriptions payantes ?"
+- "Ajoutez un graphique comparant les revenus par plan à ce tableau de bord."
+- "Réorganisez les panneaux de ce tableau de bord pour que la métrique MRR vienne en premier."
+- "Analysez nos transactions conclues-perdues du premier trimestre et enregistrez l'analyse."
+- "Réexécutez l'analyse du taux de désabonnement avec les données de ce mois-ci."
+- "Documenter cette métrique dans le dictionnaire de données."
+
+L'agent sait toujours ce que vous regardez : tableau de bord actuel, filtres, vue – vous pouvez donc dire « ce tableau de bord » ou « ce panneau » sans être explicite.
+
+## Trois choses à savoir
+
+L'application comporte trois surfaces principales sur lesquelles vous passerez du temps :
+
+- **Tableaux de bord SQL** : panneaux réutilisables avec filtres et vues enregistrées. Idéal pour les statistiques que vous vérifiez régulièrement.
+- **Analyses ad hoc** : enquêtes longues provenant de plusieurs sources, avec des instructions de réexécution enregistrées à côté. Idéal pour les questions ponctuelles que vous souhaiterez peut-être revoir.
+- **Data Dictionary** — le catalogue canonique de métriques, de tables, de colonnes et de recettes SQL. L'agent le consulte avant d'écrire un SQL. Il utilise donc de vrais noms de colonnes d'entrepôt et connaît les mises en garde telles que « exclut les e-mails internes ».
+
+Le dictionnaire est généré en demandant à l'agent : "importer nos définitions dbt" ou "extraire les métriques de notre manuel Notion" et il fait le travail.
+
+## Pour les développeurs
+
+Le reste de ce document s'adresse à toute personne qui crée ou étend le modèle Analytics.
+
+### Démarrage rapide
+
+Créez une nouvelle application Analytics à partir du CLI :
+
+```bash
+npx @agent-native/core@latest create my-analytics --standalone --template analytics
+```
+
+Développeur local :
+
+```bash
+cd my-analytics
+pnpm install
+pnpm dev
+```
+
+Le CLI imprime le développement local URL. Connectez-vous avec Google, puis ouvrez la page **Sources de données** pour connecter BigQuery, GA4, le suivi propriétaire, HubSpot, Jira et les autres.
+
+### Fonctionnalités clés
+
+**Posez des questions, obtenez des graphiques.** L'agent sélectionne une source de données, écrit et valide SQL, puis affiche un graphique, un tableau, une métrique ou un panneau enregistré.
+
+**Tableaux de bord et enquêtes.** Les tableaux de bord réutilisables conservent les panneaux SQL, les filtres, les vues enregistrées et le partage ; les analyses ad hoc enregistrent des résultats plus longs avec des instructions de réexécution.
+
+**Dictionnaire de données évolutif.** Les définitions de métriques, les propriétaires, les tables sources et les mises en garde connues donnent à l'agent le véritable vocabulaire de l'entrepôt avant d'écrire des requêtes.
+
+**Large surface de connecteur.** Les événements BigQuery, GA4, analyses de produits, CRM, support, communauté, GitHub/Jira, SEO et `/track` propriétaires passent tous par actions que l'agent peut appeler.
+
+### Travailler avec l'agent
+
+L'agent sait toujours ce que vous regardez. L'état actuel de l'écran est injecté dans chaque message sous forme de bloc `<current-screen>` : il contient la vue active, le tableau de bord ou l'analyse ouvert et tous les filtres sélectionnés.
+
+L'invite système de l'agent reçoit un bloc `<data-dictionary>` injecté avec les entrées de métriques approuvées pour l'organisation active. Lorsque vous demandez un tableau de bord, l'agent consulte d'abord le dictionnaire et utilise textuellement les documents `table` / `columns` / `queryTemplate` documentés — il ne devine pas les noms de colonnes.
+
+**Contexte qu'il a automatiquement :**
+
+- **Vue actuelle** : `overview`, `adhoc` (avec `dashboardId`), `analyses` (avec `analysisId`), `data-dictionary`, `data-sources` ou `settings`.
+- **Organisation active** : s'étend à toutes les requêtes et écritures.
+- **Entrées de dictionnaire approuvées** — pour l'espace de travail actif.
+
+**Modifications du tableau de bord.** L'agent utilise l'action `update-dashboard` pour modifier les tableaux de bord. Il prend en charge deux modes :
+
+- `ops` — Patchs JSON-Pointer pour les modifications chirurgicales (déplacer un panneau, remplacer une chaîne SQL, supprimer un filtre).
+- `config` — remplacement complet de la configuration du tableau de bord.
+
+Le SQL de chaque panneau BigQuery est testé à sec sur l'entrepôt avant l'enregistrement du tableau de bord. Si une colonne est erronée, l'enregistrement est rejeté avec l'erreur BigQuery : l'agent corrige le SQL et réessaye au lieu de conserver les panneaux cassés.
+
+### Connexion des sources de données
+
+Ouvrez la page **Sources de données** (`/data-sources`) pour connecter les fournisseurs. Chacun
+la source expose une liste de clés d'environnement, une procédure pas à pas et un bouton **Test de connexion**.
+Lorsque Analytics est exécuté dans un espace de travail, `data-source-status` génère également des rapports
+accorde des connexions d'espace de travail réutilisables pour `appId=analytics` afin que l'agent puisse
+demandez une autorisation d'application au lieu d'une autre copie de la même clé de fournisseur.
+Pour les fournisseurs réutilisables tels que Slack, HubSpot, Notion et GitHub, les données
+Les sources UI montrent directement l'état d'intégration partagé : prêt via l'espace de travail,
+nécessite une autorisation, nécessite des informations d'identification ou des informations d'identification locales.
+
+Les intégrations d'espaces de travail réutilisables constituent la direction d'exécution pour les fournisseurs partagés :
+le framework stocke l'identité du fournisseur, les métadonnées du compte, les références d'informations d'identification et
+octroie une fois par application ; Analytics stocke l'interprétation de la source de données, la source de
+choix de vérité, définitions de métriques, tableaux de bord et analyses.
+
+Les informations d'identification sont stockées via la couche paramètres/env du framework — aucun secret dans git. La production nécessite :
+
+| Variable                                 | Objectif                                                               |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| `DATABASE_URL`                           | Connexion persistante SQL URL                                          |
+| `BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` | Authentification                                                       |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `_SECRET`   | Client de connexion Google préféré (OAuth 2.0)                         |
+| `GOOGLE_CLIENT_ID` / `_SECRET`           | Ancien système de secours de connexion/client d'intégration Google API |
+| `BIGQUERY_PROJECT_ID`                    | Projet BigQuery                                                        |
+| `GOOGLE_APPLICATION_CREDENTIALS_JSON`    | Compte de service BigQuery JSON                                        |
+| `ANTHROPIC_API_KEY`                      | Discussion avec les agents                                             |
+
+Les clés spécifiques au fournisseur (HubSpot, Jira, Gong, Pylon, etc.) sont documentées dans la procédure pas à pas de chaque source sur la page Sources de données. Si vous ajoutez une nouvelle action nécessitant une clé API, elle apparaît comme une nouvelle source sur cette page via l'enregistrement d'intégration du modèle.
+
+Remarque : l'identifiant BigQuery OAuth pour la connexion à Google est un **séparé**
+identifiant du compte de service BigQuery JSON. Créez le client de connexion sur
+Console GCP → API et services → Identifiants → ID client OAuth, et préférez le
+Noms d'environnement `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` donc ceci
+Le client de connexion à faible portée reste distinct des clients d'intégration Google API.
+
+### Modèle de données
+
+Tableaux de base (voir `templates/analytics/server/db/schema.ts`) :
+
+<DataModel
+  id="doc-block-1kot9n2"
+  title={"Modèle de données Analytics"}
+  summary={
+    "Les dashboards et analyses sont les ressources ; vues, partages et cache de requêtes s’y rattachent. Les tables d’organisation viennent de @agent-native/core/org."
+  }
+  entities={[
+    {
+      id: "dashboards",
+      name: "dashboards",
+      note: "Tableaux de bord Explorer et SQL",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "kind",
+          type: "text",
+          note: '"explorer" or "sql"',
+        },
+        {
+          name: "config",
+          type: "text",
+          note: "JSON correspondant à SqlDashboardConfig",
+        },
+      ],
+    },
+    {
+      id: "dashboard_views",
+      name: "dashboard_views",
+      note: "Préréglages de filtres enregistrés par tableau de bord",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "dashboard_id",
+          type: "text",
+          fk: "dashboards.id",
+        },
+      ],
+    },
+    {
+      id: "analyses",
+      name: "analyses",
+      note: "Enquêtes ad hoc réexécutables",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "question",
+          type: "text",
+        },
+        {
+          name: "instructions",
+          type: "text",
+          note: "Réexécuter les étapes",
+        },
+        {
+          name: "dataSources",
+          type: "text",
+          note: "Sources touchées",
+        },
+        {
+          name: "resultMarkdown",
+          type: "text",
+        },
+        {
+          name: "resultData",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "bigquery_cache",
+      name: "bigquery_cache",
+      note: "Cache des résultats saisi par le hachage SQL",
+      fields: [
+        {
+          name: "sql_hash",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "bytes_processed",
+          type: "integer",
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "dashboards",
+      to: "dashboard_views",
+      kind: "1-n",
+      label: "saved views",
+    },
+  ]}
+/>
+
+Plus les tables de partage par ressource (`dashboard_shares`, `analysis_shares`) et les tables d'organisation (`organizations`, `org_members`, `org_invitations`) fournies par `@agent-native/core/org`. Le dictionnaire de données se trouve dans la table `settings` du framework sous les clés de portée.
+
+- **`dashboards`** : tableaux de bord Explorer et SQL. `kind` est `"explorer"` ou `"sql"` ; `config` est un blob JSON correspondant à `SqlDashboardConfig`.
+- **`dashboard_shares`** – attributions de partages par ressource (principal, rôle).
+- **`dashboard_views`** – préréglages de filtres enregistrés par tableau de bord.
+- **`analyses`** – enquêtes ad hoc avec `question`, `instructions`, `dataSources`, `resultMarkdown` et `resultData` en option.
+- **`analysis_shares`** – attributions de partage par ressource pour les analyses.
+- **`bigquery_cache`** — cache des résultats de la requête saisi par le hachage SQL avec comptabilité traitée en octets.
+
+Plus les tables organisationnelles (`organizations`, `org_members`, `org_invitations`) fournies par `@agent-native/core/org`.
+
+Le dictionnaire de données se trouve dans la table `settings` du framework sous les clés de portée ; voir les modèles `list-data-dictionary` et `save-data-dictionary-entry` actions pour la forme complète.
+
+### Le personnaliser
+
+Le modèle Analytics est destiné à être dérivé et étendu. Tout vit dans `templates/analytics/` :
+
+- **`AGENTS.md`** : guide de niveau supérieur de l'agent. Vues de documents, actions et flux de travail.
+- **`actions/`** — chaque opération appelable par un agent. Ajouter un nouveau fichier pour ajouter une nouvelle action. Les plus notables :
+  - `update-dashboard.ts` – modifications du tableau de bord (opérations + remplacement complet)
+  - `save-analysis.ts` / `list-analyses.ts` — analyses ad hoc
+  - `save-data-dictionary-entry.ts` / `list-data-dictionary.ts` — dictionnaire
+  - `bigquery.ts` – exécution brute de BigQuery
+  - `view-screen.ts` / `navigate.ts` – conscience du contexte
+- **`app/routes/`** — itinéraires basés sur des fichiers. Chaque itinéraire est une fine enveloppe autour d'une page dans `app/pages/`.
+- **`app/pages/adhoc/sql-dashboard/`** : rendu du tableau de bord SQL, éditeur de panneaux, barre de filtre, vues enregistrées.
+- **`app/pages/analyses/`** — analyse la liste et la vue détaillée.
+- **`app/pages/DataSources.tsx`** – l'intégration de la source de données UI.
+- **`app/pages/DataDictionary.tsx`** — le navigateur et éditeur de dictionnaire.
+- **`.agents/skills/`** — les modèles de guides que l'agent lit à la demande :
+  - `dashboard-management` – stockage, résolution de la portée, forme de configuration du tableau de bord
+  - `data-querying` — quel script rechercher, modèles de filtrage
+  - `adhoc-analysis` – workflow pour les enquêtes multi-sources
+  - `data-querying`, `real-time-sync`, `frontend-design`, `storing-data`, `self-modifying-code`
+- **`.builder/skills/<provider>/SKILL.md`** : pièges spécifiques au fournisseur (BigQuery, HubSpot, Jira, GA4, etc.). Lire avant d'interroger ; mettre à jour lorsque vous apprenez quelque chose de nouveau.
+- **`server/db/schema.ts`** : schéma Drizzle pour les tableaux de bord, les partages, les vues, les analyses et le cache BigQuery.
+- **`server/lib/dashboards-store.ts`** — lecture/écriture du tableau de bord avec résolution de portée et migration KV héritée.
+- **`server/lib/bigquery.ts`** – Client BigQuery, validateur à sec, logique de cache.
+
+Pour ajouter une nouvelle source de données, déposez un script dans `actions/` qui appelle le fournisseur et renvoie les résultats via l'assistant `output()`. Il devient immédiatement disponible pour l'agent et peut être utilisé dans les panneaux du tableau de bord (si vous exposez le résultat via un gestionnaire de serveur).
+
+Pour ajouter un nouveau type de graphique, étendez l'union `ChartType` dans `app/pages/adhoc/sql-dashboard/types.ts`, gérez-la dans `SqlChartCard.tsx` et l'agent peut l'utiliser dans n'importe quel panneau.
+
+Pour un modèle plus large sur l'extension des modèles, voir [Skills guide](/docs/skills-guide) et [Actions](/docs/actions).

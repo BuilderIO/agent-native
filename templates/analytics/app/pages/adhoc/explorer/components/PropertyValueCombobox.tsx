@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconCheck, IconSelector, IconLoader2 } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -31,6 +32,7 @@ export function PropertyValueCombobox({
   value,
   onChange,
 }: PropertyValueComboboxProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const { values, isLoading, error } = usePropertyValues(property);
@@ -51,7 +53,7 @@ export function PropertyValueCombobox({
           className="justify-between font-normal text-xs h-7 px-2 w-28"
           size="sm"
         >
-          <span className="truncate">{value || "value"}</span>
+          <span className="truncate">{value || t("explorer.value")}</span>
           {isLoading && !value ? (
             <IconLoader2 className="ml-1 h-3 w-3 shrink-0 animate-spin opacity-50" />
           ) : (
@@ -62,7 +64,7 @@ export function PropertyValueCombobox({
       <PopoverContent className="w-[240px] p-0" align="start">
         <Command shouldFilter={true}>
           <CommandInput
-            placeholder="Search or type value..."
+            placeholder={t("explorer.searchOrTypeValue")}
             value={search}
             onValueChange={setSearch}
             onKeyDown={(e) => {
@@ -84,16 +86,18 @@ export function PropertyValueCombobox({
                   className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent rounded cursor-pointer"
                   onClick={() => handleSelect(search.trim())}
                 >
-                  Use "<strong>{search.trim()}</strong>"
+                  {t("explorer.useValue", { value: search.trim() })}
                 </button>
               ) : error ? (
                 <span className="text-xs text-destructive px-2">{error}</span>
               ) : (
-                "No values found."
+                t("explorer.noValuesFound")
               )}
             </CommandEmpty>
             {values.length > 0 && (
-              <CommandGroup heading={`Top values for ${property}`}>
+              <CommandGroup
+                heading={t("explorer.topValuesForProperty", { property })}
+              >
                 {values.map((v) => (
                   <CommandItem
                     key={v.value}

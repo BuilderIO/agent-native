@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { resolveSecret } from "@agent-native/core/server";
 import { z } from "zod";
 
 export default defineAction({
@@ -9,11 +10,11 @@ export default defineAction({
   run: async () => {
     const { getConfiguredProviders } =
       await import("../server/handlers/image-providers/index.js");
-    const configured = getConfiguredProviders();
-    const geminiStatus = process.env.GEMINI_API_KEY
+    const configured = await getConfiguredProviders();
+    const geminiStatus = (await resolveSecret("GEMINI_API_KEY"))
       ? "Configured"
       : "Not configured";
-    const openaiStatus = process.env.OPENAI_API_KEY
+    const openaiStatus = (await resolveSecret("OPENAI_API_KEY"))
       ? "Configured"
       : "Not configured";
     const autoProvider =

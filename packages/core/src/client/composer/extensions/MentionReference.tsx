@@ -66,6 +66,9 @@ export const MentionReference = Node.create({
       refType: { default: "file" },
       refId: { default: null },
       refPath: { default: null },
+      slotKey: { default: null },
+      slotLabel: { default: null },
+      metadata: { default: null },
     };
   },
 

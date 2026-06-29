@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconPlus, IconUsersGroup } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -7,9 +8,10 @@ import { PageHeader } from "@/components/library/page-header";
 import { SpaceCard, type SpaceCardData } from "@/components/library/space-card";
 import { Button } from "@/components/ui/button";
 import { useSpaces, useOrganizations } from "@/hooks/use-library";
+import enMessages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Spaces · Clips" }];
+  return [{ title: enMessages.clipsFinalRaw.spacesPageTitle }];
 }
 
 function Skeleton() {
@@ -25,6 +27,7 @@ function Skeleton() {
 }
 
 export default function SpacesIndexRoute() {
+  const t = useT();
   const [createOpen, setCreateOpen] = useState(false);
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
@@ -46,7 +49,9 @@ export default function SpacesIndexRoute() {
       <PageHeader>
         <div className="flex items-center gap-2">
           <IconUsersGroup className="h-4 w-4 text-primary" />
-          <h1 className="text-base font-semibold text-foreground">Spaces</h1>
+          <h1 className="text-base font-semibold text-foreground">
+            {t("navigation.spaces")}
+          </h1>
         </div>
         <div className="ml-auto">
           <Button
@@ -54,7 +59,7 @@ export default function SpacesIndexRoute() {
             className="gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={() => setCreateOpen(true)}
           >
-            <IconPlus className="h-4 w-4" /> New space
+            <IconPlus className="h-4 w-4" /> {t("createSpaceDialog.newSpace")}
           </Button>
         </div>
       </PageHeader>

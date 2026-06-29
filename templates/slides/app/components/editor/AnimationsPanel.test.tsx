@@ -50,7 +50,7 @@ describe("AnimationsPanel", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Auto-fill"));
+    fireEvent.click(screen.getByRole("button", { name: /auto[- ]fill/i }));
 
     expect(onUpdateSlide).toHaveBeenCalledWith({
       animations: [

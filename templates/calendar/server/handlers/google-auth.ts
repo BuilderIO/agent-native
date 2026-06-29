@@ -9,6 +9,7 @@ import {
   encodeOAuthState,
   decodeOAuthState,
   resolveOAuthOwner,
+  resolveSecret,
   createOAuthSession,
   oauthCallbackResponse,
   oauthDesktopExchangePage,
@@ -16,6 +17,7 @@ import {
   setDesktopExchange,
   setDesktopExchangeError,
   safeReturnPath,
+  runWithRequestContext,
 } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -41,9 +43,15 @@ const GOOGLE_IDENTITY_SCOPES = [
   "https://www.googleapis.com/auth/userinfo.profile",
 ];
 
-function resolveCalendarOAuthCredentials() {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+async function resolveCalendarOAuthCredentials(event: H3Event) {
+  const session = await getSession(event).catch(() => null);
+  const { clientId, clientSecret } = await runWithRequestContext(
+    { userEmail: session?.email, orgId: session?.orgId },
+    async () => ({
+      clientId: await resolveSecret("GOOGLE_CLIENT_ID"),
+      clientSecret: await resolveSecret("GOOGLE_CLIENT_SECRET"),
+    }),
+  );
   if (!clientId || !clientSecret) return null;
   return { clientId, clientSecret };
 }
@@ -192,7 +200,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
     const calendarConnect = isCalendarConnectRequest(q, owner);
     const credentials = calendarConnect
-      ? resolveCalendarOAuthCredentials()
+      ? await resolveCalendarOAuthCredentials(event)
       : resolveGoogleSignInCredentials();
 
     if (!credentials) {
@@ -200,7 +208,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       return {
         error: "missing_credentials",
         message: calendarConnect
-          ? "Google Calendar OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET."
+          ? "Google Calendar OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings."
           : "Google sign-in credentials are not configured. Set GOOGLE_SIGN_IN_CLIENT_ID and GOOGLE_SIGN_IN_CLIENT_SECRET.",
       };
     }
@@ -229,7 +237,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     });
 
     const url = calendarConnect
-      ? getAuthUrl(undefined, redirectUri, state)
+      ? await getAuthUrl(undefined, redirectUri, state, owner)
       : `${GOOGLE_AUTH_URL}?${new URLSearchParams({
           client_id: credentials.clientId,
           redirect_uri: redirectUri,
@@ -364,12 +372,12 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       setResponseStatus(event, 401);
       return { error: "Must be logged in to add an account" };
     }
-    if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    if (!(await resolveCalendarOAuthCredentials(event))) {
       setResponseStatus(event, 422);
       return {
         error: "missing_credentials",
         message:
-          "Google OAuth credentials are not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
+          "Google OAuth credentials are not configured. Save GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in settings.",
       };
     }
     try {
@@ -393,7 +401,12 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         app: OAUTH_STATE_APP_ID,
         flowId,
       });
-      const url = getAuthUrl(undefined, redirectUri, state);
+      const url = await getAuthUrl(
+        undefined,
+        redirectUri,
+        state,
+        session.email,
+      );
       if (q.redirect === "1") {
         return oauthRedirectResponse(url);
       }

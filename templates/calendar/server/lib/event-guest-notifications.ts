@@ -129,7 +129,7 @@ export async function sendEventGuestNotificationNote({
     };
   }
 
-  if (!isEmailConfigured()) {
+  if (!(await isEmailConfigured())) {
     return {
       requested: true,
       recipientCount: recipients.length,

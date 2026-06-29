@@ -1,4 +1,4 @@
-import { sendToAgentChat } from "@agent-native/core/client";
+import { sendToAgentChat, useT } from "@agent-native/core/client";
 import {
   EmbeddedApp,
   type EmbeddedAppRef,
@@ -110,6 +110,9 @@ interface AssetsPickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   url: string;
+  title: string;
+  embeddedTitle: string;
+  loadingLabel: string;
   onReady: (payload: unknown, event: MessageEvent, ref: EmbeddedAppRef) => void;
   onMessage: (name: string, payload: unknown) => void;
 }
@@ -118,6 +121,9 @@ function AssetsPickerDialog({
   open,
   onOpenChange,
   url,
+  title,
+  embeddedTitle,
+  loadingLabel,
   onReady,
   onMessage,
 }: AssetsPickerDialogProps) {
@@ -140,13 +146,13 @@ function AssetsPickerDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[min(86vh,760px)] w-[min(96vw,1040px)] max-w-none flex-col gap-0 overflow-hidden p-0">
         <div className="flex h-12 shrink-0 items-center border-b px-4">
-          <DialogTitle className="text-base">Assets</DialogTitle>
+          <DialogTitle className="text-base">{title}</DialogTitle>
         </div>
         <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-          {!pickerReady && <AssetsPickerSkeleton />}
+          {!pickerReady && <AssetsPickerSkeleton loadingLabel={loadingLabel} />}
           <EmbeddedApp
             url={url}
-            title="Assets image picker"
+            title={embeddedTitle}
             className={`absolute inset-0 h-full w-full border-0 bg-background transition-opacity duration-150 ${
               pickerReady ? "opacity-100" : "pointer-events-none opacity-0"
             }`}
@@ -159,12 +165,12 @@ function AssetsPickerDialog({
   );
 }
 
-function AssetsPickerSkeleton() {
+function AssetsPickerSkeleton({ loadingLabel }: { loadingLabel: string }) {
   return (
     <div
       className="absolute inset-0 flex flex-col gap-5 p-5"
       role="status"
-      aria-label="Loading Assets picker"
+      aria-label={loadingLabel}
     >
       <div className="flex items-center gap-3">
         <Skeleton className="h-9 flex-1 rounded-md" />
@@ -211,7 +217,14 @@ function imageDownloadName(src: string, alt: string): string {
   return "image";
 }
 
-async function downloadImage(src: string, alt: string) {
+async function downloadImage(
+  src: string,
+  alt: string,
+  copy: {
+    started: string;
+    opened: string;
+  },
+) {
   const filename = imageDownloadName(src, alt);
 
   try {
@@ -226,7 +239,7 @@ async function downloadImage(src: string, alt: string) {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
-    toast.success("Image download started.");
+    toast.success(copy.started);
   } catch {
     const anchor = document.createElement("a");
     anchor.href = src;
@@ -236,7 +249,7 @@ async function downloadImage(src: string, alt: string) {
     document.body.append(anchor);
     anchor.click();
     anchor.remove();
-    toast.info("Opened image in a new tab.");
+    toast.info(copy.opened);
   }
 }
 
@@ -260,7 +273,14 @@ async function blobToPng(blob: Blob): Promise<Blob> {
   return pngBlob;
 }
 
-async function copyImage(src: string) {
+async function copyImage(
+  src: string,
+  copy: {
+    copied: string;
+    urlCopied: string;
+    failed: string;
+  },
+) {
   try {
     if (!navigator.clipboard || typeof ClipboardItem === "undefined") {
       throw new Error("Image clipboard unavailable");
@@ -282,13 +302,13 @@ async function copyImage(src: string) {
     await navigator.clipboard.write([
       new ClipboardItem({ [imageType]: imageBlob }),
     ]);
-    toast.success("Image copied.");
+    toast.success(copy.copied);
   } catch {
     try {
       await navigator.clipboard.writeText(src);
-      toast.info("Copied image URL.");
+      toast.info(copy.urlCopied);
     } catch {
-      toast.error("Could not copy image.");
+      toast.error(copy.failed);
     }
   }
 }
@@ -461,9 +481,9 @@ function buildAltTextArticleContext({
 
   return [
     before,
-    "<!-- IMAGE TO DESCRIBE START -->",
-    image.text,
-    "<!-- IMAGE TO DESCRIBE END -->",
+    "<!-- IMAGE TO DESCRIBE START -->", // i18n-ignore agent prompt marker
+    image.text, // i18n-ignore user-authored markdown image text
+    "<!-- IMAGE TO DESCRIBE END -->", // i18n-ignore agent prompt marker
     after,
   ]
     .filter((part) => part.trim())
@@ -479,6 +499,7 @@ export function ImageBlock({
   extension,
   getPos,
 }: NodeViewProps) {
+  const t = useT();
   const [isHovered, setIsHovered] = useState(false);
   const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
@@ -542,7 +563,9 @@ export function ImageBlock({
     const scrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
     const offsetTop = coords.top - containerTop + scrollTop;
     options.onImageComment(
-      alt.trim() ? `Image: ${alt.trim()}` : "Image",
+      alt.trim()
+        ? t("editor.media.imageCommentWithAlt", { alt: alt.trim() })
+        : t("editor.media.image"),
       offsetTop,
     );
   }
@@ -591,7 +614,7 @@ export function ImageBlock({
     const closeBuffer = 4 * (Number.isFinite(rootFontSize) ? rootFontSize : 16);
     const isFarOutsideImage =
       event.clientX < imageRect.left - closeBuffer ||
-      event.clientX > imageRect.right + closeBuffer ||
+      event.clientX > imageRect.right + closeBuffer || // i18n-ignore non-copy geometry expression
       event.clientY < imageRect.top - closeBuffer ||
       event.clientY > imageRect.bottom + closeBuffer;
 
@@ -608,11 +631,11 @@ export function ImageBlock({
   async function handleGenerateAltText() {
     const documentId = options.documentId;
     if (!documentId) {
-      toast.error("Could not find the current document.");
+      toast.error(t("editor.media.currentDocumentMissing"));
       return;
     }
 
-    const toastId = toast.loading("Generating alt text...");
+    const toastId = toast.loading(t("editor.media.generatingAltText"));
     setIsGeneratingAlt(true);
 
     try {
@@ -624,7 +647,7 @@ export function ImageBlock({
         src,
       });
       sendToAgentChat({
-        message: "Generate alt text for this image and add it to the image.",
+        message: t("editor.media.generateAltTextPrompt"),
         context: [
           "The user clicked the alt text generator for an image block in Content.",
           `Document ID: ${documentId}`,
@@ -643,9 +666,11 @@ export function ImageBlock({
         images: imageDataUrl ? [imageDataUrl] : undefined,
         submit: true,
       });
-      toast.success("Generating alt text...", { id: toastId });
+      toast.success(t("editor.media.generatingAltText"), { id: toastId });
     } catch {
-      toast.error("Could not start alt text generation.", { id: toastId });
+      toast.error(t("editor.media.altTextGenerationFailed"), {
+        id: toastId,
+      });
     } finally {
       setIsGeneratingAlt(false);
     }
@@ -735,12 +760,12 @@ export function ImageBlock({
     event.currentTarget.value = "";
     if (!file) return;
 
-    const toastId = toast.loading("Uploading image...");
+    const toastId = toast.loading(t("editor.media.uploadingImage"));
     try {
       const nextSrc = await uploadImageFile(file);
       updateAttributes({ src: nextSrc });
       setSourcePanelOpen(false);
-      toast.success("Image added", { id: toastId });
+      toast.success(t("editor.media.imageAdded"), { id: toastId });
     } catch (error) {
       toast.error(imageUploadErrorMessage(error), { id: toastId });
     }
@@ -757,7 +782,7 @@ export function ImageBlock({
         throw new Error("Invalid protocol");
       }
     } catch {
-      toast.error("Paste a valid image URL.");
+      toast.error(t("editor.media.pasteValidImageUrl"));
       return;
     }
 
@@ -786,7 +811,7 @@ export function ImageBlock({
     if (name !== "chooseImage") return;
     const nextSrc = pickedAssetImageSource(payload);
     if (!nextSrc) {
-      toast.error("Assets did not return an image URL.");
+      toast.error(t("editor.media.assetsMissingImageUrl"));
       return;
     }
 
@@ -795,7 +820,7 @@ export function ImageBlock({
       alt: pickedAssetImageAlt(payload) ?? alt,
     });
     setAssetsPickerOpen(false);
-    toast.success("Image added");
+    toast.success(t("editor.media.imageAdded"));
   }
 
   function renderAssetsPickerDialog() {
@@ -804,6 +829,9 @@ export function ImageBlock({
         open={assetsPickerOpen}
         onOpenChange={setAssetsPickerOpen}
         url={assetsPickerUrl()}
+        title={t("editor.media.assets")}
+        embeddedTitle={t("editor.media.assetsImagePicker")}
+        loadingLabel={t("editor.media.loadingAssetsPicker")}
         onReady={handleAssetsPickerReady}
         onMessage={handleAssetsPickerMessage}
       />
@@ -825,7 +853,7 @@ export function ImageBlock({
             className="media-source-panel__tab"
             onClick={() => setSourceTab("upload")}
           >
-            Upload
+            {t("editor.media.upload")}
           </button>
           <button
             type="button"
@@ -834,7 +862,7 @@ export function ImageBlock({
             className="media-source-panel__tab"
             onClick={() => setSourceTab("assets")}
           >
-            Assets
+            {t("editor.media.assets")}
           </button>
           <button
             type="button"
@@ -843,7 +871,7 @@ export function ImageBlock({
             className="media-source-panel__tab"
             onClick={() => setSourceTab("link")}
           >
-            Link
+            {t("editor.media.link")}
           </button>
         </div>
 
@@ -855,13 +883,13 @@ export function ImageBlock({
               className="w-full"
               onClick={() => fileInputRef.current?.click()}
             >
-              Upload file
+              {t("editor.media.uploadFile")}
             </Button>
           </div>
         ) : sourceTab === "assets" ? (
           <div className="media-source-panel__body">
             <Button type="button" className="w-full" onClick={openAssetsPicker}>
-              Choose from Assets
+              {t("editor.media.chooseFromAssets")}
             </Button>
           </div>
         ) : (
@@ -871,13 +899,15 @@ export function ImageBlock({
               type="url"
               value={imageUrl}
               onChange={(event) => setImageUrl(event.target.value)}
-              placeholder="Paste the image link..."
+              placeholder={t("editor.media.pasteImageLink")}
             />
             <Button type="submit" className="w-full">
-              {replace ? "Replace image" : "Embed image"}
+              {replace
+                ? t("editor.media.replaceImage")
+                : t("editor.media.embedImage")}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              Works with any image from the web
+              {t("editor.media.imageLinkHint")}
             </p>
           </form>
         )}
@@ -912,7 +942,11 @@ export function ImageBlock({
             }}
           >
             <IconPhoto size={20} />
-            <span>{isUploading ? "Uploading image..." : "Add an image"}</span>
+            <span>
+              {isUploading
+                ? t("editor.media.uploadingImage")
+                : t("editor.media.addImage")}
+            </span>
           </button>
 
           <input
@@ -975,7 +1009,7 @@ export function ImageBlock({
                   <button
                     type="button"
                     className="media-block__alt-badge"
-                    aria-label="View and edit alt text"
+                    aria-label={t("editor.media.viewAndEditAltText")}
                     onClick={() => setAltDraft(alt)}
                   >
                     ALT
@@ -987,7 +1021,7 @@ export function ImageBlock({
                   <span className="media-block__alt-tooltip-text">{alt}</span>
                 ) : null}
                 <span className="media-block__alt-tooltip-help">
-                  Click to view and edit alt text
+                  {t("editor.media.clickToEditAltText")}
                 </span>
               </TooltipContent>
             </Tooltip>
@@ -998,12 +1032,12 @@ export function ImageBlock({
               sideOffset={8}
             >
               <div className="media-block__alt-popover-copy">
-                Add alt text to describe this image.
+                {t("editor.media.addAltTextDescription")}
               </div>
               <button
                 type="button"
                 className="media-block__alt-popover-close"
-                aria-label="Close alt text editor"
+                aria-label={t("editor.media.closeAltTextEditor")}
                 onClick={() => setAltPopoverOpen(false)}
               >
                 <IconX size={20} />
@@ -1019,14 +1053,14 @@ export function ImageBlock({
                       setAltPopoverOpen(false);
                     }
                   }}
-                  placeholder="Describe this image"
+                  placeholder={t("editor.media.describeThisImage")}
                 />
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
                       type="button"
                       className="media-block__alt-generate"
-                      aria-label="Generate alt text"
+                      aria-label={t("editor.media.generateAltText")}
                       aria-busy={isGeneratingAlt}
                       disabled={isGeneratingAlt}
                       onClick={() => void handleGenerateAltText()}
@@ -1034,7 +1068,9 @@ export function ImageBlock({
                       <IconWand size={18} />
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent>Generate alt text</TooltipContent>
+                  <TooltipContent>
+                    {t("editor.media.generateAltText")}
+                  </TooltipContent>
                 </Tooltip>
               </div>
             </PopoverContent>
@@ -1047,7 +1083,7 @@ export function ImageBlock({
               type="button"
               className="media-block__resize-handle media-block__resize-handle--left"
               data-visible={controlsVisible ? "true" : undefined}
-              aria-label="Resize image from left"
+              aria-label={t("editor.media.resizeImageFromLeft")}
               aria-hidden={!controlsVisible}
               tabIndex={controlsVisible ? 0 : -1}
               onPointerDown={(event) => handleResizePointerDown(event, "left")}
@@ -1056,7 +1092,7 @@ export function ImageBlock({
               type="button"
               className="media-block__resize-handle media-block__resize-handle--right"
               data-visible={controlsVisible ? "true" : undefined}
-              aria-label="Resize image from right"
+              aria-label={t("editor.media.resizeImageFromRight")}
               aria-hidden={!controlsVisible}
               tabIndex={controlsVisible ? 0 : -1}
               onPointerDown={(event) => handleResizePointerDown(event, "right")}
@@ -1082,12 +1118,12 @@ export function ImageBlock({
                     type="button"
                     onClick={handleComment}
                     className="media-block__toolbar-btn"
-                    aria-label="Comment on image"
+                    aria-label={t("editor.media.commentOnImage")}
                   >
                     <IconMessageCircle size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Comment</TooltipContent>
+                <TooltipContent>{t("editor.comment")}</TooltipContent>
               </Tooltip>
 
               <Tooltip>
@@ -1096,26 +1132,31 @@ export function ImageBlock({
                     type="button"
                     onClick={openLightbox}
                     className="media-block__toolbar-btn"
-                    aria-label="Expand image"
+                    aria-label={t("editor.media.expandImage")}
                   >
                     <IconArrowsMaximize size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Expand</TooltipContent>
+                <TooltipContent>{t("editor.media.expand")}</TooltipContent>
               </Tooltip>
 
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    onClick={() => void downloadImage(src, alt)}
+                    onClick={() =>
+                      void downloadImage(src, alt, {
+                        started: t("editor.media.imageDownloadStarted"),
+                        opened: t("editor.media.openedImageInNewTab"),
+                      })
+                    }
                     className="media-block__toolbar-btn"
-                    aria-label="Download image"
+                    aria-label={t("editor.media.downloadImage")}
                   >
                     <IconDownload size={16} />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Download</TooltipContent>
+                <TooltipContent>{t("editor.media.download")}</TooltipContent>
               </Tooltip>
 
               <Popover open={moreMenuOpen} onOpenChange={setMoreMenuOpen}>
@@ -1123,9 +1164,9 @@ export function ImageBlock({
                   <button
                     type="button"
                     className="media-block__toolbar-btn"
-                    aria-label="More image actions"
+                    aria-label={t("editor.media.moreImageActions")}
                     data-media-dropdown-trigger
-                    title="More"
+                    title={t("editor.media.more")}
                     onPointerDown={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
@@ -1144,7 +1185,9 @@ export function ImageBlock({
                   sideOffset={8}
                   role="menu"
                 >
-                  <div className="media-block__dropdown-label">Image</div>
+                  <div className="media-block__dropdown-label">
+                    {t("editor.media.image")}
+                  </div>
                   <div className="media-block__dropdown-group">
                     <button
                       type="button"
@@ -1161,7 +1204,7 @@ export function ImageBlock({
                       >
                         ALT
                       </span>
-                      <span>Alt text</span>
+                      <span>{t("editor.media.altText")}</span>
                     </button>
                     <button
                       type="button"
@@ -1178,7 +1221,7 @@ export function ImageBlock({
                       >
                         <IconRefresh size={18} />
                       </span>
-                      <span>Replace</span>
+                      <span>{t("editor.media.replace")}</span>
                     </button>
                     <button
                       type="button"
@@ -1186,7 +1229,11 @@ export function ImageBlock({
                       role="menuitem"
                       onClick={() => {
                         setMoreMenuOpen(false);
-                        void copyImage(src);
+                        void copyImage(src, {
+                          copied: t("editor.media.imageCopied"),
+                          urlCopied: t("editor.media.copiedImageUrl"),
+                          failed: t("editor.media.couldNotCopyImage"),
+                        });
                       }}
                     >
                       <span
@@ -1195,7 +1242,7 @@ export function ImageBlock({
                       >
                         <IconCopy size={18} />
                       </span>
-                      <span>Copy image</span>
+                      <span>{t("editor.media.copyImage")}</span>
                     </button>
                   </div>
                   <div
@@ -1217,7 +1264,7 @@ export function ImageBlock({
                     >
                       <IconTrash size={18} />
                     </span>
-                    <span>Delete</span>
+                    <span>{t("editor.media.delete")}</span>
                   </button>
                 </PopoverContent>
               </Popover>
@@ -1237,26 +1284,31 @@ export function ImageBlock({
                   type="button"
                   onClick={openLightbox}
                   className="media-block__toolbar-btn"
-                  aria-label="Expand image"
+                  aria-label={t("editor.media.expandImage")}
                 >
                   <IconArrowsMaximize size={16} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Expand</TooltipContent>
+              <TooltipContent>{t("editor.media.expand")}</TooltipContent>
             </Tooltip>
 
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={() => void downloadImage(src, alt)}
+                  onClick={() =>
+                    void downloadImage(src, alt, {
+                      started: t("editor.media.imageDownloadStarted"),
+                      opened: t("editor.media.openedImageInNewTab"),
+                    })
+                  }
                   className="media-block__toolbar-btn"
-                  aria-label="Download image"
+                  aria-label={t("editor.media.downloadImage")}
                 >
                   <IconDownload size={16} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Download</TooltipContent>
+              <TooltipContent>{t("editor.media.download")}</TooltipContent>
             </Tooltip>
           </div>
         ) : null}
@@ -1272,7 +1324,9 @@ export function ImageBlock({
               aria-describedby={undefined}
               onOpenAutoFocus={(event) => event.preventDefault()}
             >
-              <DialogTitle className="sr-only">Image preview</DialogTitle>
+              <DialogTitle className="sr-only">
+                {t("editor.media.imagePreview")}
+              </DialogTitle>
               <div
                 className="media-lightbox__viewport"
                 onPointerDown={handleLightboxViewportPointerDown}
@@ -1282,7 +1336,9 @@ export function ImageBlock({
                   className="media-lightbox__image-button"
                   data-zoomed={lightboxZoomed ? "true" : undefined}
                   aria-label={
-                    lightboxZoomed ? "Zoom image out" : "Zoom image in"
+                    lightboxZoomed
+                      ? t("editor.media.zoomImageOut")
+                      : t("editor.media.zoomImageIn")
                   }
                   aria-pressed={lightboxZoomed}
                   onClick={() => setLightboxZoomed((zoomed) => !zoomed)}
@@ -1297,11 +1353,14 @@ export function ImageBlock({
                 </button>
               </div>
 
-              <div className="media-lightbox__toolbar" aria-label="Image view">
+              <div
+                className="media-lightbox__toolbar"
+                aria-label={t("editor.media.imageView")}
+              >
                 <button
                   type="button"
                   className="media-lightbox__toolbar-btn"
-                  aria-label="Zoom out"
+                  aria-label={t("editor.media.zoomOut")}
                   disabled={!lightboxZoomed}
                   onClick={() => setLightboxZoomed(false)}
                 >
@@ -1313,7 +1372,7 @@ export function ImageBlock({
                 <button
                   type="button"
                   className="media-lightbox__toolbar-btn"
-                  aria-label="Zoom in"
+                  aria-label={t("editor.media.zoomIn")}
                   disabled={lightboxZoomed}
                   onClick={() => setLightboxZoomed(true)}
                 >
@@ -1323,8 +1382,13 @@ export function ImageBlock({
                 <button
                   type="button"
                   className="media-lightbox__toolbar-btn"
-                  aria-label="Download image"
-                  onClick={() => void downloadImage(src, alt)}
+                  aria-label={t("editor.media.downloadImage")}
+                  onClick={() =>
+                    void downloadImage(src, alt, {
+                      started: t("editor.media.imageDownloadStarted"),
+                      opened: t("editor.media.openedImageInNewTab"),
+                    })
+                  }
                 >
                   <IconDownload size={17} />
                 </button>
@@ -1332,7 +1396,7 @@ export function ImageBlock({
                 <button
                   type="button"
                   className="media-lightbox__toolbar-btn"
-                  aria-label="Close image preview"
+                  aria-label={t("editor.media.closeImagePreview")}
                   onClick={() => handleLightboxOpenChange(false)}
                 >
                   <IconArrowsMinimize size={17} />

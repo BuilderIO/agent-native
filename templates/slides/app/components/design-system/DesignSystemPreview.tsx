@@ -1,3 +1,5 @@
+import { useT } from "@agent-native/core/client";
+
 import { cn } from "@/lib/utils";
 
 import type { DesignSystemData } from "../../../shared/api";
@@ -11,6 +13,7 @@ export function DesignSystemPreview({
   data,
   className,
 }: DesignSystemPreviewProps) {
+  const t = useT();
   const swatches = [
     { label: "Primary", color: data.colors.primary },
     { label: "Secondary", color: data.colors.secondary },
@@ -81,7 +84,7 @@ export function DesignSystemPreview({
       {/* Mini slide preview */}
       <div className="p-4">
         <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground mb-3">
-          Slide Preview
+          {t("raw.designSlidePreview")}
         </div>
         <div
           className="rounded-lg overflow-hidden"
@@ -119,7 +122,7 @@ export function DesignSystemPreview({
               letterSpacing: "-0.5px",
             }}
           >
-            Slide Title
+            {t("raw.designSlideTitle")}
           </div>
           <div
             style={{
@@ -131,8 +134,7 @@ export function DesignSystemPreview({
               lineHeight: 1.5,
             }}
           >
-            Supporting text appears here with your brand styling applied
-            consistently across all slides.
+            {t("raw.designSupportingText")}
           </div>
           {/* Accent bar */}
           <div

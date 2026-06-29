@@ -23,9 +23,11 @@ export interface ExplorerConfig {
   customDateEnd?: string;
 }
 
-export function createDefaultConfig(): ExplorerConfig {
+export function createDefaultConfig(
+  name = "Untitled Explorer",
+): ExplorerConfig {
   return {
-    name: "Untitled Explorer",
+    name,
     events: [createDefaultEvent()],
     chartType: "line",
     dateRange: "30d",
@@ -89,62 +91,62 @@ export const KNOWN_EVENTS = [
   // Acquisition
   { value: "signup", label: "Signup", category: "Acquisition" },
   { value: "login", label: "Login", category: "Acquisition" },
-  { value: "pageView", label: "Page View", category: "Acquisition" },
+  { value: "pageView", label: "Page View", category: "Acquisition" }, // i18n-ignore stable event label
   {
     value: "self reported attribution option selected",
-    label: "Self-Reported Attribution",
+    label: "Self-Reported Attribution", // i18n-ignore stable event label
     category: "Acquisition",
   },
   { value: "click", label: "Click", category: "Acquisition" },
 
   // Content
-  { value: "content saved", label: "Content Saved", category: "Content" },
+  { value: "content saved", label: "Content Saved", category: "Content" }, // i18n-ignore stable event label
   {
     value: "content published",
-    label: "Content Published",
+    label: "Content Published", // i18n-ignore stable event label
     category: "Content",
   },
   {
     value: "insert content-api call",
-    label: "Content API Call",
+    label: "Content API Call", // i18n-ignore stable event label
     category: "Content",
   },
   { value: "publish", label: "Publish", category: "Content" },
-  { value: "model created", label: "Model Created", category: "Content" },
-  { value: "space created", label: "Space Created", category: "Content" },
-  { value: "content created", label: "Content Created", category: "Content" },
-  { value: "content deleted", label: "Content Deleted", category: "Content" },
+  { value: "model created", label: "Model Created", category: "Content" }, // i18n-ignore stable event label
+  { value: "space created", label: "Space Created", category: "Content" }, // i18n-ignore stable event label
+  { value: "content created", label: "Content Created", category: "Content" }, // i18n-ignore stable event label
+  { value: "content deleted", label: "Content Deleted", category: "Content" }, // i18n-ignore stable event label
 
   // Agent Chat / AI
   {
     value: "agent chat message submitted",
-    label: "Agent Chat Message",
+    label: "Agent Chat Message", // i18n-ignore stable event label
     category: "AI",
   },
   {
     value: "agent chat accepted",
-    label: "Agent Chat Accepted",
+    label: "Agent Chat Accepted", // i18n-ignore stable event label
     category: "AI",
   },
   {
     value: "agent chat rejected",
-    label: "Agent Chat Rejected",
+    label: "Agent Chat Rejected", // i18n-ignore stable event label
     category: "AI",
   },
   {
     value: "agent chat started",
-    label: "Agent Chat Started",
+    label: "Agent Chat Started", // i18n-ignore stable event label
     category: "AI",
   },
   { value: "generate", label: "Generate", category: "AI" },
 
   // Visual Editor
-  { value: "import figma", label: "Import Figma", category: "Visual Editor" },
-  { value: "import code", label: "Import Code", category: "Visual Editor" },
-  { value: "drag and drop", label: "Drag and Drop", category: "Visual Editor" },
+  { value: "import figma", label: "Import Figma", category: "Visual Editor" }, // i18n-ignore stable event label
+  { value: "import code", label: "Import Code", category: "Visual Editor" }, // i18n-ignore stable event label
+  { value: "drag and drop", label: "Drag and Drop", category: "Visual Editor" }, // i18n-ignore stable event label
   {
     value: "open visual editor",
-    label: "Open Visual Editor",
+    label: "Open Visual Editor", // i18n-ignore stable event label
     category: "Visual Editor",
   },
   { value: "preview", label: "Preview", category: "Visual Editor" },
@@ -152,43 +154,43 @@ export const KNOWN_EVENTS = [
   // Integrations
   {
     value: "integration installed",
-    label: "Integration Installed",
+    label: "Integration Installed", // i18n-ignore stable event label
     category: "Integrations",
   },
   {
     value: "integration removed",
-    label: "Integration Removed",
+    label: "Integration Removed", // i18n-ignore stable event label
     category: "Integrations",
   },
-  { value: "sdk download", label: "SDK Download", category: "Integrations" },
+  { value: "sdk download", label: "SDK Download", category: "Integrations" }, // i18n-ignore stable event label
 
   // Billing
   {
     value: "subscription created",
-    label: "Subscription Created",
+    label: "Subscription Created", // i18n-ignore stable event label
     category: "Billing",
   },
   {
     value: "subscription updated",
-    label: "Subscription Updated",
+    label: "Subscription Updated", // i18n-ignore stable event label
     category: "Billing",
   },
   {
     value: "subscription cancelled",
-    label: "Subscription Cancelled",
+    label: "Subscription Cancelled", // i18n-ignore stable event label
     category: "Billing",
   },
-  { value: "checkout started", label: "Checkout Started", category: "Billing" },
-  { value: "plan selected", label: "Plan Selected", category: "Billing" },
+  { value: "checkout started", label: "Checkout Started", category: "Billing" }, // i18n-ignore stable event label
+  { value: "plan selected", label: "Plan Selected", category: "Billing" }, // i18n-ignore stable event label
 
   // Collaboration
-  { value: "invite sent", label: "Invite Sent", category: "Collaboration" },
+  { value: "invite sent", label: "Invite Sent", category: "Collaboration" }, // i18n-ignore stable event label
   {
     value: "invite accepted",
-    label: "Invite Accepted",
+    label: "Invite Accepted", // i18n-ignore stable event label
     category: "Collaboration",
   },
-  { value: "comment added", label: "Comment Added", category: "Collaboration" },
+  { value: "comment added", label: "Comment Added", category: "Collaboration" }, // i18n-ignore stable event label
 ];
 
 /** Known properties grouped by category */

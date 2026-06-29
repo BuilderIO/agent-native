@@ -1,9 +1,11 @@
+import { useT } from "@agent-native/core/client";
 import { IconBarrierBlock } from "@tabler/icons-react";
 import { Link, useLocation } from "react-router";
 
 import { Button } from "@/components/ui/button";
 
 export default function Placeholder() {
+  const t = useT();
   const location = useLocation();
   const pageName = location.pathname.split("/")[1] || "Page";
   const formattedName = pageName.charAt(0).toUpperCase() + pageName.slice(1);
@@ -15,11 +17,10 @@ export default function Placeholder() {
       </div>
       <h2 className="text-2xl font-bold tracking-tight">{formattedName}</h2>
       <p className="text-muted-foreground max-w-sm">
-        This page is currently under construction. Please check back later or
-        return to the dashboard.
+        {t("common.pageUnderConstruction")}
       </p>
       <Link to="/">
-        <Button>Return to Dashboard</Button>
+        <Button>{t("common.returnToDashboard")}</Button>
       </Link>
     </div>
   );

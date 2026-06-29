@@ -1,9 +1,17 @@
+import { captureExtensionError, initExtensionSentry } from "./sentry";
+
+initExtensionSentry("background");
+
 const DEFAULT_CLIPS_BASE_URL = "https://clips.agent-native.com";
 const DEBUGGER_PROTOCOL_VERSION = "1.3";
 const MAX_CONSOLE_LOGS = 400;
 const MAX_NETWORK_REQUESTS = 400;
 const MAX_MESSAGE_LENGTH = 2_000;
 const MAX_URL_LENGTH = 1_000;
+const STORAGE_SETUP_REQUIRED_MESSAGE =
+  "Connect storage to finish saving this clip: Builder.io (free tier storage + AI) or S3-compatible storage.";
+const STORAGE_SETUP_FAILURE_RE =
+  /video storage is not connected|no video storage configured|file upload provider|storage provider|connect builder|s3-compatible/i;
 const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
 const AUTHORIZATION_SCHEME_RE =
@@ -138,6 +146,10 @@ type NativeRecording = {
   status: NativeRecordingStatus;
   recordingUrl: string;
   error: string | null;
+  // When an upload fails, the recording is saved to the user's Downloads as a
+  // fallback so it is never lost; these describe that saved file.
+  savedToDisk?: boolean;
+  savedFilename?: string;
 };
 
 type OffscreenStatusMessage = {
@@ -147,7 +159,29 @@ type OffscreenStatusMessage = {
   recordingId?: string;
   result?: Record<string, unknown>;
   error?: string;
+  storageSetupRequired?: boolean;
+  savedToDisk?: boolean;
+  savedFilename?: string;
 };
+
+type ExtensionErrorMessage = {
+  type: "CLIPS_EXTENSION_ERROR";
+  surface?: string;
+  name?: string;
+  message?: string;
+  stack?: string;
+  context?: Record<string, unknown>;
+};
+
+function isStorageSetupFailureMessage(message: string | null | undefined) {
+  return STORAGE_SETUP_FAILURE_RE.test(message ?? "");
+}
+
+function friendlyRecordingError(message: string | null | undefined): string {
+  return isStorageSetupFailureMessage(message)
+    ? STORAGE_SETUP_REQUIRED_MESSAGE
+    : message || "Could not stop recording.";
+}
 
 type PendingNetworkRequest = {
   requestId: string;
@@ -516,19 +550,24 @@ function truncate(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
 }
 
-function redactString(value: string): string {
-  return value
+function redactString(
+  value: string,
+  options: { redactQueryValues?: boolean } = {},
+): string {
+  const redacted = value
     .replace(AUTHORIZATION_SCHEME_RE, "$1$2<redacted>")
     .replace(/\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi, "$1 <redacted>")
     .replace(DOUBLE_QUOTED_SECRET_VALUE_RE, '$1$2$1$3"<redacted>"')
     .replace(SINGLE_QUOTED_SECRET_VALUE_RE, "$1$2$1$3'<redacted>'")
-    .replace(UNQUOTED_SECRET_VALUE_RE, "$1$2$1$3<redacted>")
-    .replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>");
+    .replace(UNQUOTED_SECRET_VALUE_RE, "$1$2$1$3<redacted>");
+  return options.redactQueryValues
+    ? redacted.replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>")
+    : redacted;
 }
 
 function sanitizeUrl(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const redacted = redactString(raw);
+  const redacted = redactString(raw, { redactQueryValues: true });
   try {
     const parsed = new URL(redacted);
     parsed.username = "";
@@ -1016,6 +1055,17 @@ async function armRecording(args: {
       visibility: "public",
     });
   } catch (err) {
+    captureExtensionError(err, {
+      tags: {
+        surface: "background",
+        recordingStep: "create-recording",
+      },
+      extra: {
+        captureSurface: settings.captureSurface,
+        includeCamera: settings.includeCamera,
+        includeMicrophone: settings.includeMicrophone,
+      },
+    });
     await abortArming();
     throw err;
   }
@@ -1070,6 +1120,18 @@ async function armRecording(args: {
     });
   } catch (err) {
     console.error("[clips-bg] arm: BEGIN failed", err);
+    captureExtensionError(err, {
+      tags: {
+        surface: "background",
+        recordingStep: "offscreen-begin",
+      },
+      extra: {
+        recordingId: created.id,
+        captureSurface: settings.captureSurface,
+        includeCamera: settings.includeCamera,
+        includeMicrophone: settings.includeMicrophone,
+      },
+    });
     await cancelRecording();
     throw err;
   }
@@ -1328,8 +1390,9 @@ async function stopRecording() {
     };
   } catch (err) {
     recording.status = "error";
-    recording.error =
-      err instanceof Error ? err.message : "Could not stop recording.";
+    recording.error = friendlyRecordingError(
+      err instanceof Error ? err.message : null,
+    );
     resetOverlay();
     await broadcastUnmount();
     broadcastOverlayState();
@@ -1553,9 +1616,15 @@ function pushConsole(
   const timestampMs = Number.isFinite(entry.timestampMs)
     ? (entry.timestampMs as number)
     : nowMs();
-  const message = truncate(redactString(entry.message), MAX_MESSAGE_LENGTH);
+  const message = truncate(
+    redactString(entry.message, { redactQueryValues: true }),
+    MAX_MESSAGE_LENGTH,
+  );
   const stack = entry.stack
-    ? truncate(redactString(entry.stack), MAX_MESSAGE_LENGTH)
+    ? truncate(
+        redactString(entry.stack, { redactQueryValues: true }),
+        MAX_MESSAGE_LENGTH,
+      )
     : "";
   session.consoleLogs.push({
     timestampMs,
@@ -1762,7 +1831,10 @@ function handleResponseReceived(
     pending.ok = response.status >= 200 && response.status < 400;
   }
   if (typeof response.statusText === "string") {
-    pending.statusText = truncate(redactString(response.statusText), 120);
+    pending.statusText = truncate(
+      redactString(response.statusText, { redactQueryValues: true }),
+      120,
+    );
   }
 }
 
@@ -1792,7 +1864,12 @@ function finalizeNetworkRequest(
     ...(typeof pending.ok === "boolean" ? { ok: pending.ok } : {}),
     durationMs: Math.round(durationMs),
     ...(error
-      ? { error: truncate(redactString(error), MAX_MESSAGE_LENGTH) }
+      ? {
+          error: truncate(
+            redactString(error, { redactQueryValues: true }),
+            MAX_MESSAGE_LENGTH,
+          ),
+        }
       : {}),
   });
 }
@@ -1923,6 +2000,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         (message as { type?: unknown })?.type,
         err,
       );
+      captureExtensionError(err, {
+        tags: {
+          surface: "background",
+          messageType: String((message as { type?: unknown })?.type ?? ""),
+        },
+      });
       response = {
         ok: false,
         error: err instanceof Error ? err.message : "Could not use Clips.",
@@ -1940,6 +2023,51 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
   const type = (message as { type?: unknown }).type;
 
+  if (type === "CLIPS_EXTENSION_ERROR") {
+    const report = message as ExtensionErrorMessage;
+    const error = new Error(report.message || "Chrome extension error");
+    error.name = report.name || "ExtensionError";
+    if (report.stack) error.stack = report.stack;
+    captureExtensionError(error, {
+      tags: {
+        surface: report.surface || "content-script",
+        mechanism: "content-script-report",
+      },
+      extra: report.context,
+    });
+    return { ok: true };
+  }
+
+  // The offscreen recorder asks us to save a recording to disk when its upload
+  // fails (storage not connected, network drop, size cap), so the recording is
+  // never lost. The offscreen document holds the blob URL alive until its next
+  // acquire(); we only need the download to be accepted, not fully written.
+  if (type === "CLIPS_SAVE_RECORDING_TO_DISK") {
+    const { url, filename } = message as { url?: string; filename?: string };
+    if (typeof url !== "string" || !url) {
+      return { ok: false, error: "Missing recording URL." };
+    }
+    try {
+      const options: chrome.downloads.DownloadOptions = {
+        url,
+        saveAs: false,
+        conflictAction: "uniquify",
+      };
+      if (typeof filename === "string" && filename) options.filename = filename;
+      const downloadId = await chrome.downloads.download(options);
+      return { ok: typeof downloadId === "number" && downloadId >= 0 };
+    } catch (err) {
+      console.error("[clips-bg] save-to-disk download failed", err);
+      captureExtensionError(err, {
+        tags: { surface: "background", messageType: type },
+      });
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Download failed.",
+      };
+    }
+  }
+
   // Status updates streamed from the offscreen recorder.
   if (type === "CLIPS_NATIVE_STATUS") {
     const status = message as OffscreenStatusMessage;
@@ -1956,12 +2084,24 @@ async function dispatchRuntimeMessage(message: unknown): Promise<unknown> {
     ) {
       activeNativeRecording.status = status.status;
       activeNativeRecording.error =
-        typeof status.error === "string" ? status.error : null;
+        typeof status.error === "string"
+          ? status.storageSetupRequired === true ||
+            isStorageSetupFailureMessage(status.error)
+            ? STORAGE_SETUP_REQUIRED_MESSAGE
+            : status.error
+          : null;
       if (typeof status.recordingId === "string") {
         activeNativeRecording.recordingId = status.recordingId;
         activeNativeRecording.recordingUrl = recordingUrl(
           activeNativeRecording,
         );
+      }
+      if (status.status === "error") {
+        activeNativeRecording.savedToDisk = status.savedToDisk === true;
+        activeNativeRecording.savedFilename =
+          typeof status.savedFilename === "string"
+            ? status.savedFilename
+            : undefined;
       }
       await saveActiveNativeRecording();
       // The offscreen recorder finished its pre-roll and actually started —

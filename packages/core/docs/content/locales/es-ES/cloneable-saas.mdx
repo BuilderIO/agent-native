@@ -1,0 +1,191 @@
+---
+title: "Plantillas"
+description: "Bifurque un producto SaaS que funcione y hágalo suyo, incluido el agente."
+---
+
+# Plantillas
+
+¿Quiere enviar su propia herramienta de análisis basada en IA? ¿Cliente de correo? ¿Constructor de formularios? Elija una plantilla y tendrá un SaaS funcional en minutos: el agente, la base de datos, la autenticación y el proceso de implementación ya están conectados.
+
+La mayoría de las "plantillas" le brindan un marco en blanco y una larga lista TODO. El agente nativo cambia eso. Cada uno es un **producto completo de nivel SaaS**: ya se puede ejecutar desde el primer día, ya se puede enviar y es completamente suyo para personalizarlo, personalizarlo e implementarlo. Piensa en ellos como SaaS clonable, no como kits de inicio: estás entregando un producto terminado, no mirando un texto estándar.
+
+## Plantillas disponibles {#catalog}
+
+Cada una es una aplicación real que puedes usar hoy y la plataforma de lanzamiento para tu propia versión.
+
+| Plantilla                                 | Qué es                                                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [**Chat**](/docs/template-chat)           | Aplicación mínima de chat primero con hilos duraderos, actions, autenticación y una ruta limpia hacia UI personalizado o su propio backend.      |
+| [**Mail**](/docs/template-mail)           | Un sobrehumano nativo del agente. Bandeja de entrada, etiquetas, clasificación por IA, teclado primero, borradores y envíos a través del agente. |
+| [**Calendar**](/docs/template-calendar)   | Un agente nativo Google Calendar. Eventos, sincronización, enlaces de reserva pública, programación impulsada por agentes.                       |
+| [**Content**](/docs/template-content)     | Obsidiana de código abierto para MDX. Markdown/MDX local, editor Tiptap, sincronización Notion, colaboración multiusuario en tiempo real.        |
+| [**Brain**](/docs/template-brain)         | Chat limpio de la empresa respaldado por memoria institucional citada, fuentes aprobadas, puertas de revisión y citas.                           |
+| [**Assets**](/docs/template-assets)       | Administrador de activos digitales para bibliotecas de marcas, cargas, referencias y generación de imágenes/vídeos de marca.                     |
+| [**Slides**](/docs/template-slides)       | Presentaciones de Google nativas del agente. Mazos basados en React que el agente genera y edita directamente.                                   |
+| [**Video**](/docs/template-videos)        | Gráficos en movimiento programáticos y vídeos de demostración de productos en Remotion.                                                          |
+| [**Analytics**](/docs/template-analytics) | Un Amplitude/Mixpanel nativo del agente. Conecte fuentes de datos, solicite gráficos y ancle a paneles.                                          |
+| [**Clips**](/docs/template-clips)         | Pantalla asíncrona + grabación de cámara con transcripción, capítulos y resúmenes de IA.                                                         |
+| [**Design**](/docs/template-design)       | Estudio de creación de prototipos HTML nativo del agente para diseños interactivos Alpine/Tailwind.                                              |
+| [**Forms**](/docs/template-forms)         | Un Typeform nativo del agente. Cree, comparta, recopile y envíe envíos a Slack, Sheets, webhooks o Discord.                                      |
+| [**Plan**](/docs/template-plan)           | Planos visuales y resúmenes de relaciones públicas con diagramas, esquemas y anotaciones.                                                        |
+| [**Dispatch**](/docs/template-dispatch)   | El plano de control del espacio de trabajo: secretos compartidos, integraciones reutilizables, Slack/Telegram, trabajos programados.             |
+
+¿No quieres una plantilla de dominio? Utilice [Chat](/docs/template-chat) cuando desee una aplicación básica con la que los usuarios puedan hablar inmediatamente o comience a actuar primero con [Pure-Agent Apps](/docs/pure-agent-apps).
+
+Vea el catálogo completo en [Templates](/templates) o vaya directamente a uno; por ejemplo, [Dispatch](/docs/template-dispatch) es un excelente lugar para comenzar si desea una aplicación estilo espacio de trabajo.
+
+## Lo que obtienes de la caja {#what-you-get}
+
+Cada plantilla se envía con las piezas que normalmente tardan meses en construirse:
+
+- **Un agente en funcionamiento**: ya conectado a la aplicación, ya capaz de tomar actions de sus datos, ya consciente del contexto sobre lo que está viendo. Consulte [Messaging the agent](/docs/messaging) para saber cómo funciona.
+- **Auth**: inicio de sesión, sesiones, organizaciones, aislamiento multiinquilino. Ya hecho.
+- **Una base de datos**: cada plantilla tiene su esquema, consultas y migraciones listas para funcionar. Traiga su propia base de datos SQL (Postgres, SQLite, Turso, D1): el marco se adapta.
+- **Un UI** en tiempo real: la pantalla permanece sincronizada con lo que hace el agente. Haga clic en "redactar un correo electrónico" en el chat y observe cómo el borrador aparece en su bandeja de entrada inmediatamente.
+- **Listo para implementar**: envíelo a Netlify, Vercel, Cloudflare, AWS o cualquier otro lugar que ejecute Node. Sin dependencia del proveedor.
+- **Ganchos de marca**: el nombre, los colores, el logotipo y el texto son fáciles de cambiar.
+
+Esta no es una afirmación teórica. El autor del marco ejecuta su bandeja de entrada real en la plantilla Correo, su calendario real en la plantilla Calendario y sus análisis reales en la plantilla Análisis. Las plantillas son un software de uso diario.
+
+## Qué haces {#what-you-do}
+
+El camino desde "Quiero mi propio SaaS" hasta "Tengo mi propio SaaS" es corto:
+
+<Diagram id="doc-block-mroml5" title="Bifurca y personaliza" summary={"Elija un producto terminado, póngale una marca, evolucione en un lenguaje sencillo y envíelo a su propio dominio."}>
+
+```html
+<div class="diagram-fork">
+  <div class="diagram-card">
+    <span class="diagram-pill">1</span><strong>Pick</strong
+    ><small class="diagram-muted">a complete template</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">2</span><strong>Brand</strong
+    ><small class="diagram-muted">nombre, colores, logotipo, copy</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">3</span><strong>Customize</strong
+    ><small class="diagram-muted">ask the agent &#8635;</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill ok">4</span><strong>Ship</strong
+    ><small class="diagram-muted">your own domain</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-fork {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.diagram-fork .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 130px;
+}
+.diagram-fork .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+1. **Elija una plantilla.** Utilice el selector CLI o explore los documentos y elija una para comenzar.
+2. **Marca.** Cambia el nombre, los colores, el logotipo y el texto. La mayoría de las plantillas exponen esto en un único archivo de configuración.
+3. **Personalízalo.** Pídele al agente que agregue la columna que necesitas, cambia la forma en que se agrupa la bandeja de entrada, conéctate a tu API interno, agrega una nueva vista. El agente edita el código; revisas la diferencia.
+4. **Envíelo.** Ejecute el comando de implementación. Ahora tienes tu propio SaaS de producción en tu propio dominio.
+
+Los pasos 2 a 4 suelen tardar días, no meses. El paso 3 es abierto: su SaaS bifurcado evoluciona con el tiempo, en términos sencillos, al hablar con el agente.
+
+## Por qué esto es práctico {#why}
+
+Un modelo tradicional de bifurcación del código base se desmorona a escala: cada usuario que mantiene su propia bandeja de entrada suena como una pesadilla de mantenimiento. Dos decisiones marco lo hacen funcionar:
+
+1. **El agente realiza el mantenimiento.** No escribe código para agregar una columna ni conectar una nueva integración: se lo pregunta al agente. Así que "tu propia bandeja de entrada bifurcada" es una característica, no una carga.
+2. **Personalización por usuario sin código por usuario.** Skills, memoria, instrucciones, servidores MCP conectados y subagentes, todos viven en SQL. Cada usuario obtiene su propia capa de personalización; el código base compartido los aloja todos a la vez.
+
+El resultado: Claude: flexibilidad a nivel de código para cada usuario, con una economía de implementación normal de SaaS.
+
+<Diagram id="doc-block-18s9hur" title={"Por qué escalan las bifurcaciones por usuario"} summary={"Dos ideas mantienen práctico el modelo de bifurcación y personalización: el agente realiza el mantenimiento y la personalización por usuario reside en SQL, no en el código por usuario."}>
+
+```html
+<div class="diagram-why">
+  <div class="diagram-panel" data-rough>
+    <strong>Compartird codebase</strong
+    ><small class="diagram-muted">una app, desplegada una vez</small>
+    <div class="diagram-pill accent">agent does the maintenance</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Capa por usuario en SQL</strong
+    ><small class="diagram-muted"
+      >skills · memoria · instrucciones · MCP · subagentes</small
+    >
+    <div class="diagram-pill ok">no per-user code</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-why {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-why .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 18px;
+  min-width: 240px;
+  flex: 1;
+}
+.diagram-why .diagram-arrow {
+  font-size: 24px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## ¿No quieres bifurcar? {#hosted}
+
+No es necesario. Cada plantilla también está disponible como una aplicación alojada en `agent-native.com`: `mail.agent-native.com`, `calendar.agent-native.com`, etc. Utilice la versión alojada de forma gratuita o de pago; bifurca solo cuando quieras cambiar algo que la versión alojada no expone.
+
+## Pruébalo con una habilidad {#try-with-a-skill}
+
+¿No estás listo para usar el andamio? Puede agregar superpoderes nativos del agente a un agente de codificación que ya usa con un solo comando, sin necesidad de ninguna aplicación. Ver el [Skills Guide](/docs/skills-guide#app-backed-skills).
+
+## Aprovechando esto
+
+- [**Getting Started**](/docs/getting-started): crea una aplicación de chat mínima o un agente sin cabeza
+- [**Messaging the agent**](/docs/messaging): cómo los usuarios (y usted) hablan con el agente que se envía con cada plantilla
+- [**Multi-App Workspace**](/docs/multi-app-workspace): agrupa varias plantillas en un espacio de trabajo que comparte autenticación, marca y agente
+- [**Dispatch**](/docs/template-dispatch): la plantilla del plano de control del espacio de trabajo
+- [**Creating Templates**](/docs/creating-templates): crea y publica tu propia plantilla
+
+### Para desarrolladores {#dev-details}
+
+Si está realizando un scaffolding ahora, el comando CLI es:
+
+```bash
+npx @agent-native/core@latest create my-platform
+```
+
+Obtendrás un selector de selección múltiple. Elija una aplicación (independiente) o varias (espacio de trabajo: las aplicaciones comparten autenticación, marca, configuración del agente y base de datos). Cada plantilla seleccionada se estructura en `apps/<name>/` con cada archivo que necesita. Para una aplicación de solo acción en lugar de una plantilla UI, use `npx @agent-native/core@latest create my-agent --headless`.
+
+Complete `.env` (principalmente `ANTHROPIC_API_KEY` y `DATABASE_URL`), `pnpm install`, `pnpm dev` y funciona. Sin "TODO: implementar inicio de sesión", sin rutas de marcador de posición.
+
+Destinos de implementación: cualquier host compatible con Nitro (Node, Cloudflare, Netlify, Vercel, Deno, Lambda, Bun) y cualquier base de datos SQL compatible con Drizzle (SQLite, Postgres, Turso, D1, Supabase, Neon). Para los espacios de trabajo, `npx @agent-native/core@latest deploy` crea todas las aplicaciones a la vez y las envía detrás de un único origen. Ver [Deployment](/docs/deployment).
+
+Para crear y publicar su propia plantilla, consulte [Creating Templates](/docs/creating-templates).

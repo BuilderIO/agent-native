@@ -1,4 +1,8 @@
-import { appBasePath, captureClientException } from "@agent-native/core/client";
+import {
+  appBasePath,
+  captureClientException,
+  useT,
+} from "@agent-native/core/client";
 import {
   isLoomEmbedUrl,
   LOOM_START_MS_QUERY_PARAM,
@@ -188,6 +192,7 @@ export interface VideoPlayerProps {
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(props, ref) {
+    const t = useT();
     const {
       videoUrl,
       embedProvider,
@@ -919,7 +924,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {isLoomEmbed && loomIframeSrc ? (
           <iframe
             src={loomIframeSrc}
-            title="Loom video"
+            title={t("videoPlayer.loomVideo")}
             className="h-full w-full border-0"
             allow="autoplay; fullscreen; picture-in-picture; clipboard-write"
             allowFullScreen
@@ -1069,7 +1074,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           />
         ) : (
           <div className="flex items-center justify-center w-full h-full text-white/50 text-sm">
-            No video available
+            {t("videoPlayer.noVideo")}
           </div>
         )}
 
@@ -1123,7 +1128,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 backdrop-blur-sm"
           >
             <div className="flex flex-col items-center gap-4 text-white">
-              <p className="text-lg font-medium">Thanks for watching</p>
+              <p className="text-lg font-medium">{t("videoPlayer.thanks")}</p>
               <CtaButton
                 cta={cta!}
                 onClick={() => onCtaClick?.(cta!.id)}
@@ -1215,6 +1220,7 @@ function CenterPlaybackOverlay({
   onSpeedChange: (rate: number) => void;
   menuPortalContainer?: HTMLElement | null;
 }) {
+  const t = useT();
   const showLoading = mode === "loading" && !playError;
   const adjustedDurationMs = speed > 0 ? durationMs / speed : durationMs;
   const showAdjustedDuration =
@@ -1239,7 +1245,7 @@ function CenterPlaybackOverlay({
             <button
               data-player-ui
               type="button"
-              aria-label="Play clip"
+              aria-label={t("videoPlayer.playClip")}
               onClick={(e) => {
                 e.stopPropagation();
                 onPlay();

@@ -15,6 +15,7 @@ import {
   appBasePath,
   useActionMutation,
   useActionQuery,
+  useT,
 } from "@agent-native/core/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -134,6 +135,7 @@ function getWaveformMediaUrl({
 }
 
 export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
+  const t = useT();
   // --- server state -------------------------------------------------------
   const playerDataQuery = useActionQuery("get-recording-player-data", {
     recordingId,
@@ -336,10 +338,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
           startMs: Math.round(range.startMs),
           endMs: Math.round(range.endMs),
         });
-        toast.success("Trimmed");
+        toast.success(t("editorLayout.trimmed"));
         setSelectionRange(null);
       } catch (err: any) {
-        toast.error(err?.message ?? "Trim failed");
+        toast.error(err?.message ?? t("editorLayout.trimFailed"));
       }
     },
     [recordingId, trim],
@@ -396,18 +398,22 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               endMs: Math.round(range.endMs),
             })
             .then(() => {
-              toast.success("Cut");
+              toast.success(t("editorLayout.cut"));
               setSelectionRange(null);
             })
-            .catch((err: any) => toast.error(err?.message ?? "Cut failed"));
+            .catch((err: any) =>
+              toast.error(err?.message ?? t("editorLayout.cutFailed")),
+            );
         }
       } else if (e.key.toLowerCase() === "s") {
         // Split at playhead
         e.preventDefault();
         split
           .mutateAsync({ recordingId, atMs: Math.round(playheadMs) })
-          .then(() => toast.success("Split"))
-          .catch((err: any) => toast.error(err?.message ?? "Split failed"));
+          .then(() => toast.success(t("editorLayout.split")))
+          .catch((err: any) =>
+            toast.error(err?.message ?? t("editorLayout.splitFailed")),
+          );
       }
     };
     window.addEventListener("keydown", handler);
@@ -423,14 +429,14 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   if (playerDataQuery.isLoading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Loading recording…
+        {t("editorLayout.loadingRecording")}
       </div>
     );
   }
   if (!recording) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        Recording not found
+        {t("editorLayout.recordingNotFound")}
       </div>
     );
   }
@@ -485,7 +491,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               />
             ) : (
               <div className="text-sm text-muted-foreground">
-                No video available yet.
+                {t("editorLayout.noVideoYet")}
               </div>
             )}
           </div>

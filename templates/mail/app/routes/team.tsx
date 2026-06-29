@@ -1,9 +1,11 @@
-import Team from "@/pages/Team";
+import { Navigate } from "react-router";
+
+import messages from "@/i18n/en-US";
 
 export function meta() {
-  return [{ title: "Team — Mail" }];
+  return [{ title: messages.mail.routeTitles.team }];
 }
 
 export default function TeamRoute() {
-  return <Team />;
+  return <Navigate to="/settings?section=team" replace />;
 }

@@ -26,6 +26,16 @@ describe("slides app URLs", () => {
     );
   });
 
+  it("prefers the workspace gateway over a local app URL", () => {
+    vi.stubEnv("APP_URL", "http://localhost:8086");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "https://workspace.example.test");
+    vi.stubEnv("APP_BASE_PATH", "/slides");
+
+    expect(getDeckUrl("deck-4")).toBe(
+      "https://workspace.example.test/slides/deck/deck-4",
+    );
+  });
+
   it("uses hosting URL env vars for generated workspace deploys", () => {
     vi.stubEnv("URL", "https://generated-workspace.netlify.app");
     vi.stubEnv("APP_BASE_PATH", "/slides");

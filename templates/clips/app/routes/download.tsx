@@ -1,4 +1,4 @@
-import { appBasePath, appPath } from "@agent-native/core/client";
+import { appBasePath, appPath, useT } from "@agent-native/core/client";
 import {
   IconBrandChrome,
   IconBrandApple,
@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import enMessages from "@/i18n/en-US";
 import {
   clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,
@@ -17,11 +18,10 @@ import {
 
 export function meta() {
   return [
-    { title: "Download Clips Desktop" },
+    { title: enMessages.downloadRoute.pageTitle },
     {
       name: "description",
-      content:
-        "Record your screen from the menu bar. Auto-updating desktop app for macOS and Windows.",
+      content: enMessages.downloadRoute.description,
     },
   ];
 }
@@ -100,6 +100,7 @@ function primaryDownloadButton(
   variant: PlatformVariant,
   manifest: Manifest | null,
   manifestError: boolean,
+  downloadLabel: string,
 ) {
   const asset = pickAsset(manifest, variant);
   const Icon = variant.icon;
@@ -108,7 +109,7 @@ function primaryDownloadButton(
       <Button asChild size="lg" className="h-12 gap-2 px-6 text-base">
         <a href={asset.url} download>
           <Icon className="h-5 w-5" />
-          Download for {variant.label}
+          {downloadLabel}
         </a>
       </Button>
     );
@@ -125,7 +126,7 @@ function primaryDownloadButton(
     >
       <a href={RELEASE_PAGE_URL} rel="noreferrer">
         <Icon className="h-5 w-5" />
-        Download for {variant.label}
+        {downloadLabel}
       </a>
     </Button>
   );
@@ -135,6 +136,7 @@ function secondaryDownloadButton(
   variant: PlatformVariant,
   manifest: Manifest | null,
   manifestError: boolean,
+  downloadLabel: string,
 ) {
   const asset = pickAsset(manifest, variant);
   const Icon = variant.icon;
@@ -145,7 +147,7 @@ function secondaryDownloadButton(
       <Button asChild variant="ghost" className={className}>
         <a href={asset.url} download>
           <Icon className="h-4 w-4" />
-          Also available for {variant.label}
+          {downloadLabel}
         </a>
       </Button>
     );
@@ -157,13 +159,14 @@ function secondaryDownloadButton(
     <Button asChild variant="ghost" className={className}>
       <a href={RELEASE_PAGE_URL} rel="noreferrer">
         <Icon className="h-4 w-4" />
-        Also available for {variant.label}
+        {downloadLabel}
       </a>
     </Button>
   );
 }
 
 export default function DownloadPage() {
+  const t = useT();
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [manifestError, setManifestError] = useState(false);
   const [detected, setDetected] = useState<PlatformId | null>(null);
@@ -207,7 +210,7 @@ export default function DownloadPage() {
             href={appPath("/library")}
             className="ms-auto text-sm text-muted-foreground hover:text-foreground"
           >
-            Back to library
+            {t("downloadRoute.backToLibrary")}
           </a>
         </div>
       </header>
@@ -215,32 +218,41 @@ export default function DownloadPage() {
       <main className="mx-auto max-w-5xl px-6 py-16">
         <div className="flex flex-col items-center text-center">
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
-            Clips Desktop
+            {t("downloadRoute.clipsDesktop")}
           </h1>
           <p className="mt-4 max-w-xl text-base text-muted-foreground">
-            A menu-bar recorder for screen, camera, and screen + camera.
-            One-click start, draggable camera bubble, instant-share link when
-            you stop.
+            {t("downloadRoute.heroDescription")}
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-3">
-            {primaryDownloadButton(primary, manifest, manifestError)}
-            {secondaryDownloadButton(secondary, manifest, manifestError)}
+            {primaryDownloadButton(
+              primary,
+              manifest,
+              manifestError,
+              t("downloadRoute.downloadFor", { platform: primary.label }),
+            )}
+            {secondaryDownloadButton(
+              secondary,
+              manifest,
+              manifestError,
+              t("downloadRoute.alsoFor", { platform: secondary.label }),
+            )}
             <div className="text-xs text-muted-foreground">
               {manifest ? (
                 <>
-                  Version {manifest.version}
                   {manifest.pub_date
-                    ? ` — released ${new Date(manifest.pub_date).toLocaleDateString()}`
-                    : null}
+                    ? t("downloadRoute.versionReleased", {
+                        version: manifest.version,
+                        date: new Date(manifest.pub_date).toLocaleDateString(),
+                      })
+                    : t("downloadRoute.version", {
+                        version: manifest.version,
+                      })}
                 </>
               ) : manifestError ? (
-                <>
-                  Could not load release manifest — pick an installer from the
-                  releases page.
-                </>
+                <>{t("downloadRoute.manifestError")}</>
               ) : (
-                <>Loading latest release…</>
+                <>{t("downloadRoute.loadingRelease")}</>
               )}
             </div>
           </div>
@@ -253,13 +265,10 @@ export default function DownloadPage() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <h2 className="text-sm font-semibold text-foreground">
-                    Chrome extension for browser logs
+                    {t("downloadRoute.chromeTitle")}
                   </h2>
                   <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                    Use the extension when you want a recording plus redacted
-                    console and fetch/XHR diagnostics from the tab you launch
-                    from. The desktop app is still the smoothest everyday
-                    recorder.
+                    {t("downloadRoute.chromeDescription")}
                   </p>
                 </div>
               </div>
@@ -276,12 +285,12 @@ export default function DownloadPage() {
                     rel="noreferrer"
                   >
                     <IconExternalLink className="h-4 w-4" />
-                    Install Chrome extension
+                    {t("downloadRoute.installChrome")}
                   </a>
                 ) : (
                   <>
                     <IconExternalLink className="h-4 w-4" />
-                    Chrome Web Store URL pending
+                    {t("downloadRoute.chromePending")}
                   </>
                 )}
               </Button>

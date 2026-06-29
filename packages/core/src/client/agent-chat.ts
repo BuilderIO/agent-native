@@ -74,6 +74,12 @@ export interface AgentChatMessage {
   /** Scoped system prompt additions for this sub-agent */
   instructions?: string;
   /**
+   * Message delivery target. Auto-submitted MCP App messages normally relay to
+   * the host chat; use "local" when a control explicitly targets this app's
+   * own AgentSidebar.
+   */
+  chatTarget?: "auto" | "local";
+  /**
    * Whether to open the agent sidebar if it's currently hidden.
    * Defaults to true — submitting a chat should make the response visible.
    * Pass `false` for background/silent sends that shouldn't pop the UI open.
@@ -117,6 +123,37 @@ export interface AgentChatContextState {
   updatedAt: number;
 }
 
+export interface AgentComposerReference {
+  label: string;
+  icon?: string;
+  source?: string;
+  refType: string;
+  refId?: string | null;
+  refPath?: string | null;
+  /** Stable composer slot this reference occupies. Slot references replace older values. */
+  slotKey?: string;
+  /** Short label shown before the selected value in the composer chip. */
+  slotLabel?: string;
+  /** Additional app-defined data used by the client for filtering and grouping. */
+  metadata?: Record<string, unknown>;
+  /** Slots to remove when this reference is inserted or removed. */
+  clearsSlots?: string[];
+  /** Additional references to insert before this one. */
+  relatedReferences?: AgentComposerReference[];
+}
+
+export interface AgentComposerReferenceInsertOptions {
+  /**
+   * Whether to open the agent sidebar before inserting the reference.
+   * Defaults to false so contextual auto-tags can stay quiet.
+   */
+  openSidebar?: boolean;
+}
+
+export interface AgentComposerReferenceInsertPayload extends AgentComposerReference {
+  insertMessageId: string;
+}
+
 export interface AgentChatContextMutationOptions {
   /**
    * Whether to open the agent sidebar if it's currently hidden.
@@ -140,6 +177,10 @@ export const AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE =
   "agentNative.removeChatContext";
 export const AGENT_CHAT_CLEAR_CONTEXT_MESSAGE_TYPE =
   "agentNative.clearChatContext";
+export const AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE =
+  "agentNative.insertComposerReference";
+export const AGENT_CHAT_INSERT_REFERENCE_EVENT =
+  "agentNative:insert-composer-reference";
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 
 let agentChatContextState: AgentChatContextState = {
@@ -406,6 +447,82 @@ export function appendAgentChatContextToMessage(
   return `${message.trim()}\n\n<context>\n${trimmedContext}\n</context>`;
 }
 
+function normalizeStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeMetadata(
+  value: unknown,
+): Record<string, unknown> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function normalizeAgentComposerReferenceInternal(
+  value: unknown,
+  depth: number,
+): AgentComposerReference | null {
+  if (typeof value !== "object" || value === null) return null;
+  const candidate = value as Partial<AgentComposerReference>;
+  const label =
+    typeof candidate.label === "string" ? candidate.label.trim() : "";
+  const refType =
+    typeof candidate.refType === "string" ? candidate.refType.trim() : "";
+  if (!label || !refType) return null;
+  const normalized: AgentComposerReference = {
+    label,
+    icon:
+      typeof candidate.icon === "string" && candidate.icon.trim()
+        ? candidate.icon.trim()
+        : undefined,
+    source:
+      typeof candidate.source === "string" && candidate.source.trim()
+        ? candidate.source.trim()
+        : undefined,
+    refType,
+    refId:
+      typeof candidate.refId === "string" && candidate.refId.trim()
+        ? candidate.refId.trim()
+        : null,
+    refPath:
+      typeof candidate.refPath === "string" && candidate.refPath.trim()
+        ? candidate.refPath.trim()
+        : null,
+  };
+  const slotKey =
+    typeof candidate.slotKey === "string" ? candidate.slotKey.trim() : "";
+  if (slotKey) normalized.slotKey = slotKey;
+  const slotLabel =
+    typeof candidate.slotLabel === "string" ? candidate.slotLabel.trim() : "";
+  if (slotLabel) normalized.slotLabel = slotLabel;
+  const metadata = normalizeMetadata(candidate.metadata);
+  if (metadata) normalized.metadata = metadata;
+  const clearsSlots = normalizeStringArray(candidate.clearsSlots);
+  if (clearsSlots) normalized.clearsSlots = clearsSlots;
+  if (depth < 3 && Array.isArray(candidate.relatedReferences)) {
+    const relatedReferences = candidate.relatedReferences
+      .map((item) => normalizeAgentComposerReferenceInternal(item, depth + 1))
+      .filter((item): item is AgentComposerReference => item !== null);
+    if (relatedReferences.length > 0) {
+      normalized.relatedReferences = relatedReferences;
+    }
+  }
+  return normalized;
+}
+
+export function normalizeAgentComposerReference(
+  value: unknown,
+): AgentComposerReference | null {
+  return normalizeAgentComposerReferenceInternal(value, 0);
+}
+
 function postAgentChatContextMessage(
   type:
     | typeof AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE
@@ -416,7 +533,19 @@ function postAgentChatContextMessage(
 ): void {
   if (typeof window === "undefined") return;
 
-  const payload = { type, data };
+  const shouldForwardOpenSidebar =
+    (type === AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE &&
+      options.openSidebar === false) ||
+    (type !== AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE &&
+      options.openSidebar === true);
+  const payloadData =
+    shouldForwardOpenSidebar && typeof data === "object" && data !== null
+      ? {
+          ...(data as Record<string, unknown>),
+          openSidebar: options.openSidebar,
+        }
+      : data;
+  const payload = { type, data: payloadData };
   const targetSelf = isInBuilderFrame() || isDirectMcpAppEmbedSession();
   const target = targetSelf
     ? window
@@ -439,6 +568,51 @@ function postAgentChatContextMessage(
   }
 
   const postToTarget = () => target.postMessage(payload, targetOrigin);
+  if (target === window) {
+    setTimeout(postToTarget, 0);
+  } else {
+    postToTarget();
+  }
+}
+
+function postAgentChatReferenceMessage(
+  payload: AgentComposerReferenceInsertPayload,
+  options: { openSidebar: boolean },
+): void {
+  if (typeof window === "undefined") return;
+
+  const message = {
+    type: AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE,
+    data: payload,
+  };
+  const targetSelf = isInBuilderFrame() || isDirectMcpAppEmbedSession();
+  const target = targetSelf
+    ? window
+    : window.parent !== window
+      ? window.parent
+      : window;
+  const targetOrigin = targetSelf
+    ? window.location.origin
+    : getFramePostMessageTargetOrigin() || window.location.origin;
+
+  if (options.openSidebar) {
+    window.dispatchEvent(
+      new CustomEvent("agent-panel:set-mode", {
+        detail: { mode: "chat" },
+      }),
+    );
+    window.dispatchEvent(new CustomEvent("agent-panel:open"));
+  } else {
+    window.dispatchEvent(new CustomEvent(AGENT_PANEL_PREPARE_EVENT));
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(AGENT_CHAT_INSERT_REFERENCE_EVENT, {
+      detail: payload,
+    }),
+  );
+
+  const postToTarget = () => target.postMessage(message, targetOrigin);
   if (target === window) {
     setTimeout(postToTarget, 0);
   } else {
@@ -572,6 +746,7 @@ function readStoredAgentChatRequestMode(): AgentChatRequestMode | undefined {
 export function sendToAgentChat(opts: AgentChatMessage): string {
   const tabId = opts.tabId ?? generateTabId();
   const isCodeRequest = opts.type === "code" || opts.requiresCode === true;
+  const localChatTarget = opts.chatTarget === "local";
   const requestMode =
     normalizeAgentChatRequestMode(opts.requestMode ?? opts.mode) ??
     readStoredAgentChatRequestMode();
@@ -596,7 +771,11 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     },
   };
 
-  if (opts.submit !== false && isMcpAppChatBridgeEnabled()) {
+  if (
+    opts.submit !== false &&
+    !localChatTarget &&
+    isMcpAppChatBridgeEnabled()
+  ) {
     const directHostMessage = sendMcpAppHostMessage({
       message: opts.message,
       context: opts.context,
@@ -627,7 +806,8 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
   const shouldOpenSidebar = opts.openSidebar !== false && !opts.background;
 
   const targetSelf =
-    !isCodeRequest && (isInBuilderFrame() || isDirectMcpAppEmbedSession());
+    !isCodeRequest &&
+    (localChatTarget || isInBuilderFrame() || isDirectMcpAppEmbedSession());
   const target = targetSelf
     ? window
     : window.parent !== window
@@ -684,6 +864,23 @@ export const setContextToAgentChat = setAgentChatContextItem;
 
 /** @deprecated Use `setAgentChatContextItem` instead. */
 export const addContextToAgentChat = setAgentChatContextItem;
+
+export function insertAgentComposerReference(
+  ref: AgentComposerReference,
+  options: AgentComposerReferenceInsertOptions = {},
+): void {
+  const normalized = normalizeAgentComposerReference(ref);
+  if (!normalized || typeof window === "undefined") return;
+  postAgentChatReferenceMessage(
+    {
+      ...normalized,
+      insertMessageId: `reference-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 8)}`,
+    },
+    { openSidebar: options.openSidebar === true },
+  );
+}
 
 export function removeAgentChatContextItem(
   keyOrOpts: string | AgentChatContextRemoveOptions,

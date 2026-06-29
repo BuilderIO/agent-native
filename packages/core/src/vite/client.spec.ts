@@ -316,6 +316,73 @@ describe("route warmup config", () => {
 
     expect(routeWarmup.strategy).toBe("viewport");
   });
+
+  it("exposes the build-time GA measurement id for SSR bundles", () => {
+    const previous = process.env.GA_MEASUREMENT_ID;
+    process.env.GA_MEASUREMENT_ID = "  G-UNITTEST123  ";
+
+    try {
+      const config = defineConfig();
+
+      expect(config.define?.__AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__).toBe(
+        JSON.stringify("G-UNITTEST123"),
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.GA_MEASUREMENT_ID;
+      } else {
+        process.env.GA_MEASUREMENT_ID = previous;
+      }
+    }
+  });
+});
+
+describe("MCP integrations config", () => {
+  it("exposes default MCP integration catalog settings", () => {
+    const config = defineConfig();
+    const mcpIntegrations = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__),
+    );
+
+    expect(mcpIntegrations).toEqual({
+      enabled: true,
+      custom: true,
+      defaults: { enabled: true, exclude: [] },
+    });
+  });
+
+  it("lets products disable or filter default MCP integration presets", () => {
+    const config = defineConfig({
+      mcpIntegrations: {
+        defaults: { include: ["context7", "sentry"], exclude: ["sentry"] },
+        custom: false,
+      },
+    });
+    const mcpIntegrations = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__),
+    );
+
+    expect(mcpIntegrations).toEqual({
+      enabled: true,
+      custom: false,
+      defaults: {
+        enabled: true,
+        include: ["context7", "sentry"],
+        exclude: ["sentry"],
+      },
+    });
+  });
+
+  it("lets products hide the whole MCP integrations entry", () => {
+    const config = defineConfig({ mcpIntegrations: false });
+    const mcpIntegrations = JSON.parse(
+      String(config.define?.__AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__),
+    );
+
+    expect(mcpIntegrations.enabled).toBe(false);
+    expect(mcpIntegrations.custom).toBe(false);
+    expect(mcpIntegrations.defaults.enabled).toBe(false);
+  });
 });
 
 describe("agentNative Vite plugin preset", () => {
@@ -374,6 +441,9 @@ describe("agentNative Vite plugin preset", () => {
     expect(config.plugins).toBeUndefined();
     expect(routeWarmup.strategy).toBe("render");
     expect(config.define.__APP_DEFINE__).toBe(JSON.stringify("ok"));
+    expect(config.define.__AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__).toBe(
+      JSON.stringify(process.env.GA_MEASUREMENT_ID?.trim() || ""),
+    );
     expect(config.server.port).toBe(4242);
     expect(config.server.fs.allow).toContain("/tmp/app-assets");
     expect(config.server.fs.deny).toContain("secret.txt");

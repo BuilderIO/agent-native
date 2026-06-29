@@ -392,8 +392,21 @@ const HIDDEN_STANDALONE_BUILT_INS = [
   "assets",
   "content",
   "design-exploration",
+  "visual-edit",
   "context-xray",
 ];
+
+function shouldShowDelegatedStartupProgress(
+  parsed: ParsedArgs,
+  options: Pick<InstallSkillsOptions, "isInteractive">,
+): boolean {
+  return (
+    parsed.command !== "help" &&
+    !parsed.printJson &&
+    !parsed.quiet &&
+    cliInteractive(parsed, options)
+  );
+}
 
 export async function runSkillsCli(
   argv: string[],
@@ -422,6 +435,9 @@ export async function runSkillsCli(
     if (parsed.command === "help") {
       process.stdout.write(`${HELP}\n`);
       return;
+    }
+    if (shouldShowDelegatedStartupProgress(parsed, options)) {
+      process.stderr.write("Preparing Agent Native skills...\n");
     }
     const loadedSource = shouldLoadPublicCatalog(parsed)
       ? await materializeSource(parsed.source ?? DEFAULT_SKILLS_SOURCE)

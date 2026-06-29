@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconEraser,
   IconArrowBackUp,
@@ -45,6 +46,10 @@ export interface DrawAnnotation {
 interface DrawOverlayProps {
   /** Whether the overlay is currently visible (toggled from the toolbar) */
   visible: boolean;
+  /** When false, canvas clicks pass through to sibling tools while the toolbar stays usable. */
+  canvasInteractive?: boolean;
+  /** Extra queued annotations owned by sibling tools, such as comment pins. */
+  queuedAnnotationCount?: number;
   /** Called when the user submits the queued strokes/text to the agent */
   onSend: (
     annotations: DrawAnnotation[],
@@ -93,7 +98,14 @@ interface Stroke {
  * its parent, so the parent (a slide editor or design canvas) only needs to
  * be `position: relative`.
  */
-export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
+export function DrawOverlay({
+  visible,
+  canvasInteractive = true,
+  queuedAnnotationCount = 0,
+  onSend,
+  onClose,
+}: DrawOverlayProps) {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [color, setColor] = useState(PRESET_COLORS[0].color);
@@ -229,9 +241,9 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
     setStrokes([]);
     setTextAnnotations([]);
     setRedoStrokes([]);
-    toast("Cleared all annotations", {
+    toast(t("visualEditor.clearedAllAnnotations"), {
       action: {
-        label: "Undo",
+        label: t("visualEditor.undo"),
         onClick: () => {
           setStrokes(prevStrokes);
           setTextAnnotations(prevTexts);
@@ -290,13 +302,19 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
   if (!visible) return null;
 
   const hasContent =
-    strokes.length > 0 || textAnnotations.length > 0 || instruction.trim();
+    strokes.length > 0 ||
+    textAnnotations.length > 0 ||
+    instruction.trim() ||
+    queuedAnnotationCount > 0;
 
   return (
     <div
       ref={containerRef}
       data-draw-overlay
-      className="absolute inset-0 z-30 pointer-events-auto"
+      className={cn(
+        "absolute inset-0 z-30",
+        canvasInteractive ? "pointer-events-auto" : "pointer-events-none",
+      )}
     >
       {/* Drawing canvas */}
       <canvas
@@ -305,6 +323,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
         className={cn(
           "absolute inset-0 h-full w-full",
           textMode ? "cursor-text" : "cursor-crosshair",
+          !canvasInteractive && "pointer-events-none",
         )}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -330,7 +349,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
       {/* Pending text input */}
       {textInput && (
         <div
-          className="absolute z-40"
+          className="pointer-events-auto absolute z-40"
           style={{ left: textInput.x, top: textInput.y }}
         >
           <Input
@@ -350,7 +369,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
             }}
             className="h-7 w-48 border-primary bg-background text-sm"
             autoFocus
-            placeholder="Type annotation…"
+            placeholder={t("visualEditor.typeAnnotationFancy")}
           />
         </div>
       )}
@@ -358,7 +377,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
       {/* Bottom toolbar */}
       <div
         data-draw-toolbar
-        className="absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
+        className="pointer-events-auto absolute bottom-4 left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-border bg-popover px-3 py-2 shadow-2xl"
       >
         {/* Color picker */}
         <div className="flex gap-1">
@@ -425,7 +444,9 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconCursorText className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Type anywhere on the canvas</TooltipContent>
+          <TooltipContent>
+            {t("visualEditor.typeAnywhereOnCanvas")}
+          </TooltipContent>
         </Tooltip>
 
         {/* Undo last stroke */}
@@ -439,7 +460,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconArrowBackUp className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Undo stroke</TooltipContent>
+          <TooltipContent>{t("visualEditor.undoStroke")}</TooltipContent>
         </Tooltip>
 
         {/* Redo */}
@@ -453,7 +474,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconArrowForwardUp className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Redo stroke</TooltipContent>
+          <TooltipContent>{t("visualEditor.redoStroke")}</TooltipContent>
         </Tooltip>
 
         {/* Clear all */}
@@ -467,7 +488,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconEraser className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Clear all</TooltipContent>
+          <TooltipContent>{t("visualEditor.clearAll")}</TooltipContent>
         </Tooltip>
 
         <div className="mx-1 h-4 w-px bg-border" />
@@ -480,7 +501,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
             if (e.key === "Enter" && hasContent) send();
             if (e.key === "Escape") onClose();
           }}
-          placeholder="Tell the agent what to do…"
+          placeholder={t("visualEditor.tellAgentWhatToDo")}
           className="h-7 w-56 border-border bg-background text-xs"
         />
 
@@ -492,7 +513,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
           disabled={!hasContent}
         >
           <IconSend className="h-3 w-3" />
-          Send
+          {t("visualEditor.send")}
         </Button>
 
         {/* Close */}
@@ -505,7 +526,7 @@ export function DrawOverlay({ visible, onSend, onClose }: DrawOverlayProps) {
               <IconX className="h-3.5 w-3.5" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Exit draw mode</TooltipContent>
+          <TooltipContent>{t("visualEditor.exitDrawMode")}</TooltipContent>
         </Tooltip>
       </div>
     </div>

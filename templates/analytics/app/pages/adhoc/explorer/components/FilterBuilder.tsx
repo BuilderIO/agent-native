@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -31,6 +32,7 @@ interface FilterBuilderProps {
 }
 
 export function FilterBuilder({ filters, onChange }: FilterBuilderProps) {
+  const t = useT();
   const [adding, setAdding] = useState(false);
 
   return (
@@ -56,7 +58,7 @@ export function FilterBuilder({ filters, onChange }: FilterBuilderProps) {
               onChange([...filters, { property, operator: "=", value: "" }]);
               setAdding(false);
             }}
-            triggerLabel="Pick a property to filter"
+            triggerLabel={t("explorer.pickPropertyToFilter")}
           />
         </div>
       ) : (
@@ -67,7 +69,7 @@ export function FilterBuilder({ filters, onChange }: FilterBuilderProps) {
           onClick={() => setAdding(true)}
         >
           <IconPlus className="h-3 w-3 mr-1" />
-          Filter by
+          {t("explorer.filterBy")}
         </Button>
       )}
     </div>
@@ -83,6 +85,7 @@ function FilterRow({
   onChange: (f: ExplorerFilter) => void;
   onRemove: () => void;
 }) {
+  const t = useT();
   const needsValue = !NO_VALUE_OPS.has(filter.operator);
 
   return (
@@ -91,7 +94,7 @@ function FilterRow({
       <PropertyCombobox
         value={filter.property}
         onChange={(property) => onChange({ ...filter, property })}
-        triggerLabel="property"
+        triggerLabel={t("explorer.property")}
       />
       <Select
         value={filter.operator}

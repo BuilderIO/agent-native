@@ -200,8 +200,13 @@ export function SnoozeModal({
       onClose();
       toast(
         snoozeTargets.length > 1
-          ? `Snoozed ${snoozeTargets.length} conversations until ${formatRight(opt.date, opt.sublabel)}`
-          : `Snoozed until ${formatRight(opt.date, opt.sublabel)}`,
+          ? t("mail.toasts.snoozedConversationsUntil", {
+              count: snoozeTargets.length,
+              time: formatRight(opt.date, opt.sublabel),
+            })
+          : t("mail.toasts.snoozedUntil", {
+              time: formatRight(opt.date, opt.sublabel),
+            }),
       );
       window.dispatchEvent(
         new CustomEvent("email:snoozed", {
@@ -225,11 +230,9 @@ export function SnoozeModal({
               msg.includes("scheduled_jobs") ||
               msg.includes("SQLITE")
             ) {
-              toast.error(
-                "Snooze DB not ready. Run: pnpm db:push in the mail template.",
-              );
+              toast.error(t("mail.toasts.snoozeDbNotReady"));
             } else {
-              toast.error(msg || "Couldn't snooze — check the server logs.");
+              toast.error(msg || t("mail.toasts.couldNotSnooze"));
             }
           });
       }

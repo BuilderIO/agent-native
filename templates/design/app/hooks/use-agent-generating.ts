@@ -18,6 +18,7 @@ interface UseAgentGeneratingOptions {
   /** When chat starts on a tab we did not open, adopt it if this returns true. */
   shouldAdoptRunningTab?: () => boolean;
   onAdoptRunningTab?: (tabId: string) => void;
+  onRunning?: (tabId: string | null) => void;
 }
 
 /**
@@ -87,6 +88,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           if (eventTabId && callbacksRef.current.shouldAdoptRunningTab?.()) {
             activeTabIdRef.current = eventTabId;
             callbacksRef.current.onAdoptRunningTab?.(eventTabId);
+            callbacksRef.current.onRunning?.(eventTabId);
             setGenerating(true);
             startGenerationTimeout(eventTabId);
             return;
@@ -112,6 +114,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
           return;
         }
         clearStopDebounce();
+        callbacksRef.current.onRunning?.(activeTabIdRef.current);
         setGenerating(true);
         startGenerationTimeout(activeTabIdRef.current);
       }
@@ -138,6 +141,7 @@ export function useAgentGenerating(options: UseAgentGeneratingOptions = {}) {
         message,
         context,
         submit: options?.submit ?? true,
+        newTab: options?.newTab ?? true,
       });
       track(tabId);
       return tabId;

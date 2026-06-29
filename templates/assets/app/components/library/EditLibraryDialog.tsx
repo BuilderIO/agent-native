@@ -1,4 +1,4 @@
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -29,6 +29,7 @@ export function EditLibraryDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const t = useT();
   const updateLibrary = useActionMutation("update-library");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -57,12 +58,12 @@ export function EditLibraryDialog({
       },
       {
         onSuccess: () => {
-          toast.success("Brand kit updated");
+          toast.success(t("brandKits.updated"));
           onOpenChange(false);
         },
         onError: (err: unknown) => {
           toast.error(
-            err instanceof Error ? err.message : "Failed to update brand kit",
+            err instanceof Error ? err.message : t("brandKits.updateFailed"),
           );
         },
       },
@@ -73,16 +74,18 @@ export function EditLibraryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit brand kit</DialogTitle>
+          <DialogTitle>{t("brandKits.editDialogTitle")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="edit-library-title">Name</Label>
+            <Label htmlFor="edit-library-title">
+              {t("brandKitDetail.name")}
+            </Label>
             <Input
               id="edit-library-title"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
-              placeholder="Brand kit name"
+              placeholder={t("brandKits.namePlaceholder")}
               autoFocus
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -93,24 +96,28 @@ export function EditLibraryDialog({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit-library-description">Description</Label>
+            <Label htmlFor="edit-library-description">
+              {t("assetDetail.description")}
+            </Label>
             <Textarea
               id="edit-library-description"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
-              placeholder="Describe the visual direction or contents of this brand kit."
+              placeholder={t("brandKits.editDescriptionPlaceholder")}
             />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {t("brandKitDetail.cancel")}
           </Button>
           <Button
             onClick={submit}
             disabled={!trimmedTitle || !dirty || updateLibrary.isPending}
           >
-            {updateLibrary.isPending ? "Saving..." : "Save"}
+            {updateLibrary.isPending
+              ? t("settings.saving")
+              : t("brandKitDetail.save")}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconArrowsSort,
   IconSortAscending,
@@ -86,6 +87,16 @@ const useBrowserLayoutEffect =
 const CHART_TOOLTIP_PROPS = {
   allowEscapeViewBox: { x: true, y: true },
   wrapperStyle: CHART_TOOLTIP_WRAPPER_STYLE,
+} as const;
+
+const BAR_TOOLTIP_CURSOR_PROPS = {
+  fill: "hsl(var(--muted))",
+  fillOpacity: 0.32,
+  stroke: "hsl(var(--border))",
+  strokeOpacity: 0.5,
+  strokeWidth: 1,
+  rx: 4,
+  ry: 4,
 } as const;
 
 const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
@@ -582,8 +593,18 @@ function ChartTooltip({
     left: number;
     top: number;
   } | null>(null);
-  const items = sortTooltipPayloadItems(
-    payload?.filter((item) => item.value != null && item.value !== "") ?? [],
+  const items = useMemo(
+    () =>
+      sortTooltipPayloadItems(
+        payload?.filter((item) => item.value != null && item.value !== "") ??
+          [],
+      ),
+    [payload],
+  );
+  const portalVisible = portalPosition !== null;
+  const clearPortalPosition = useCallback(
+    () => setPortalPosition((prev) => (prev === null ? prev : null)),
+    [],
   );
 
   const labelText =
@@ -595,7 +616,7 @@ function ChartTooltip({
 
   useBrowserLayoutEffect(() => {
     if (!active || items.length === 0 || typeof window === "undefined") {
-      setPortalPosition(null);
+      clearPortalPosition();
       return;
     }
 
@@ -677,7 +698,7 @@ function ChartTooltip({
       window.removeEventListener("resize", schedule);
       window.removeEventListener("scroll", schedule, true);
     };
-  });
+  }, [active, clearPortalPosition, items.length, portalVisible]);
 
   if (!active || items.length === 0) return null;
 
@@ -836,8 +857,6 @@ interface SqlChartProps {
   className?: string;
   loadData?: boolean;
   onExportCsvChange?: (handler: (() => void) | null) => void;
-  onRefreshChange?: (handler: (() => Promise<void>) | null) => void;
-  onRefreshingChange?: (refreshing: boolean) => void;
 }
 
 export function SqlChart({
@@ -845,64 +864,33 @@ export function SqlChart({
   resolvedSql,
   loadData = true,
   onExportCsvChange,
-  onRefreshChange,
-  onRefreshingChange,
 }: SqlChartProps) {
+  const t = useT();
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
   const shouldQuery = !isSection && loadData;
   const sql = serializePanelSql(resolvedSql ?? panel.sql);
-  const queryIdentity = `${panel.id}\n${panel.source}\n${sql}`;
-  const [loadedQueryIdentity, setLoadedQueryIdentity] = useState<string | null>(
-    null,
-  );
-  const queryEnabled = shouldQuery && loadedQueryIdentity !== queryIdentity;
   const {
     data: result,
-    isFetching,
     isLoading,
-    refetch,
+    error: queryError,
   } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
     sql,
     panel.source,
     // Skip the query for section panels — they are pure layout with no data.
-    {
-      enabled: queryEnabled,
-      refetchOnMount: false,
-      refetchOnReconnect: false,
-      refetchOnWindowFocus: false,
-    },
+    { enabled: shouldQuery },
   );
 
   const rawRows = result?.rows ?? [];
-  const error = result?.error;
-
-  useEffect(() => {
-    if (!shouldQuery || !result || isFetching || isLoading) return;
-    setLoadedQueryIdentity((current) =>
-      current === queryIdentity ? current : queryIdentity,
-    );
-  }, [isFetching, isLoading, queryIdentity, result, shouldQuery]);
-
-  const handleRefresh = useCallback(async () => {
-    await refetch();
-  }, [refetch]);
-
-  useEffect(() => {
-    if (!onRefreshChange) return;
-    if (!shouldQuery) {
-      onRefreshChange(null);
-      return;
-    }
-    onRefreshChange(handleRefresh);
-    return () => onRefreshChange(null);
-  }, [handleRefresh, onRefreshChange, shouldQuery]);
-
-  useEffect(() => {
-    onRefreshingChange?.(shouldQuery && isFetching && !isLoading);
-    return () => onRefreshingChange?.(false);
-  }, [isFetching, isLoading, onRefreshingChange, shouldQuery]);
+  const queryErrorMessage =
+    queryError instanceof Error
+      ? queryError.message
+      : queryError
+        ? String(queryError)
+        : undefined;
+  const error =
+    rawRows.length === 0 ? (result?.error ?? queryErrorMessage) : undefined;
 
   const { rows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
@@ -938,7 +926,12 @@ export function SqlChart({
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
   if (!loadData || isLoading) {
-    return <Skeleton className={`w-full flex-1 ${placeholderMinH}`} />;
+    return (
+      <Skeleton
+        data-dashboard-report-loading="true"
+        className={`w-full flex-1 ${placeholderMinH}`}
+      />
+    );
   }
 
   if (error) {
@@ -956,7 +949,9 @@ export function SqlChart({
       <div
         className={`flex flex-1 items-center justify-center ${placeholderPadY} ${placeholderMinH}`}
       >
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }
@@ -1161,6 +1156,35 @@ function renderDeltaCell(value: unknown): ReactNode {
   );
 }
 
+function rowString(
+  row: Record<string, unknown>,
+  keys: string[],
+): string | null {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+export function sessionReplayHref(row: Record<string, unknown>): string | null {
+  const recordingId = rowString(row, [
+    "recording_id",
+    "session_recording_id",
+    "sessionRecordingId",
+  ]);
+  if (recordingId) return `/sessions/${encodeURIComponent(recordingId)}`;
+
+  const sessionId = rowString(row, ["session_id", "sessionId"]);
+  if (!sessionId) return null;
+  const params = new URLSearchParams({ range: "all", q: sessionId });
+  return `/sessions?${params.toString()}`;
+}
+
+function isSessionColumn(key: string): boolean {
+  return key === "session_id" || key === "sessionId";
+}
+
 function TableRenderer({
   rows,
   panel,
@@ -1170,6 +1194,7 @@ function TableRenderer({
   panel: SqlPanel;
   onExportCsvChange?: (handler: (() => void) | null) => void;
 }) {
+  const t = useT();
   const config = panel.config;
   const sortable = config?.sortable !== false; // default on
 
@@ -1332,6 +1357,9 @@ function TableRenderer({
                     col.format === "delta"
                       ? renderDeltaCell(raw)
                       : formatCell(raw, col.format);
+                  const replayHref = isSessionColumn(col.key)
+                    ? sessionReplayHref(row)
+                    : null;
                   return (
                     <td
                       key={col.key}
@@ -1339,7 +1367,19 @@ function TableRenderer({
                         numeric ? "text-right tabular-nums" : ""
                       }`}
                     >
-                      {content}
+                      {replayHref ? (
+                        <span className="inline-flex flex-col gap-0.5">
+                          <span>{content}</span>
+                          <a
+                            href={replayHref}
+                            className="text-xs font-medium text-primary hover:underline"
+                          >
+                            {t("sessions.watchReplay")}
+                          </a>
+                        </span>
+                      ) : (
+                        content
+                      )}
                     </td>
                   );
                 })}
@@ -1351,7 +1391,7 @@ function TableRenderer({
       {sortedRows.length > PAGE_SIZE_OPTIONS[0] && (
         <div className="flex items-center justify-between px-1 pt-1 border-t border-border text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
-            <span>Rows per page:</span>
+            <span>{t("common.rowsPerPage")}</span>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => {
@@ -1516,6 +1556,7 @@ function BarRenderer({
           />
           <Tooltip
             {...CHART_TOOLTIP_PROPS}
+            cursor={BAR_TOOLTIP_CURSOR_PROPS}
             labelFormatter={xLabelFormatter}
             content={
               <ChartTooltip
@@ -1782,6 +1823,7 @@ function HeatmapRenderer({
   rows: Record<string, unknown>[];
   panel: SqlPanel;
 }) {
+  const t = useT();
   const cfg = panel.config;
   const yFormatter = cfg?.yFormatter;
 
@@ -1863,7 +1905,9 @@ function HeatmapRenderer({
   if (rows.length === 0 || !valueKey) {
     return (
       <div className="flex min-h-[250px] items-center justify-center py-8">
-        <p className="text-sm text-muted-foreground text-center">No data</p>
+        <p className="text-sm text-muted-foreground text-center">
+          {t("common.noData")}
+        </p>
       </div>
     );
   }

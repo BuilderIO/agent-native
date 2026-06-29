@@ -2,6 +2,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  focusAgentChat,
   navigateWithAgentChatViewTransition,
   useActionQuery,
   useChatThreads,
@@ -15,10 +16,9 @@ import {
   IconClipboardList,
   IconDots,
   IconEdit,
-  IconLayoutGrid,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
-  IconPalette,
+  IconLayoutGrid,
   IconPhotoPlus,
   IconPin,
   IconPlus,
@@ -47,7 +47,6 @@ import { cn } from "@/lib/utils";
 const baseNavItems = [
   { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/" },
   { icon: IconLayoutGrid, labelKey: "navigation.library", href: "/library" },
-  { icon: IconPalette, labelKey: "navigation.brandKits", href: "/brand-kits" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -426,7 +425,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground",
+        "flex h-full min-w-0 shrink-0 flex-col overflow-hidden border-e border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
         collapsed ? "w-14" : "w-56",
       )}
     >
@@ -493,10 +492,10 @@ export function Sidebar() {
             const isActive =
               item.href === "/"
                 ? isCreateRoute
-                : item.href === "/brand-kits"
-                  ? location.pathname === "/brand-kits" ||
-                    location.pathname.startsWith("/brand-kits/") ||
+                : item.href === "/library"
+                  ? location.pathname === "/library" ||
                     location.pathname.startsWith("/library/") ||
+                    location.pathname.startsWith("/brand-kits/") ||
                     location.pathname.startsWith("/image/") ||
                     location.pathname.startsWith("/asset/")
                   : location.pathname.startsWith(item.href);
@@ -507,14 +506,16 @@ export function Sidebar() {
                 onClick={(event) => {
                   if (
                     item.href === "/" &&
-                    !isCreateRoute &&
                     !event.metaKey &&
                     !event.ctrlKey &&
                     !event.shiftKey &&
                     !event.altKey
                   ) {
                     event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/");
+                    focusAgentChat();
+                    if (!isCreateRoute || location.pathname !== "/") {
+                      navigateWithAgentChatViewTransition(navigate, "/");
+                    }
                   }
                 }}
                 className={cn(
@@ -552,15 +553,15 @@ export function Sidebar() {
 
         {!collapsed && (
           <div className="mt-auto shrink-0">
-            <div className="border-t border-border px-2 py-1">
+            <div className="px-2 py-1">
               <ExtensionsSidebarSection />
             </div>
 
-            <div className="border-t border-border px-3 py-2">
+            <div className="px-3 py-2">
               <OrgSwitcher />
             </div>
 
-            <div className="border-t border-border px-3 py-2">
+            <div className="px-3 py-2">
               <DevDatabaseLink />
               <FeedbackButton />
             </div>

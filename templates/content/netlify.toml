@@ -5,6 +5,7 @@ publish = "templates/content/dist"
 functions = "templates/content/.netlify/functions-internal"
 
 [build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
 NITRO_PRESET = "netlify"
 NPM_CONFIG_PRODUCTION = "false"
 AGENT_RUN_SOFT_TIMEOUT_MS = "55000"

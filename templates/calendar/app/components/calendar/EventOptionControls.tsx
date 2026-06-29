@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath, useT } from "@agent-native/core/client";
 import {
   IconCheck,
   IconInfoCircle,
@@ -47,6 +47,7 @@ export function ReminderControls({
   onRemindersChange: (reminders: ReminderDraft[]) => void;
   idPrefix: string;
 }) {
+  const t = useT();
   const activeReminders =
     reminders.length > 0 ? reminders : [createReminderDraft()];
 
@@ -60,9 +61,13 @@ export function ReminderControls({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="default">Calendar default</SelectItem>
-          <SelectItem value="none">No alerts</SelectItem>
-          <SelectItem value="custom">Custom alerts</SelectItem>
+          <SelectItem value="default">
+            {t("eventOptions.calendarDefault")}
+          </SelectItem>
+          <SelectItem value="none">{t("eventOptions.noAlerts")}</SelectItem>
+          <SelectItem value="custom">
+            {t("eventOptions.customAlerts")}
+          </SelectItem>
         </SelectContent>
       </Select>
 
@@ -126,7 +131,9 @@ export function ReminderControls({
                     activeReminders.filter((item) => item.id !== reminder.id),
                   )
                 }
-                aria-label={`Remove alert ${index + 1}`}
+                aria-label={t("eventOptions.removeAlert", {
+                  number: String(index + 1),
+                })}
               >
                 <IconTrash className="h-3.5 w-3.5" />
               </Button>
@@ -144,7 +151,7 @@ export function ReminderControls({
             }
           >
             <IconPlus className="mr-1 h-3.5 w-3.5" />
-            Add alert
+            {t("eventOptions.addAlert")}
           </Button>
         </div>
       )}
@@ -161,6 +168,7 @@ export function AttachmentControls({
   onChange: (attachments: AttachmentDraft[]) => void;
   idPrefix: string;
 }) {
+  const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<{
@@ -214,13 +222,15 @@ export function AttachmentControls({
   async function handleFileUpload(file: File) {
     if (!canAddAttachment) {
       toast.error(
-        `Google Calendar supports up to ${MAX_EVENT_ATTACHMENTS} attachments per event.`,
+        t("eventOptions.maxAttachments", {
+          count: String(MAX_EVENT_ATTACHMENTS),
+        }),
       );
       return;
     }
 
     if (file.size > MAX_ATTACHMENT_UPLOAD_BYTES) {
-      toast.error("Attachment uploads can be up to 25 MB.");
+      toast.error(t("eventOptions.attachmentUploadLimit"));
       return;
     }
 
@@ -243,16 +253,16 @@ export function AttachmentControls({
 
       if (!response.ok) {
         throw new Error(
-          payload.message || payload.error || "Could not upload attachment.",
+          payload.message || payload.error || t("eventOptions.uploadFailed"),
         );
       }
       if (!payload.url) {
-        throw new Error("Upload did not return an attachment URL.");
+        throw new Error(t("eventOptions.uploadMissingUrl"));
       }
 
       const uploadedAttachment = {
         fileUrl: payload.url,
-        title: file.name || "Attachment",
+        title: file.name || t("eventOptions.attachmentFallbackTitle"),
       };
       if (blankAttachmentIndex >= 0) {
         onChange(
@@ -268,14 +278,14 @@ export function AttachmentControls({
           { ...createAttachmentDraft(), ...uploadedAttachment },
         ]);
       }
-      toast.success("Attachment uploaded");
+      toast.success(t("eventOptions.attachmentUploaded"));
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Could not upload attachment.";
+        error instanceof Error ? error.message : t("eventOptions.uploadFailed");
       const permissionMessage = /403|permission|forbidden|unauthorized/i.test(
         message,
       )
-        ? "File upload is not available with the current upload provider credentials. Check Builder.io permissions in Settings, or paste a Drive/HTTPS URL instead."
+        ? t("eventOptions.uploadProviderPermissionError")
         : message;
       toast.error(permissionMessage);
     } finally {
@@ -301,7 +311,7 @@ export function AttachmentControls({
               onChange={(event) =>
                 updateAttachment(attachment.id, { title: event.target.value })
               }
-              placeholder="Attachment title"
+              placeholder={t("eventOptions.attachmentTitle")}
               className="h-8 text-sm"
             />
             <Button
@@ -314,7 +324,9 @@ export function AttachmentControls({
                   activeAttachments.filter((item) => item.id !== attachment.id),
                 )
               }
-              aria-label={`Remove attachment ${index + 1}`}
+              aria-label={t("eventOptions.removeAttachment", {
+                number: String(index + 1),
+              })}
             >
               <IconTrash className="h-3.5 w-3.5" />
             </Button>
@@ -336,7 +348,7 @@ export function AttachmentControls({
         type="file"
         className="sr-only"
         onChange={handleUploadInputChange}
-        aria-label="Upload attachment"
+        aria-label={t("eventOptions.uploadAttachment")}
       />
 
       <div className="flex flex-wrap items-center gap-1.5">
@@ -351,7 +363,7 @@ export function AttachmentControls({
           }
         >
           <IconPlus className="mr-1 h-3.5 w-3.5" />
-          Add attachment
+          {t("eventOptions.addAttachment")}
         </Button>
         <Button
           type="button"
@@ -361,9 +373,7 @@ export function AttachmentControls({
           disabled={!canAddAttachment || uploading || uploadUnavailable}
           onClick={() => {
             if (uploadUnavailable) {
-              toast.error(
-                "File uploads are not configured. Paste a Drive or HTTPS URL instead.",
-              );
+              toast.error(t("eventOptions.fileUploadsNotConfigured"));
               return;
             }
             fileInputRef.current?.click();
@@ -374,14 +384,15 @@ export function AttachmentControls({
           ) : (
             <IconUpload className="mr-1 h-3.5 w-3.5" />
           )}
-          {uploading ? "Uploading" : "Upload file"}
+          {uploading
+            ? t("eventOptions.uploading")
+            : t("eventOptions.uploadFile")}
         </Button>
       </div>
       {uploadUnavailable && (
         <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
           <IconInfoCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          File uploads need a configured upload provider. Paste a Drive or HTTPS
-          URL for now.
+          {t("eventOptions.fileUploadsNeedProvider")}
         </p>
       )}
     </div>
@@ -397,6 +408,7 @@ export function EventColorSwatches({
   onChange: (colorId: string | undefined) => void;
   includeDefault?: boolean;
 }) {
+  const t = useT();
   const options = includeDefault
     ? GOOGLE_EVENT_COLOR_OPTIONS
     : GOOGLE_EVENT_COLOR_OPTIONS.filter((option) => option.id !== "default");
@@ -417,7 +429,9 @@ export function EventColorSwatches({
               option.id === "default" && "bg-background",
             )}
             style={option.color ? { backgroundColor: option.color } : undefined}
-            aria-label={`Set event color to ${option.label}`}
+            aria-label={t("eventOptions.setEventColorTo", {
+              color: option.label,
+            })}
           >
             {selected && (
               <IconCheck

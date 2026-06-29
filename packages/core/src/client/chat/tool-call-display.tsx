@@ -727,19 +727,22 @@ export function ReconnectStreamMessage({
   content: ContentPart[];
 }) {
   const chatRunning = React.useContext(ChatRunningContext);
+  const streamingTextPartIndex =
+    content.at(-1)?.type === "text" ? content.length - 1 : -1;
 
   return (
     <div className="flex justify-start">
       <div className="max-w-[95%] text-sm leading-relaxed text-foreground space-y-1">
         {content.map((part, i) => {
           if (part.type === "text") {
+            const partStreaming = chatRunning && i === streamingTextPartIndex;
             return (
               <SmoothMarkdownText
                 key={`reconnect-text-${i}`}
                 text={part.text}
-                streaming={chatRunning}
+                streaming={partStreaming}
                 resetKey={`reconnect-text-${i}`}
-                statusType={chatRunning ? "running" : "complete"}
+                statusType={partStreaming ? "running" : "complete"}
               />
             );
           }

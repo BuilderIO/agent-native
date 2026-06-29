@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { LLM_MISSING_CREDENTIALS_MESSAGE } from "./engine/credential-errors.js";
 import { EngineError } from "./engine/types.js";
 import type { AgentChatEvent } from "./types.js";
 
@@ -842,6 +843,117 @@ describe("run manager soft timeout", () => {
       error: "429 status code (no body)",
       errorCode: "provider_rate_limited",
       details: "429 status code (no body)",
+    });
+  });
+
+  it("does not capture missing LLM provider errors while preserving the terminal event", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-missing-provider-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-missing-provider-no-capture",
+        "thread-missing-provider-no-capture",
+        async () => {
+          throw new EngineError(LLM_MISSING_CREDENTIALS_MESSAGE);
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-missing-provider-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: LLM_MISSING_CREDENTIALS_MESSAGE,
+    });
+  });
+
+  it("does not capture provider auth failures while preserving the terminal event", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-provider-auth-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-provider-auth-no-capture",
+        "thread-provider-auth-no-capture",
+        async () => {
+          throw new EngineError("401 status code (no body)");
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-provider-auth-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: "401 status code (no body)",
+    });
+  });
+
+  it("does not capture provider connection failures while preserving the terminal event", async () => {
+    const provider = vi.fn(() => "evt_run");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-provider-connection-test",
+      provider,
+    );
+    const events: AgentChatEvent[] = [];
+
+    try {
+      const run = startRun(
+        "run-provider-connection-no-capture",
+        "thread-provider-connection-no-capture",
+        async () => {
+          throw new EngineError("Connection error.");
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.waitFor(() =>
+        expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+          "run-provider-connection-no-capture",
+          "errored",
+        ),
+      );
+    } finally {
+      unregister();
+    }
+
+    expect(provider).not.toHaveBeenCalled();
+    expect(events).toContainEqual({
+      type: "error",
+      error: "Connection error.",
     });
   });
 

@@ -1,0 +1,124 @@
+---
+title: "الإيجار المتعدد"
+description: "يعد كل تطبيق أصلي للوكيل متعدد المستأجرين - المؤسسات وأعضاء الفريق والأدوار وعزل البيانات لكل مؤسسة، بدون أي تكوين."
+---
+
+# الإيجار المتعدد
+
+يعد كل تطبيق أصلي للوكيل متعدد المستأجرين. يتم تضمين المؤسسات وأعضاء الفريق والوصول المستند إلى الأدوار وعزل البيانات لكل مؤسسة في إطار العمل بدون أي تكوين.
+
+## ما تحصل عليه مجانًا {#free}
+
+يتم بالفعل شحن سقالة `npx @agent-native/core@latest create` جديدة مع:
+
+- **تسجيل المستخدم وتسجيل الدخول** — راجع [Authentication](/docs/authentication).
+- **المؤسسات** — يقوم المستخدمون بإنشاء المؤسسات ودعوة الأعضاء عبر البريد الإلكتروني. تعتبر كل مؤسسة مستأجرًا معزولًا تمامًا.
+- **الأدوار** — كل عضو هو `owner`، أو `admin`، أو `member`؛ يمكن لـ actions التحقق من الدور للحصول على التفويض.
+- **تبديل المؤسسة** — تتعقب الجلسة المؤسسة النشطة (`session.orgId`)، ويؤدي تبديلها إلى تغيير البيانات التي يراها المستخدم والوكيل.
+- **عزل البيانات لكل مؤسسة** — يتم تحديد نطاق كل استعلام تلقائيًا ليشمل المؤسسة النشطة.
+
+إذا كنت تقوم بتقييم الوكيل الأصلي لـ CRM، أو متتبع المشروع، أو صندوق بريد الدعم، أو أي أداة فريق، فإن الأساس متعدد المستأجرين موجود بالفعل. جميع قوالب الطرف الأول متعددة المستأجرين — راجع [Cloneable SaaS templates](/docs/cloneable-saas) للحصول على القائمة.
+
+<Diagram id="doc-block-1junwhj" title={"عضوية المنظمة وعزلها"} summary={"ينضم المستخدمون إلى المؤسسات باسم owner/admin/member. يحمل كل صف قابل للتملك org_id للمستأجر الذي يمتلكه، ولا يتسرب أي صف عبر الحدود."}>
+
+```html
+<div class="mt-grid">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">المؤسسة A</span
+    ><small class="diagram-muted">members: alice (owner), bob (member)</small>
+    <div class="diagram-box">rows where org_id = A</div>
+  </div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">المؤسسة B</span
+    ><small class="diagram-muted">members: carol (owner)</small>
+    <div class="diagram-box">rows where org_id = B</div>
+  </div>
+</div>
+<div class="mt-wall" aria-hidden="true">
+  <span class="diagram-pill warn">no cross-org reads</span>
+</div>
+```
+
+```css
+.mt-grid {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.mt-grid .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  flex: 1;
+  min-width: 200px;
+}
+.mt-wall {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
+}
+```
+
+</Diagram>
+
+## أداة تبديل المؤسسة UI {#org-switcher}
+
+يتم عرض مبدل المؤسسة والأعضاء UI في كل قالب بدون تعليمات برمجية إضافية. إنهم يقودون مسارات REST المؤسسية الأساسية ضمن `/_agent-native/org/*` (إنشاء مؤسسة، تبديل المؤسسة، قائمة/دعوة/إزالة الأعضاء، تغيير الأدوار، تعيين مجال البريد الإلكتروني المسموح به). يختار المستخدمون المؤسسة النشطة من جهاز التحويل؛ وتتعامل لوحة الأعضاء مع الدعوات وتغييرات الأدوار.
+
+هذه هي وحدة `org/` الخاصة بإطار العمل، وليست ملحق مؤسسة Better Auth (الذي لم يتم تسجيله عمدًا). تم توثيق السطح الكامل لإدارة المؤسسة — `createOrganization`، ومسارات REST، وأغلفة `defineAction` المؤلفة بالقالب مثل `invite-member` — في [Authentication → Organizations](/docs/authentication#organizations).
+
+## كيفية عمل العزل {#isolation}
+
+يتم عزل بيانات المستأجر بواسطة عمود `org_id` (تمت إضافته بواسطة `ownableColumns()`)، ويقوم إطار العمل بنطاق كل استعلام إلى المؤسسة النشطة تلقائيًا: `session.orgId → AGENT_ORG_ID → SQL`. عندما يقوم مستخدم بتبديل المؤسسات، يرى كل من UI وactions والوكيل بيانات تلك المؤسسة فقط - لا يمكن للوكيل الوصول إلى بيانات مؤسسة ليس المستخدم عضوًا فيها.
+
+<Diagram id="doc-block-kkq1ow" title={"من الجلسة إلى النطاق SQL"} summary={"تصبح المؤسسة النشطة في الجلسة AGENT_ORG_ID، والتي يدمجها إطار العمل في جملة WHERE لكل استعلام."}>
+
+```html
+<div class="mt-pipe">
+  <div class="diagram-node">
+    session.orgId<br /><small class="diagram-muted"
+      >active org on session</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    AGENT_ORG_ID<br /><small class="diagram-muted">request context</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">
+    SQL row scoping<br /><small class="diagram-muted"
+      >WHERE owner_email = ? AND org_id = ?</small
+    >
+  </div>
+</div>
+```
+
+```css
+.mt-pipe {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.mt-pipe .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+}
+.mt-pipe .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+هذا هو نفس المسار المستخدم لتحديد النطاق لكل مستخدم. بالنسبة للميكانيكا على مستوى SQL، وعقد `ownableColumns()`، وحراس `accessFilter` / `resolveAccess` / `assertAccess`, راجع [Security → Data Scoping](/docs/security#data-scoping) - المصدر الوحيد للحقيقة لمسار تحديد النطاق.
+
+## المستندات ذات الصلة {#related}
+
+- [Authentication](/docs/authentication#organizations) — الجلسات ومقدمو الخدمات الاجتماعية وسطح إدارة المؤسسة
+- [Security → Data Scoping](/docs/security#data-scoping) — العزل على مستوى SQL، وعقد `ownableColumns()`، ووحدات حماية الوصول
+- [Multi-App Workspace](/docs/multi-app-workspace) — استضافة العديد من تطبيقات الوكيل الأصلية في monorepo واحد مع مصادقة مشتركة وRBAC

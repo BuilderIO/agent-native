@@ -1,4 +1,4 @@
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath, useT } from "@agent-native/core/client";
 import { IconUpload, IconTrash, IconLoader2, IconX } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -23,6 +23,7 @@ export default function AssetLibraryPanel({
   onSelectAsset,
   anchorRef,
 }: AssetLibraryPanelProps) {
+  const t = useT();
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -137,7 +138,9 @@ export default function AssetLibraryPanel({
       className="w-[min(20rem,calc(100vw-24px))] max-h-[420px] bg-popover border border-border rounded-xl shadow-2xl shadow-black/60 overflow-hidden flex flex-col"
     >
       <div className="px-4 pt-3 pb-2 flex items-center justify-between flex-shrink-0">
-        <h3 className="text-sm font-semibold text-foreground">Asset Library</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("editorToolbar.assetLibrary")}
+        </h3>
         <button
           onClick={() => onOpenChange(false)}
           className="text-muted-foreground/70 hover:text-muted-foreground transition-colors"
@@ -175,7 +178,7 @@ export default function AssetLibraryPanel({
           </div>
         ) : assets.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground text-xs">
-            No assets yet.
+            {t("raw.noAssetsYet")}
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-2">

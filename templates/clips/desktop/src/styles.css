@@ -1448,6 +1448,10 @@ body[data-clips-route="recording-pill"] #root {
   transform-origin: var(--radix-tooltip-content-transform-origin);
 }
 
+.tooltip-content-wide {
+  max-width: 320px;
+}
+
 .tooltip-content[data-state="delayed-open"],
 .tooltip-content[data-state="instant-open"] {
   animation: tooltip-in 120ms ease-out;
@@ -1676,6 +1680,73 @@ body[data-clips-route="recording-pill"] #root {
   background: var(--surface-hover);
 }
 
+.storage-flow-banner {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius);
+  background: #eff6ff;
+  color: #1e3a8a;
+}
+
+.storage-flow-icon {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  flex-shrink: 0;
+}
+
+.storage-flow-copy {
+  min-width: 0;
+}
+
+.storage-flow-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.storage-flow-sub {
+  margin-top: 3px;
+  color: #3b5f9a;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.storage-flow-connect {
+  grid-column: 2;
+  justify-self: start;
+  height: 28px;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--radius-sm);
+  background: white;
+  color: #1d4ed8;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 700;
+  transition:
+    background 120ms,
+    border-color 120ms;
+}
+
+.storage-flow-connect:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
 .pending-upload-banner {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1720,12 +1791,38 @@ body[data-clips-route="recording-pill"] #root {
   white-space: nowrap;
 }
 
+.pending-upload-sub-wrap {
+  overflow: visible;
+  white-space: normal;
+}
+
+.pending-upload-why {
+  margin-top: 3px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  cursor: help;
+  font-size: 11px;
+  line-height: 1.2;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.pending-upload-why:hover,
+.pending-upload-why:focus-visible {
+  color: #334155;
+  outline: none;
+}
+
 .pending-upload-actions {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
+.pending-upload-connect,
 .pending-upload-retry {
   height: 28px;
   border: 1px solid #bfdbfe;
@@ -1744,6 +1841,10 @@ body[data-clips-route="recording-pill"] #root {
     background 120ms,
     border-color 120ms,
     opacity 120ms;
+}
+
+.pending-upload-connect {
+  padding: 0 8px;
 }
 
 .pending-upload-discard {
@@ -1789,6 +1890,11 @@ body[data-clips-route="recording-pill"] #root {
   border-color: #93c5fd;
 }
 
+.pending-upload-connect:hover {
+  background: #dbeafe;
+  border-color: #93c5fd;
+}
+
 .pending-upload-folder:hover {
   background: #dbeafe;
   border-color: #93c5fd;
@@ -1801,6 +1907,7 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .pending-upload-retry:disabled,
+.pending-upload-connect:disabled,
 .pending-upload-folder:disabled,
 .pending-upload-discard:disabled {
   cursor: default;
@@ -1972,6 +2079,16 @@ body[data-clips-route="recording-pill"] #root {
     color: #93c5fd;
   }
 
+  .pending-upload-why {
+    color: #94a3b8;
+  }
+
+  .pending-upload-why:hover,
+  .pending-upload-why:focus-visible {
+    color: #cbd5e1;
+  }
+
+  .pending-upload-connect,
   .pending-upload-retry {
     background: rgba(15, 23, 42, 0.7);
     border-color: rgba(96, 165, 250, 0.38);
@@ -1991,6 +2108,11 @@ body[data-clips-route="recording-pill"] #root {
   }
 
   .pending-upload-retry:hover {
+    background: rgba(30, 64, 175, 0.34);
+    border-color: rgba(147, 197, 253, 0.62);
+  }
+
+  .pending-upload-connect:hover {
     background: rgba(30, 64, 175, 0.34);
     border-color: rgba(147, 197, 253, 0.62);
   }
@@ -2099,7 +2221,7 @@ body[data-clips-route="recording-pill"] #root {
 
 .countdown-control-skip {
   /* center at +200px from row center: 200 - (64 / 2) = 168px */
-  right: -232px;
+  left: 168px;
 }
 
 .countdown-control:hover {
@@ -2115,6 +2237,20 @@ body[data-clips-route="recording-pill"] #root {
 .countdown-control:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.9);
   outline-offset: 2px;
+}
+
+/*
+ * Absolutely centers the number without contributing width to .countdown-controls.
+ * This keeps the controls div at zero width so the cancel/skip button positions
+ * (left: -232px, left: 168px) line up exactly with the Rust cursor-poll hit-rects
+ * (CONTROL_OFFSET_X = 200.0) measured from the window center.
+ */
+.countdown-number-wrap {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
 }
 
 .countdown-number {
@@ -2662,11 +2798,46 @@ body[data-clips-route="recording-pill"] #root {
   cursor: not-allowed;
 }
 
+.toolbar-v-disk-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f59e0b;
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.toolbar-v-disk-indicator-critical {
+  color: #ef4444;
+  animation: toolbar-v-disk-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes toolbar-v-disk-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.toolbar-v-disk-warning {
+  border-color: rgba(245, 158, 11, 0.45);
+}
+
+.toolbar-v-disk-critical {
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .toolbar-v,
   .toolbar-v-hover-actions,
   .toolbar-v-action {
     transition: none;
+  }
+  .toolbar-v-disk-indicator-critical {
+    animation: none;
   }
 }
 

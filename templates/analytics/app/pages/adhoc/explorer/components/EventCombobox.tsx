@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconCheck, IconSelector } from "@tabler/icons-react";
 import { useState, useMemo } from "react";
 
@@ -27,6 +28,7 @@ interface EventComboboxProps {
 }
 
 export function EventCombobox({ value, onChange }: EventComboboxProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const {
     events: dynamicEvents,
@@ -69,13 +71,15 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
           aria-expanded={open}
           className="w-full justify-between font-normal text-sm h-8"
         >
-          <span className="truncate">{displayLabel || "Select event..."}</span>
+          <span className="truncate">
+            {displayLabel || t("explorer.selectEvent")}
+          </span>
           <IconSelector className="ml-2 h-3 w-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[360px] p-0" align="start">
         <Command shouldFilter={true}>
-          <CommandInput placeholder="Search events..." />
+          <CommandInput placeholder={t("explorer.searchEvents")} />
           <CommandList className="max-h-[350px]">
             <CommandEmpty>
               {isLoading ? (
@@ -85,10 +89,10 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
                   ))}
                 </div>
               ) : (
-                "No events found."
+                t("explorer.noEventsFound")
               )}
             </CommandEmpty>
-            <CommandGroup heading="Common Events">
+            <CommandGroup heading={t("explorer.commonEvents")}>
               {KNOWN_EVENTS.map((ev) => (
                 <CommandItem
                   key={ev.value}
@@ -113,7 +117,11 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
               ))}
             </CommandGroup>
             {extraEvents.length > 0 && (
-              <CommandGroup heading={`All Events (${dynamicEvents.length})`}>
+              <CommandGroup
+                heading={t("explorer.allEvents", {
+                  count: dynamicEvents.length,
+                })}
+              >
                 {extraEvents.map((ev) => (
                   <CommandItem
                     key={`e-${ev.value}`}
@@ -138,7 +146,9 @@ export function EventCombobox({ value, onChange }: EventComboboxProps) {
               </CommandGroup>
             )}
             {extraNames.length > 0 && (
-              <CommandGroup heading={`Event Names (${eventNames.length})`}>
+              <CommandGroup
+                heading={t("explorer.eventNames", { count: eventNames.length })}
+              >
                 {extraNames.slice(0, 80).map((ev) => (
                   <CommandItem
                     key={`n-${ev.value}`}

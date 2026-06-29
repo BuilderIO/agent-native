@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconCheck } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -25,6 +26,7 @@ export function VariantGrid({
   onUse,
   compact = false,
 }: VariantGridProps) {
+  const t = useT();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [internalSelectedId, setInternalSelectedId] = useState<
     string | undefined
@@ -93,7 +95,7 @@ export function VariantGrid({
                 }}
                 role="button"
                 tabIndex={0}
-                aria-label={`Preview ${variant.label}`}
+                aria-label={t("home.designPreview")}
                 className={cn(
                   "relative flex-1 cursor-pointer overflow-hidden rounded-lg border-2 bg-muted/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isSelected
@@ -130,9 +132,9 @@ export function VariantGrid({
                         e.stopPropagation();
                         onUse(variant.id);
                       }}
-                      aria-label={`Use ${variant.label}`}
+                      aria-label={t("designEditor.useThisDirection")}
                     >
-                      Use this direction
+                      {t("designEditor.useThisDirection")}
                     </Button>
                   </div>
                 )}
@@ -171,7 +173,7 @@ function wrapContent(content: string): string {
       return trimmed.replace(/<\/head>/i, `${previewStyle}</head>`);
     }
     return trimmed.replace(
-      /<html([^>]*)>/i,
+      /<html([^>]*)>/i, // i18n-ignore HTML parser regex, not UI copy
       `<html$1><head>${previewStyle}</head>`,
     );
   }

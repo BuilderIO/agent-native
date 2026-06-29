@@ -3,8 +3,10 @@ import {
   NotificationsBell,
   ShareButton,
   appPath,
+  useFormatters,
   useReconciledState,
   useSendToAgentChat,
+  useT,
 } from "@agent-native/core/client";
 import type {
   FormField,
@@ -86,39 +88,54 @@ import {
 import { normalizeFields } from "@/lib/normalize-fields";
 import { cn } from "@/lib/utils";
 
-const fieldTypeDefaults: Record<FormFieldType, Partial<FormField>> = {
-  text: { label: "Text Field", placeholder: "Enter text..." },
-  email: { label: "Email", placeholder: "you@example.com" },
-  number: { label: "Number", placeholder: "0" },
-  textarea: { label: "Long Answer", placeholder: "Type your answer..." },
-  select: { label: "Dropdown", options: ["Option 1", "Option 2", "Option 3"] },
-  multiselect: {
-    label: "Multi-select",
-    options: ["Option 1", "Option 2", "Option 3"],
-  },
-  checkbox: { label: "Checkbox" },
-  radio: {
-    label: "Multiple Choice",
-    options: ["Option 1", "Option 2", "Option 3"],
-  },
-  date: { label: "Date" },
-  rating: { label: "Rating" },
-  scale: { label: "Scale", validation: { min: 1, max: 10 } },
-};
+type Translator = ReturnType<typeof useT>;
 
-const fieldTypeLabels: Record<FormFieldType, string> = {
-  text: "Short Text",
-  email: "Email",
-  number: "Number",
-  textarea: "Long Text",
-  select: "Dropdown",
-  multiselect: "Multi-select",
-  checkbox: "Checkbox",
-  radio: "Multiple Choice",
-  date: "Date",
-  rating: "Rating",
-  scale: "Scale",
-};
+function getFieldTypeDefaults(
+  t: Translator,
+): Record<FormFieldType, Partial<FormField>> {
+  const defaultOptions = [
+    t("builder.fieldDefaults.option1"),
+    t("builder.fieldDefaults.option2"),
+    t("builder.fieldDefaults.option3"),
+  ];
+  return {
+    text: {
+      label: t("builder.fieldDefaults.textLabel"),
+      placeholder: t("builder.fieldDefaults.textPlaceholder"),
+    },
+    email: {
+      label: t("builder.fieldDefaults.emailLabel"),
+      placeholder: t("builder.fieldDefaults.emailPlaceholder"),
+    },
+    number: {
+      label: t("builder.fieldDefaults.numberLabel"),
+      placeholder: "0",
+    },
+    textarea: {
+      label: t("builder.fieldDefaults.textareaLabel"),
+      placeholder: t("builder.fieldDefaults.textareaPlaceholder"),
+    },
+    select: {
+      label: t("builder.fieldDefaults.selectLabel"),
+      options: defaultOptions,
+    },
+    multiselect: {
+      label: t("builder.fieldDefaults.multiselectLabel"),
+      options: defaultOptions,
+    },
+    checkbox: { label: t("builder.fieldDefaults.checkboxLabel") },
+    radio: {
+      label: t("builder.fieldDefaults.radioLabel"),
+      options: defaultOptions,
+    },
+    date: { label: t("builder.fieldDefaults.dateLabel") },
+    rating: { label: t("builder.fieldDefaults.ratingLabel") },
+    scale: {
+      label: t("builder.fieldDefaults.scaleLabel"),
+      validation: { min: 1, max: 10 },
+    },
+  };
+}
 
 type FieldOp =
   | { op: "upsert"; field: Record<string, any> }
@@ -126,6 +143,7 @@ type FieldOp =
   | { op: "reorder"; ids: string[] };
 
 export function FormBuilderPage() {
+  const t = useT();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -166,8 +184,7 @@ export function FormBuilderPage() {
   const agentPromptRef = useRef<HTMLTextAreaElement>(null);
   const { send, codeRequiredDialog } = useSendToAgentChat();
   const promptRun = useAgentPromptRun({
-    staleMessage:
-      "Form edit is taking longer than expected. You can try again.",
+    staleMessage: t("builder.agentEditStale"),
   });
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
 
@@ -365,9 +382,7 @@ export function FormBuilderPage() {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-3">
         <p className="text-sm text-muted-foreground">
-          {isAccessIssue
-            ? "You don't have access to this form. Ask the owner to share it with you."
-            : "Failed to load form"}
+          {isAccessIssue ? t("builder.accessDenied") : t("builder.loadFailed")}
         </p>
         <div className="flex gap-2">
           <Button
@@ -375,11 +390,11 @@ export function FormBuilderPage() {
             size="sm"
             onClick={() => navigate("/forms")}
           >
-            Back to Forms
+            {t("builder.backToForms")}
           </Button>
           {!isAccessIssue && (
             <Button variant="outline" size="sm" onClick={() => refetch()}>
-              Retry
+              {t("common.retry")}
             </Button>
           )}
         </div>
@@ -396,11 +411,12 @@ export function FormBuilderPage() {
   // integrations. The role is set by `get-form` based on ownership + shares.
 
   function addField(type: FormFieldType) {
+    const fieldTypeDefaults = getFieldTypeDefaults(t);
     const defaults = fieldTypeDefaults[type] || {};
     const newField: FormField = {
       id: nanoid(8),
       type,
-      label: defaults.label || "New Field",
+      label: defaults.label || t("builder.fieldDefaults.newField"),
       placeholder: defaults.placeholder,
       required: false,
       options: defaults.options,
@@ -479,7 +495,9 @@ export function FormBuilderPage() {
       {
         onSuccess: () =>
           toast.success(
-            newStatus === "published" ? "Form published!" : "Form unpublished",
+            newStatus === "published"
+              ? t("builder.publishedToast")
+              : t("builder.unpublishedToast"),
           ),
         // Errors (including publish-validation failures) are surfaced by
         // useUpdateForm's onError, which echoes the server's actual message.
@@ -493,7 +511,7 @@ export function FormBuilderPage() {
       { id: loadedForm.id },
       {
         onSuccess: () => {
-          toast.success("Form moved to Archive");
+          toast.success(t("forms.movedToArchive"));
           navigate("/forms");
         },
       },
@@ -502,7 +520,7 @@ export function FormBuilderPage() {
 
   function copyShareLink() {
     if (loadedForm.status !== "published") {
-      toast.info("Publish this form before copying its public link");
+      toast.info(t("builder.publishBeforeCopyToast"));
       return;
     }
     if (isLocal) {
@@ -513,7 +531,7 @@ export function FormBuilderPage() {
     navigator.clipboard.writeText(url);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    toast.success("Link copied to clipboard");
+    toast.success(t("builder.linkCopiedToast"));
   }
 
   return (
@@ -567,7 +585,9 @@ export function FormBuilderPage() {
                   </a>
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Preview published form</TooltipContent>
+              <TooltipContent>
+                {t("builder.previewPublishedForm")}
+              </TooltipContent>
             </Tooltip>
           )}
 
@@ -582,8 +602,8 @@ export function FormBuilderPage() {
                   disabled={form.status !== "published"}
                   aria-label={
                     form.status === "published"
-                      ? "Copy public form link"
-                      : "Publish before copying the public form link"
+                      ? t("builder.copyPublicFormLink")
+                      : t("builder.publishBeforeCopyPublicFormLink")
                   }
                 >
                   {copied ? (
@@ -597,9 +617,9 @@ export function FormBuilderPage() {
             <TooltipContent>
               {form.status === "published"
                 ? copied
-                  ? "Public link copied"
-                  : "Copy published public link"
-                : "Publish before copying the public link"}
+                  ? t("builder.publicLinkCopied")
+                  : t("builder.copyPublishedPublicLink")
+                : t("builder.publishBeforeCopyPublicLink")}
             </TooltipContent>
           </Tooltip>
 
@@ -612,31 +632,32 @@ export function FormBuilderPage() {
                   resourceTitle={form.title}
                   triggerClassName="h-9 border-input bg-transparent px-3 text-xs hover:bg-accent hover:text-accent-foreground"
                   shareUrl={publishedFormUrl}
-                  shareUrlLabel="Public response link"
-                  shareUrlDescription="Respondents use this link to submit the published form."
+                  shareUrlLabel={t("builder.publicResponseLink")}
+                  shareUrlDescription={t(
+                    "builder.publicResponseLinkDescription",
+                  )}
                   shareUrlPlacement="top"
-                  shareUrlPlaceholder="Publish this form to get a public response link."
-                  peopleAccessLabel="People with editing access"
-                  generalAccessLabel="General editing access"
+                  shareUrlPlaceholder={t(
+                    "builder.publicResponseLinkPlaceholder",
+                  )}
+                  peopleAccessLabel={t("builder.peopleAccessLabel")}
+                  generalAccessLabel={t("builder.generalAccessLabel")}
                   visibilityCopy={{
                     private: {
-                      description:
-                        "Only invited people can open this form in the builder",
+                      description: t("builder.privateAccessDescription"),
                     },
                     org: {
-                      description:
-                        "Anyone in your organization can open this form in the builder",
+                      description: t("builder.orgAccessDescription"),
                     },
                     public: {
-                      label: "Public builder access",
-                      description:
-                        "Anyone with the builder link can view this form's setup",
+                      label: t("builder.publicBuilderAccess"),
+                      description: t("builder.publicAccessDescription"),
                     },
                   }}
                 />
               </span>
             </TooltipTrigger>
-            <TooltipContent>Manage builder access</TooltipContent>
+            <TooltipContent>{t("builder.manageBuilderAccess")}</TooltipContent>
           </Tooltip>
 
           {canEdit && form.status !== "published" && (
@@ -650,10 +671,10 @@ export function FormBuilderPage() {
                 <IconLoader2 className="h-3.5 w-3.5 me-1.5 animate-spin" />
               )}
               {pendingStatus === "published"
-                ? "Publishing…"
+                ? t("builder.publishing")
                 : pendingStatus === "draft"
-                  ? "Unpublishing…"
-                  : "Publish"}
+                  ? t("builder.unpublishing")
+                  : t("forms.publish")}
             </Button>
           )}
           {canEdit && form.status === "published" && (
@@ -665,13 +686,13 @@ export function FormBuilderPage() {
                       variant="outline"
                       size="icon"
                       className="h-9 w-9 bg-transparent"
-                      aria-label="More form actions"
+                      aria-label={t("forms.formActions")}
                     >
                       <IconDots className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
                 </TooltipTrigger>
-                <TooltipContent>More actions</TooltipContent>
+                <TooltipContent>{t("builder.moreActions")}</TooltipContent>
               </Tooltip>
               <DropdownMenuContent align="end">
                 <DropdownMenuItem
@@ -683,12 +704,14 @@ export function FormBuilderPage() {
                   ) : (
                     <IconLock className="h-4 w-4 me-2" />
                   )}
-                  {pendingStatus === "draft" ? "Unpublishing…" : "Unpublish"}
+                  {pendingStatus === "draft"
+                    ? t("builder.unpublishing")
+                    : t("forms.unpublish")}
                 </DropdownMenuItem>
                 {canArchive && (
                   <DropdownMenuItem onClick={handleArchiveForm}>
                     <IconArchive className="h-4 w-4 me-2" />
-                    Move to Archive
+                    {t("forms.moveToArchive")}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -709,12 +732,12 @@ export function FormBuilderPage() {
         >
           <TabsList className="w-max sm:w-auto">
             <TabsTrigger value="edit" className="text-xs">
-              {canEdit ? "Edit" : "Preview"}
+              {canEdit ? t("builder.editTab") : t("builder.previewTab")}
             </TabsTrigger>
             {canEdit && (
               <>
                 <TabsTrigger value="responses" className="text-xs">
-                  Results
+                  {t("builder.resultsTab")}
                   {(form.responseCount ?? 0) > 0 && (
                     <Badge
                       variant="secondary"
@@ -725,10 +748,10 @@ export function FormBuilderPage() {
                   )}
                 </TabsTrigger>
                 <TabsTrigger value="settings" className="text-xs">
-                  Settings
+                  {t("header.settings")}
                 </TabsTrigger>
                 <TabsTrigger value="integrations" className="text-xs">
-                  Integrations
+                  {t("builder.integrationsTab")}
                 </TabsTrigger>
               </>
             )}
@@ -787,7 +810,7 @@ export function FormBuilderPage() {
               form={form}
               onSave={(settings) => {
                 save({ id: form.id, settings });
-                toast.success("Settings saved");
+                toast.success(t("builder.settingsSaved"));
               }}
             />
           </div>
@@ -802,7 +825,7 @@ export function FormBuilderPage() {
               form={form}
               onSave={(settings) => {
                 save({ id: form.id, settings });
-                toast.success("Integrations saved");
+                toast.success(t("builder.integrationsSaved"));
               }}
             />
           </div>
@@ -811,8 +834,8 @@ export function FormBuilderPage() {
 
       {showCloudUpgrade && (
         <CloudUpgrade
-          title="Publish Form"
-          description="To publish forms publicly, connect a cloud database so submissions can be received from anywhere."
+          title={t("forms.publishCloudTitle")}
+          description={t("forms.publishCloudDescription")}
           onClose={() => setShowCloudUpgrade(false)}
         />
       )}
@@ -881,6 +904,21 @@ function BuilderContent({
   onAgentPromptChange: (v: string) => void;
   onSubmitAgent: () => void;
 }) {
+  const t = useT();
+  const fieldTypeLabels: Record<FormFieldType, string> = {
+    text: t("fieldProperties.fieldTypes.text"),
+    email: t("fieldProperties.fieldTypes.email"),
+    number: t("fieldProperties.fieldTypes.number"),
+    textarea: t("fieldProperties.fieldTypes.textarea"),
+    select: t("fieldProperties.fieldTypes.select"),
+    multiselect: t("fieldProperties.fieldTypes.multiselect"),
+    checkbox: t("fieldProperties.fieldTypes.checkbox"),
+    radio: t("builder.fieldTypeLabels.radio"),
+    date: t("fieldProperties.fieldTypes.date"),
+    rating: t("fieldProperties.fieldTypes.rating"),
+    scale: t("fieldProperties.fieldTypes.scale"),
+  };
+
   return (
     <div className="flex flex-1 overflow-hidden relative">
       {/* Live preview */}
@@ -895,7 +933,7 @@ function BuilderContent({
               onBlur={() => (titleFocused.current = false)}
               readOnly={!canEdit}
               className="text-2xl font-semibold border-none bg-transparent px-0 focus-visible:ring-0 h-auto"
-              placeholder="Form Title"
+              placeholder={t("builder.formTitlePlaceholder")}
             />
             <textarea
               ref={descriptionRef}
@@ -905,7 +943,9 @@ function BuilderContent({
               onBlur={() => (descriptionFocused.current = false)}
               readOnly={!canEdit}
               className="mt-1 w-full text-sm text-muted-foreground bg-transparent px-0 focus-visible:outline-none resize-none overflow-hidden"
-              placeholder={canEdit ? "Add a description..." : ""}
+              placeholder={
+                canEdit ? t("builder.addDescriptionPlaceholder") : ""
+              }
               rows={1}
               style={{ minHeight: "24px", maxHeight: "120px" }}
             />
@@ -943,7 +983,7 @@ function BuilderContent({
                     >
                       <div
                         className="absolute -start-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-grab hidden sm:block"
-                        aria-label="Drag to reorder"
+                        aria-label={t("builder.dragToReorder")}
                       >
                         <IconGripVertical className="h-4 w-4 text-muted-foreground" />
                       </div>
@@ -994,7 +1034,7 @@ function BuilderContent({
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" className="gap-2">
                     <IconPlus className="h-4 w-4" />
-                    Add Field
+                    {t("builder.addField")}
                     <IconChevronDown className="h-3 w-3" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -1018,7 +1058,7 @@ function BuilderContent({
                   <Button
                     variant="outline"
                     size="icon"
-                    aria-label="Edit form with AI"
+                    aria-label={t("builder.editFormWithAi")}
                   >
                     <IconMessage className="h-4 w-4" />
                   </Button>
@@ -1034,7 +1074,9 @@ function BuilderContent({
                   }}
                 >
                   <div className="p-4 pb-3">
-                    <p className="text-sm font-semibold">Edit form</p>
+                    <p className="text-sm font-semibold">
+                      {t("builder.editForm")}
+                    </p>
                     <textarea
                       ref={agentPromptRef}
                       value={agentPrompt}
@@ -1045,7 +1087,7 @@ function BuilderContent({
                           onSubmitAgent();
                         }
                       }}
-                      placeholder="Add missing fields, change the layout..."
+                      placeholder={t("builder.agentPromptPlaceholder")}
                       rows={4}
                       className="mt-2 w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground/50 focus:outline-none"
                     />
@@ -1055,7 +1097,7 @@ function BuilderContent({
                       {/Mac|iPhone|iPad/.test(navigator.userAgent)
                         ? "⌘"
                         : "Ctrl"}
-                      +Enter to submit
+                      {t("sidebar.submitShortcutSuffix")}
                     </span>
                     <Button
                       variant="secondary"
@@ -1066,7 +1108,7 @@ function BuilderContent({
                         !agentPrompt.trim() ||
                         promptRun.isActivePrompt(agentPrompt)
                       }
-                      aria-label="Send prompt"
+                      aria-label={t("sidebar.sendPrompt")}
                     >
                       <IconArrowUp className="h-3.5 w-3.5" />
                     </Button>
@@ -1111,6 +1153,8 @@ function compareResponseValues(a: unknown, b: unknown): number {
 }
 
 function ResultsContent({ formId, form }: { formId: string; form: any }) {
+  const t = useT();
+  const { formatNumber } = useFormatters();
   const { data, isLoading, error, refetch } = useFormResponses(formId);
   const [search, setSearch] = useState("");
   // `_submitted` is the synthetic Submitted column. Field columns sort by id.
@@ -1167,8 +1211,8 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
   function exportCsv() {
     if (!fields.length || !responses.length) return;
     const headers = [
-      "Submitted At",
-      ...(hasSubmitterEmail ? ["Submitter Email"] : []),
+      t("builder.results.submittedAt"),
+      ...(hasSubmitterEmail ? [t("builder.results.submitterEmail")] : []),
       ...fields.map((f) => f.label),
     ];
     const rows = responses.map((r) => [
@@ -1187,7 +1231,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${form?.title || "responses"}-${format(new Date(), "yyyy-MM-dd")}.csv`;
+    a.download = `${form?.title || t("builder.results.responsesFilename")}-${format(new Date(), "yyyy-MM-dd")}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -1224,7 +1268,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 gap-3">
         <p className="text-sm text-muted-foreground">
-          Failed to load responses
+          {t("responses.failedLoad")}
         </p>
         <Button
           variant="outline"
@@ -1233,7 +1277,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
           className="gap-2"
         >
           <IconRefresh className="h-3.5 w-3.5" />
-          Retry
+          {t("common.retry")}
         </Button>
       </div>
     );
@@ -1242,9 +1286,9 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
   if (allResponses.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center flex-1 py-20">
-        <h3 className="font-medium mb-1">No responses yet</h3>
+        <h3 className="font-medium mb-1">{t("responses.emptyTitle")}</h3>
         <p className="text-sm text-muted-foreground">
-          Share your form to start collecting responses
+          {t("responses.emptyDescription")}
         </p>
       </div>
     );
@@ -1255,11 +1299,17 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
       <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2 border-b border-border">
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="text-xs">
-            {total} response{total !== 1 ? "s" : ""}
+            {t("builder.results.responseCount", {
+              count: total,
+              formattedCount: formatNumber(total),
+            })}
           </Badge>
           {search.trim() && filtered.length !== allResponses.length && (
             <span className="text-xs text-muted-foreground">
-              {filtered.length} match{filtered.length !== 1 ? "es" : ""}
+              {t("builder.results.matchCount", {
+                count: filtered.length,
+                formattedCount: formatNumber(filtered.length),
+              })}
             </span>
           )}
         </div>
@@ -1268,7 +1318,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
             <IconSearch className="absolute start-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
             <Input
               type="search"
-              placeholder="Search responses…"
+              placeholder={t("builder.results.searchPlaceholder")}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-8 ps-7 text-xs w-44 sm:w-56"
@@ -1281,7 +1331,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
             onClick={exportCsv}
           >
             <IconDownload className="h-3.5 w-3.5" />
-            Export CSV
+            {t("responses.exportCsv")}
           </Button>
         </div>
       </div>
@@ -1312,7 +1362,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                   className="min-w-36 px-4 py-2.5 text-start text-xs font-medium text-muted-foreground whitespace-nowrap"
                 >
                   <ResultsSortableHeader
-                    label="Submitted"
+                    label={t("responses.submitted")}
                     active={sortKey === "_submitted"}
                     dir={sortDir}
                     onClick={() => toggleSort("_submitted")}
@@ -1324,7 +1374,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                     className="px-4 py-2.5 text-start text-xs font-medium text-muted-foreground whitespace-nowrap"
                   >
                     <ResultsSortableHeader
-                      label="Email"
+                      label={t("responses.email")}
                       active={sortKey === "_email"}
                       dir={sortDir}
                       onClick={() => toggleSort("_email")}
@@ -1354,7 +1404,7 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                     colSpan={2 + (hasSubmitterEmail ? 1 : 0) + fields.length}
                     className="px-4 py-8 text-center text-xs text-muted-foreground"
                   >
-                    No responses match your search.
+                    {t("builder.results.noSearchMatches")}
                   </td>
                 </tr>
               )}
@@ -1439,6 +1489,7 @@ function SettingsEditor({
   form: { settings: FormSettings };
   onSave: (settings: FormSettings) => void;
 }) {
+  const t = useT();
   const [settings, setSettings] = useState<FormSettings>({ ...form.settings });
 
   function update(partial: Partial<FormSettings>) {
@@ -1448,20 +1499,24 @@ function SettingsEditor({
   return (
     <div className="space-y-4">
       <div className="space-y-2">
-        <Label className="text-xs">Submit button text</Label>
+        <Label className="text-xs">
+          {t("builder.settings.submitButtonText")}
+        </Label>
         <Input
-          value={settings.submitText || "Submit"}
+          value={settings.submitText || t("builder.settings.defaultSubmitText")}
           onChange={(e) => update({ submitText: e.target.value })}
           className="h-8 text-sm"
         />
       </div>
 
       <div className="space-y-2">
-        <Label className="text-xs">Success message</Label>
+        <Label className="text-xs">
+          {t("builder.settings.successMessage")}
+        </Label>
         <Textarea
           value={
             settings.successMessage ||
-            "Thank you! Your response has been recorded."
+            t("builder.settings.defaultSuccessMessage")
           }
           onChange={(e) => update({ successMessage: e.target.value })}
           rows={2}
@@ -1470,7 +1525,7 @@ function SettingsEditor({
       </div>
 
       <div className="space-y-2">
-        <Label className="text-xs">Redirect URL (optional)</Label>
+        <Label className="text-xs">{t("builder.settings.redirectUrl")}</Label>
         <Input
           value={settings.redirectUrl || ""}
           onChange={(e) => update({ redirectUrl: e.target.value })}
@@ -1480,7 +1535,7 @@ function SettingsEditor({
       </div>
 
       <Button onClick={() => onSave(settings)} className="w-full" size="sm">
-        Save Settings
+        {t("builder.settings.saveSettings")}
       </Button>
     </div>
   );
@@ -1493,44 +1548,44 @@ function SettingsEditor({
 const integrationMeta: Record<
   IntegrationType,
   {
-    label: string;
+    labelKey: string;
     icon: typeof IconWebhook;
     logoSrc?: string;
     placeholder: string;
-    blurb: string;
-    help: string;
+    blurbKey: string;
+    helpKey: string;
   }
 > = {
   slack: {
-    label: "Slack",
+    labelKey: "builder.integrations.slackLabel",
     icon: IconHash,
     logoSrc: "/brands/slack.svg",
     placeholder: "https://hooks.slack.com/services/...",
-    blurb: "Drop new submissions straight into a channel.",
-    help: "Create an Incoming Webhook in your Slack app settings",
+    blurbKey: "builder.integrations.slackBlurb",
+    helpKey: "builder.integrations.slackHelp",
   },
   discord: {
-    label: "Discord",
+    labelKey: "builder.integrations.discordLabel",
     icon: IconHash,
     logoSrc: "/brands/discord.svg",
     placeholder: "https://discord.com/api/webhooks/...",
-    blurb: "Send submissions to your community or ops server.",
-    help: "Channel Settings > Integrations > Webhooks",
+    blurbKey: "builder.integrations.discordBlurb",
+    helpKey: "builder.integrations.discordHelp",
   },
   webhook: {
-    label: "Webhook",
+    labelKey: "builder.integrations.webhookLabel",
     icon: IconWebhook,
     placeholder: "https://...",
-    blurb: "POST JSON to Zapier, Make, n8n, or your own endpoint.",
-    help: "Sends a JSON POST with submission data. Works with Zapier, Make, n8n, etc.",
+    blurbKey: "builder.integrations.webhookBlurb",
+    helpKey: "builder.integrations.webhookHelp",
   },
   "google-sheets": {
-    label: "Google Sheets",
+    labelKey: "builder.integrations.googleSheetsLabel",
     icon: IconGlobe,
     logoSrc: "/brands/google-sheets.svg",
     placeholder: "https://script.google.com/macros/s/.../exec",
-    blurb: "Mirror every response into a spreadsheet your team can share.",
-    help: "Deploy an Apps Script web app that receives POST data",
+    blurbKey: "builder.integrations.googleSheetsBlurb",
+    helpKey: "builder.integrations.googleSheetsHelp",
   },
 };
 
@@ -1541,7 +1596,9 @@ function IntegrationBrandMark({
   type: IntegrationType;
   className?: string;
 }) {
+  const t = useT();
   const meta = integrationMeta[type];
+  const label = t(meta.labelKey);
   const Icon = meta.icon;
 
   if (meta.logoSrc) {
@@ -1554,7 +1611,7 @@ function IntegrationBrandMark({
       >
         <img
           src={meta.logoSrc}
-          alt={`${meta.label} logo`}
+          alt={t("builder.integrations.logoAlt", { label })}
           className="h-5 w-5 object-contain"
         />
       </div>
@@ -1580,6 +1637,7 @@ function IntegrationsEditor({
   form: { settings: FormSettings };
   onSave: (settings: FormSettings) => void;
 }) {
+  const t = useT();
   const [settings, setSettings] = useState<FormSettings>({ ...form.settings });
   const integrations = settings.integrations ?? [];
   const selectedTypes = new Set(
@@ -1599,7 +1657,7 @@ function IntegrationsEditor({
     const integration: FormIntegration = {
       id: nanoid(8),
       type,
-      name: meta.label,
+      name: t(meta.labelKey),
       enabled: true,
       url: "",
     };
@@ -1623,17 +1681,19 @@ function IntegrationsEditor({
   }
 
   const saveLabel = hasIntegrations
-    ? `Save ${integrations.length === 1 ? "Integration" : "Integrations"}`
-    : "Choose an Integration First";
+    ? t("builder.integrations.saveIntegration", {
+        count: integrations.length,
+      })
+    : t("builder.integrations.chooseIntegrationFirst");
 
   return (
     <div className="space-y-4">
       <div className="space-y-1">
         <p className="text-xs font-medium uppercase tracking-[0.24em] text-muted-foreground/70">
-          Automations
+          {t("builder.integrations.automations")}
         </p>
         <p className="text-sm text-muted-foreground">
-          Send form submissions to external services automatically.
+          {t("builder.integrations.description")}
         </p>
       </div>
 
@@ -1642,11 +1702,10 @@ function IntegrationsEditor({
           <div className="space-y-4">
             <div className="space-y-2">
               <h3 className="text-sm font-medium">
-                Add your first integration
+                {t("builder.integrations.addFirstIntegration")}
               </h3>
               <p className="text-sm text-muted-foreground">
-                Send new submissions to Slack, Discord, Google Sheets, or any
-                webhook endpoint.
+                {t("builder.integrations.emptyDescription")}
               </p>
             </div>
 
@@ -1667,12 +1726,12 @@ function IntegrationsEditor({
                     <IntegrationBrandMark type={type} className="h-9 w-9" />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">
-                        {meta.label}
+                        {t(meta.labelKey)}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {type === "webhook"
-                          ? "Custom endpoint"
-                          : "Built-in option"}
+                          ? t("builder.integrations.customEndpoint")
+                          : t("builder.integrations.builtInOption")}
                       </p>
                     </div>
                   </div>
@@ -1681,7 +1740,7 @@ function IntegrationsEditor({
             </div>
 
             <p className="text-xs text-muted-foreground">
-              You can add more than one destination and finish setup later.
+              {t("builder.integrations.addMoreHint")}
             </p>
           </div>
         </div>
@@ -1689,6 +1748,7 @@ function IntegrationsEditor({
 
       {integrations.map((integration) => {
         const meta = integrationMeta[integration.type];
+        const integrationLabel = t(meta.labelKey);
         return (
           <div
             key={integration.id}
@@ -1698,7 +1758,7 @@ function IntegrationsEditor({
               <IntegrationBrandMark type={integration.type} />
               <div className="min-w-0 flex-1 space-y-1">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold">{meta.label}</p>
+                  <p className="text-sm font-semibold">{integrationLabel}</p>
                   <Badge
                     variant="secondary"
                     className={cn(
@@ -1708,11 +1768,13 @@ function IntegrationsEditor({
                         : "text-muted-foreground",
                     )}
                   >
-                    {integration.enabled ? "Enabled" : "Paused"}
+                    {integration.enabled
+                      ? t("builder.integrations.enabled")
+                      : t("builder.integrations.paused")}
                   </Badge>
                 </div>
                 <p className="text-xs leading-5 text-muted-foreground">
-                  {meta.blurb}
+                  {t(meta.blurbKey)}
                 </p>
               </div>
               <Switch
@@ -1733,7 +1795,7 @@ function IntegrationsEditor({
 
             <div className="space-y-2">
               <Label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
-                Label
+                {t("fieldProperties.label")}
               </Label>
               <Input
                 value={integration.name}
@@ -1748,7 +1810,7 @@ function IntegrationsEditor({
 
             <div className="space-y-2">
               <Label className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground/70">
-                Destination URL
+                {t("builder.integrations.destinationUrl")}
               </Label>
               <Input
                 value={integration.url}
@@ -1760,7 +1822,9 @@ function IntegrationsEditor({
               />
             </div>
 
-            <p className="text-[11px] text-muted-foreground">{meta.help}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {t(meta.helpKey)}
+            </p>
           </div>
         );
       })}
@@ -1773,7 +1837,9 @@ function IntegrationsEditor({
             className="h-11 w-full rounded-xl"
           >
             <IconPlus className="h-3.5 w-3.5 me-1.5" />
-            {hasIntegrations ? "Add Another Integration" : "Add Integration"}
+            {hasIntegrations
+              ? t("builder.integrations.addAnotherIntegration")
+              : t("builder.integrations.addIntegration")}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="center" className="w-80 p-1.5">
@@ -1794,18 +1860,18 @@ function IntegrationsEditor({
                   <IntegrationBrandMark type={type} />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium">{meta.label}</p>
+                      <p className="text-sm font-medium">{t(meta.labelKey)}</p>
                       {selectedTypes.has(type) && (
                         <Badge
                           variant="secondary"
                           className="px-2 py-0 text-[10px]"
                         >
-                          Added
+                          {t("builder.integrations.added")}
                         </Badge>
                       )}
                     </div>
                     <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                      {meta.blurb}
+                      {t(meta.blurbKey)}
                     </p>
                   </div>
                 </div>
@@ -1826,8 +1892,8 @@ function IntegrationsEditor({
           </Button>
           <p className="text-center text-xs text-muted-foreground">
             {configuredCount === integrations.length
-              ? "Everything here is ready to receive new form submissions."
-              : "You can save partial setup now and finish the remaining URLs later."}
+              ? t("builder.integrations.readyHint")
+              : t("builder.integrations.partialSetupHint")}
           </p>
         </div>
       )}

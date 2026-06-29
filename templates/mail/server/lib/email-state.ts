@@ -22,7 +22,7 @@ import {
   gmailTrashThread,
   gmailUntrashThread,
 } from "./google-api.js";
-import { isConnected } from "./google-auth.js";
+import { getOAuth2Credentials, isConnected } from "./google-auth.js";
 import { invalidateThreadCache } from "./thread-cache.js";
 
 // ---------------------------------------------------------------------------
@@ -45,8 +45,7 @@ async function refreshIfNeeded(
     tokens.expiry_date &&
     tokens.expiry_date < Date.now() + 5 * 60 * 1000
   ) {
-    const clientId = process.env.GOOGLE_CLIENT_ID!;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+    const { clientId, clientSecret } = await getOAuth2Credentials(accountId);
     const oauth = createOAuth2Client(clientId, clientSecret, "");
     const refreshed = await oauth.refreshToken(tokens.refresh_token);
     const updated = {

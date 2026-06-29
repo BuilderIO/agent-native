@@ -80,6 +80,16 @@ async function saveDraftToEmails(
   return result?.draftId;
 }
 
+export async function saveDraftToEmailsBestEffort(
+  draft: ComposeState,
+): Promise<string | undefined> {
+  try {
+    return await saveDraftToEmails(draft);
+  } catch {
+    return undefined;
+  }
+}
+
 export function useComposeState() {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -225,7 +235,7 @@ export function useComposeState() {
       ).find((d) => d.id === id);
       if (!current || !hasDraftContent(current)) return;
 
-      saveDraftToEmails(current).then((draftId) => {
+      void saveDraftToEmailsBestEffort(current).then((draftId) => {
         if (draftId && draftId !== current.savedDraftId) {
           // Store the Gmail draft ID back so subsequent saves update rather than create
           qc.setQueryData<ComposeState[]>(["compose-drafts"], (old) =>
@@ -306,8 +316,8 @@ export function useComposeState() {
 
       // Auto-save to persistent drafts if there's any content
       if (draft && hasDraftContent(draft)) {
-        saveDraftToEmails(draft).then(() => {
-          qc.invalidateQueries({ queryKey: ["emails"] });
+        void saveDraftToEmailsBestEffort(draft).then((draftId) => {
+          if (draftId) qc.invalidateQueries({ queryKey: ["emails"] });
         });
       }
 
@@ -377,8 +387,8 @@ export function useComposeState() {
     // Save all drafts with content
     for (const draft of currentDrafts) {
       if (hasDraftContent(draft)) {
-        saveDraftToEmails(draft).then(() => {
-          qc.invalidateQueries({ queryKey: ["emails"] });
+        void saveDraftToEmailsBestEffort(draft).then((draftId) => {
+          if (draftId) qc.invalidateQueries({ queryKey: ["emails"] });
         });
       }
     }

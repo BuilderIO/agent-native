@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import type {
   ContentDatabaseSource,
   ContentDatabaseSourceChangeSet,
@@ -25,29 +26,35 @@ function sourceRiskClass(risk: ContentDatabaseSourceChangeSet["riskLevel"]) {
   return "rounded border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-emerald-700";
 }
 
-function sourceValueText(value: DocumentPropertyValue) {
-  if (value === null || value === undefined || value === "") return "empty";
-  if (Array.isArray(value)) return value.join(", ") || "empty";
+function sourceValueText(value: DocumentPropertyValue, emptyLabel: string) {
+  if (value === null || value === undefined || value === "") return emptyLabel;
+  if (Array.isArray(value)) return value.join(", ") || emptyLabel;
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
 
-function sourceBuilderReadModeSummary(source: ContentDatabaseSource) {
+function sourceBuilderReadModeSummary(
+  source: ContentDatabaseSource,
+  t: ReturnType<typeof useT>,
+) {
   if (source.metadata.readMode === "builder-api")
-    return "Builder API read-only";
-  if (source.metadata.readMode === "local-fixture") return "Local fixture";
-  if (source.metadata.readMode === "unconfigured") return "Not configured";
-  if (source.metadata.readMode === "error") return "Read error";
-  return "Local review";
+    return t("database.builderApiReadOnly");
+  if (source.metadata.readMode === "local-fixture")
+    return t("database.localFixture");
+  if (source.metadata.readMode === "unconfigured")
+    return t("database.notConfigured");
+  if (source.metadata.readMode === "error") return t("database.readError");
+  return t("database.localReview");
 }
 
 function sourcePushModeLabel(
   mode: ContentDatabaseSource["metadata"]["pushMode"],
+  t: ReturnType<typeof useT>,
 ) {
-  if (mode === "autosave") return "Save revision / autosave";
-  if (mode === "draft") return "Draft";
-  if (mode === "publish") return "Publish";
-  return "None";
+  if (mode === "autosave") return t("database.saveRevisionAutosave");
+  if (mode === "draft") return t("database.draft");
+  if (mode === "publish") return t("database.publish");
+  return t("database.none");
 }
 
 function SourceMetadataRow({ label, value }: { label: string; value: string }) {
@@ -78,6 +85,7 @@ export function BuilderSourceReviewDialog({
   onClose: () => void;
   onValidate: () => void;
 }) {
+  const t = useT();
   const checked = !!checkedAt;
   const retryable =
     review?.result.status === "failed" ||
@@ -91,26 +99,26 @@ export function BuilderSourceReviewDialog({
     review.rows.length === 0;
   const footerText = pending
     ? review?.liveWritesEnabled
-      ? "Preparing the Builder gate and sending through the guarded write path."
-      : "Checking the Builder gate locally."
+      ? t("database.builderPreparingGate")
+      : t("database.builderCheckingGate")
     : checked
       ? review?.result.status === "succeeded"
-        ? "Pushed to Builder and reconciled locally."
+        ? t("database.builderPushedReconciled")
         : review?.liveWritesEnabled
-          ? (review?.result.message ?? "Builder push finished.")
-          : "Checked just now. Nothing was sent to Builder."
+          ? (review?.result.message ?? t("database.builderPushFinished"))
+          : t("database.builderCheckedNothingSent")
       : review?.liveWritesEnabled
-        ? "Push will send autosave writes through the guarded Builder path."
-        : "Builder writes are disabled. Push will check the update only.";
+        ? t("database.builderPushWillSend")
+        : t("database.builderWritesDisabledCheckOnly");
   const buttonLabel = pending
     ? review?.liveWritesEnabled
-      ? "Pushing..."
-      : "Checking..."
+      ? t("database.pushing")
+      : t("database.checking")
     : checked && review?.result.status === "succeeded"
-      ? "Pushed"
+      ? t("database.pushed")
       : checked && !retryable
-        ? "Checked"
-        : "Push";
+        ? t("database.checked")
+        : t("database.push");
 
   return (
     <Dialog
@@ -129,15 +137,15 @@ export function BuilderSourceReviewDialog({
               id="builder-source-review-title"
               className="truncate text-sm font-semibold"
             >
-              Review Builder update
+              {t("database.reviewBuilderUpdate")}
             </DialogTitle>
             <DialogDescription className="truncate text-xs text-muted-foreground">
-              {review?.summary ?? "No pending Builder changes."}
+              {review?.summary ?? t("database.noPendingBuilderChanges")}
             </DialogDescription>
           </div>
           <button
             type="button"
-            aria-label="Close Builder update review"
+            aria-label={t("database.closeBuilderUpdateReview")}
             className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={onClose}
           >
@@ -149,7 +157,9 @@ export function BuilderSourceReviewDialog({
           {review ? (
             <div className="grid gap-4">
               <section className="grid gap-2">
-                <div className="text-sm font-medium">What changed</div>
+                <div className="text-sm font-medium">
+                  {t("database.whatChanged")}
+                </div>
                 <div className="grid gap-2">
                   {review.rows.map((row) => (
                     <div
@@ -162,13 +172,16 @@ export function BuilderSourceReviewDialog({
                             {row.title}
                           </div>
                           <div className="mt-1 text-xs text-muted-foreground">
-                            {row.fieldChanges.length} field change
-                            {row.fieldChanges.length === 1 ? "" : "s"}
-                            {row.bodyChange ? " plus body diff" : ""}
+                            {t("database.fieldChangeCount", {
+                              count: row.fieldChanges.length,
+                            })}
+                            {row.bodyChange
+                              ? ` ${t("database.plusBodyDiff")}`
+                              : ""}
                           </div>
                         </div>
                         <span className={sourceRiskClass(row.riskLevel)}>
-                          {row.riskLevel} risk
+                          {t("database.riskLabel", { level: row.riskLevel })}
                         </span>
                       </div>
                       <div className="mt-3 grid gap-2">
@@ -182,10 +195,20 @@ export function BuilderSourceReviewDialog({
                             </div>
                             <div className="grid gap-1 text-muted-foreground sm:grid-cols-2">
                               <div className="min-w-0 break-words">
-                                From: {sourceValueText(field.currentValue)}
+                                {t("database.fromValue", {
+                                  value: sourceValueText(
+                                    field.currentValue,
+                                    t("database.empty"),
+                                  ),
+                                })}
                               </div>
                               <div className="min-w-0 break-words">
-                                To: {sourceValueText(field.proposedValue)}
+                                {t("database.toValue", {
+                                  value: sourceValueText(
+                                    field.proposedValue,
+                                    t("database.empty"),
+                                  ),
+                                })}
                               </div>
                             </div>
                           </div>
@@ -196,8 +219,7 @@ export function BuilderSourceReviewDialog({
                               {row.bodyChange.summary}
                             </div>
                             <div className="mt-1 text-muted-foreground">
-                              Builder body edits need a safer push path before
-                              they can be sent.
+                              {t("database.builderBodyEditsNeedSaferPath")}
                             </div>
                           </div>
                         ) : null}
@@ -213,39 +235,52 @@ export function BuilderSourceReviewDialog({
               </section>
 
               <section className="grid gap-2 rounded-md border border-border p-3">
-                <div className="text-sm font-medium">Where it will go</div>
+                <div className="text-sm font-medium">
+                  {t("database.whereItWillGo")}
+                </div>
                 <div className="grid gap-2 text-xs">
-                  <SourceMetadataRow label="Source" value={review.sourceName} />
                   <SourceMetadataRow
-                    label="Builder model"
+                    label={t("database.source")}
+                    value={review.sourceName}
+                  />
+                  <SourceMetadataRow
+                    label={t("database.builderModel")}
                     value={review.sourceTable}
                   />
                   <SourceMetadataRow
-                    label="Push mode"
-                    value={sourcePushModeLabel(review.pushMode)}
+                    label={t("database.pushMode")}
+                    value={sourcePushModeLabel(review.pushMode, t)}
                   />
                   <SourceMetadataRow
-                    label="Live writes"
-                    value={review.liveWritesEnabled ? "enabled" : "disabled"}
-                  />
-                  <SourceMetadataRow
-                    label="Read mode"
+                    label={t("database.liveWrites")}
                     value={
-                      source ? sourceBuilderReadModeSummary(source) : "unknown"
+                      review.liveWritesEnabled
+                        ? t("database.enabled")
+                        : t("database.disabled")
+                    }
+                  />
+                  <SourceMetadataRow
+                    label={t("database.readMode")}
+                    value={
+                      source
+                        ? sourceBuilderReadModeSummary(source, t)
+                        : t("database.unknown")
                     }
                   />
                 </div>
               </section>
 
               <section className="grid gap-2 rounded-md border border-border p-3">
-                <div className="text-sm font-medium">Risk check</div>
+                <div className="text-sm font-medium">
+                  {t("database.riskCheck")}
+                </div>
                 <div className="flex flex-wrap gap-1.5 text-xs">
                   <span className={sourceRiskClass(review.riskLevel)}>
-                    {review.riskLevel} risk
+                    {t("database.riskLabel", { level: review.riskLevel })}
                   </span>
                   {(review.riskReasons.length
                     ? review.riskReasons
-                    : ["single field diff"]
+                    : [t("database.singleFieldDiff")]
                   ).map((reason) => (
                     <span
                       key={reason}
@@ -255,7 +290,9 @@ export function BuilderSourceReviewDialog({
                     </span>
                   ))}
                   <span className="rounded border border-border px-1.5 py-0.5 text-muted-foreground">
-                    {review.dryRunOnly ? "checks only" : "can send to Builder"}
+                    {review.dryRunOnly
+                      ? t("database.checksOnly")
+                      : t("database.canSendToBuilder")}
                   </span>
                 </div>
               </section>
@@ -263,7 +300,9 @@ export function BuilderSourceReviewDialog({
               <section className="grid gap-2 rounded-md border border-border p-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-sm font-medium">Result</div>
+                    <div className="text-sm font-medium">
+                      {t("database.result")}
+                    </div>
                     <div className="mt-1 text-xs text-muted-foreground">
                       {review.result.message}
                     </div>
@@ -276,7 +315,7 @@ export function BuilderSourceReviewDialog({
             </div>
           ) : (
             <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
-              No pending local Builder changes yet.
+              {t("database.noPendingLocalBuilderChangesYet")}
             </div>
           )}
         </div>
@@ -287,7 +326,7 @@ export function BuilderSourceReviewDialog({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <Button type="button" variant="ghost" size="sm" onClick={onClose}>
-              Close
+              {t("database.close")}
             </Button>
             <Button
               type="button"

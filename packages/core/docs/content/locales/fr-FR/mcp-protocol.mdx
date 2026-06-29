@@ -1,0 +1,387 @@
+---
+title: "Protocole MCP"
+description: "Exposez votre application native d'agent en tant que serveur MCP distant afin que Claude, ChatGPT, Claude Code, Cursor et d'autres outils d'IA puissent appeler directement le actions de votre application."
+---
+
+# Protocole MCP
+
+**Cette page : référence du serveur MCP de niveau inférieur.** Comment chaque application native d'agent expose son actions sur MCP : le point de terminaison monté automatiquement, les modes d'authentification, la surface `tools/call`/`ask-agent` et le montage personnalisé. Accédez-y lorsque vous avez besoin de composants internes du serveur ; pour connecter un hôte, commencez par [External Agents](/docs/external-agents).
+
+| Si vous voulez…                                                                               | Lire                                     |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Connectez un agent/hôte externe à votre application                                           | [External Agents](/docs/external-agents) |
+| Donnez plus d'outils à votre agent (consommez d'autres serveurs MCP)                          | [MCP Clients](/docs/mcp-clients)         |
+| Créez des UI en ligne qui s'affichent dans Claude/ChatGPT                                     | [MCP Apps](/docs/mcp-apps)               |
+| Référence du serveur MCP de niveau inférieur (authentification, outils, montage personnalisé) | **Cette page** — Protocole MCP           |
+
+Chaque application native d'agent expose automatiquement un serveur distant MCP (Model Context Protocol), de sorte que les outils d'IA externes tels que Claude, les applications MCP personnalisées ChatGPT, le code Claude, le curseur, le Codex et le VS Code GitHub Copilot peuvent découvrir et appeler directement le actions de votre application — aucun code supplémentaire n'est nécessaire. Si votre objectif est de _connecter_ l'un de ces hôtes à une application hébergée, [External Agents](/docs/external-agents) couvre le connecteur Dispatch unique recommandé, les URL par application, les OAuth, les applications MCP en ligne UI et les liens profonds. Cette page documente ce qui se trouve en dessous.
+
+## Vue d'ensemble {#overview}
+
+MCP est le protocole standard pour connecter les outils d'IA à des capacités externes. Lorsque vous déployez une application native d'agent, elle monte automatiquement un point de terminaison MCP aux côtés du point de terminaison A2A existant. Tout client compatible MCP peut se connecter et utiliser les outils de votre application.
+
+Concepts clés :
+
+- **Monté automatiquement** – chaque application obtient `/_agent-native/mcp` gratuitement, aucune configuration requise
+- **Streamable HTTP** : utilise le transport moderne MCP par rapport au HTTP standard (POST + SSE)
+- **Même actions** : exactement le même registre d'actions qui alimente le chat des agents et A2A
+- **Outil `ask-agent`** — un méta-outil qui délègue à la boucle d'agent complète les tâches complexes
+- **Applications MCP** — actions peut annoncer des ressources UI interactives via l'extension officielle `io.modelcontextprotocol/ui`
+- **MCP à distance standard OAuth** — Découverte OAuth 2.1, enregistrement client dynamique, code d'autorisation + PKCE, rotation du jeton d'actualisation
+- **Bearer auth fallback** : utilise `ACCESS_TOKEN`, `ACCESS_TOKENS` ou des JWT créés par connexion pour les clients qui ne peuvent pas exécuter OAuth
+
+<Diagram id="doc-block-ut4q1s" title="Votre application en tant que serveur MCP" summary={"Les hôtes externes se connectent via Streamable HTTP. Chaque action est un outil ; Ask-agent délègue à la boucle complète de l'agent."}>
+
+```html
+<div class="diagram-mcp">
+  <div class="diagram-col">
+    <div class="diagram-node">Claude</div>
+    <div class="diagram-node">ChatGPT</div>
+    <div class="diagram-node">Cursor · Codex</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    ><small class="diagram-muted">Streamable HTTP</small
+    ><small class="diagram-muted"
+      >initialize &rarr; tools/list &rarr; tools/call</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-box" data-rough>
+      each action<br /><small class="diagram-muted">= one tool</small>
+    </div>
+    <div class="diagram-box" data-rough>
+      ask-agent<br /><small class="diagram-muted">&rarr; full agent loop</small>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-mcp {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-mcp .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-mcp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-mcp .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## MCP contre A2A {#mcp-vs-a2a}
+
+Les deux protocoles sont montés automatiquement. Utilisez celui qui correspond à votre cas d'utilisation :
+
+|                          | MCP                                                                     | A2A                                            |
+| ------------------------ | ----------------------------------------------------------------------- | ---------------------------------------------- |
+| **Idéal pour**           | Outils externes appelant votre application                              | Communication d'agent à agent                  |
+| **Protocole**            | MCP HTTP diffusable                                                     | JSON-RPC 2.0                                   |
+| **Découverte d'outils**  | `tools/list`                                                            | Carte d'agent à `/.well-known/agent-card.json` |
+| **Point de terminaison** | `/_agent-native/mcp`                                                    | `/_agent-native/a2a`                           |
+| **Supporté par**         | Claude, ChatGPT, Claude Code, Cursor, Codex, Cowork et autres hôtes MCP | Autres applications natives pour agents        |
+| **Exécution**            | Appels d'outils directs (pas de LLM supplémentaire)                     | Boucle d'agent complète (raisonnement LLM)     |
+
+Vous pouvez également utiliser l'outil `ask-agent` MCP pour tirer le meilleur parti des deux mondes : appelez-le à partir du code Claude et laissez l'agent de votre application raisonner sur des tâches complexes.
+
+## Configuration manuelle du client MCP {#manual-config}
+
+Pour la configuration recommandée en une seule commande, utilisez [External Agents](/docs/external-agents). Si vous écrivez manuellement la configuration MCP pour un client compatible OAuth, ajoutez votre application en tant que serveur MCP distant sans en-têtes statiques :
+
+```bash
+claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
+```
+
+Ou écrivez l'entrée à la main dans `.mcp.json` (portée du projet) ou `~/.claude.json` (portée utilisateur) :
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "mail": {
+      "type": "http",
+      "url": "https://mail.example.com/_agent-native/mcp",
+    },
+  },
+}
+```
+
+Exécutez ensuite `/mcp` dans le code Claude et choisissez **Authentifier**. Pour les clients qui ne peuvent pas exécuter MCP OAuth à distance, utilisez la page Connecter ou une entrée de jeton de porteur statique avec `headers.Authorization`. Une fois authentifié, vous pouvez utiliser les outils de votre application naturellement :
+
+```
+> draft an email to John about the Q3 report
+
+Claude Code calls: draft-email(to: "john@example.com", subject: "Q3 Report", body: "...")
+```
+
+## Connexion à partir d'autres clients MCP {#other-clients}
+
+Tout client MCP prenant en charge le transport Streamable HTTP peut se connecter. Le point final est :
+
+```
+POST https://your-app.example.com/_agent-native/mcp
+```
+
+Le serveur prend en charge la négociation standard MCP : `initialize` → `initialized` → `tools/list` → `tools/call`.
+
+<Endpoint id="doc-block-bd4fya" title="Point de terminaison MCP" summary={"Le point de terminaison Streamable HTTP monté automatiquement et exposé par chaque application native d'agent."} method="POST" path="/_agent-native/mcp" summary="MCP Point de terminaison HTTP diffusable" auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
+  {
+    "name": "Authorization",
+    "in": "header",
+    "type": "string",
+    "required": false,
+    "description": "Bearer access token. Required except for loopback local-dev probes."
+  },
+  {
+    "name": "method",
+    "in": "body",
+    "type": "string",
+    "required": true,
+    "description": "MCP method, e.g. initialize, tools/list, tools/call."
+  }
+]} request={{
+  "contentType": "application/json",
+  "example": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"ask-agent\",\n    \"arguments\": { \"message\": \"Summarize Q3 signups by source\" }\n  }\n}"
+}} responses={[
+  {
+    "status": "200",
+    "description": "MCP result (POST + SSE)."
+  },
+  {
+    "status": "401",
+    "description": "Unauthenticated — responds with a WWW-Authenticate header pointing at OAuth discovery."
+  }
+]}>
+
+Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `initialized` → `tools/list` → `tools/call`) plus `resources/list`, `resources/templates/list`, and `resources/read` when an action declares `mcpApp`. Each action maps to one tool; `ask-agent` delegates to the full agent loop.
+
+</Endpoint>
+
+Si une action déclare `mcpApp`, le serveur annonce également l'extension officielle des applications MCP (`io.modelcontextprotocol/ui`) et prend en charge `resources/list`, `resources/templates/list` et `resources/read` pour la ressource d'application. Les hôtes qui restituent les applications MCP peuvent afficher le UI en ligne ; les hôtes qui ne le font pas peuvent toujours appeler l'outil et utiliser la solution de secours par lien profond. Les produits UI doivent utiliser `embedApp()` afin que la surface en ligne soit la véritable route de l'application React, ou une route ciblée qui restitue un composant React partagé tel qu'un graphique Analytics, et non une implémentation distincte de HTML. Le serveur émet à la fois les métadonnées standard des applications MCP et les métadonnées de compatibilité des applications ChatGPT SDK afin que les hôtes compatibles avec les applications puissent trouver la même ressource `ui://`. La matrice d'extension officielle actuelle comprend Claude, Claude Desktop, VS Code GitHub Copilot, Goose, Postman, MCPJam, ChatGPT et Cursor ; La prise en charge de l'hôte varie selon la version et le forfait, utilisez donc le [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) pour obtenir des conseils destinés à l'utilisateur.
+
+### Pont d'intégration d'application MCP {#mcp-app-embed-bridge}
+
+`embedApp()` est le premier assistant d'application MCP de bas niveau pour URL : il lance une application signée
+acheminement en ligne via une transplantation (Claude), un cadre contrôlé (ChatGPT) ou direct
+navigation, assure la médiation de l'hôte actions sur le pont `ui/*` JSON-RPC (et le
+Relais postMessage `agentNative.mcpHost.*` pour le chemin de trame contrôlé), et
+limite la hauteur du shell de ressources afin qu'un itinéraire d'application complète ne s'affiche pas comme un
+artefact de discussion surdimensionné.
+
+Voir [MCP Apps](/docs/mcp-apps#mcp-app-bridge) pour plus de détails sur le pont intégré : transplantation par rapport au cadre contrôlé, les tables `ui/*` et postMessage, `create_embed_session` / `embedStartUrl`, CSP et les règles de domaine, l'intégration de l'extension `srcDoc`, le serrage de la hauteur et le client de pont hôte API.
+
+## Outils {#tools}
+
+Chaque appelant reçoit un **catalogue compact par défaut** (application déclarée par modèle actions plus les applications intégrées), avec la surface d'action complète servie uniquement sur adhésion explicite et `tool-search` toujours disponible pour atteindre le reste. Voir [External Agents → Catalog tiers](/docs/external-agents#catalog-tiers) pour l'explication complète.
+
+Chaque action correspond directement à un outil MCP :
+
+| Propriété d'action | Propriété de l'outil MCP |
+| ------------------ | ------------------------ |
+| `tool.description` | `description`            |
+| `tool.parameters`  | `inputSchema`            |
+| Nom de l'action    | Nom de l'outil           |
+
+Lorsque `mcpApp` est présent, l'entrée d'outil inclut également `_meta.ui.resourceUri`, `_meta["ui/resourceUri"]` et `_meta["openai/outputTemplate"]`, et la ressource `ui://` correspondante est renvoyée sous la forme `text/html;profile=mcp-app`.
+
+### L'outil `ask-agent` {#ask-agent}
+
+En plus des outils d'action individuels, chaque serveur MCP comprend un méta-outil `ask-agent`. Cela envoie un message en langage naturel à l'agent IA de l'application et renvoie la réponse.
+
+Utilisez `ask-agent` pour des tâches complexes qui bénéficient du raisonnement et du contexte de l'agent :
+
+```json
+{
+  "name": "ask-agent",
+  "arguments": {
+    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed"
+  }
+}
+```
+
+L'agent exécute la même boucle que le chat interactif : il peut appeler plusieurs outils, raisonner sur le contexte et produire une réponse réfléchie.
+
+## Authentification {#authentication}
+
+Le point de terminaison MCP prend en charge le modèle distant standard MCP OAuth, ainsi que le remplacement du jeton de support existant :
+
+| Mode                                  | Comment ça marche                                                                                                                        |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| MCP standard OAuth                    | Le client découvre l'authentification de `WWW-Authenticate`, s'enregistre, exécute PKCE et envoie `Authorization: Bearer <access-token>` |
+| JWT créé par Connect                  | `npx @agent-native/core@latest connect` / la page Connect crée un JWT révocable par utilisateur                                          |
+| `ACCESS_TOKEN`                        | Jeton de support statique — le client envoie `Authorization: Bearer <token>`                                                             |
+| `ACCESS_TOKENS`                       | Liste de jetons de support statiques valides, séparés par des virgules                                                                   |
+| `A2A_SECRET`                          | Authentification basée sur JWT : les jetons sont vérifiés cryptographiquement                                                            |
+| _(aucun défini, bouclage uniquement)_ | Aucune authentification requise pour les sondes de développement locales                                                                 |
+
+Pour les hôtes MCP compatibles OAuth, configurez le serveur distant URL sans en-têtes statiques :
+
+```bash
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
+```
+
+La première requête MCP non authentifiée reçoit :
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+```
+
+Points de terminaison de découverte :
+
+| Point de terminaison                      | Objectif                                                   |
+| ----------------------------------------- | ---------------------------------------------------------- |
+| `/.well-known/oauth-protected-resource`   | Métadonnées de ressources protégées RFC 9728               |
+| `/.well-known/oauth-authorization-server` | Métadonnées du serveur d'autorisation OAuth                |
+| `/_agent-native/mcp/oauth/register`       | Inscription dynamique du client public                     |
+| `/_agent-native/mcp/oauth/authorize`      | Autorisation du navigateur + consentement                  |
+| `/_agent-native/mcp/oauth/token`          | Accords de code d'autorisation et de jeton d'actualisation |
+
+<Diagram id="doc-block-l7acbd" title={"Flux de découverte OAuth"} summary={"Un 401 lance la découverte, l'enregistrement et un PKCE autorisation → échange de jetons. Le jeton Bearer est limité au public et limité."}>
+
+```html
+<div class="diagram-oauth">
+  <div class="diagram-box" data-rough>
+    first request<br /><small class="diagram-muted">no token</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-pill warn">401 · WWW-Authenticate</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill">/.well-known/oauth-protected-resource</span
+    ><span class="diagram-pill">/.well-known/oauth-authorization-server</span
+    ><small class="diagram-muted">discover</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">register</div>
+    <div class="diagram-pill">authorize (PKCE)</div>
+    <div class="diagram-pill">token</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Bearer access token<br /><small class="diagram-muted"
+      >lié à l’audience · mcp:read / write / apps</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-oauth {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-oauth .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-oauth .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.diagram-oauth .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Les jetons d'accès sont des JWT signés dont l'audience est exactement la ressource MCP URL. Le serveur n'accepte que les jetons émis pour lui-même et applique les étendues avant de lister/appeler les outils :
+
+| Portée      | Autorise                                                |
+| ----------- | ------------------------------------------------------- |
+| `mcp:read`  | actions en lecture seule                                |
+| `mcp:write` | mutation de actions et `ask-agent`                      |
+| `mcp:apps`  | Ressources d'applications MCP (ressources `ui://` HTML) |
+
+Les jetons d'actualisation sont stockés uniquement sous forme de hachages et font l'objet d'une rotation à chaque actualisation. `npx @agent-native/core@latest connect` écrit par défaut cette entrée OAuth uniquement URL pour les clients de code Claude ; conservez la page Connect, `npx @agent-native/core@latest connect --token <token>` et la configuration du support statique pour le proxy stdio local, les clients plus anciens et les flux d'urgence/débogage.
+
+## Configuration MCP personnalisée {#custom-setup}
+
+Le serveur MCP est monté automatiquement par le plugin agent-chat. Pour la plupart des applications, aucune configuration n'est nécessaire. Si vous avez besoin d'un comportement personnalisé, vous pouvez le monter manuellement dans un plugin serveur :
+
+```ts
+// server/plugins/mcp.ts
+import { mountMCP } from "@agent-native/core/mcp";
+import { autoDiscoverActions } from "@agent-native/core/server";
+
+export default defineNitroPlugin(async (nitro) => {
+  const actions = await autoDiscoverActions(import.meta.url);
+
+  mountMCP(nitro, {
+    name: "My App",
+    description: "Custom MCP server",
+    actions,
+    // Optional: provide ask-agent handler
+    askAgent: async (message) => {
+      // Your custom agent logic
+      return "Response";
+    },
+    // Optional: override the route prefix (default "/_agent-native")
+    // routePrefix: "/_agent-native",
+  });
+});
+```
+
+## Exemple : analyses du code Claude {#example}
+
+Vous disposez d'une application d'analyse déployée sur `analytics.example.com`. À partir du code Claude :
+
+```bash
+claude mcp add --transport http analytics https://analytics.example.com/_agent-native/mcp
+```
+
+Ou ajoutez-le à la main dans `.mcp.json` :
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "analytics": {
+      "type": "http",
+      "url": "https://analytics.example.com/_agent-native/mcp",
+    },
+  },
+}
+```
+
+Maintenant en code Claude :
+
+```
+> How many signups did we get last week?
+
+Claude Code calls: run-query(sql: "SELECT count(*) FROM signups WHERE created_at > now() - interval '7 days'")
+→ "1,247 signups last week"
+```
+
+Pour une analyse plus complexe :
+
+```
+> Ask the analytics agent to prepare a full breakdown of Q3 signups by source, with trends
+
+Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by source, with trends")
+→ The analytics agent runs multiple queries, reasons about the data, and returns a formatted report
+```

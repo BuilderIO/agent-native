@@ -1,8 +1,12 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
 import { createServer } from "./create-server.js";
 
 describe("createServer", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("returns an H3 app and router", () => {
     const { app, router } = createServer();
     expect(app).toBeDefined();
@@ -49,6 +53,44 @@ describe("createServer", () => {
     expect(res.headers.get("Access-Control-Allow-Headers")).toContain(
       "X-User-Timezone",
     );
+  });
+
+  it("reports deploy-time env values as configured", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://deploy.example/db");
+    const { app } = createServer({
+      envKeys: [{ key: "DATABASE_URL", label: "Database URL" }],
+    });
+
+    const res = await app.request("http://localhost/_agent-native/env-status");
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([
+      {
+        key: "DATABASE_URL",
+        label: "Database URL",
+        required: false,
+        configured: true,
+      },
+    ]);
+  });
+
+  it("rejects env-var writes outside the configured key list", async () => {
+    const { app } = createServer({
+      envKeys: [{ key: "GOOGLE_CLIENT_ID", label: "Google client ID" }],
+    });
+
+    const res = await app.request("http://localhost/_agent-native/env-vars", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        vars: [{ key: "GOOGLE_CLIENT_SECRET", value: "secret" }],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "Unsupported env key: GOOGLE_CLIENT_SECRET",
+    });
   });
 });
 

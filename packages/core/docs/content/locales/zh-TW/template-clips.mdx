@@ -1,0 +1,531 @@
+---
+title: "剪輯"
+description: "非同步螢幕錄製、行事曆同步會議紀錄和一鍵通語音聽寫 - 將 Clips 連結貼上到座席中，他們就可以閱讀文字紀錄、視覺效果和摘要。"
+search: "Clips 瀏覽器記錄 開發人員記錄 主控台記錄 網路記錄 取得 XHR Chrome 擴充功能 診斷紀錄器 桌面應用"
+---
+
+# 剪輯
+
+一款捕獲一切的應用程式：螢幕錄製、行事曆中的會議紀錄以及按住 Fn 的語音聽寫。代理會轉錄、標題、總結和索引所有內容 - 然後讓您詢問“找到我們討論推出計畫的剪輯”並搜尋您曾經製作的每個轉錄。
+
+<WireframeBlock id="doc-block-1d3cqjf">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>工程 Clips</h1><span class='wf-pill accent'>Library</span><span class='wf-pill'>Meetings</span><span class='wf-pill'>Dictation</span><div style='flex:1'></div><button>Import</button><button class='primary'>Record</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>OKR 評審</strong><small>35 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>入門流程</strong><small>12 min</small></div><div class='wf-card' style='height:120px;display:flex;flex-direction:column;justify-content:end'><strong>Bug 複現</strong><small>4 min</small></div></div><div class='wf-card' style='display:flex;gap:10px;align-items:center'><span class='wf-pill accent'>代理可讀</span><span>轉寫 + 幀已可用於分享連結</span><div style='flex:1'></div><button>分享</button></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>轉錄搜尋</strong><div class='wf-box'>匹配章節 03:12 · 發布風險和負責人交接</div><div class='wf-box'>會議摘要和行動項</div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+沿著將 Loom + Granola + Wispr Flow 整合到一個應用程式中的思路來思考 — 但代理在每個介面上都是一流的編輯器，並且錄音、會議和聽寫都是您的，而不是 SaaS 供應商的。 Clips 還使共用錄音可供代理讀取：將普通的 Clips 共用連結貼上到代理中，它可以“聽到”文字形式的文字紀錄，並“看到”帶有時間戳的螢幕幀作為圖片 - 無需原始影片。幀檢視適用於任何具有圖片功能的代理（ChatGPT、Claude 程式碼、游標、Codex）；純文字網頁聊天仍然可以獲得完整的文字紀錄，並且可以拍攝您上傳的幀。
+
+<Diagram id="doc-block-11lg5ws" title={"捕獲、轉錄、重用"} summary={"三種捕獲型別集中在一個庫中；代理進行抄寫、標題和總結，然後每個抄本都可以搜尋和共用。"}>
+
+```html
+<div class="diagram-clips">
+  <div class="diagram-col">
+    <div class="diagram-node">螢幕錄製</div>
+    <div class="diagram-node">行事曆會議</div>
+    <div class="diagram-node">按住 Fn 聽寫</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    一個庫<br /><small class="diagram-muted"
+      >recordings + transcripts (SQL)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Agent</span
+    ><small class="diagram-muted">標題 · 摘要 · 章節</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">搜尋</div>
+    <div class="diagram-pill">分享</div>
+    <div class="diagram-pill">代理可讀 links</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-clips {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-clips .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-clips .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-clips .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 你可以用它做什麼
+
+- **使用內建錄音機、網路攝影機覆蓋、音訊捕獲和暫停/修剪來錄製螢幕**。
+- **從行事曆中捕獲會議。** 連線 Google Calendar，在側邊欄中檢視即將舉行的會議，並在任何一個會議上進行紀錄。您將在結束時獲得即時紀錄以及 AI 摘要、專案符號註解和行動項目。
+- **一鍵通聽寫。** 按住機器上的 Fn，說話，清理後的文字就會放入您正在使用的任何應用程式中。每個聽寫都儲存在可搜尋的歷史紀錄中，原始版本和人工智慧清理的版本並排儲存。
+- **為每個錄音取得自動產生的標題、摘要和章節標記** - 代理會填寫這些內容並使其保持最新狀態。
+- **搜尋每一份紀錄** — 螢幕錄影、會議和聽寫都在一個庫中。 “找到我們討論推出計畫的剪輯。”
+- **共用剪輯**以及每個剪輯的權限（公開、團隊、私人）。連結跟蹤和線索評論也有效。
+- **在 Slack 中預覽公開剪輯**，並在播放後使用 Loom 風格的可播放展開
+  工作區安裝您的 Clips Slack 應用。
+- **使用 Chrome 擴充功能捕獲瀏覽器記錄。**瀏覽器紀錄可以
+  附加經過編輯的主控台記錄和 fetch/XHR 中繼資料，這對
+  產品錯誤和僅限瀏覽器的重現。
+- **將剪輯連結貼上到代理中**，以便他們可以發現代理可讀的脈絡：中繼資料、轉錄片段、推薦幀和帶時間戳的幀圖片，而無需接收原始影片檔案。
+- **智慧資料庫檢視。**按專案分組、按演講者過濾、根據內容自動標記。
+- **透過聊天編輯文字紀錄。**“修復 1:42 處錯誤轉錄的單詞。” “為部落格文章引用三個引號。”代理編輯文字紀錄並即時更新 UI。
+
+## 瀏覽器記錄和開發人員診斷
+
+當您需要錄製內容以及瀏覽器記錄時，請使用 Clips Chrome 擴充功能
+您正在偵錯的分頁。該擴充功能啟動活動標籤紀錄並且可以
+儲存編輯後的主控台記錄、JavaScript 異常和 fetch/XHR 網路
+中繼資料，例如方法、編輯的 URL、狀態、持續時間和失敗文字。它
+不儲存請求內文、回應內文或標頭。
+
+一般瀏覽器紀錄器頁面可以儲存紀錄器頁面的診斷資訊
+本身。 Chrome 擴充功能是活動分頁開發人員記錄的路徑，
+僅瀏覽器重現。在剪輯 UI 中，使用 Chrome 選項檢視瀏覽器記錄並
+桌面應用程式提供最無縫的日常捕捉路徑。
+
+Agent-Native Clips Chrome 擴充功能清單為
+`https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`.
+如果您託管自己的 Clips 伺服器，請隱藏 Chrome 擴充功能選項，直到
+您的網上應用店清單已上線。設定`VITE_CLIPS_CHROME_EXTENSION_ENABLED=1`
+核准後在桌面應用程式下載提示旁邊顯示擴充功能。設定
+`VITE_CLIPS_CHROME_EXTENSION_URL` 僅當您需要覆蓋預設值時
+列出 URL。
+
+## 代理可讀的剪輯
+
+將普通的公開 Clips 共用連結貼上到代理中。分享頁面有廣告
+一個緊湊的代理脈絡 URL，並且該脈絡指向轉錄本和框架
+APIs，因此僅接受文字或靜態圖片的模型仍然可以理解內容
+發生在錄音中。
+
+任何可以將圖片 URL 擷取到其視野中的代理 - ChatGPT、Claude 程式碼，
+游標、Codex 和 MCP 連線的代理 — 讀取指令碼並檢視
+幀。一些純文字網頁聊天會讀取文字紀錄，但不會擷取幀圖片
+獨自一人；在那裡，上傳關鍵幀或以支援圖片的方式開啟剪輯
+代理。
+
+| 端點                                              | 代理可以獲得什麼                                                        |
+| ------------------------------------------------- | ----------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`        | 剪輯中繼資料、轉錄狀態、章節、CTA、推薦幀以及指向轉錄/幀 API 的連結     |
+| `/api/agent-transcript.json?id=<recordingId>`     | 帶有 `startMs`、`endMs`、可讀時間戳、文字和可選來源標籤的時間戳轉錄片段 |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | 以原始影片時間戳從影片中擷取的 JPEG 幀                                  |
+
+端點遵循與共用頁面相同的公開/密碼/過期規則。
+受密碼保護的剪輯需要密碼一次；成功回應返回
+短暫的標記化連結，因此下游代理不需要明文
+密碼。
+
+Slack 預覽使用相同的共用邊界。 `/api/slack/unfurl` Webhook
+僅返回可播放的 Slack `video` 塊，用於準備就緒的公開剪輯，而無需
+密碼、過期命中、存檔標記或垃圾標記。其他剪輯仍然得到
+正常共用頁面標題/縮略圖中繼資料並需要開啟剪輯。
+
+<Endpoint id="doc-block-nrhma0" title={"代理脈絡入口點"} method="GET" path="/api/agent-context.json" summary={"共用剪輯的緊湊、代理可讀的描述"} auth="Same public / password / expiry rules as the share page" params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Clip metadata plus transcript and frame API links"
+  }
+]}>
+
+Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.
+
+</Endpoint>
+
+<Endpoint id="doc-block-va7fe6" title={"帶時間戳的文字紀錄"} method="GET" path="/api/agent-transcript.json" summary={"共用剪輯的帶時間戳的轉錄片段"} params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "Segments with startMs, endMs, readable timestamps, text, and optional source labels"
+  }
+]}>
+
+</Endpoint>
+
+<Endpoint id="doc-block-oiabb9" title={"具有時間戳的幀"} method="GET" path="/api/agent-frame.jpg" summary={"在原始影片時間戳處從影片中擷取的 JPEG 幀"} params={[
+  {
+    "name": "id",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "Recording id"
+  },
+  {
+    "name": "atMs",
+    "in": "query",
+    "type": "integer",
+    "required": true,
+    "description": "Original-video timestamp in milliseconds"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "image/jpeg frame"
+  }
+]}>
+
+</Endpoint>
+
+## 開始使用
+
+線上示範：[clips.agent-native.com](https://clips.agent-native.com)。
+
+1. **開啟庫。**瀏覽螢幕錄音、會議錄音、聽寫，
+   來自一個位置的資料夾和空間。
+2. **錄製或匯入。**捕獲螢幕錄製，從行事曆開始
+   會議，或使用一鍵通聽寫。
+3. **讓代理清理它。**生成標題、摘要、章節、操作
+   專案，或清理後的轉錄文字。
+4. **搜尋和重複使用。**詢問您的剪輯、引言、行動項目或決定
+   需要，然後以正確的可見性分享結果。
+
+### 有用的提示
+
+- “總結此剪輯以進行產品更新。”
+- “尋找我們討論推出計畫的會議。”
+- “從此紀錄中擷取三個客戶報價。”
+- “根據上次銷售拜訪建立行動項目。”
+- “清理這個聽寫並將其變成 Linear 票證。”
+
+## 對於開發者
+
+本檔案的其餘部分適用於任何派生 Clips 範本或擴充功能它的人。
+
+### 快速入門
+
+```bash
+npx @agent-native/core@latest create my-clips --standalone --template clips
+cd my-clips
+pnpm install
+pnpm dev
+```
+
+Clips 是一個帶有本機紀錄器的較大範本（它附帶了用於本機捕獲的桌面伴侶）。上傳錄音之前需要執行三個設定步驟：
+
+1. **影片儲存（必需）。** 透過入門向導連線儲存後端。最簡單的路徑是 Builder.io（測試期間免費，一鍵式）。對於自託管儲存，請設定 `S3_ENDPOINT`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY` 以及可選的 `S3_REGION` 和 `S3_PUBLIC_BASE_URL`。 Cloudflare R2 和 DigitalOcean Spaces 使用帶有 `R2_*` 前綴的相同環境變數。
+2. **Google Calendar（可選）。** 要同步即將召開的會議，請從“設定”連線 Google Calendar 帳戶。 dev中的 OAuth 回呼 URL 是`http://localhost:8094/_agent-native/google/callback`。在 [Google Cloud Console](https://console.cloud.google.com/) 中設定 Google OAuth 用戶端，並啟用 Gmail 和 Google Calendar API。
+3. **螢幕捕獲權限。** 在 macOS 上，在系統設定 → 隱私和安全 → 螢幕錄製中向瀏覽器（或桌面配套應用程式）授予螢幕錄製權限。瀏覽器紀錄可以儲存經過編輯的主控台並從紀錄器頁面取得/XHR 診斷資訊。 Chrome 擴充功能清單可用後，啟用 `VITE_CLIPS_CHROME_EXTENSION_ENABLED=1`，以便使用者可以選取活動分頁瀏覽器記錄的擴充功能或桌面應用程式以獲得最流暢的本機捕獲路徑。
+4. **Slack 預覽（可選）。** 使用 `links:read`、`links:write` 和 `links.embed:write` 建立 Slack 應用程式；訂閱`link_shared`；在 **App Unfurl Domains** 下新增您的 Clips 共用域；將請求 URL 設定為`https://your-clips.example.com/api/slack/unfurl`；並新增 OAuth 重新導向 URL `https://your-clips.example.com/api/slack/oauth/callback`。設定 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET` 和 `SLACK_SIGNING_SECRET`，然後從剪輯設定連線工作區。
+
+### 託管您自己的 Clips 伺服器
+
+[clips.agent-native.com](https://clips.agent-native.com) 上託管的 Clips 應用
+只是 Clips 範本的部署副本。要執行您自己的伺服器，腳手架
+範本，像任何其他 Agent-Native 應用程式一樣部署它，然後指向桌面
+部署中的托盤應用程式。
+
+1. **建立應用程式。**
+
+   ```bash
+   npx @agent-native/core@latest 建立 my-clips --standalone --template 剪輯
+   cd my-clips
+   pnpm安裝
+   ```
+
+2. **設定正式環境狀態。**設定一個持久化的`DATABASE_URL`，正常
+   來自 [Deployment](/docs/deployment) 的正式環境授權/秘密變數，以及
+   影片儲存提供者。 Builder.io Connect是最簡單的儲存路徑；對於
+   自託管儲存，使用 `S3_*` 或 `R2_*` 變數進行 S3 相容
+   桶。
+
+3. **部署 Web 應用程式。**對於普通節點部署：
+
+   ```bash
+   pnpm建置
+   節點.output/server/index.mjs
+   ```
+
+   您還可以使用 [Deployment](/docs/deployment) 中的任何 Nitro 目標，例如
+   作為 Netlify、Vercel、Cloudflare Pages、AWS Lambda 或 Deno Deploy。確保
+   例如，`BETTER_AUTH_URL` 是公開 Clips 來源
+   `https://clips.example.com`.
+
+4. **連線桌面托盤應用。**開啟 Clips Desktop 設定並進行設定
+   **將伺服器 URL** 剪輯到部署的公開基礎 URL，例如
+   `https://clips.example.com`。如果應用程式安裝在工作空間路徑下，
+   包含該路徑，例如 `https://example.com/clips`。點選**連線**，
+   然後使用該 Clips 伺服器上的帳戶登入。
+
+5. **發布後啟用 Chrome 擴充功能。**保留
+   `VITE_CLIPS_CHROME_EXTENSION_ENABLED` 在 Chrome 網上應用店上市之前未設定
+   已獲核准。然後將其設定為 `1` 以顯示瀏覽器記錄選項旁邊
+   桌面應用程式提示。預設清單 URL 是
+   `https://chromewebstore.google.com/detail/baoipacpchggcdigagnajakiidcgcffn`;
+   僅當您的部署使用時才設定 `VITE_CLIPS_CHROME_EXTENSION_URL`
+   不同的擴充功能名清單。
+
+6. **連線可選整合。** Google Calendar 為“會議”分頁提供支援，
+   `GEMINI_API_KEY` 或 Builder.io Connect 支援轉錄清理和標題，
+   `GROQ_API_KEY` 可以提供語音轉文字回退，而 Slack OAuth
+   “設定”中的連線可以展開可玩的 Slack。
+
+對於本機開發，請使用 `pnpm dev` 執行 Web 應用程式並指向桌面
+`http://localhost:8094` 上的托盤應用程式。
+
+### 主要功能
+
+**一個庫，三種捕獲型別。**螢幕錄製、行事曆會議和一鍵通聽寫共用一個可搜尋庫。
+
+**文字紀錄和 AI 管道。** 錄音取得帶有時間戳的文字紀錄片段、產生的標題、摘要和章節標記。
+
+**非破壞性編輯。**修剪、分割、填充詞刪除、靜音刪除和拼接保留在 `edits_json` 中，因此原始媒體保持完整。
+
+**代理可讀的共用連結。**公開共用連結公開文字紀錄和框架 API，以便代理無需攝取原始影片即可理解錄音。
+
+**Slack 可玩展開。**公開共用連結可以渲染 Slack `video` 塊
+指向現有的 `/embed/:id` 玩家。這是一個工作區 Slack 應用
+安裝，不是全域爬蟲行為：正常的 Open Graph/Twitter 中繼資料是
+未安裝應用程式時的後備。
+
+### 資料模型
+
+所有資料透過 Drizzle ORM 儲存在 SQL 中。架構：`templates/clips/server/db/schema.ts`。錄音、會議、聽寫、行事曆帳戶和詞匯都帶有標準 `ownableColumns` 並具有匹配的框架共用表，因此它們屬於每使用者/每組織共用模型。
+
+<DataModel
+  id="doc-block-1h4uvro"
+  title={"Clips 核心資料模型"}
+  summary={
+    "recordings is the source of truth for media; transcripts, meetings, and dictations compose with it rather than duplicating video. (Engagement and org tables omitted for clarity — see the full table below.)"
+  }
+  entities={[
+    {
+      id: "recordings",
+      name: "recordings",
+      note: "Core resource; source of truth for media. ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "title",
+          type: "text",
+        },
+        {
+          name: "video_url",
+          type: "text",
+          note: "plus format / size / duration / thumbnails",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+        {
+          name: "edits_json",
+          type: "text",
+          note: "非破壞性編輯",
+        },
+        {
+          name: "chapters_json",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "password",
+          type: "text",
+          nullable: true,
+          note: "隱私：密碼/有效期",
+        },
+      ],
+    },
+    {
+      id: "recording_transcripts",
+      name: "recording_transcripts",
+      note: "拆分以便庫和轉錄檢視可以快速渲染",
+      fields: [
+        {
+          name: "recording_id",
+          type: "text",
+          fk: "recordings.id",
+        },
+        {
+          name: "segments_json",
+          type: "text",
+          note: "{ startMs, endMs, text }",
+        },
+        {
+          name: "full_text",
+          type: "text",
+        },
+        {
+          name: "language",
+          type: "text",
+        },
+        {
+          name: "status",
+          type: "text",
+        },
+      ],
+    },
+    {
+      id: "clips_meetings",
+      name: "clips_meetings",
+      note: "Calendar-sourced or ad-hoc; owns a recording",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "recording_id",
+          type: "text",
+          fk: "recordings.id",
+          nullable: true,
+        },
+        {
+          name: "summary_md",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "bullets_json",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "action_items_json",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+    {
+      id: "clips_dictations",
+      name: "clips_dictations",
+      note: "Push-to-talk dictation history; ownableColumns",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+        },
+        {
+          name: "full_text",
+          type: "text",
+          note: "原料",
+        },
+        {
+          name: "cleaned_text",
+          type: "text",
+          nullable: true,
+        },
+        {
+          name: "source",
+          type: "text",
+          note: "fn-按住等",
+        },
+        {
+          name: "target_app",
+          type: "text",
+          nullable: true,
+        },
+      ],
+    },
+  ]}
+  relations={[
+    {
+      from: "recordings",
+      to: "recording_transcripts",
+      kind: "1-1",
+      label: "transcript",
+    },
+    {
+      from: "recordings",
+      to: "clips_meetings",
+      kind: "1-1",
+      label: "captured by",
+    },
+  ]}
+/>
+
+| 表                                              | 它包含什麼                                                                                                                              |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `recordings`                                    | 核心資源 - 標題、影片 URL/格式/大小、持續時間、縮略圖、狀態、無損 `edits_json`、`chapters_json`、隱私（密碼、過期）和播放器切換         |
+| `recording_transcripts`                         | 每次錄製的文字紀錄：`segments_json` (`{startMs,endMs,text}`)、`full_text`、語言和狀態                                                   |
+| `recording_tags`                                | 錄音上的自由格式標籤                                                                                                                    |
+| `recording_ctas`                                | 覆蓋在錄音上的號召性用語按鈕（標籤、網址、顏色、位置）                                                                                  |
+| `recording_comments`                            | 帶有表情符號反應圖和已解決標誌的對話串化、帶時間戳的評論                                                                                |
+| `recording_reactions`                           | 表情符號 reactions 固定到影片時間戳（允許匿名觀看者）                                                                                   |
+| `recording_viewers` / `recording_events`        | 觀看分析：每個觀看者的觀看時間和完成情況，以及精細事件（觀看開始、觀看進度、搜尋、暫停、CTA 點選、反應）                                |
+| `clips_meetings`                                | 行事曆來源或臨時會議 - 計畫/實際跨度、平台、使用者註解、AI `summary_md`、`bullets_json`、`action_items_json` 及其 `recording_id` 的連結 |
+| `meeting_participants` / `meeting_action_items` | 與會者和擷取的會議行動項目                                                                                                              |
+| `calendar_accounts` / `calendar_events`         | 連線的行事曆帳戶（OAuth 代幣存在於 `app_secrets` 中，僅在此處引用）和同步的事件快照                                                     |
+| `clips_dictations`                              | 一鍵通聽寫歷史紀錄 - 原始 `full_text`、可選 `cleaned_text`、來源（`fn-hold` 等）和目標應用                                              |
+| `clips_vocabulary`                              | 個人詞匯更正（術語→首選替換）會影響未來的聽寫                                                                                           |
+| `spaces` / `space_members` / `folders`          | 庫組織 - 空間（主題範圍容器）、其成員和可嵌套資料夾                                                                                     |
+| `organization_settings`                         | 每個組織的 Clips sidecar：品牌顏色、徽標、預設可見性                                                                                    |
+
+錄音和文字紀錄是故意分開的表，因此庫和文字紀錄檢視都可以快速渲染。會議由錄音組成，而不是複製媒體：會議擁有其捕獲的錄音，但 `recordings` 行仍然是影片和每段文字紀錄的真實來源。
+
+UI 中的路由位於 `templates/clips/app/routes/` 下 - 經過驗證的應用程式位於 `_app.*` 下（庫、空間、資料夾、會議、聽寫、見解、垃圾桶、設定），公開介面位於 `r.$recordingId`、`share.$shareId`、`embed.$shareId` 和 `invite.$token`。
+
+### 金鑰actions
+
+每個代理可呼叫操作都是 `templates/clips/actions/` 中的 TypeScript 檔案，自動安裝在 `POST /_agent-native/actions/:name` 上，並可作為 `pnpm action <name>` 從 CLI 執行。有~80個actions；有用的分組：
+
+- **錄製生命週期** — `create-recording`、`finalize-recording`、`update-recording`、`set-thumbnail`、`archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`、`move-recording`、`tag-recording`。
+- **逐字稿和 AI** — `request-transcript`、`cleanup-transcript`、`regenerate-title` / `regenerate-summary` / `regenerate-chapters`、`set-chapters`、`generate-workflow`。 （`cleanup-transcript` 和 `finalize-meeting` 是伺服器端媒體管道呼叫；大多數其他 AI 功能委托給代理聊天。）
+- **編輯** — 非破壞性 `trim-recording`、`split-recording`、`remove-filler-words`、`remove-silences` 以及 `stitch-recordings`、`undo-edit`、`clear-edits`。編輯累積在`edits_json`；用戶端透過 ffmpeg.wasm 連線/匯出。
+- **會議** — `create-meeting`、`start-meeting-recording` / `stop-meeting-recording`、`finalize-meeting`、`update-meeting`、`get-meeting`、`list-meetings`，以及行事曆接線 `connect-calendar` / `disconnect-calendar` / `sync-calendars` / `list-calendar-accounts`。
+- **聽寫** - `create-dictation`、`cleanup-dictation`、`update-dictation`、`list-dictations` 和 `add-vocabulary-term` / `list-vocabulary` 用於個人詞匯偏差。
+- **資料庫組織** — `create-space` / `rename-space` / `delete-space`、`add-space-member` / `remove-space-member`、`create-folder` / `rename-folder` / `delete-folder`、`add-recording-to-space`。
+- **分享、評論和參與** — 框架共用 actions 加上 `create-cta` / `update-cta` / `delete-cta`、`add-comment` / `reply-to-comment` / `resolve-comment` / `react-to-comment` / `delete-comment`、`react-to-recording`、 `list-viewers`。
+- **組織和成員** — `create-organization`、`set-organization-branding`、`invite-member` / `accept-invite` / `decline-invite` / `get-invite`、`remove-member`、`update-member-role`、`list-organization-state`、`list-notifications`。
+- **搜尋、見解和匯出** - `search-recordings`（匹配標題、描述、轉錄文字和評論，帶時間戳）、`get-recording-insights`、`get-organization-insights`、`export-insights-csv`、`export-to-brain`。
+- **脈絡和導覽** — `view-screen`（目前剪輯、播放頭、選定的轉錄範圍）和 `navigate`；突變後的`refresh-list`。
+
+### 自訂它
+
+Clips 是一個完整的、可克隆的範本——分叉它並要求代理擴充功能它。一些例子：
+
+- “新增一個填充詞刪除按鈕，從紀錄中刪除 ums 和 uhs 並重新拼接影片。”
+- “每當會議結束時，自動將我的站立筆記發布到 Slack #eng。” （先透過[Messaging](/docs/messaging)連線 Slack。）
+- “新增一個熱鍵，將最後一次聽寫作為新票放入 Linear 中。”
+- “按專案對庫進行分組 - 從每個轉錄本的第一個單詞中偵測專案。”
+- “新增一個‘從此剪輯生成部落格文章’按鈕，該按鈕可以從文字紀錄中起草一篇文章並將其另存為草稿。”
+- “讓觀看者在共用剪輯上留下帶時間戳的 reactions。”
+
+代理根據需要編輯路由、元件、轉錄管道和架構。請參閱 [Templates](/docs/cloneable-saas) 了解完整克隆、自訂、部署流程，如果這是您的第一個 Agent-Native 範本，請參閱 [Getting Started](/docs/getting-started)。
+
+## 下一步是什麼
+
+- [**Templates**](/docs/cloneable-saas) — 克隆自有模型
+- [**Context Awareness**](/docs/context-awareness) — 代理如何知道目前剪輯和播放頭
+- [**Agent Teams**](/docs/agent-teams) — 將轉錄清理委托給專業子代理

@@ -206,6 +206,65 @@ export function createAttrReader(node: MdxJsxNode): BlockAttrReader {
   };
 }
 
+type MdxCodeNode = {
+  type?: unknown;
+  lang?: unknown;
+  value?: unknown;
+};
+
+function codeFenceFor(value: string): string {
+  const longestBacktickRun =
+    value.match(/`+/g)?.reduce((max, run) => Math.max(max, run.length), 0) ?? 0;
+  return "`".repeat(Math.max(3, longestBacktickRun + 1));
+}
+
+function codeFenceLang(value: unknown): string | undefined {
+  return typeof value === "string"
+    ? value.trim().split(/\s+/)[0]?.toLowerCase()
+    : undefined;
+}
+
+/**
+ * Convert named MDX child code fences into block data fields. This keeps source
+ * authoring normal Markdown/MDX while letting block specs opt into conventions
+ * such as "```html" -> data.html and "```css" -> data.css.
+ */
+export function childCodeFenceFields<TData extends object>(
+  childNodes: unknown[],
+  fieldsByLang: Record<string, keyof TData & string>,
+): Partial<TData> {
+  const out: Partial<TData> = {};
+  for (const node of childNodes as MdxCodeNode[]) {
+    if (!node || node.type !== "code" || typeof node.value !== "string") {
+      continue;
+    }
+    const field = fieldsByLang[codeFenceLang(node.lang) ?? ""];
+    if (field) {
+      (out as Record<string, string>)[field] = node.value;
+    }
+  }
+  return out;
+}
+
+/**
+ * Serialize selected string data fields as named child code fences. Uses a fence
+ * length that cannot be closed by the field body.
+ */
+export function serializeChildCodeFenceFields<TData extends object>(
+  data: TData,
+  fieldsByLang: Record<string, keyof TData & string>,
+): string {
+  const fences: string[] = [];
+  const record = data as Record<string, unknown>;
+  for (const [lang, field] of Object.entries(fieldsByLang)) {
+    const value = record[field];
+    if (typeof value !== "string" || value.length === 0) continue;
+    const fence = codeFenceFor(value);
+    fences.push(`${fence}${lang}\n${value.trimEnd()}\n${fence}`);
+  }
+  return fences.length ? `\n${fences.join("\n\n")}\n` : "";
+}
+
 /* -------------------------------------------------------------------------- */
 /* Registry serialize / parse                                                 */
 /* -------------------------------------------------------------------------- */
@@ -254,7 +313,9 @@ export function serializeSpecBlock(
 
   // Custom nested-MDX children (e.g. wireframe Screen/kit tree).
   if (spec.mdx.serializeChildren) {
-    return `<${tag}${base}${attrStr}>\n${spec.mdx.serializeChildren(block.data)}\n</${tag}>`;
+    const children = spec.mdx.serializeChildren(block.data);
+    if (!children.trim()) return `<${tag}${base}${attrStr} />`;
+    return `<${tag}${base}${attrStr}>\n${children}\n</${tag}>`;
   }
 
   // Prose children (rich-text, callout): body is a trimmed markdown string.

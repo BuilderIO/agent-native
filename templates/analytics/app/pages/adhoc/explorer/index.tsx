@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconChevronDown,
   IconDeviceFloppy,
@@ -46,6 +47,7 @@ import { buildSql } from "./sql-builder";
 import { useExplorerConfig } from "./use-explorer-config";
 
 export default function ExplorerPage() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const {
     config,
@@ -105,7 +107,7 @@ export default function ExplorerPage() {
   };
 
   const handleSaveConfirm = () => {
-    const name = saveName.trim() || "Untitled";
+    const name = saveName.trim() || t("explorer.untitled");
     setConfig({ ...config, name });
     saveConfig(name);
     setSaveDialogOpen(false);
@@ -116,7 +118,9 @@ export default function ExplorerPage() {
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
-          <h2 className="text-lg font-semibold shrink-0">Explorer</h2>
+          <h2 className="text-lg font-semibold shrink-0">
+            {t("explorer.title")}
+          </h2>
           {currentId && (
             <span className="text-sm text-muted-foreground truncate">
               — {config.name}
@@ -132,26 +136,26 @@ export default function ExplorerPage() {
             disabled={isSaving}
           >
             <IconDeviceFloppy className="h-4 w-4 mr-1" />
-            {isSaving ? "Saving..." : "Save"}
+            {isSaving ? t("explorer.saving") : t("explorer.save")}
           </Button>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline">
                 <IconFolderOpen className="h-4 w-4 mr-1" />
-                Load
+                {t("explorer.load")}
                 <IconChevronDown className="h-3 w-3 ml-1" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={newConfig}>
                 <IconFilePlus className="h-4 w-4 mr-2" />
-                New Explorer
+                {t("explorer.newExplorer")}
               </DropdownMenuItem>
               {currentId && (
                 <DropdownMenuItem onClick={handleSaveAs}>
                   <IconDeviceFloppy className="h-4 w-4 mr-2" />
-                  Save As...
+                  {t("explorer.saveAs")}
                 </DropdownMenuItem>
               )}
               {savedConfigs.length > 0 && <DropdownMenuSeparator />}
@@ -195,7 +199,9 @@ export default function ExplorerPage() {
           />
 
           <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">Chart Type</span>
+            <span className="text-sm text-muted-foreground">
+              {t("explorer.chartType")}
+            </span>
             <ChartTypePicker
               value={config.chartType}
               onChange={(chartType) => setConfig({ ...config, chartType })}
@@ -219,10 +225,10 @@ export default function ExplorerPage() {
       <Dialog open={saveDialogOpen} onOpenChange={setSaveDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Save Explorer</DialogTitle>
+            <DialogTitle>{t("explorer.saveExplorer")}</DialogTitle>
           </DialogHeader>
           <Input
-            placeholder="Dashboard name..."
+            placeholder={t("explorer.dashboardNamePlaceholder")}
             value={saveName}
             onChange={(e) => setSaveName(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSaveConfirm()}
@@ -230,9 +236,9 @@ export default function ExplorerPage() {
           />
           <DialogFooter>
             <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>
-              Cancel
+              {t("sidebar.cancel")}
             </Button>
-            <Button onClick={handleSaveConfirm}>Save</Button>
+            <Button onClick={handleSaveConfirm}>{t("explorer.save")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -244,13 +250,17 @@ export default function ExplorerPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete saved explorer?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("explorer.deleteSavedExplorerTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Delete &ldquo;{deleteConfirm?.name}&rdquo;? This cannot be undone.
+              {t("explorer.deleteSavedExplorerDescription", {
+                name: deleteConfirm?.name ?? "",
+              })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("sidebar.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (deleteConfirm) {
@@ -259,7 +269,7 @@ export default function ExplorerPage() {
                 }
               }}
             >
-              Delete
+              {t("sidebar.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import type { FormField, FormFieldType } from "@shared/types";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
@@ -23,17 +24,17 @@ interface FieldPropertiesPanelProps {
 }
 
 const fieldTypeLabels: Record<FormFieldType, string> = {
-  text: "Short Text",
-  email: "Email",
-  number: "Number",
-  textarea: "Long Text",
-  select: "Dropdown",
-  multiselect: "Multi-select",
-  checkbox: "Checkbox",
-  radio: "Radio Buttons",
-  date: "Date",
-  rating: "Rating",
-  scale: "Scale",
+  text: "fieldProperties.fieldTypes.text", // i18n-ignore stable catalog key
+  email: "fieldProperties.fieldTypes.email", // i18n-ignore stable catalog key
+  number: "fieldProperties.fieldTypes.number", // i18n-ignore stable catalog key
+  textarea: "fieldProperties.fieldTypes.textarea", // i18n-ignore stable catalog key
+  select: "fieldProperties.fieldTypes.select", // i18n-ignore stable catalog key
+  multiselect: "fieldProperties.fieldTypes.multiselect", // i18n-ignore stable catalog key
+  checkbox: "fieldProperties.fieldTypes.checkbox", // i18n-ignore stable catalog key
+  radio: "fieldProperties.fieldTypes.radio", // i18n-ignore stable catalog key
+  date: "fieldProperties.fieldTypes.date", // i18n-ignore stable catalog key
+  rating: "fieldProperties.fieldTypes.rating", // i18n-ignore stable catalog key
+  scale: "fieldProperties.fieldTypes.scale", // i18n-ignore stable catalog key
 };
 
 const hasOptions: FormFieldType[] = ["select", "multiselect", "radio"];
@@ -43,6 +44,7 @@ export function FieldPropertiesPanel({
   onChange,
   onDelete,
 }: FieldPropertiesPanelProps) {
+  const t = useT();
   const [newOption, setNewOption] = useState("");
 
   function update(partial: Partial<FormField>) {
@@ -64,21 +66,21 @@ export function FieldPropertiesPanel({
   return (
     <div className="space-y-5 p-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Field Properties</h3>
+        <h3 className="text-sm font-semibold">{t("fieldProperties.title")}</h3>
         <Button
           variant="ghost"
           size="sm"
           className="text-destructive h-7 px-2 text-xs"
           onClick={onDelete}
         >
-          Delete
+          {t("common.delete")}
         </Button>
       </div>
 
       <div className="space-y-3">
         {/* Field type */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Type</Label>
+          <Label className="text-xs">{t("fieldProperties.type")}</Label>
           <Select
             value={field.type}
             onValueChange={(v) => update({ type: v as FormFieldType })}
@@ -87,9 +89,9 @@ export function FieldPropertiesPanel({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(fieldTypeLabels).map(([value, label]) => (
+              {Object.entries(fieldTypeLabels).map(([value, labelKey]) => (
                 <SelectItem key={value} value={value} className="text-xs">
-                  {label}
+                  {t(labelKey)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -98,7 +100,7 @@ export function FieldPropertiesPanel({
 
         {/* Label */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Label</Label>
+          <Label className="text-xs">{t("fieldProperties.label")}</Label>
           <Input
             value={field.label}
             onChange={(e) => update({ label: e.target.value })}
@@ -108,7 +110,7 @@ export function FieldPropertiesPanel({
 
         {/* Placeholder */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Placeholder</Label>
+          <Label className="text-xs">{t("fieldProperties.placeholder")}</Label>
           <Input
             value={field.placeholder || ""}
             onChange={(e) => update({ placeholder: e.target.value })}
@@ -118,7 +120,7 @@ export function FieldPropertiesPanel({
 
         {/* Description */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Help text</Label>
+          <Label className="text-xs">{t("fieldProperties.helpText")}</Label>
           <Textarea
             value={field.description || ""}
             onChange={(e) => update({ description: e.target.value })}
@@ -131,7 +133,7 @@ export function FieldPropertiesPanel({
 
         {/* Required */}
         <div className="flex items-center justify-between">
-          <Label className="text-xs">Required</Label>
+          <Label className="text-xs">{t("fieldProperties.required")}</Label>
           <Switch
             checked={field.required}
             onCheckedChange={(checked) => update({ required: checked })}
@@ -140,7 +142,7 @@ export function FieldPropertiesPanel({
 
         {/* Width */}
         <div className="space-y-1.5">
-          <Label className="text-xs">Width</Label>
+          <Label className="text-xs">{t("fieldProperties.width")}</Label>
           <Select
             value={field.width || "full"}
             onValueChange={(v) => update({ width: v as "full" | "half" })}
@@ -150,10 +152,10 @@ export function FieldPropertiesPanel({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="full" className="text-xs">
-                Full width
+                {t("fieldProperties.fullWidth")}
               </SelectItem>
               <SelectItem value="half" className="text-xs">
-                Half width
+                {t("fieldProperties.halfWidth")}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -164,7 +166,7 @@ export function FieldPropertiesPanel({
           <>
             <Separator />
             <div className="space-y-2">
-              <Label className="text-xs">Options</Label>
+              <Label className="text-xs">{t("fieldProperties.options")}</Label>
               {(field.options || []).map((opt, i) => (
                 <div key={i} className="flex items-center gap-1">
                   <Input
@@ -181,7 +183,9 @@ export function FieldPropertiesPanel({
                     size="sm"
                     className="h-7 w-7 p-0"
                     onClick={() => removeOption(i)}
-                    aria-label={`Remove option ${opt}`}
+                    aria-label={t("fieldProperties.removeOption", {
+                      option: opt,
+                    })}
                   >
                     <IconX className="h-3 w-3" />
                   </Button>
@@ -191,7 +195,7 @@ export function FieldPropertiesPanel({
                 <Input
                   value={newOption}
                   onChange={(e) => setNewOption(e.target.value)}
-                  placeholder="Add option..."
+                  placeholder={t("fieldProperties.addOptionPlaceholder")}
                   className="h-7 text-xs flex-1"
                   onKeyDown={(e) => e.key === "Enter" && addOption()}
                 />
@@ -200,7 +204,7 @@ export function FieldPropertiesPanel({
                   size="sm"
                   className="h-7 w-7 p-0"
                   onClick={addOption}
-                  aria-label="Add option"
+                  aria-label={t("fieldProperties.addOption")}
                 >
                   <IconPlus className="h-3 w-3" />
                 </Button>
@@ -215,7 +219,7 @@ export function FieldPropertiesPanel({
             <Separator />
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1.5">
-                <Label className="text-xs">Min</Label>
+                <Label className="text-xs">{t("fieldProperties.min")}</Label>
                 <Input
                   type="number"
                   value={field.validation?.min ?? ""}
@@ -233,7 +237,7 @@ export function FieldPropertiesPanel({
                 />
               </div>
               <div className="space-y-1.5">
-                <Label className="text-xs">Max</Label>
+                <Label className="text-xs">{t("fieldProperties.max")}</Label>
                 <Input
                   type="number"
                   value={field.validation?.max ?? ""}

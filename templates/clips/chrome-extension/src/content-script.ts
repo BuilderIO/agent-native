@@ -18,6 +18,61 @@
   const ALL_PARTS: OverlayPart[] = ["bubble", "countdown", "toolbar", "saving"];
   const flags = window as unknown as { __clipsOverlayHostReady?: boolean };
 
+  function errorPayload(error: unknown): {
+    name: string;
+    message: string;
+    stack?: string;
+  } {
+    if (error instanceof Error) {
+      return {
+        name: error.name || "Error",
+        message: error.message || "Unknown content-script error",
+        stack: error.stack,
+      };
+    }
+    return {
+      name: "Error",
+      message: String(error ?? "Unknown content-script error"),
+    };
+  }
+
+  function reportContentScriptError(
+    error: unknown,
+    context: Record<string, unknown> = {},
+  ): void {
+    try {
+      chrome.runtime.sendMessage(
+        {
+          type: "CLIPS_EXTENSION_ERROR",
+          surface: "content-script",
+          ...errorPayload(error),
+          context: {
+            ...context,
+            pageUrl: location.href,
+          },
+        },
+        () => void chrome.runtime.lastError,
+      );
+    } catch {
+      /* background unavailable */
+    }
+  }
+
+  window.addEventListener("error", (event) => {
+    reportContentScriptError(event.error || event.message, {
+      mechanism: "global-error",
+      filename: event.filename,
+      lineno: event.lineno,
+      colno: event.colno,
+    });
+  });
+
+  window.addEventListener("unhandledrejection", (event) => {
+    reportContentScriptError(event.reason, {
+      mechanism: "unhandled-rejection",
+    });
+  });
+
   // ----- Draggable, resizable camera bubble ---------------------------------
   // Size + position persist in storage so the bubble stays where the user put it
   // across pages and recordings (like the desktop app). The iframe can't move or

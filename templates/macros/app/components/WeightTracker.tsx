@@ -1,4 +1,8 @@
-import { useActionQuery, useActionMutation } from "@agent-native/core/client";
+import {
+  useActionQuery,
+  useActionMutation,
+  useT,
+} from "@agent-native/core/client";
 import type { Weight } from "@shared/types";
 import { IconScale } from "@tabler/icons-react";
 import { useState } from "react";
@@ -19,6 +23,7 @@ interface WeightTrackerProps {
 }
 
 export function WeightTracker({ currentDate }: WeightTrackerProps) {
+  const t = useT();
   const [editingWeight, setEditingWeight] = useState<Weight | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
 
@@ -26,9 +31,9 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
 
   const deleteWeightMutation = useActionMutation("delete-weight", {
     onSuccess: () => {
-      toast.success("Weight entry deleted");
+      toast.success(t("weight.deleted"));
     },
-    onError: () => toast.error("Failed to delete weight entry"),
+    onError: () => toast.error(t("weight.deleteFailed")),
   });
 
   const { data: rawWeights, isLoading } = useActionQuery("list-weights", {
@@ -47,7 +52,7 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between px-1">
         <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Weight
+          {t("weight.title")}
         </h2>
         {!todayWeight && !isLoading && (
           <AddWeightDialog currentDate={currentDate} />
@@ -72,9 +77,11 @@ export function WeightTracker({ currentDate }: WeightTrackerProps) {
             <div className="p-3 rounded-full bg-blue-500/10 mb-3">
               <IconScale className="h-5 w-5 text-blue-500/50" />
             </div>
-            <p className="text-sm text-muted-foreground">No weight logged</p>
+            <p className="text-sm text-muted-foreground">
+              {t("weight.noneLogged")}
+            </p>
             <p className="text-xs text-muted-foreground/50 mt-1">
-              Track your weight daily
+              {t("weight.emptyDescription")}
             </p>
           </div>
         ) : (

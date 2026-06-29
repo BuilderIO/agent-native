@@ -6,6 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AgentConversationMessageView } from "./AgentConversation.js";
 
+vi.mock("../extensions/InlineExtensionFrame.js", () => ({
+  InlineExtensionFrame: ({ extensionId, extension }: any) => (
+    <div
+      data-testid="conversation-inline-extension"
+      data-extension-id={extensionId ?? extension?.id}
+    >
+      {extension?.name}
+    </div>
+  ),
+}));
+
 describe("AgentConversationMessageView", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -82,6 +93,46 @@ describe("AgentConversationMessageView", () => {
 
     expect(container.textContent).toContain("generate design");
     expect(container.textContent).not.toContain("generate-design");
+  });
+
+  it("renders native inline extension tool UI", () => {
+    act(() => {
+      root.render(
+        <AgentConversationMessageView
+          message={{
+            id: "message-1",
+            role: "assistant",
+            parts: [
+              {
+                id: "tool-1",
+                type: "tool",
+                tool: {
+                  id: "tool-1",
+                  name: "render-inline-extension",
+                  state: "completed",
+                  result: JSON.stringify({
+                    ok: true,
+                    inlineExtension: {
+                      mode: "transient",
+                      id: "inline-1",
+                      name: "Knobs",
+                      content: "<div>Knobs</div>",
+                    },
+                  }),
+                  chatUI: { renderer: "core.inline-extension" },
+                },
+              },
+            ],
+          }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector('[data-testid="conversation-inline-extension"]'),
+    ).toBeTruthy();
+    expect(container.textContent).toContain("Knobs");
+    expect(container.textContent).not.toContain("render inline extension");
   });
 
   it("opens markdown links in a new external window", () => {

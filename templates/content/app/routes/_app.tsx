@@ -1,16 +1,14 @@
 import { Outlet } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
+import { messagesByLocale } from "@/i18n-data";
 
 export function meta() {
-  const description =
-    "Open Source MDX editor for local docs, knowledge bases, and content systems, with custom blocks and agent-assisted editing.";
+  const title = messagesByLocale["en-US"].root.metaTitle;
+  const description = messagesByLocale["en-US"].root.metaDescription;
 
   return [
-    {
-      title:
-        "Agent-Native Content - Open Source, agent-friendly Obsidian alternative",
-    },
+    { title },
     { name: "description", content: description },
     { property: "og:description", content: description },
     { name: "twitter:description", content: description },

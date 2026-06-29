@@ -276,11 +276,13 @@ function scheduleAwarenessPush(
   const timer = setTimeout(() => {
     _awarenessThrottleTimers.delete(key);
     const state = getState();
-    if (!state) return;
     fetch(`${baseUrl}/${docId}/awareness`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clientId, state: JSON.stringify(state) }),
+      body: JSON.stringify({
+        clientId,
+        state: state ? JSON.stringify(state) : null,
+      }),
     }).catch(() => {}); // best-effort; poll cycle is the baseline fallback
   }, 150);
 

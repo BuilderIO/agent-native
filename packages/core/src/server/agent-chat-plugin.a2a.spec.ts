@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
-import { buildPublicAgentA2ASkills } from "./agent-chat-plugin.js";
+import {
+  assembleA2AFinalResponse,
+  buildPublicAgentA2ASkills,
+} from "./agent-chat-plugin.js";
 
 describe("agent-chat A2A public skills", () => {
   it("advertises Brain retrieval actions from the static registry in dev mode", () => {
@@ -67,5 +70,63 @@ describe("agent-chat A2A public skills", () => {
         publicAgent,
       }),
     ]);
+  });
+});
+
+describe("assembleA2AFinalResponse", () => {
+  it("fails terminal agent errors instead of completing with no response", () => {
+    expect(() =>
+      assembleA2AFinalResponse(
+        [
+          { type: "clear" },
+          {
+            type: "error",
+            error:
+              "I ran out of time before finishing this step (hosted runs have a ~40s budget).",
+            errorCode: "run_budget_exhausted",
+            recoverable: true,
+          },
+        ],
+        [],
+      ),
+    ).toThrow(/run_budget_exhausted/);
+  });
+
+  it("still returns recoverable artifact links from a terminal error run", () => {
+    const result = assembleA2AFinalResponse(
+      [
+        { type: "tool_start", tool: "update-dashboard", input: {} },
+        {
+          type: "tool_done",
+          tool: "update-dashboard",
+          result: JSON.stringify({
+            id: "growth-funnel",
+            name: "Growth Funnel",
+            urlPath: "/adhoc/growth-funnel",
+          }),
+        },
+        {
+          type: "error",
+          error: "The follow-up summary was interrupted.",
+          errorCode: "stream_ended",
+          recoverable: true,
+        },
+      ],
+      [
+        {
+          tool: "update-dashboard",
+          result: JSON.stringify({
+            id: "growth-funnel",
+            name: "Growth Funnel",
+            urlPath: "/adhoc/growth-funnel",
+          }),
+        },
+      ],
+      { baseUrl: "https://analytics.agent.test" },
+    );
+
+    expect(result.finalText).toContain(
+      'Dashboard "Growth Funnel": https://analytics.agent.test/adhoc/growth-funnel',
+    );
   });
 });

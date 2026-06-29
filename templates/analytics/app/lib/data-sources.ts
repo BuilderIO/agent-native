@@ -52,6 +52,7 @@ export interface DataSource {
   category: DataSourceCategory;
   icon: ComponentType<Record<string, unknown>>;
   envKeys: string[];
+  credentialRequirementMode?: "all" | "any";
   walkthroughSteps: WalkthroughStep[];
   docsUrl: string;
 }
@@ -380,7 +381,8 @@ export const dataSources: DataSource[] = [
     description: "CRM deals, contacts, companies, tickets, and pipelines",
     category: "crm",
     icon: IconShoppingCart,
-    envKeys: ["HUBSPOT_ACCESS_TOKEN"],
+    envKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
+    credentialRequirementMode: "any",
     docsUrl: "https://developers.hubspot.com/docs/api/overview",
     walkthroughSteps: [
       {
@@ -391,10 +393,19 @@ export const dataSources: DataSource[] = [
         linkText: "Private Apps",
       },
       {
-        title: "Enter your Access Token",
+        title: "Enter your Private App Token",
         description: "Copy the access token from your private app.",
+        inputKey: "HUBSPOT_PRIVATE_APP_TOKEN",
+        inputLabel: "Private App Token",
+        inputPlaceholder: "pat-na1-...",
+        inputType: "password",
+      },
+      {
+        title: "Legacy access token",
+        description:
+          "Only use this if you already have an older HubSpot access token saved under the legacy key.",
         inputKey: "HUBSPOT_ACCESS_TOKEN",
-        inputLabel: "Access Token",
+        inputLabel: "Legacy Access Token",
         inputPlaceholder: "pat-na1-...",
         inputType: "password",
       },

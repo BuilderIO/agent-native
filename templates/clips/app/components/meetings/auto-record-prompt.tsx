@@ -14,6 +14,7 @@
  * The banner does not auto-start when the user has manually dismissed it.
  */
 
+import { useT } from "@agent-native/core/client";
 import { IconClock, IconPlayerPlayFilled, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
@@ -39,6 +40,7 @@ export function AutoRecordPrompt({
   onDismiss,
   disabled = false,
 }: AutoRecordPromptProps) {
+  const t = useT();
   const [dismissed, setDismissed] = useState(false);
   const [autoFired, setAutoFired] = useState(false);
   const [graceRemaining, setGraceRemaining] = useState(0);
@@ -88,13 +90,15 @@ export function AutoRecordPrompt({
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
           <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
         </span>
-        <span className="text-sm">Notes started.</span>
+        <span className="text-sm">{t("autoRecordPrompt.notesStarted")}</span>
         <button
           type="button"
           onClick={cancel}
           className="ml-auto text-xs text-muted-foreground hover:text-foreground underline cursor-pointer"
         >
-          Cancel ({graceRemaining}s)
+          {t("autoRecordPrompt.cancelWithSeconds", {
+            count: graceRemaining,
+          })}
         </button>
       </div>
     );
@@ -112,10 +116,10 @@ export function AutoRecordPrompt({
     >
       <IconClock className="h-4 w-4 shrink-0 text-primary" />
       <span className="text-sm font-medium">
-        It's time for this meeting — start notes?
+        {t("autoRecordPrompt.startNotesQuestion")}
       </span>
       <span className="text-xs text-muted-foreground">
-        Auto-starts in {secondsRemaining}s
+        {t("autoRecordPrompt.autoStartsIn", { count: secondsRemaining })}
       </span>
       <div className="ml-auto flex items-center gap-2">
         <Button
@@ -127,12 +131,12 @@ export function AutoRecordPrompt({
           className="cursor-pointer h-8 gap-1.5"
         >
           <IconPlayerPlayFilled className="h-3.5 w-3.5" />
-          Start notes
+          {t("autoRecordPrompt.startNotes")}
         </Button>
         <button
           type="button"
           onClick={handleDismiss}
-          aria-label="Dismiss"
+          aria-label={t("autoRecordPrompt.dismiss")}
           className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent/50 cursor-pointer"
         >
           <IconX className="h-3.5 w-3.5" />

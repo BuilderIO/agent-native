@@ -1,0 +1,445 @@
+---
+title: "身份验证"
+description: "与电子邮件/密码、社交提供商、组织和 MCP 持有者凭证更好的身份验证集成。"
+---
+
+# 身份验证
+
+代理本机应用程序使用 [Better Auth](https://better-auth.com) 进行帐户优先设计的身份验证。用户在第一次访问时创建一个帐户，并从第一天起就获得真实身份。
+
+## 概述 {#overview}
+
+Auth 是通过 auth 服务器插件中的 `autoMountAuth(app)` 自动配置的。共有三种模式：
+
+- **默认：**使用电子邮件/密码+社交提供商进行更好的身份验证。首次访问时显示的入门页面。
+- **远程 MCP OAuth：** 适用于 MCP 主机的标准 OAuth 2.1，例如 Claude 代码和 ChatGPT 连接器。
+- **自定义：**通过 `getSession` 回调带来您自己的身份验证。
+
+<Diagram id="doc-block-146mbx9" title={"三种方式，一次会议"} summary={"浏览器访问者、编程 MCP 客户端和自定义提供程序都解析为下游作用域读取的同一 AuthSession。"}>
+
+```html
+<div class="auth-modes">
+  <div class="diagram-col">
+    <div class="diagram-card">
+      <span class="diagram-pill accent">Default</span
+      ><strong>Better Auth</strong
+      ><small class="diagram-muted"
+        >email/password &middot; Google &middot; GitHub</small
+      >
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Remote MCP OAuth</span
+      ><strong>OAuth 2.1 + PKCE</strong
+      ><small class="diagram-muted">Claude Code、ChatGPT 连接器</small>
+    </div>
+    <div class="diagram-card">
+      <span class="diagram-pill">Custom</span
+      ><strong>getSession callback</strong
+      ><small class="diagram-muted"
+        >Clerk &middot; Auth0 &middot; Firebase</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill ok">AuthSession</span
+    ><small class="diagram-muted">email &middot; orgId &middot; orgRole</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box">Request context &amp; data scoping</div>
+</div>
+```
+
+```css
+.auth-modes {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.auth-modes .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auth-modes .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+}
+.auth-modes .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.auth-modes .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+浏览器流程在任何地方都是相同的更好的身份验证流程 - **没有开发身份验证绕过**，并且 `getSession()` 永远不会退回到 `local@localhost` 哨兵。环境之间的变化是注册摩擦，而不是登录墙：
+
+| 环境              | 首次加载行为                                           | 电子邮件验证                               |
+| ----------------- | ------------------------------------------------------ | ------------------------------------------ |
+| **本地开发**      | 自动创建一次性开发帐户并让您登录（无登录墙）           | 默认跳过（当没有电子邮件提供商时）         |
+| **质量检查/预览** | 正常注册，但可以跳过验证，因此测试人员无需等待电子邮件 | 使用 `AUTH_SKIP_EMAIL_VERIFICATION=1` 跳过 |
+| **生产**          | 正常更好的身份验证注册/登录                            | 必需（配置电子邮件提供商时）               |
+
+一些标志对此进行了调整；完整详细信息位于 [Environment Variables](#environment-variables) 表中：
+
+- `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT=1` — 使用本地开发中的普通注册页面而不是自动开发帐户。
+- `AUTH_DISABLED=true` — 完全跳过登录/注册，并以一个共享用户身份运行每个请求（仅限本地开发/预览/演示，切勿与真实用户一起进行生产）。
+- `AUTH_MODE=local` — 仅影响 CLI/代理身份（开发用户 `pnpm action` 运行时的身份）；它**不是**浏览器登录绕过。
+
+<Callout id="doc-block-18jli2j" tone="warning">
+
+`AUTH_DISABLED=true` runs **every request as one shared user**. Use it only for local dev, previews, or demos — never in production with real users, where it would expose all data to anyone.
+
+</Callout>
+
+## 更好的身份验证（默认） {#better-auth}
+
+默认情况下，Better Auth 支持身份验证。它提供：
+
+- 电子邮件/密码注册和登录
+- 社交提供商（Google、GitHub 和 35 多个其他提供商）
+- 具有角色和邀请的组织
+- 用于 API 和 A2A 访问的 JWT 令牌
+- 对程序化客户端的不记名令牌支持
+
+Better Auth 路由安装在 `/_agent-native/auth/ba/*`。该框架还提供向后兼容的端点：
+
+- `GET /_agent-native/auth/session` — 获取当前会话
+- `POST /_agent-native/auth/login` — 电子邮件/密码登录
+- `POST /_agent-native/auth/register` — 创建帐户
+- `POST /_agent-native/auth/logout` — 退出
+
+## Cookie 领域 {#cookie-realms}
+
+会话 cookie 的领域遵循部署形状，因此共享的应用程序
+数据库/源共享登录和不保持隔离的应用：
+
+| 部署形状                                 | Cookie 领域                                                                                                          |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 独立应用                                 | 通过 slug（`APP_NAME`，或本地开发中的包名称）隔离每个应用程序；生产中稳定的 `an` 前缀                                |
+| 工作区模式（`AGENT_NATIVE_WORKSPACE=1`） | 一个共享领域 - 工作区应用程序共享源和数据库                                                                          |
+| 自定义同数据库子域                       | 选择与 `COOKIE_DOMAIN` 共享 Cookie                                                                                   |
+| 第一方托管 (`*.agent-native.com`)        | 每个应用程序的独立命名空间（每个应用程序都有自己的身份验证数据库）；默认情况下忽略 `COOKIE_DOMAIN=.agent-native.com` |
+
+第一方托管应用程序都有自己的身份验证数据库，因此可以跨应用程序登录
+通过 [Cross-App SSO](/docs/cross-app-sso) 而不是共享 cookie。
+这些部署必须提供 `APP_NAME` 或可派生应用 URL（`APP_URL`、`URL`，
+`DEPLOY_PRIME_URL`，或`DEPLOY_URL`）；否则启动失败而不是下降
+返回共享的 `an_session` 名称。有意共享一个身份验证数据库
+跨子域，将 `AGENT_NATIVE_SHARE_COOKIE_DOMAIN=1` 并排设置
+`COOKIE_DOMAIN`.
+
+## 质量检查帐户 {#qa-accounts}
+
+本地开发和测试默认跳过注册电子邮件验证，因此您
+可以创建真实的电子邮件/密码帐户，而无需等待收件箱。强制
+在测试该流程时进行本地验证，设置 `AUTH_SKIP_EMAIL_VERIFICATION=0`。
+
+对于测试人员需要真实帐户但不应等待的托管 QA 环境
+在电子邮件传送时，设置：
+
+```bash
+AUTH_SKIP_EMAIL_VERIFICATION=1
+```
+
+设置此标志后，电子邮件/密码注册不需要电子邮件
+验证和注册验证电子邮件未发送。仅将其用于质量检查
+或预览环境，并使用 `+qa` 地址命名测试帐户
+(`name+qa@example.com`)，因此很容易识别。
+
+## 社交提供商 {#social-providers}
+
+设置环境变量以启用社交登录。 Better Auth 自动检测它们：
+
+```bash
+# 谷歌OAuth
+GOOGLE_SIGN_IN_CLIENT_ID=your-low-scope-sign-in-client-id
+GOOGLE_SIGN_IN_CLIENT_SECRET=your-low-scope-sign-in-client-secret
+
+# 向后兼容的回退以及模板的提供者 OAuth 凭据
+# 连接到 Google APIs，例如 Gmail 或日历。
+GOOGLE_CLIENT_ID=your-client-id
+GOOGLE_CLIENT_SECRET=your-client-secret
+
+# GitHub OAuth
+GITHUB_CLIENT_ID=your-client-id
+GITHUB_CLIENT_SECRET=your-client-secret
+```
+
+使用 `createGoogleAuthPlugin()` 的模板显示“使用 Google 登录”页面。 谷歌OAuth 回调自动处理本机应用的移动深度链接。
+
+普通情况下优先选择 `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET`
+应用程序登录。该客户端应该仅请求身份范围。保留
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` 适用于需要的产品集成
+Google API 范围，或作为部署未拆分时的旧后备
+还没有。邮件和日历样式的应用程序应该使用自己的提供商 OAuth 客户端，因此
+高范围同意屏幕不会影响通用应用登录。
+
+### OAuth 状态签名 {#oauth-state-secret}
+
+在生产中将 `OAUTH_STATE_SECRET` 设置为随机的 32+ 字符值，以便 OAuth 状态信封（Google、Atlassian、Zoom）使用独立于任何第三方机密的专用密钥进行 HMAC 签名。请参阅 [Security — OAuth State Signing](/docs/security#oauth-state) 了解完整的要求和威胁模型。
+
+## 组织 {#organizations}
+
+该框架提供了内置的组织系统。这是框架自己的 `org/` 模块（由 `organizations` 和 `org_members` 表支持），而不是 Better Auth 的组织插件，该插件故意未注册。每个应用程序都支持：
+
+- 创建组织
+- 邀请具有角色的成员（`owner`、`admin`、`member`）
+- 切换活动组织
+- 通过 `org_id` 列确定每个组织的数据范围
+
+活动组织在会话中被跟踪为 `session.orgId`，切换组织会更改用户和代理看到的数据。数据作用域本身发生在堆栈的更下方——有关完整的 `session.orgId → AGENT_ORG_ID → SQL` 管道和访问防护，请参阅 [Security & Data Scoping](/docs/security#data-scoping)。 [Multi-Tenancy](/docs/multi-tenancy) 文档涵盖了组织管理层面。
+
+## 静态MCP不记名令牌 {#access-tokens}
+
+`ACCESS_TOKEN` 和 `ACCESS_TOKENS` 不是浏览器身份验证，并且不会将应用程序设为私有。它们仅保留为无法使用 OAuth 流的 MCP/连接客户端的静态承载凭证。
+
+```bash
+# 单一代币
+ACCESS_TOKEN=my-secret-token
+
+# 多个代币
+ACCESS_TOKENS=token1,token2,token3
+```
+
+配置这些变量永远不会为访问者呈现令牌登录页面。 Web 登录保留在 Better Auth 或您的自定义 `getSession` 提供商上。
+
+## 远程MCP OAuth {#remote-mcp-oauth}
+
+每个应用程序的 MCP 端点都可以充当标准受保护的 MCP 资源。支持 OAuth 的客户端只能配置远程 MCP URL：
+
+```text
+https://mail.agent-native.com/_agent-native/mcp
+```
+
+未经身份验证的 MCP 请求返回指向 `/.well-known/oauth-protected-resource` 的 `WWW-Authenticate` 质询。然后，客户端发现应用程序的 OAuth 元数据，动态注册公共客户端，打开应用程序的授权页面，并与 PKCE 交换授权代码以获取访问和刷新令牌。
+
+<Diagram id="doc-block-zb7fjc" title={"远程 MCP OAuth 握手"} summary={"具有 OAuth 功能的客户端仅从 MCP URL 引导 — 挑战、发现、动态注册，然后是 PKCE 代码交换。"}>
+
+```html
+<div class="mcp-flow">
+  <div class="diagram-node">
+    1 &middot; MCP request<br /><small class="diagram-muted">no token</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node warn">
+    2 &middot; 401 challenge<br /><small class="diagram-muted"
+      >WWW-Authenticate</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    3 &middot; Discover metadata<br /><small class="diagram-muted"
+      >.well-known</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    4 &middot; Register client<br /><small class="diagram-muted"
+      >动态、公开</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node">
+    5 &middot; Authorize + PKCE<br /><small class="diagram-muted"
+      >code exchange</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-node ok">
+    6 &middot; Access + refresh<br /><small class="diagram-muted"
+      >audience-bound</small
+    >
+  </div>
+</div>
+```
+
+```css
+.mcp-flow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mcp-flow .diagram-node {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.mcp-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+设置时访问令牌使用 `A2A_SECRET` 进行签名，否则使用 `BETTER_AUTH_SECRET` 进行签名。它们携带签名的用户/组织身份和 `mcp:read`、`mcp:write` 和/或 `mcp:apps` 范围，并且受众绑定到确切的 MCP 资源 URL。刷新令牌仅存储为哈希值并在每次刷新时轮换。工具调用和 MCP Apps 资源读取在与登录用户相同的请求上下文中运行；嵌入式 MCP 应用程序 iframe 永远不会接收原始 OAuth 令牌。
+
+`npx @agent-native/core@latest connect <url> --client claude-code` 为此标准流程写入仅 URL 的 MCP 条目。对于无法执行远程 MCP OAuth 的客户端，请使用“连接”页面或 `npx @agent-native/core@latest connect --token <token>` 回退来写入显式不记名令牌条目。
+
+## 自带身份验证 {#byoa}
+
+传递自定义 `getSession` 回调以使用任何身份验证提供程序（Clerk、Auth0、Firebase 等）：
+
+```ts
+// server/plugins/auth.ts
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  getSession: async (event) => {
+    // Your custom auth logic here
+    const session = await myAuthProvider.verify(event);
+    if (!session) return null;
+    return { email: session.email };
+  },
+  publicPaths: ["/api/webhooks"],
+});
+```
+
+## 公共工作区应用 {#public-workspace-apps}
+
+工作区应用程序默认为内部应用程序。让匿名访问者加载公共
+站点同时将管理页面保留在身份验证之后，在
+`apps/<id>/package.json`:
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "audience": "public",
+      "protectedPaths": ["/admin"]
+    }
+  }
+}
+```
+
+对于相反的形状，保留默认的内部受众并仅公开
+特定公共页面：
+
+```json
+{
+  "agent-native": {
+    "workspaceApp": {
+      "publicPaths": ["/", "/share"]
+    }
+  }
+}
+```
+
+`publicPaths`和`protectedPaths`使用前缀匹配，所以`"/admin"`也
+覆盖 `"/admin/users"`。这些设置仅打开页面导航。框架
+路由（`/_agent-native/*`）和自定义API路由（`/api/*`）仍然需要身份验证
+除非应用明确添加这些前缀
+`createAuthPlugin({ publicPaths: [...] })`.
+
+## 会话 API {#session-api}
+
+`getSession(event)` 返回的会话对象具有以下形状：
+
+```ts
+interface AuthSession {
+  email: string; // User's email (primary identifier)
+  userId?: string; // Better Auth user ID
+  token?: string; // Session token
+  name?: string; // Display name from the auth provider, when available
+  image?: string; // Profile image from the auth provider, when available
+  orgId?: string; // Active organization ID
+  orgRole?: string; // Role in active org (owner/admin/member)
+}
+```
+
+在客户端上，使用 `useSession()` 挂钩：
+
+```ts
+import { useSession } from "@agent-native/core/client";
+
+function MyComponent() {
+  const { session, isLoading } = useSession();
+  if (isLoading) return <p>Loading...</p>;
+  if (!session) return <p>Not signed in</p>;
+  return <p>Hello, {session.email}</p>;
+}
+```
+
+## 登录并返回URL {#sign-in-return-url}
+
+具有**公共页面**（共享链接、嵌入、营销页面）的模板通常需要一个页内 CTA 来要求匿名查看者登录并将他们带回到他们所在的页面。该框架为此提供了一个入口点：
+
+```
+/_agent-native/sign-in?return=<same-origin-path>
+```
+
+当匿名查看者点击此 URL 时，将提供框架的登录页面。成功登录（任何流程 - 令牌、电子邮件/密码或 谷歌OAuth）后，查看者将 302 转至 `return`。
+
+`return` 参数被验证为**同源路径**。网络路径引用 (`//evil.com/...`)、绝对 URL、`data:` / `javascript:` 方案和嵌入式控制字符都回退到 `/`。验证的路径是从 URL 解析器重建的，而不是从输入中回显。
+
+**来自 React 组件：**
+
+```tsx
+import { Button } from "@/components/ui/button";
+
+function SignInCta() {
+  const onClick = () => {
+    const ret = window.location.pathname + window.location.search;
+    window.location.href =
+      "/_agent-native/sign-in?return=" + encodeURIComponent(ret);
+  };
+  return <Button onClick={onClick}>Sign in</Button>;
+}
+```
+
+### 已添加书签的私有路径
+
+当匿名用户直接导航到 `/dashboard` 等私有路径时，框架已经在该 URL 处提供登录页面 - 成功登录后，页面重新加载并且用户登陆 `/dashboard`。无需特殊处理；这适用于令牌、电子邮件/密码、**和** 谷歌OAuth。
+
+### 幕后花絮：谷歌OAuth
+
+两个流（显式 `/_agent-native/sign-in` 入口点和书签路径情况）都将返回 URL 线程穿过 OAuth 状态。该状态是 HMAC 签名的，因此在运输过程中无法伪造。在回调中，返回的 URL 在重定向之前被重新验证为同源 - 因此泄漏的签名密钥仍然无法转换为开放重定向预言机。
+
+如果您的模板直接包装 `/_agent-native/google/auth-url`（例如邮件和日历模板这样做，以扩大范围），则接受 `?return=<path>` 查询并通过 `encodeOAuthState` 的选项对象形式转发它：
+
+```ts
+const returnUrl = getQuery(event).return;
+const state = encodeOAuthState({
+  redirectUri,
+  desktop,
+  returnUrl: typeof returnUrl === "string" ? returnUrl : undefined,
+});
+```
+
+默认的 `/_agent-native/google/auth-url` 路由会自动执行此操作 - 仅当您的模板需要自定义 OAuth 处理时才覆盖。
+
+## 环境变量 {#environment-variables}
+
+| 变量                                    | 目的                                                                                                         |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `BETTER_AUTH_SECRET`                    | 更好的身份验证签名密钥（如果未设置，则自动生成）                                                             |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | 在 QA/预览环境中设置为 `1`，让电子邮件/密码注册无需验证即可继续进行；默认情况下跳过本地开发/测试             |
+| `AUTH_DISABLED`                         | 设置为`true`或`1`跳过登录/注册；所有请求都作为一个共享用户运行（仅限本地开发/预览 - 不适用于真实用户的生产） |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | 设置为 `1` 以在新的开发数据库上禁用本地主机自动登录                                                          |
+| `AUTH_MODE`                             | `local` 仅解析 CLI/代理身份（开发用户 `pnpm action` 作为其运行）；绝不绕过浏览器登录                         |
+| `COOKIE_DOMAIN`                         | 选择跨同一数据库子域共享会话 Cookie（请参阅 [Cookie Realms](#cookie-realms)）                                |
+| `AGENT_NATIVE_WORKSPACE`                | `1` 在工作区模式下运行 - 跨工作区应用的一个共享会话领域                                                      |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | 使用 `COOKIE_DOMAIN` 设置以跨第一方子域共享一个身份验证数据库                                                |
+| `OAUTH_STATE_SECRET`                    | 用于 OAuth 状态包络的专用 HMAC 密钥（请参阅 [Security — OAuth State Signing](/docs/security#oauth-state)）   |
+| `GOOGLE_SIGN_IN_CLIENT_ID`              | 用于应用登录的首选低范围 谷歌OAuth 客户端 ID                                                                 |
+| `GOOGLE_SIGN_IN_CLIENT_SECRET`          | 用于应用登录的首选低范围 谷歌OAuth 密钥                                                                      |
+| `GOOGLE_CLIENT_ID`                      | 旧版 Google 登录回退以及用于 Google API 集成的提供商 OAuth 客户端 ID                                         |
+| `GOOGLE_CLIENT_SECRET`                  | 旧版 Google 登录回退以及 Google API 集成的提供商 OAuth 密钥                                                  |
+| `GITHUB_CLIENT_ID`                      | 启用GitHub OAuth                                                                                             |
+| `GITHUB_CLIENT_SECRET`                  | GitHub OAuth秘密                                                                                             |
+| `ACCESS_TOKEN`                          | MCP/连接客户端的静态承载回退；不是浏览器身份验证                                                             |
+| `ACCESS_TOKENS`                         | MCP/connect 客户端的逗号分隔静态承载回退；不是浏览器身份验证                                                 |
+| `A2A_SECRET`                            | JWT 签名的 A2A 跨应用身份验证的共享密钥，以及 MCP OAuth 访问令牌签名（如果存在）                             |

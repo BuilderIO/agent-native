@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -44,22 +45,23 @@ interface SearchBarProps {
   className?: string;
 }
 
-function matchLabel(hit: SearchHit): string {
+function matchLabel(hit: SearchHit, t: ReturnType<typeof useT>): string {
   switch (hit.matchType) {
     case "title-transcript":
-      return "Title + transcript";
+      return t("searchBar.titleTranscript");
     case "title-comment":
-      return "Title + comment";
+      return t("searchBar.titleComment");
     case "transcript":
-      return "Transcript";
+      return t("searchBar.transcript");
     case "comment":
-      return "Comment";
+      return t("searchBar.comment");
     default:
-      return "Title or description";
+      return t("searchBar.titleOrDescription");
   }
 }
 
 export function SearchBar({ className }: SearchBarProps) {
+  const t = useT();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -128,12 +130,12 @@ export function SearchBar({ className }: SearchBarProps) {
                 setOpen(true);
               }}
               onFocus={() => setOpen(true)}
-              placeholder="Search recordings…"
+              placeholder={t("searchBar.placeholder")}
               className="w-full h-8 rounded-md border border-border bg-background ps-8 pe-12 text-xs outline-none focus:ring-2 focus:ring-primary/30"
             />
             {query ? (
               <button
-                aria-label="Clear search"
+                aria-label={t("searchBar.clear")}
                 onClick={() => {
                   setQuery("");
                   inputRef.current?.focus();
@@ -159,12 +161,13 @@ export function SearchBar({ className }: SearchBarProps) {
         >
           {isFetching && results.length === 0 && (
             <div className="p-4 text-center text-xs text-muted-foreground">
-              Searching…
+              {t("searchBar.searching")}
             </div>
           )}
           {!isFetching && results.length === 0 && (
             <div className="p-4 text-center text-xs text-muted-foreground">
-              No matches for <span className="font-medium">{query}</span>
+              {t("searchBar.noMatchesFor")}{" "}
+              <span className="font-medium">{query}</span>
             </div>
           )}
           {results.length > 0 && (
@@ -198,7 +201,7 @@ export function SearchBar({ className }: SearchBarProps) {
                     )}
                     <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground/80">
                       <span className="uppercase tracking-wide">
-                        {matchLabel(hit)}
+                        {matchLabel(hit, t)}
                       </span>
                       {typeof hit.matchMs === "number" ? (
                         <>

@@ -43,7 +43,6 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 
-import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog, loadI18nMessages } from "./i18n";
 
 import stylesheet from "./global.css?url";
@@ -349,7 +348,8 @@ function AppContent() {
         <CommandMenu
           open={cmdkOpen}
           onOpenChange={setCmdkOpen}
-          changelog={changelog}
+          changelog={t("settings.changelogMarkdown")}
+          changelogLabel={t("settings.whatsNew")}
           changelogKey="clips"
         >
           <CommandMenu.Group heading={t("root.commandActions")}>

@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client";
 import {
   IconX,
   IconCheck,
@@ -28,7 +28,7 @@ const PROVIDERS: Provider[] = [
   {
     id: "turso",
     name: "Turso",
-    description: "SQLite at the edge",
+    description: "cloudSqliteEdge",
     urlPrefix: "libsql://",
     needsAuthToken: true,
     steps: [
@@ -42,7 +42,7 @@ const PROVIDERS: Provider[] = [
   {
     id: "neon",
     name: "Neon",
-    description: "Serverless Postgres",
+    description: "cloudServerlessPostgres",
     urlPrefix: "postgres://",
     needsAuthToken: false,
     steps: [
@@ -56,7 +56,7 @@ const PROVIDERS: Provider[] = [
   {
     id: "supabase",
     name: "Supabase",
-    description: "Open source Firebase alternative",
+    description: "cloudOpenSourceFirebaseAlternative",
     urlPrefix: "postgres://",
     needsAuthToken: false,
     steps: [
@@ -69,8 +69,8 @@ const PROVIDERS: Provider[] = [
   },
   {
     id: "d1",
-    name: "Cloudflare D1",
-    description: "SQLite on Cloudflare's edge",
+    name: "Cloudflare D1", // i18n-ignore stable provider name
+    description: "cloudCloudflareSqliteEdge",
     urlPrefix: "d1://",
     needsAuthToken: true,
     steps: [
@@ -89,6 +89,7 @@ export function CloudUpgrade({
   description = "To share content publicly, connect a cloud database.",
   onClose,
 }: CloudUpgradeProps) {
+  const t = useT();
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null);
   const [dbUrl, setDbUrl] = useState("");
   const [authToken, setAuthToken] = useState("");
@@ -105,70 +106,29 @@ export function CloudUpgrade({
     connectingRef.current = true;
 
     if (!dbUrl.trim()) {
-      setErrorMsg("Database URL is required");
+      setErrorMsg(
+        "Database settings are deployment-level. Configure DATABASE_URL with your host and redeploy the app.",
+      );
       setStatus("error");
       connectingRef.current = false;
       return;
     }
 
     try {
-      setStatus("saving");
+      setStatus("error");
       setErrorMsg("");
-
-      const vars: Array<{ key: string; value: string }> = [
-        { key: "DATABASE_URL", value: dbUrl.trim() },
-      ];
-      if (authToken.trim()) {
-        vars.push({ key: "DATABASE_AUTH_TOKEN", value: authToken.trim() });
-      }
-
-      const saveRes = await fetch(agentNativePath("/_agent-native/env-vars"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars }),
-      });
-
-      if (!saveRes.ok) {
-        const data = await saveRes.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save credentials");
-      }
-
-      // Poll db-health until it returns ok
-      setStatus("polling");
-      let ok = false;
-      for (let i = 0; i < 30; i++) {
-        await new Promise((r) => setTimeout(r, 1000));
-        try {
-          const healthRes = await fetch(
-            agentNativePath("/_agent-native/actions/db-health"),
-          );
-          const health = await healthRes.json();
-          if (health.ok && health.local === false) {
-            ok = true;
-            break;
-          }
-        } catch {
-          // Keep polling
-        }
-      }
-
-      if (!ok) {
-        throw new Error(
-          "Database connection failed after 30 attempts. Check your credentials.",
-        );
-      }
-
-      setStatus("success");
-      setTimeout(() => {
-        window.location.reload();
-      }, 1500);
+      throw new Error(
+        "Database settings are deployment-level. Configure DATABASE_URL and DATABASE_AUTH_TOKEN with your host, redeploy, then check sharing again.",
+      );
     } catch (e) {
-      setErrorMsg(e instanceof Error ? e.message : "Connection failed");
+      setErrorMsg(
+        e instanceof Error ? e.message : t("raw.cloudConnectionFailed"),
+      );
       setStatus("error");
     } finally {
       connectingRef.current = false;
     }
-  }, [dbUrl, authToken]);
+  }, [dbUrl, authToken, t]);
 
   const isConnecting = status === "saving" || status === "polling";
 
@@ -218,7 +178,7 @@ export function CloudUpgrade({
               {p.name}
             </span>
             <span className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-              {p.description}
+              {t(`raw.${p.description}`)}
             </span>
           </button>
         ))}
@@ -228,7 +188,7 @@ export function CloudUpgrade({
       {provider && (
         <div className="mb-5 rounded-lg border border-zinc-100 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-900">
           <p className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-            Setup steps
+            {t("raw.cloudSetupSteps")}
           </p>
           <ol className="space-y-1">
             {provider.steps.map((step, i) => (
@@ -274,7 +234,7 @@ export function CloudUpgrade({
             </label>
             <input
               type="password"
-              placeholder="Auth token"
+              placeholder={t("raw.cloudAuthToken")}
               value={authToken}
               onChange={(e) => setAuthToken(e.target.value)}
               disabled={isConnecting}
@@ -295,7 +255,7 @@ export function CloudUpgrade({
       {status === "success" && (
         <div className="mt-3 flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
           <IconCheck className="h-3.5 w-3.5" />
-          <span>Connected successfully. Reloading...</span>
+          <span>{t("raw.cloudConnectedReloading")}</span>
         </div>
       )}
 
@@ -317,7 +277,7 @@ export function CloudUpgrade({
         ) : (
           <>
             <IconDatabase className="h-4 w-4" />
-            <span>Test & Connect</span>
+            <span>{t("raw.cloudTestConnect")}</span>
           </>
         )}
       </button>

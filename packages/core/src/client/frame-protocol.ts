@@ -84,6 +84,10 @@ export interface PresentationModeMessage {
   data: { active: boolean };
 }
 
+export interface DesignCloseMessage {
+  type: "design:close";
+}
+
 export type AppToFrameMessage =
   | AppReadyMessage
   | SubmitChatMessage
@@ -97,7 +101,8 @@ export type AppToFrameMessage =
   | EnterStyleEditingMessage
   | EnterTextEditingMessage
   | ExitSelectionModeMessage
-  | PresentationModeMessage;
+  | PresentationModeMessage
+  | DesignCloseMessage;
 
 // ---------------------------------------------------------------------------
 // Messages FROM frame TO app
@@ -138,13 +143,23 @@ export interface SidebarModeMessage {
   };
 }
 
+export interface DesignInitMessage {
+  type: "design:init";
+  data: {
+    previewUrl: string;
+    themeVars?: Record<string, string>;
+    context?: { projectId?: string; branchId?: string; orgId?: string };
+  };
+}
+
 export type FrameToAppMessage =
   | FrameOriginMessage
   | ChatRunningMessage
   | UserInfoMessage
   | CodeCompleteMessage
   | SidebarModeMessage
-  | PresentationModeMessage;
+  | PresentationModeMessage
+  | DesignInitMessage;
 
 // ---------------------------------------------------------------------------
 // All message types

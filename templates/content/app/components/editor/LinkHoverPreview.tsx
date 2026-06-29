@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconUnlink, IconExternalLink, IconPencil } from "@tabler/icons-react";
 import type { Editor } from "@tiptap/react";
 import { useEffect, useState, useRef } from "react";
@@ -17,6 +18,7 @@ export function LinkHoverPreview({
   editor,
   editable = true,
 }: LinkHoverPreviewProps) {
+  const t = useT();
   const [hoveredLink, setHoveredLink] = useState<{
     url: string;
     rect: DOMRect;
@@ -181,14 +183,14 @@ export function LinkHoverPreview({
                 handleCancelEdit();
               }
             }}
-            placeholder="Paste link..."
+            placeholder={t("editor.pasteLink")}
             className="flex-1 bg-transparent border-none outline-none text-xs px-2 py-1 placeholder:text-muted-foreground"
           />
           <button
             onClick={handleApplyEdit}
             className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 px-2 py-1 cursor-pointer"
           >
-            Apply
+            {t("editor.apply")}
           </button>
         </div>
       ) : (
@@ -212,7 +214,7 @@ export function LinkHoverPreview({
                 <IconExternalLink className="h-3.5 w-3.5" />
               </a>
             </TooltipTrigger>
-            <TooltipContent>Open link</TooltipContent>
+            <TooltipContent>{t("editor.openLink")}</TooltipContent>
           </Tooltip>
           {editable ? (
             <>
@@ -225,7 +227,7 @@ export function LinkHoverPreview({
                     <IconPencil className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Edit link</TooltipContent>
+                <TooltipContent>{t("editor.editLink")}</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -236,7 +238,7 @@ export function LinkHoverPreview({
                     <IconUnlink className="h-3.5 w-3.5" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>Remove link</TooltipContent>
+                <TooltipContent>{t("editor.removeLink")}</TooltipContent>
               </Tooltip>
             </>
           ) : null}

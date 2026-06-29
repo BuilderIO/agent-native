@@ -217,6 +217,31 @@ describe("getOnboardingHtml", () => {
     );
   });
 
+  it("shows a quiet local-files escape hatch on hosted Plan signup", () => {
+    const html = getOnboardingHtml({
+      requestHost: "plan.agent-native.com",
+    });
+
+    expect(html).toContain('class="signup-local-mode-note"');
+    expect(html).toContain(
+      "Prefer no account or self-hosting? Switch /visual-plan to local files only:",
+    );
+    expect(html).toContain(
+      "npx @agent-native/core@latest skills add visual-plan --mode local-files --scope user",
+    );
+    expect(html).toContain('id="copy-signup-local-mode"');
+    expect(html).toContain("function __anCopySignupLocalModeCommand()");
+  });
+
+  it("keeps the local-files escape hatch off other hosted signup pages", () => {
+    const html = getOnboardingHtml({
+      requestHost: "calendar.agent-native.com",
+    });
+
+    expect(html).not.toContain('id="signup-local-mode-note"');
+    expect(html).not.toContain("skills add visual-plan --mode local-files");
+  });
+
   it("normalizes sign-in return targets before redirect and preserves hashes", () => {
     const html = getOnboardingHtml();
 

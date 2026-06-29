@@ -1,5 +1,5 @@
 /**
- * Isomorphic Agent Env Utility
+ * Isomorphic Agent Key Utility
  *
  * Works in both browser and Node.js contexts:
  * - Browser: sends via postMessage to the parent window
@@ -18,7 +18,7 @@ const isBrowser =
   typeof window !== "undefined" && typeof window.postMessage === "function";
 
 /**
- * Send env vars to the host (Builder cloud or Claude frame).
+ * Send key/value settings to the host for scoped secret persistence.
  * Automatically detects environment (browser vs Node.js) and uses the right transport.
  */
 function setVars(vars: EnvVar[]): void {
@@ -41,6 +41,6 @@ function setVars(vars: EnvVar[]): void {
 }
 
 export const agentEnv = {
-  /** Send environment variables to the host for persistence */
+  /** Send key/value settings to the host for scoped secret persistence. */
   setVars,
 };

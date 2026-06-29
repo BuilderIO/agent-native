@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   DndContext,
   closestCenter,
@@ -44,11 +45,11 @@ import {
 
 // ─── Animation type options ───────────────────────────────────────────────────
 
-const ANIM_TYPES: { value: AnimationType; label: string }[] = [
-  { value: "appear", label: "Appear" },
-  { value: "fade", label: "Fade" },
-  { value: "slide-up", label: "Slide Up" },
-  { value: "zoom", label: "Zoom" },
+const ANIM_TYPES: { value: AnimationType; labelKey: string }[] = [
+  { value: "appear", labelKey: "animations.appear" },
+  { value: "fade", labelKey: "animations.fade" },
+  { value: "slide-up", labelKey: "animations.slideUp" },
+  { value: "zoom", labelKey: "animations.zoom" },
 ];
 
 // ─── Sortable animation item ──────────────────────────────────────────────────
@@ -68,6 +69,7 @@ function SortableAnimationItem({
   onRemove,
   onChangeType,
 }: SortableItemProps) {
+  const t = useT();
   const {
     attributes,
     listeners,
@@ -106,7 +108,8 @@ function SortableAnimationItem({
 
       {/* Element preview */}
       <span className="flex-1 text-[11px] text-muted-foreground truncate min-w-0">
-        {preview || `Element ${anim.elementIndex + 1}`}
+        {preview ||
+          t("animations.elementFallback", { index: anim.elementIndex + 1 })}
       </span>
 
       {/* Type selector */}
@@ -118,9 +121,9 @@ function SortableAnimationItem({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {ANIM_TYPES.map((t) => (
-            <SelectItem key={t.value} value={t.value}>
-              {t.label}
+          {ANIM_TYPES.map((type) => (
+            <SelectItem key={type.value} value={type.value}>
+              {t(type.labelKey)}
             </SelectItem>
           ))}
         </SelectContent>
@@ -151,6 +154,7 @@ export function AnimationsPanel({
   onUpdateSlide,
   onClose,
 }: AnimationsPanelProps) {
+  const t = useT();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
   );
@@ -244,12 +248,12 @@ export function AnimationsPanel({
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
         <span className="text-xs font-medium text-foreground/90">
-          Animations
+          {t("animations.title")}
         </span>
         <button
           onClick={onClose}
           className="text-muted-foreground/70 hover:text-muted-foreground"
-          aria-label="Close animations panel"
+          aria-label={t("animations.close")}
         >
           <IconX className="w-3.5 h-3.5" />
         </button>
@@ -259,9 +263,9 @@ export function AnimationsPanel({
       <div className="flex-1 overflow-y-auto">
         {animations.length === 0 ? (
           <div className="px-3 py-6 text-center text-[11px] text-muted-foreground/70 leading-relaxed">
-            No animations yet.
+            {t("animations.emptyTitle")}
             <br />
-            Add elements below to reveal them on click.
+            {t("animations.emptyDescription")}
           </div>
         ) : (
           <div className="px-2 py-2">
@@ -291,7 +295,7 @@ export function AnimationsPanel({
                 onClick={clearAll}
                 className="mt-1 w-full text-[10px] text-muted-foreground/70 hover:text-muted-foreground py-1"
               >
-                Clear all
+                {t("animations.clearAll")}
               </button>
             )}
           </div>
@@ -302,14 +306,14 @@ export function AnimationsPanel({
           <div className="border-t border-border px-2 py-2">
             <div className="flex items-center justify-between mb-1.5 px-1">
               <span className="text-[9px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-                Elements
+                {t("animations.elements")}
               </span>
               {unaddedElements.length > 0 && (
                 <button
                   onClick={autoFill}
                   className="flex items-center gap-0.5 text-[9px] text-[#609FF8]/70 hover:text-[#609FF8]"
                 >
-                  Auto-fill
+                  {t("animations.autoFill")}
                 </button>
               )}
             </div>
@@ -338,7 +342,7 @@ export function AnimationsPanel({
 
         {availableElements.length === 0 && (
           <div className="px-3 py-4 text-center text-[11px] text-muted-foreground/70">
-            No animatable elements detected on this slide.
+            {t("animations.noAnimatableElements")}
           </div>
         )}
       </div>

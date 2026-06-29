@@ -212,6 +212,7 @@ const featureCloudRows = [
         labelKey: "mcpApps",
         className: "text-xl uppercase opacity-[0.20]",
       },
+      { labelKey: "generativeUi", className: "text-4xl opacity-[0.76]" },
       { labelKey: "toolCalls", className: "text-2xl opacity-[0.26]" },
       {
         labelKey: "agentSidebar",
@@ -820,6 +821,22 @@ export default defineAction({
 
         <BatteriesIncludedCloud />
 
+        {/* Bidirectional Awareness */}
+        <section className="border-t border-[var(--docs-border)] px-6 py-20">
+          <div className="mb-12 text-center">
+            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+              {t("home.connected.title")}
+            </h2>
+            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+              {t("home.connected.body")}
+            </p>
+          </div>
+
+          <div className="mx-auto max-w-[1200px]">
+            <BidirectionalTabs />
+          </div>
+        </section>
+
         {/* Try it with a skill */}
         <section className="border-t border-[var(--docs-border)] px-6 py-16">
           <div className="mx-auto grid min-w-0 max-w-[1200px] gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.82fr)] lg:items-center">
@@ -883,22 +900,6 @@ export default defineAction({
             </div>
 
             <AgentNativeDemoVideo className="aspect-square w-full" />
-          </div>
-        </section>
-
-        {/* Bidirectional Awareness */}
-        <section className="border-t border-[var(--docs-border)] px-6 py-20">
-          <div className="mb-12 text-center">
-            <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
-              {t("home.connected.title")}
-            </h2>
-            <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
-              {t("home.connected.body")}
-            </p>
-          </div>
-
-          <div className="mx-auto max-w-[1200px]">
-            <BidirectionalTabs />
           </div>
         </section>
 

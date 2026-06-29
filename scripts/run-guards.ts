@@ -11,6 +11,7 @@ const guards = [
   "guard:google-auth-redirects",
   "guard:db-tool-scoping",
   "guard:template-list",
+  "guard:netlify-private-env",
   "guard:workspace-skills",
   "guard:public-packages",
   "guard:no-generated-artifacts",

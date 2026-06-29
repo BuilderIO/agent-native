@@ -89,6 +89,9 @@ vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: exec }),
   isConnectionError: () => false,
   intType: () => "INTEGER",
+  // isPostgres is false in tests so the SQLite branch runs (no lock plumbing
+  // needed) and the ddl-guard helpers imported by the store become no-ops.
+  isPostgres: () => false,
 }));
 
 const store = await import("./identity-sso-store.js");

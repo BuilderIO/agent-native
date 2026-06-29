@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import {
   IconChevronRight,
   IconFolder,
@@ -75,12 +76,13 @@ export function FolderTree({
   buildPath,
   activeFolderId,
 }: FolderTreeProps) {
+  const t = useT();
   const tree = useMemo(() => buildTree(folders), [folders]);
 
   if (folders.length === 0) {
     return (
       <p className="px-2 py-1 text-[11px] text-muted-foreground/70">
-        No folders yet
+        {t("folderTree.noFolders")}
       </p>
     );
   }
@@ -119,6 +121,7 @@ function FolderItem({
   organizationId,
   spaceId,
 }: FolderItemProps) {
+  const t = useT();
   const [open, setOpen] = useState(true);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(node.name);
@@ -184,7 +187,7 @@ function FolderItem({
               setRenameOpen(true);
             }}
           >
-            <IconEdit className="h-3.5 w-3.5 me-2" /> Rename
+            <IconEdit className="h-3.5 w-3.5 me-2" /> {t("folderTree.rename")}
           </ContextMenuItem>
           <ContextMenuItem
             onSelect={() => {
@@ -192,14 +195,15 @@ function FolderItem({
               setNewOpen(true);
             }}
           >
-            <IconFolderPlus className="h-3.5 w-3.5 me-2" /> New subfolder
+            <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
+            {t("folderTree.newSubfolder")}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem
             onSelect={() => setConfirmDelete(true)}
             className="text-destructive"
           >
-            <IconTrash className="h-3.5 w-3.5 me-2" /> Delete
+            <IconTrash className="h-3.5 w-3.5 me-2" /> {t("folderTree.delete")}
           </ContextMenuItem>
         </ContextMenuContent>
       </ContextMenu>
@@ -224,7 +228,7 @@ function FolderItem({
       <AlertDialog open={renameOpen} onOpenChange={setRenameOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Rename folder</AlertDialogTitle>
+            <AlertDialogTitle>{t("folderTree.renameFolder")}</AlertDialogTitle>
           </AlertDialogHeader>
           <input
             autoFocus
@@ -233,7 +237,7 @@ function FolderItem({
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 const name = renameValue.trim();
@@ -241,15 +245,15 @@ function FolderItem({
                 renameFolder.mutate(
                   { id: node.id, name },
                   {
-                    onSuccess: () => toast.success("Folder renamed"),
+                    onSuccess: () => toast.success(t("folderTree.renamed")),
                     onError: (err: any) =>
-                      toast.error(err?.message ?? "Rename failed"),
+                      toast.error(err?.message ?? t("folderTree.renameFailed")),
                   },
                 );
                 setRenameOpen(false);
               }}
             >
-              Save
+              {t("common.save")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -259,20 +263,20 @@ function FolderItem({
       <AlertDialog open={newOpen} onOpenChange={setNewOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>New subfolder</AlertDialogTitle>
+            <AlertDialogTitle>{t("folderTree.newSubfolder")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Create a folder inside "{node.name}".
+              {t("folderTree.createInside", { name: node.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <input
             autoFocus
             value={newValue}
             onChange={(e) => setNewValue(e.target.value)}
-            placeholder="Folder name"
+            placeholder={t("folderTree.folderName")}
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 const name = newValue.trim();
@@ -285,15 +289,15 @@ function FolderItem({
                     parentId: node.id,
                   },
                   {
-                    onSuccess: () => toast.success("Folder created"),
+                    onSuccess: () => toast.success(t("folderTree.created")),
                     onError: (err: any) =>
-                      toast.error(err?.message ?? "Create failed"),
+                      toast.error(err?.message ?? t("folderTree.createFailed")),
                   },
                 );
                 setNewOpen(false);
               }}
             >
-              Create
+              {t("common.create")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -303,30 +307,28 @@ function FolderItem({
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete folder?</AlertDialogTitle>
+            <AlertDialogTitle>{t("folderTree.deleteFolder")}</AlertDialogTitle>
             <AlertDialogDescription>
-              Recordings inside will move to the parent scope (library root or
-              the parent folder). Nested subfolders are removed. This cannot be
-              undone.
+              {t("folderTree.deleteDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
                 deleteFolder.mutate(
                   { id: node.id },
                   {
-                    onSuccess: () => toast.success("Folder deleted"),
+                    onSuccess: () => toast.success(t("folderTree.deleted")),
                     onError: (err: any) =>
-                      toast.error(err?.message ?? "Delete failed"),
+                      toast.error(err?.message ?? t("folderTree.deleteFailed")),
                   },
                 );
                 setConfirmDelete(false);
               }}
             >
-              Delete
+              {t("folderTree.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

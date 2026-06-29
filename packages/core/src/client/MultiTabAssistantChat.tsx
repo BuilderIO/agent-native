@@ -39,6 +39,10 @@ import {
   type AssistantChatHandle,
 } from "./AssistantChat.js";
 import {
+  buildChatModelGroups,
+  type EngineModelGroup,
+} from "./chat-model-groups.js";
+import {
   Popover,
   PopoverAnchor,
   PopoverContent,
@@ -59,13 +63,6 @@ import {
   type ChatThreadSummary,
 } from "./use-chat-threads.js";
 import { cn } from "./utils.js";
-
-interface EngineModelGroup {
-  engine: string;
-  label: string;
-  models: string[];
-  configured: boolean;
-}
 
 interface ModelSelection {
   model: string;
@@ -428,16 +425,24 @@ function HistoryPopover({
   openTabIds,
   activeThreadId,
   currentScope,
+  hasMoreThreads = false,
+  isLoadingMoreThreads = false,
+  loadError,
   onSelect,
   onClose,
+  onLoadMore,
   onSearch,
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
   activeThreadId: string | null;
   currentScope?: ChatThreadScope | null;
+  hasMoreThreads?: boolean;
+  isLoadingMoreThreads?: boolean;
+  loadError?: string | null;
   onSelect: (id: string) => void;
   onClose: () => void;
+  onLoadMore?: () => void;
   onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
 }) {
   const [search, setSearch] = useState("");
@@ -542,7 +547,11 @@ function HistoryPopover({
           />
         </div>
         <div className="max-h-64 overflow-y-auto py-1">
-          {isSearching ? (
+          {loadError && !search.trim() ? (
+            <div className="px-3 py-4 text-xs text-amber-500 text-center">
+              {loadError}
+            </div>
+          ) : isSearching ? (
             <div className="px-3 py-4 text-xs text-muted-foreground text-center">
               Searching...
             </div>
@@ -598,6 +607,16 @@ function HistoryPopover({
                 onClose,
               ),
             )
+          )}
+          {!search.trim() && hasMoreThreads && (
+            <button
+              type="button"
+              onClick={() => onLoadMore?.()}
+              disabled={isLoadingMoreThreads}
+              className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
+            >
+              {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
+            </button>
           )}
         </div>
       </PopoverContent>
@@ -1034,7 +1053,11 @@ export function MultiTabAssistantChat({
     saveThreadData,
     generateTitle,
     searchThreads,
+    loadMoreThreads,
     refreshThreads,
+    hasMoreThreads,
+    isLoadingMoreThreads,
+    threadsLoadError,
     isNewThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
@@ -1221,92 +1244,13 @@ export function MultiTabAssistantChat({
           enginesData.current?.engine;
         const currentModel: string | undefined = enginesData.current?.model;
 
-        let groups: EngineModelGroup[];
-
-        if (builderConnected) {
-          // When Builder.io is connected, show all Builder-supported
-          // models grouped by provider — all route through the builder
-          // engine so no individual API keys are needed.
-          const builderEngine = enginesData.engines.find(
-            (e: any) => e.name === "builder",
-          );
-          const builderModels: string[] = builderEngine?.supportedModels ?? [];
-          const claude = builderModels.filter((m: string) =>
-            m.startsWith("claude-"),
-          );
-          const openai = builderModels.filter((m: string) =>
-            m.startsWith("gpt-"),
-          );
-          const gemini = builderModels.filter((m: string) =>
-            m.startsWith("gemini-"),
-          );
-
-          groups = [
-            ...(claude.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "Claude",
-                    models: claude,
-                    configured: true,
-                  },
-                ]
-              : []),
-            ...(openai.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "OpenAI",
-                    models: openai,
-                    configured: true,
-                  },
-                ]
-              : []),
-            ...(gemini.length
-              ? [
-                  {
-                    engine: "builder",
-                    label: "Gemini",
-                    models: gemini,
-                    configured: true,
-                  },
-                ]
-              : []),
-          ];
-        } else {
-          // No Builder connection — show SDK engines this app can run.
-          const allowedEngines = new Set([
-            "anthropic",
-            "ai-sdk:openai",
-            "ai-sdk:google",
-          ]);
-          groups = enginesData.engines
-            .filter(
-              (e: any) =>
-                allowedEngines.has(e.name) && e.packageInstalled !== false,
-            )
-            .map((e: any) => {
-              const models = [...e.supportedModels];
-              if (
-                e.name === currentEngineName &&
-                currentModel &&
-                !models.includes(currentModel)
-              ) {
-                models.unshift(currentModel);
-              }
-              return {
-                engine: e.name,
-                label: e.label,
-                models,
-                configured:
-                  e.requiredEnvVars.length === 0 ||
-                  e.requiredEnvVars.some((v: string) =>
-                    configuredKeys.has(v),
-                  ) ||
-                  e.name === currentEngineName,
-              };
-            });
-        }
+        const groups = buildChatModelGroups({
+          engines: enginesData.engines,
+          configuredKeys,
+          builderConnected,
+          currentEngineName,
+          currentModel,
+        });
         setAvailableModels(groups);
         setDefaultModel(currentModel ?? DEFAULT_MODEL);
       })
@@ -2649,8 +2593,12 @@ export function MultiTabAssistantChat({
             openTabIds={new Set(openTabIds)}
             activeThreadId={activeThreadId}
             currentScope={scope}
+            hasMoreThreads={hasMoreThreads}
+            isLoadingMoreThreads={isLoadingMoreThreads}
+            loadError={threadsLoadError}
             onSelect={openFromHistory}
             onClose={() => setShowHistory(false)}
+            onLoadMore={loadMoreThreads}
             onSearch={searchThreads}
           />
         )}

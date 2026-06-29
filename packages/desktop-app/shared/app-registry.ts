@@ -1,5 +1,6 @@
 import {
   DEFAULT_APPS as SHARED_DEFAULT_APPS,
+  TEMPLATE_APPS as SHARED_TEMPLATE_APPS,
   getTemplate as getSharedTemplate,
   getTemplateGatewayAppUrl as getSharedTemplateGatewayAppUrl,
   type AppConfig,
@@ -7,34 +8,53 @@ import {
 
 const DESKTOP_DEFAULT_EXCLUDED_APP_IDS = new Set(["starter"]);
 const DEFAULT_DESKTOP_TEMPLATE_GATEWAY_URL = "http://127.0.0.1:8080";
+const DESKTOP_APP_ICON_OVERRIDES: Partial<Record<string, string>> = {
+  clips: "VideoPlus",
+};
 const DESKTOP_DEFAULT_APP_ORDER = [
+  "clips",
+  "plan",
   "design",
   "content",
-  "plan",
   "slides",
-  "clips",
-  "brain",
   "analytics",
   "mail",
-  "dispatch",
   "forms",
-  "calendar",
+  "brain",
   "assets",
+  "calendar",
+  "dispatch",
   "chat",
 ];
 const DESKTOP_DEFAULT_APP_ORDER_INDEX = new Map(
   DESKTOP_DEFAULT_APP_ORDER.map((id, index) => [id, index]),
 );
 
-export const DESKTOP_DEFAULT_APPS = SHARED_DEFAULT_APPS.filter(
-  (app) => !DESKTOP_DEFAULT_EXCLUDED_APP_IDS.has(app.id),
-).sort((a, b) => {
-  const aIndex =
-    DESKTOP_DEFAULT_APP_ORDER_INDEX.get(a.id) ?? Number.MAX_SAFE_INTEGER;
-  const bIndex =
-    DESKTOP_DEFAULT_APP_ORDER_INDEX.get(b.id) ?? Number.MAX_SAFE_INTEGER;
-  return aIndex - bIndex;
-});
+function applyDesktopAppOverrides<T extends AppConfig>(app: T): T {
+  const icon = DESKTOP_APP_ICON_OVERRIDES[app.id];
+  if (!icon || app.icon === icon) return app;
+  return { ...app, icon };
+}
+
+export function sortDesktopApps<T extends Pick<AppConfig, "id">>(
+  apps: T[],
+): T[] {
+  return [...apps].sort((a, b) => {
+    const aIndex =
+      DESKTOP_DEFAULT_APP_ORDER_INDEX.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+    const bIndex =
+      DESKTOP_DEFAULT_APP_ORDER_INDEX.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+    return aIndex - bIndex;
+  });
+}
+
+export const DESKTOP_DEFAULT_APPS = sortDesktopApps(
+  SHARED_DEFAULT_APPS.filter(
+    (app) => !DESKTOP_DEFAULT_EXCLUDED_APP_IDS.has(app.id),
+  ).map(applyDesktopAppOverrides),
+);
+
+export const TEMPLATE_APPS = SHARED_TEMPLATE_APPS.map(applyDesktopAppOverrides);
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
@@ -94,7 +114,6 @@ export {
   type AppConfig,
   APP_REGISTRY,
   DEFAULT_APPS,
-  TEMPLATE_APPS,
   FRAME_PORT,
   getAppUrl,
   getTemplateGatewayAppUrl,

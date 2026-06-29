@@ -19,6 +19,7 @@ import {
   writeAppState,
 } from "@agent-native/core/application-state";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
 import { MAX_UPLOAD_BYTES as MAX_RECORDING_UPLOAD_BYTES } from "@shared/upload-limits.js";
 import { and, eq } from "drizzle-orm";
 import {
@@ -35,7 +36,10 @@ import {
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
-import { getEventOwnerContext } from "../../../../lib/recordings.js";
+import {
+  getEventOwnerContext,
+  ownerEmailMatches,
+} from "../../../../lib/recordings.js";
 import {
   shouldRejectVideoUploadWithoutStorage,
   STORAGE_SETUP_REQUIRED_REASON,
@@ -156,7 +160,7 @@ export default defineEventHandler(async (event: H3Event) => {
       .where(
         and(
           eq(schema.recordings.id, recordingId),
-          eq(schema.recordings.ownerEmail, ownerEmail),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
         ),
       );
 
@@ -402,9 +406,9 @@ export default defineEventHandler(async (event: H3Event) => {
       try {
         const result = await finalizeRecording.run({
           id: recordingId,
-          durationMs: query.durationMs ? Number(query.durationMs) : undefined,
-          width: query.width ? Number(query.width) : undefined,
-          height: query.height ? Number(query.height) : undefined,
+          durationMs: normalizeChunkUploadNumber(query.durationMs),
+          width: normalizeChunkUploadNumber(query.width),
+          height: normalizeChunkUploadNumber(query.height),
           hasAudio:
             query.hasAudio === undefined
               ? undefined

@@ -1,4 +1,4 @@
-import { useActionMutation } from "@agent-native/core/client";
+import { useActionMutation, useT } from "@agent-native/core/client";
 import { IconDots, IconDownload, IconTrash } from "@tabler/icons-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
@@ -25,40 +25,41 @@ import {
 interface DeleteRecordingMenuProps {
   recordingId: string;
   onDeleted?: () => void;
-  /** Whether to show the Delete item. Defaults to true. */
+}
+
+interface RecordingOptionsMenuProps extends DeleteRecordingMenuProps {
   canDelete?: boolean;
-  /** Whether to show the Download item. Requires `videoUrl`. */
   canDownload?: boolean;
-  videoUrl?: string | null;
-  recordingTitle?: string | null;
-  videoFormat?: string | null;
+  downloadPending?: boolean;
+  downloadLabel?: string;
+  downloadingLabel?: string;
+  onDownload?: () => void;
 }
 
-function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-z0-9-_]+/gi, "-").toLowerCase() || "clip";
-}
-
-export function DeleteRecordingMenu({
+export function RecordingOptionsMenu({
   recordingId,
   onDeleted,
   canDelete = true,
   canDownload = false,
-  videoUrl,
-  recordingTitle,
-  videoFormat,
-}: DeleteRecordingMenuProps) {
+  downloadPending = false,
+  downloadLabel,
+  downloadingLabel,
+  onDownload,
+}: RecordingOptionsMenuProps) {
+  const t = useT();
   const [open, setOpen] = useState(false);
-  const [downloading, setDownloading] = useState(false);
+  const showDownload = canDownload && Boolean(onDownload);
+  const showDelete = canDelete;
   const trashRecording = useActionMutation<any, { id: string }>(
     "trash-recording",
     {
       onSuccess: () => {
-        toast.success("Clip moved to trash");
+        toast.success(t("deleteRecordingMenu.movedToTrash"));
         setOpen(false);
         onDeleted?.();
       },
       onError: (err: any) =>
-        toast.error(err?.message ?? "Failed to delete clip"),
+        toast.error(err?.message ?? t("deleteRecordingMenu.deleteFailed")),
     },
   );
 
@@ -67,31 +68,7 @@ export function DeleteRecordingMenu({
     trashRecording.mutate({ id: recordingId });
   }, [recordingId, trashRecording]);
 
-  const handleDownload = useCallback(async () => {
-    if (!videoUrl || downloading) return;
-    setDownloading(true);
-    try {
-      const res = await fetch(videoUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${sanitizeFilename(recordingTitle ?? "clip")}.${videoFormat ?? "mp4"}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch {
-      // Cross-origin URLs that block fetch still open in a new tab so the
-      // viewer can save the file from there.
-      window.open(videoUrl, "_blank", "noopener,noreferrer");
-    } finally {
-      setDownloading(false);
-    }
-  }, [videoUrl, recordingTitle, videoFormat, downloading]);
-
-  const showDownload = canDownload && Boolean(videoUrl);
+  if (!showDownload && !showDelete) return null;
 
   return (
     <AlertDialog
@@ -106,7 +83,7 @@ export function DeleteRecordingMenu({
             variant="ghost"
             size="icon"
             className="shrink-0"
-            aria-label="Clip options"
+            aria-label={t("deleteRecordingMenu.clipOptions")}
           >
             <IconDots className="h-4 w-4" />
           </Button>
@@ -114,18 +91,17 @@ export function DeleteRecordingMenu({
         <DropdownMenuContent align="end" className="w-44">
           {showDownload ? (
             <DropdownMenuItem
-              onSelect={(event) => {
-                event.preventDefault();
-                void handleDownload();
-              }}
-              disabled={downloading}
+              onSelect={() => onDownload?.()}
+              disabled={downloadPending}
             >
-              <IconDownload className="mr-2 h-4 w-4" />
-              {downloading ? "Downloading…" : "Download video"}
+              <IconDownload className="me-2 h-4 w-4" />
+              {downloadPending
+                ? (downloadingLabel ?? t("sharePage.downloading"))
+                : (downloadLabel ?? t("sharePage.downloadMp4"))}
             </DropdownMenuItem>
           ) : null}
-          {showDownload && canDelete ? <DropdownMenuSeparator /> : null}
-          {canDelete ? (
+          {showDownload && showDelete ? <DropdownMenuSeparator /> : null}
+          {showDelete ? (
             <DropdownMenuItem
               onSelect={(event) => {
                 event.preventDefault();
@@ -133,36 +109,45 @@ export function DeleteRecordingMenu({
               }}
               className="text-destructive focus:text-destructive"
             >
-              <IconTrash className="mr-2 h-4 w-4" />
-              Delete
+              <IconTrash className="me-2 h-4 w-4" />
+              {t("deleteRecordingMenu.delete")}
             </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Move this clip to trash?</AlertDialogTitle>
-          <AlertDialogDescription>
-            This removes the clip from your library. You can restore it from
-            Trash or delete it forever later.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={trashRecording.isPending}>
-            Cancel
-          </AlertDialogCancel>
-          <AlertDialogAction
-            disabled={trashRecording.isPending}
-            onClick={(event) => {
-              event.preventDefault();
-              handleTrashRecording();
-            }}
-            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-          >
-            {trashRecording.isPending ? "Deleting..." : "Move to trash"}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
+      {showDelete ? (
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("deleteRecordingMenu.moveTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("deleteRecordingMenu.moveDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={trashRecording.isPending}>
+              {t("common.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={trashRecording.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                handleTrashRecording();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {trashRecording.isPending
+                ? t("deleteRecordingMenu.deleting")
+                : t("deleteRecordingMenu.moveToTrash")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      ) : null}
     </AlertDialog>
   );
+}
+
+export function DeleteRecordingMenu(props: DeleteRecordingMenuProps) {
+  return <RecordingOptionsMenu {...props} canDelete />;
 }

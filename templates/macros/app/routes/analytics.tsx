@@ -25,16 +25,16 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WeeklyCaloriesChart } from "@/components/WeeklyCaloriesChart";
+import messages from "@/i18n/en-US";
 import { formatLocalDate } from "@/lib/utils";
 
 const GOAL_CALORIES = 2000;
 
 export function meta() {
-  const description =
-    "Open Source AI macro tracker for reviewing calorie, macro, exercise, and weight trends.";
+  const description = messages.seo.analyticsDescription;
 
   return [
-    { title: "Macro analytics - Open Source Agent-Native Macros" },
+    { title: messages.routeTitles.analytics },
     {
       name: "description",
       content: description,

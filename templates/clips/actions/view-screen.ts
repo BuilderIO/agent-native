@@ -16,13 +16,14 @@ import {
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
   getActiveOrganizationId,
+  ownerEmailMatches,
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
@@ -132,6 +133,31 @@ async function fetchBrowserDiagnosticsSummary(recordingId: string) {
   return parseBrowserDiagnosticsRow(row)?.summary ?? null;
 }
 
+async function fetchBugReportSummary(recordingId: string) {
+  const access = await resolveAccess("recording", recordingId);
+  if (!access || !["owner", "admin", "editor"].includes(String(access.role))) {
+    return null;
+  }
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(schema.recordingBugReports)
+    .where(eq(schema.recordingBugReports.recordingId, recordingId))
+    .limit(1);
+  if (!row) return null;
+  return {
+    projectId: row.projectId,
+    title: row.title,
+    severity: row.severity,
+    sourceUrl: row.sourceUrl,
+    pageTitle: row.pageTitle,
+    appVersion: row.appVersion,
+    environment: row.environment,
+    submittedAt: row.submittedAt,
+    note: "Bug report metadata only. Call get-recording-player-data for reporter fields and host metadata when you have editor access.",
+  };
+}
+
 async function fetchLibrary(folderId?: string) {
   const db = getDb();
   const conditions = [
@@ -168,7 +194,7 @@ async function fetchFoldersForSpace(spaceId: string | null) {
     .from(schema.folders)
     .where(
       and(
-        eq(schema.folders.ownerEmail, ownerEmail),
+        ownerEmailMatches(schema.folders.ownerEmail, ownerEmail),
         spaceId
           ? eq(schema.folders.spaceId, spaceId)
           : isNull(schema.folders.spaceId),
@@ -457,12 +483,17 @@ export default defineAction({
         if (nav.recordingId) {
           const recording = await fetchRecording(nav.recordingId);
           if (recording) {
-            const [transcript, comments, browserDiagnosticsSummary] =
-              await Promise.all([
-                fetchTranscript(nav.recordingId),
-                fetchComments(nav.recordingId),
-                fetchBrowserDiagnosticsSummary(nav.recordingId),
-              ]);
+            const [
+              transcript,
+              comments,
+              browserDiagnosticsSummary,
+              bugReportSummary,
+            ] = await Promise.all([
+              fetchTranscript(nav.recordingId),
+              fetchComments(nav.recordingId),
+              fetchBrowserDiagnosticsSummary(nav.recordingId),
+              fetchBugReportSummary(nav.recordingId),
+            ]);
             screen.recording = recording;
             if (transcript) {
               // Ambient snapshot only — embed a short fullText snippet and the
@@ -490,6 +521,9 @@ export default defineAction({
                 summary: browserDiagnosticsSummary,
                 note: "Summary only. Call get-recording-player-data for full redacted diagnostics when you have editor access.",
               };
+            }
+            if (bugReportSummary) {
+              screen.bugReport = bugReportSummary;
             }
           }
         }
@@ -559,6 +593,24 @@ export default defineAction({
       }
       case "record": {
         if (recordingSetup) screen.recordingSetup = recordingSetup;
+        break;
+      }
+      case "bug-report": {
+        screen.bugReportLauncher = {
+          active: true,
+          note: "Embedded launcher for starting a Clips bug-report recording.",
+        };
+        break;
+      }
+      case "bug-report-done": {
+        if (nav.recordingId) {
+          const [recording, bugReportSummary] = await Promise.all([
+            fetchRecording(nav.recordingId),
+            fetchBugReportSummary(nav.recordingId),
+          ]);
+          if (recording) screen.recording = recording;
+          if (bugReportSummary) screen.bugReport = bugReportSummary;
+        }
         break;
       }
       case "archive":

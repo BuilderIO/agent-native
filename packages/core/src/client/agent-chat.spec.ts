@@ -40,7 +40,9 @@ const {
   clearAgentChatContext,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
+  insertAgentComposerReference,
   listAgentChatContext,
+  normalizeAgentComposerReference,
   removeAgentChatContextItem,
   sendToAgentChat,
   setAgentChatContextItem,
@@ -362,6 +364,38 @@ describe("sendToAgentChat", () => {
     );
   });
 
+  it("can force MCP App embeds to use the local app chat", () => {
+    vi.useFakeTimers();
+    window.location.search =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+
+    const tabId = sendToAgentChat({
+      message: "apply plan feedback",
+      context: "Open comments: 2",
+      submit: true,
+      chatTarget: "local",
+    });
+
+    expect(sendMcpAppHostMessageMock).not.toHaveBeenCalled();
+    expect(parentPostMessageSpy).not.toHaveBeenCalled();
+    expect(selfPostMessageSpy).not.toHaveBeenCalled();
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:set-mode",
+      "agent-panel:open",
+    ]);
+
+    vi.runOnlyPendingTimers();
+
+    expect(selfPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = selfPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.submitChat");
+    expect(payload.data.tabId).toBe(tabId);
+    expect(payload.data.message).toBe("apply plan feedback");
+    expect(payload.data.context).toBe("Open comments: 2");
+    expect(payload.data.chatTarget).toBe("local");
+  });
+
   it("falls back to the wrapper relay if direct MCP App host messaging rejects the send", async () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
@@ -450,6 +484,85 @@ describe("sendToAgentChat", () => {
     expect(addContextToAgentChat).toBe(setAgentChatContextItem);
   });
 
+  it("normalizes composer references", () => {
+    expect(
+      normalizeAgentComposerReference({
+        label: " Product shots ",
+        icon: "folder",
+        source: "assets",
+        refType: " brand-kit ",
+        refId: " lib_123 ",
+        refPath: " /library/lib_123 ",
+        slotKey: " brand-kit ",
+        slotLabel: " Brand kit ",
+        metadata: { libraryId: "lib_123" },
+        clearsSlots: [" preset ", "", 123],
+        relatedReferences: [
+          {
+            label: " Library preset ",
+            refType: " preset ",
+            refId: " preset_123 ",
+            slotKey: " preset ",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Product shots",
+      icon: "folder",
+      source: "assets",
+      refType: "brand-kit",
+      refId: "lib_123",
+      refPath: "/library/lib_123",
+      slotKey: "brand-kit",
+      slotLabel: "Brand kit",
+      metadata: { libraryId: "lib_123" },
+      clearsSlots: ["preset"],
+      relatedReferences: [
+        {
+          label: "Library preset",
+          refType: "preset",
+          refId: "preset_123",
+          refPath: null,
+          slotKey: "preset",
+        },
+      ],
+    });
+    expect(
+      normalizeAgentComposerReference({ label: "", refType: "preset" }),
+    ).toBeNull();
+  });
+
+  it("posts composer references without submitting", () => {
+    insertAgentComposerReference({
+      label: "Product shots",
+      icon: "folder",
+      source: "assets",
+      refType: "brand-kit",
+      refId: "lib_123",
+      refPath: "/library/lib_123",
+    });
+
+    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+    const [payload, targetOrigin] = parentPostMessageSpy.mock.calls[0];
+    expect(targetOrigin).toBe("http://localhost:3000");
+    expect(payload.type).toBe("agentNative.insertComposerReference");
+    expect(payload.data).toEqual(
+      expect.objectContaining({
+        label: "Product shots",
+        icon: "folder",
+        source: "assets",
+        refType: "brand-kit",
+        refId: "lib_123",
+        refPath: "/library/lib_123",
+      }),
+    );
+    expect(payload.data.insertMessageId).toMatch(/^reference-/);
+    expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
+      "agent-panel:prepare",
+      "agentNative:insert-composer-reference",
+    ]);
+  });
+
   it("posts keyed context to the active chat without submitting", () => {
     setAgentChatContextItem({
       key: ".thing#hello",
@@ -491,9 +604,15 @@ describe("sendToAgentChat", () => {
     });
 
     expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    expect(parentPostMessageSpy.mock.calls[0][0].type).toBe(
-      "agentNative.setChatContext",
-    );
+    expect(parentPostMessageSpy.mock.calls[0][0]).toEqual({
+      type: "agentNative.setChatContext",
+      data: {
+        key: "cart",
+        title: "Cart",
+        context: "Line item A",
+        openSidebar: false,
+      },
+    });
     expect(dispatchEventSpy.mock.calls.map(([event]) => event.type)).toEqual([
       "agentNative.chatContextChanged",
       "agent-panel:prepare",

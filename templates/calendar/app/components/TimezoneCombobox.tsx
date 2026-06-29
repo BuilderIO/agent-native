@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconCheck, IconChevronDown } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -67,6 +68,7 @@ export function TimezoneCombobox({
   onChange: (timezone: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const t = useT();
   const options = getSupportedTimezones(value).map((timezone) => {
     const city = getTimezoneCity(timezone);
     const region = getTimezoneRegion(timezone);
@@ -93,7 +95,7 @@ export function TimezoneCombobox({
           <span className="min-w-0 truncate text-left">
             {selected
               ? `${selected.city} (${selected.timezone})`
-              : "Select timezone"}
+              : t("timezone.select")}
           </span>
           <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -103,9 +105,9 @@ export function TimezoneCombobox({
         className="w-[--radix-popover-trigger-width] p-0"
       >
         <Command>
-          <CommandInput placeholder="Search timezone or city..." />
+          <CommandInput placeholder={t("timezone.searchPlaceholder")} />
           <CommandList className="max-h-[320px]">
-            <CommandEmpty>No timezone found.</CommandEmpty>
+            <CommandEmpty>{t("timezone.empty")}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
                 <CommandItem

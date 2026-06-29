@@ -7,7 +7,12 @@ import {
   getBrowserTabId,
   readClientAppState,
   useChangeVersions,
+  useT,
 } from "@agent-native/core/client";
+import {
+  BUILDER_CREDITS_UPGRADE_URL,
+  type BuilderCreditsStatus,
+} from "@shared/builder-credits";
 import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
@@ -23,6 +28,8 @@ import {
   IconClipboardCopy,
   IconFileText,
   IconSparkles,
+  IconExternalLink,
+  IconLayoutSidebarRightExpand,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -32,7 +39,7 @@ import { toast } from "sonner";
 import { EditableRecordingTitle } from "@/components/editable-recording-title";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { CommentsPanel } from "@/components/player/comments-panel";
-import { DeleteRecordingMenu } from "@/components/player/delete-recording-menu";
+import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
 import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { SettingsPanel } from "@/components/player/settings-panel";
@@ -53,6 +60,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -67,12 +80,13 @@ import {
 import { isDefaultTitle, useAutoTitleBridge } from "@/hooks/use-auto-title";
 import { usePlayerShortcuts } from "@/hooks/use-player-shortcuts";
 import { useViewTracking } from "@/hooks/use-view-tracking";
+import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
 import { cn } from "@/lib/utils";
 
 export function meta() {
-  return [{ title: "Clip recording · Clips" }];
+  return [{ title: enMessages.recordingRoute.pageTitle }];
 }
 
 type SidePanel = "transcript" | "comments" | "insights" | "agent" | "settings";
@@ -80,18 +94,17 @@ type WorkflowKind = "pr" | "sop" | "ticket" | "email";
 
 const WORKFLOW_MENU_ITEMS: Array<{
   kind: WorkflowKind;
-  label: string;
-  tooltip?: string;
+  labelKey: string;
+  tooltipKey?: string;
 }> = [
-  { kind: "pr", label: "Generate PR summary" },
+  { kind: "pr", labelKey: "recordingPage.generatePrSummary" },
   {
     kind: "sop",
-    label: "Generate SOP",
-    tooltip:
-      "SOP means Standard Operating Procedure: a reusable step-by-step runbook generated from this clip.",
+    labelKey: "recordingPage.generateSop",
+    tooltipKey: "recordingPage.generateSopTooltip",
   },
-  { kind: "ticket", label: "Generate ticket" },
-  { kind: "email", label: "Generate email" },
+  { kind: "ticket", labelKey: "recordingPage.generateTicket" },
+  { kind: "email", labelKey: "recordingPage.generateEmail" },
 ];
 
 interface GeneratedWorkflowState {
@@ -101,6 +114,20 @@ interface GeneratedWorkflowState {
   recordingId?: string;
   requestedAt?: string;
   error?: string;
+}
+
+function useIsCompactRecordingLayout() {
+  const [isCompact, setIsCompact] = useState(false);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 1279px)");
+    const update = () => setIsCompact(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return isCompact;
 }
 
 function isNativeSaveFailureReason(reason: string | null | undefined): boolean {
@@ -117,6 +144,13 @@ function failureDetail(reason: string | null | undefined): string | null {
 
 function nativeSaveFailureMessage(reason: string | null | undefined): string {
   const text = reason ?? "";
+  if (
+    /finalization callback failed|missing required metadata|missing playback metadata|corrupted or incomplete|missing moov/i.test(
+      text,
+    )
+  ) {
+    return "macOS could not finish writing this desktop recording. The local file is incomplete, so discard it from the Clips menu and record again.";
+  }
   if (/too large|compression/i.test(text)) {
     return "Clips tried to compress this desktop recording, but it is still too large to upload. The original is saved locally and can be retried from the Clips menu.";
   }
@@ -124,12 +158,15 @@ function nativeSaveFailureMessage(reason: string | null | undefined): string {
 }
 
 function InsightsUnavailableState() {
+  const t = useT();
+
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <p className="text-sm font-medium text-foreground">Owner insights</p>
+      <p className="text-sm font-medium text-foreground">
+        {t("sharePage.ownerInsights")}
+      </p>
       <p className="mt-2 max-w-[240px] text-sm leading-5 text-muted-foreground">
-        Views, completion, and viewer details are visible to editors of this
-        clip.
+        {t("sharePage.ownerInsightsDescription")}
       </p>
     </div>
   );
@@ -161,6 +198,7 @@ function parseTimeParam(raw: string | null): number {
 }
 
 export default function RecordingPage() {
+  const t = useT();
   useAutoTitleBridge();
 
   const { recordingId } = useParams<{ recordingId: string }>();
@@ -172,17 +210,20 @@ export default function RecordingPage() {
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
   const [panel, setPanel] = useState<SidePanel>("agent");
+  const [sidePanelOpen, setSidePanelOpen] = useState(false);
   const [theaterMode, setTheaterMode] = useState(false);
   const [editing, setEditing] = useState(false);
   const [currentMs, setCurrentMs] = useState(0);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
+  const isCompactLayout = useIsCompactRecordingLayout();
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
   // can retry or report the issue instead of staring at a spinner.
   const [processingTimeout, setProcessingTimeout] = useState(false);
   const [retryingFinalize, setRetryingFinalize] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     if (
@@ -241,8 +282,19 @@ export default function RecordingPage() {
   const transcriptFailureReason = playerDataQ.data?.transcript?.failureReason;
   const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
+  const canEdit = role === "owner" || role === "admin" || role === "editor";
+  const builderCredits =
+    (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
+  const titleGenerationPaused = Boolean(
+    canEdit &&
+    builderCredits?.exhausted === true &&
+    recording &&
+    isDefaultTitle(recording.title),
+  );
   const showTitleSkeleton = recording
-    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
+    ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus, {
+        titleGenerationPaused,
+      })
     : false;
   const visibleTitle = recording
     ? displayRecordingTitle(recording.title)
@@ -272,19 +324,34 @@ export default function RecordingPage() {
       ? generatedWorkflowQ.data
       : null;
 
-  const canEdit = role === "owner" || role === "admin" || role === "editor";
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
   const isLoomRecording = isLoomRecordingSource(recording);
   const canUseNativeEditor = canEdit && !isLoomEmbedBacked;
   const canDelete = role === "owner";
-  const canDownloadVideo = Boolean(
-    recording?.videoUrl &&
-    !isLoomEmbedBacked &&
-    (role === "owner" ||
-      role === "admin" ||
-      role === "editor" ||
-      recording?.enableDownloads),
+  const canDownloadRecording = Boolean(
+    recording?.enableDownloads && recording.videoUrl && !isLoomEmbedBacked,
   );
+  const downloadRecording = useCallback(async () => {
+    if (!recording?.videoUrl) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(recording.videoUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${sanitizeFilename(recording.title || "clip")}.mp4`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(recording.videoUrl, "_blank", "noopener,noreferrer");
+    } finally {
+      setDownloading(false);
+    }
+  }, [recording?.title, recording?.videoUrl]);
   const retryFinalizeAfterStorage = useCallback(async () => {
     if (!recordingId) return;
     setRetryingFinalize(true);
@@ -295,7 +362,7 @@ export default function RecordingPage() {
         ? "/_agent-native/actions/import-loom-recording"
         : "/_agent-native/actions/finalize-recording";
       if (retryingLoomImport && !recording?.sourceWindowTitle) {
-        throw new Error("This Loom recording is missing its source URL.");
+        throw new Error(t("recordingPage.loomMissingUrl"));
       }
       const res = await fetch(agentNativePath(actionPath), {
         method: "POST",
@@ -316,31 +383,37 @@ export default function RecordingPage() {
         storageSetupRequired?: boolean;
       } | null;
       if (!res.ok) {
-        throw new Error(body?.error ?? `Finalize failed (${res.status})`);
+        throw new Error(
+          body?.error ??
+            t("recordingPage.finalizeFailed", { status: res.status }),
+        );
       }
       const result = body?.result ?? body;
       if (
         result?.storageSetupRequired ||
         result?.status === "waiting_storage"
       ) {
-        toast.message("Storage still isn't connected", {
-          description:
-            "Finish the Builder.io popup or configure S3 storage, then try again.",
+        toast.message(t("recordingPage.storageStillDisconnected"), {
+          description: t("recordingPage.finishBuilderOrS3"),
         });
         return;
       }
       toast.success(
-        retryingLoomImport ? "Loom import resumed" : "Clip upload resumed",
+        retryingLoomImport
+          ? t("recordingPage.loomImportResumed")
+          : t("recordingPage.clipUploadResumed"),
       );
       await playerDataQ.refetch();
     } catch (err) {
       toast.error(
         isLoomRecording
-          ? "Couldn't retry Loom import"
-          : "Couldn't resume upload",
+          ? t("recordingPage.couldNotRetryLoom")
+          : t("recordingPage.couldNotResumeUpload"),
         {
           description:
-            err instanceof Error ? err.message : "Try again in a moment.",
+            err instanceof Error
+              ? err.message
+              : t("recordingPage.tryAgainMoment"),
           duration: 12_000,
         },
       );
@@ -351,40 +424,44 @@ export default function RecordingPage() {
   }, [isLoomRecording, playerDataQ, recording?.sourceWindowTitle, recordingId]);
   const firstCta = ctas[0] ?? null;
   const handleAiError = (err: Error) =>
-    toast.error(err?.message ?? "AI request failed");
+    toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
     onSuccess: (result: any) => {
       if (result?.updated) {
-        toast.success("Title updated");
+        toast.success(t("recordingPage.titleUpdated"));
+      } else if (result?.reason === "builder_credits_paused") {
+        toast.message(t("builderCredits.pausedTitle"), {
+          description: t("builderCredits.titleDescription"),
+        });
       } else if (result?.skipped) {
-        toast.message("Transcript is not ready yet", {
-          description: "Try again after transcription finishes.",
+        toast.message(t("recordingPage.transcriptNotReady"), {
+          description: t("recordingPage.tryAfterTranscription"),
         });
       } else {
-        toast.success("Title generation queued");
+        toast.success(t("recordingPage.titleGenerationQueued"));
       }
     },
     onError: handleAiError,
   });
   const regenerateSummary = useActionMutation("regenerate-summary" as any, {
-    onSuccess: () => toast.success("Description request queued"),
+    onSuccess: () => toast.success(t("recordingPage.descriptionQueued")),
     onError: handleAiError,
   });
   const regenerateChapters = useActionMutation("regenerate-chapters" as any, {
-    onSuccess: () => toast.success("Chapter request queued"),
+    onSuccess: () => toast.success(t("recordingPage.chapterQueued")),
     onError: handleAiError,
   });
   const removeFillerWords = useActionMutation("remove-filler-words" as any, {
-    onSuccess: () => toast.success("Filler-word removal queued"),
+    onSuccess: () => toast.success(t("recordingPage.fillerQueued")),
     onError: handleAiError,
   });
   const removeSilences = useActionMutation("remove-silences" as any, {
-    onSuccess: () => toast.success("Silence removal queued"),
+    onSuccess: () => toast.success(t("recordingPage.silenceQueued")),
     onError: handleAiError,
   });
   const generateWorkflow = useActionMutation("generate-workflow" as any, {
     onSuccess: () => {
-      toast.success("Workflow request queued");
+      toast.success(t("recordingPage.workflowQueued"));
       void generatedWorkflowQ.refetch();
     },
     onError: handleAiError,
@@ -411,9 +488,13 @@ export default function RecordingPage() {
   }, [canUseNativeEditor, editing]);
 
   useEffect(() => {
+    if (editing || !isCompactLayout) setSidePanelOpen(false);
+  }, [editing, isCompactLayout]);
+
+  useEffect(() => {
     if (!recording) return;
     document.title = isDefaultTitle(recording.title)
-      ? "Clip recording · Clips"
+      ? t("recordingPage.pageTitle")
       : `${recording.title.trim()} · Clips`;
   }, [recording?.title]);
 
@@ -486,13 +567,15 @@ export default function RecordingPage() {
   if (playerDataQ.isError || !recording) {
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
-        <h1 className="text-xl font-semibold mb-2">Recording not found</h1>
+        <h1 className="text-xl font-semibold mb-2">
+          {t("recordingPage.recordingNotFound")}
+        </h1>
         <p className="text-sm text-muted-foreground mb-4">
           {(playerDataQ.error as Error | undefined)?.message ??
-            "You may not have access to this clip."}
+            t("recordingPage.noAccess")}
         </p>
         <Button onClick={() => navigate("/")} variant="outline">
-          Back to library
+          {t("recordingPage.backToLibrary")}
         </Button>
       </div>
     );
@@ -519,26 +602,26 @@ export default function RecordingPage() {
     const isFailure =
       explicitFailure || stuckFailure || waitingForStorage || nativeSaveFailed;
     const displayReason = explicitFailure
-      ? (rawFailureReason ?? "You can retry from the library.")
+      ? (rawFailureReason ?? t("recordingPage.retryLibrary"))
       : nativeSaveFailed
         ? nativeSaveFailureMessage(rawFailureReason)
         : stuckFailure
-          ? `Processing hasn't completed after 30 seconds (status=${recording.status}). The clip may not have finished uploading — check the server logs for [chunk]/[finalize] messages.`
-          : "Uploading and assembling your video — this usually takes just a few seconds.";
+          ? t("recordingPage.processingStuck", { status: recording.status })
+          : t("recordingPage.uploadingAssembling");
     const storageSetupFailure = waitingForStorage;
     const label = storageSetupFailure
       ? loomStorageSetupFailure
-        ? "Connect storage to import this Loom."
-        : "Connect storage to finish saving this clip."
+        ? t("recordingPage.connectStorageImportLoom")
+        : t("recordingPage.connectStorageFinishClip")
       : nativeSaveFailed
-        ? "Upload paused; clip saved locally."
+        ? t("recordingPage.uploadPausedSaved")
         : isFailure
-          ? "Something went wrong while saving this clip."
-          : "Finishing up your clip…";
+          ? t("recordingPage.savingWentWrong")
+          : t("recordingPage.finishingClip");
     const failureReason = storageSetupFailure
       ? loomStorageSetupFailure
-        ? "The Loom source link is preserved. Connect Builder.io or S3 storage and Clips will retry saving its own copy."
-        : "Your clip data is still preserved. Connect Builder.io or S3 storage and Clips will upload it automatically."
+        ? t("recordingPage.loomSourcePreserved")
+        : t("recordingPage.clipDataPreserved")
       : displayReason;
     const detail = failureDetail(rawFailureReason);
     return (
@@ -561,7 +644,7 @@ export default function RecordingPage() {
         role !== "viewer" ? (
           <div className="mb-4 w-full max-w-xl rounded-md border border-border bg-card p-4 text-start shadow-sm">
             <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Details
+              {t("recordingPage.details")}
             </div>
             <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-muted-foreground">
               {detail}
@@ -583,31 +666,31 @@ export default function RecordingPage() {
                 <Spinner className="h-8 w-8 text-muted-foreground" />
                 <div className="text-sm font-medium">
                   {loomStorageSetupFailure
-                    ? "Importing Loom..."
-                    : "Uploading saved clip…"}
+                    ? t("recordingPage.importingLoom")
+                    : t("recordingPage.uploadingSavedClip")}
                 </div>
                 <p className="text-sm text-muted-foreground">
                   {loomStorageSetupFailure
-                    ? "Storage is connected. Clips is saving its own copy now."
-                    : "Storage is connected. Clips is finishing the upload now."}
+                    ? t("recordingPage.storageConnectedSavingLoom")
+                    : t("recordingPage.storageConnectedFinishing")}
                 </p>
               </div>
             ) : (
               <StorageSetupCard
                 title={
                   loomStorageSetupFailure
-                    ? "Connect storage to import Loom"
-                    : "Connect storage to finish saving"
+                    ? t("recordingPage.connectStorageImportLoomTitle")
+                    : t("recordingPage.connectStorageFinishSaving")
                 }
                 description={
                   loomStorageSetupFailure
-                    ? "Choose where Clips should store videos. After it connects, Clips will retry this Loom import."
-                    : "Choose where Clips should store videos. After it connects, this saved clip will upload automatically."
+                    ? t("recordingPage.chooseStorageRetryLoom")
+                    : t("recordingPage.chooseStorageUpload")
                 }
                 connectedDescription={
                   loomStorageSetupFailure
-                    ? "Storage connected. Importing Loom..."
-                    : "Storage connected. Uploading this clip..."
+                    ? t("recordingPage.storageConnectedImporting")
+                    : t("recordingPage.storageConnectedUploading")
                 }
                 onConfigured={retryFinalizeAfterStorage}
               />
@@ -630,17 +713,169 @@ export default function RecordingPage() {
           >
             {storageSetupFailure
               ? loomStorageSetupFailure
-                ? "Retry import"
-                : "Retry upload"
-              : "Check again"}
+                ? t("recordingPage.retryImport")
+                : t("recordingPage.retryUpload")
+              : t("recordingPage.checkAgain")}
           </Button>
           <Button onClick={() => navigate("/")} variant="ghost" size="sm">
-            Back to library
+            {t("recordingPage.backToLibrary")}
           </Button>
         </div>
       </div>
     );
   }
+
+  const renderSidePanel = (compact = false) => (
+    <Tabs
+      value={panel}
+      onValueChange={(v) => setPanel(v as SidePanel)}
+      className={cn("flex h-full flex-col", compact && "pt-8")}
+    >
+      <TabsList
+        className={cn(
+          "mx-3 mt-3 grid w-auto",
+          canEdit ? "grid-cols-5" : "grid-cols-4",
+        )}
+      >
+        <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.agent")}
+        </TabsTrigger>
+        <TabsTrigger value="comments" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.activity")}
+        </TabsTrigger>
+        <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.transcript")}
+        </TabsTrigger>
+        <TabsTrigger value="insights" className="min-w-0 px-2 text-xs">
+          {t("recordingPage.insights")}
+        </TabsTrigger>
+        {canEdit ? (
+          <TabsTrigger value="settings" className="min-w-0 px-2 text-xs">
+            {t("recordingPage.settings")}
+          </TabsTrigger>
+        ) : null}
+      </TabsList>
+
+      <TabsContent
+        value="agent"
+        className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+      >
+        <AgentPanel
+          browserTabId={getBrowserTabId()}
+          emptyStateText={t("recordingPage.askAboutClip")}
+          dynamicSuggestions={false}
+          chatNotice={
+            generatedWorkflow ? (
+              <GeneratedWorkflowNotice workflow={generatedWorkflow} />
+            ) : null
+          }
+          suggestions={
+            canEdit
+              ? [
+                  t("recordingPage.summarizeClip"),
+                  t("recordingPage.generateChapters"),
+                  t("recordingPage.findActionItems"),
+                  t("recordingPage.draftRecap"),
+                ]
+              : [
+                  t("recordingPage.summarizeClip"),
+                  t("recordingPage.findKeyMoments"),
+                  t("recordingPage.listFollowUpActions"),
+                  t("recordingPage.draftQuestions"),
+                ]
+          }
+        />
+      </TabsContent>
+      <TabsContent
+        value="transcript"
+        className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+      >
+        <TranscriptPanel
+          segments={transcriptSegments}
+          fullText={transcriptFullText}
+          durationMs={recording.durationMs}
+          currentMs={currentMs}
+          onSeek={(ms) => playerRef.current?.seek(ms)}
+          status={transcriptStatus}
+          failureReason={transcriptFailureReason}
+          cleanup={transcriptCleanup}
+          recordingTitle={recording.title}
+          onRetry={() => {
+            // Force a fresh transcript job, then let polling swap the panel
+            // back to the pending state while it runs.
+            fetch(
+              agentNativePath("/_agent-native/actions/request-transcript"),
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  recordingId: recording.id,
+                  force: true,
+                }),
+              },
+            )
+              .then((res) => {
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              })
+              .catch((err) =>
+                toast.error(
+                  t("recordingPage.retryFailed", {
+                    message: err?.message ?? t("recordingPage.networkError"),
+                  }),
+                ),
+              )
+              .finally(() => playerDataQ.refetch());
+          }}
+        />
+      </TabsContent>
+      <TabsContent
+        value="comments"
+        className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
+      >
+        <CommentsPanel
+          recordingId={recording.id}
+          comments={comments}
+          currentMs={currentMs}
+          currentUserEmail={session?.email}
+          enableComments={recording.enableComments}
+          onSeek={(ms) => playerRef.current?.seek(ms)}
+          queryKey={[
+            "action",
+            "get-recording-player-data",
+            { recordingId: recordingId ?? "" },
+          ]}
+        />
+      </TabsContent>
+      <TabsContent
+        value="insights"
+        className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
+      >
+        {canEdit ? (
+          <InsightsPanel
+            recordingId={recording.id}
+            durationMs={recording.durationMs}
+          />
+        ) : (
+          <InsightsUnavailableState />
+        )}
+      </TabsContent>
+      {canEdit ? (
+        <TabsContent
+          value="settings"
+          className="mt-3 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+        >
+          <SettingsPanel
+            recording={recording}
+            visibility={recording.visibility}
+            ctas={ctas}
+            onClose={() => setPanel("agent")}
+            onRefetch={() => playerDataQ.refetch()}
+            showHeader={false}
+          />
+        </TabsContent>
+      ) : null}
+    </Tabs>
+  );
 
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden">
@@ -651,7 +886,7 @@ export default function RecordingPage() {
             variant="ghost"
             size="icon"
             onClick={() => navigate("/")}
-            aria-label="Back"
+            aria-label={t("recordingPage.back")}
           >
             <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
           </Button>
@@ -672,6 +907,9 @@ export default function RecordingPage() {
                 <> · {capitalize(recording.visibility)}</>
               ) : null}
             </p>
+            {titleGenerationPaused ? (
+              <BuilderCreditsTitleNotice className="mt-2" />
+            ) : null}
           </div>
 
           {canUseNativeEditor ? (
@@ -682,7 +920,7 @@ export default function RecordingPage() {
               onClick={() => setEditing((v) => !v)}
             >
               <IconScissors className="h-4 w-4" />
-              {editing ? "Done" : "Edit"}
+              {editing ? t("recordingPage.done") : t("recordingPage.edit")}
             </Button>
           ) : null}
 
@@ -690,12 +928,14 @@ export default function RecordingPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm" className="gap-1.5">
-                  AI tools
+                  {t("recordingPage.aiTools")}
                   <IconChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-60">
-                <DropdownMenuLabel>Enhance this recording</DropdownMenuLabel>
+                <DropdownMenuLabel>
+                  {t("recordingPage.enhanceRecording")}
+                </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   disabled={regenerateTitle.isPending}
@@ -705,7 +945,7 @@ export default function RecordingPage() {
                     } as any)
                   }
                 >
-                  Regenerate title
+                  {t("recordingPage.regenerateTitle")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={regenerateSummary.isPending}
@@ -715,7 +955,7 @@ export default function RecordingPage() {
                     } as any)
                   }
                 >
-                  Regenerate description
+                  {t("recordingPage.regenerateDescription")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={regenerateChapters.isPending}
@@ -725,7 +965,7 @@ export default function RecordingPage() {
                     } as any)
                   }
                 >
-                  Auto chapters
+                  {t("recordingPage.autoChapters")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -736,7 +976,7 @@ export default function RecordingPage() {
                     } as any)
                   }
                 >
-                  Remove filler words
+                  {t("recordingPage.removeFillerWords")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={removeSilences.isPending}
@@ -747,7 +987,7 @@ export default function RecordingPage() {
                     } as any)
                   }
                 >
-                  Remove silences (&gt;1.2s)
+                  {t("recordingPage.removeSilences")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {WORKFLOW_MENU_ITEMS.map((item) => {
@@ -757,11 +997,11 @@ export default function RecordingPage() {
                       disabled={generateWorkflow.isPending}
                       onSelect={() => handleGenerateWorkflow(item.kind)}
                       className={
-                        item.tooltip ? "justify-between gap-3" : undefined
+                        item.tooltipKey ? "justify-between gap-3" : undefined
                       }
                     >
-                      <span>{item.label}</span>
-                      {item.tooltip ? (
+                      <span>{t(item.labelKey)}</span>
+                      {item.tooltipKey ? (
                         <IconHelpCircle
                           aria-hidden="true"
                           className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70"
@@ -770,7 +1010,7 @@ export default function RecordingPage() {
                     </DropdownMenuItem>
                   );
 
-                  if (!item.tooltip) {
+                  if (!item.tooltipKey) {
                     return menuItem;
                   }
 
@@ -781,13 +1021,30 @@ export default function RecordingPage() {
                         side="left"
                         className="max-w-64 text-xs leading-5"
                       >
-                        {item.tooltip}
+                        {t(item.tooltipKey)}
                       </TooltipContent>
                     </Tooltip>
                   );
                 })}
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : null}
+
+          {!editing ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="xl:hidden"
+                  onClick={() => setSidePanelOpen(true)}
+                  aria-label={t("recordingPage.details")}
+                >
+                  <IconLayoutSidebarRightExpand className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{t("recordingPage.details")}</TooltipContent>
+            </Tooltip>
           ) : null}
 
           <ShareRecordingPopover
@@ -803,18 +1060,19 @@ export default function RecordingPage() {
               size="sm"
             >
               <IconShare3 className="h-4 w-4" />
-              Share
+              {t("recordingPage.share")}
             </Button>
           </ShareRecordingPopover>
 
-          {canDelete || canDownloadVideo ? (
-            <DeleteRecordingMenu
+          {canDelete || canDownloadRecording ? (
+            <RecordingOptionsMenu
               recordingId={recording.id}
               canDelete={canDelete}
-              canDownload={canDownloadVideo}
-              videoUrl={recording.videoUrl}
-              recordingTitle={recording.title}
-              videoFormat={recording.videoFormat}
+              canDownload={canDownloadRecording}
+              downloadPending={downloading}
+              onDownload={() => {
+                void downloadRecording();
+              }}
               onDeleted={() => navigate("/library", { replace: true })}
             />
           ) : null}
@@ -880,10 +1138,11 @@ export default function RecordingPage() {
                     >
                       <IconCalendar className="h-3 w-3" />
                       <span className="text-muted-foreground">
-                        From meeting:
+                        {t("recordingPage.fromMeeting")}
                       </span>
                       <span className="font-medium truncate max-w-[240px]">
-                        {playerDataQ.data.meeting.title || "Untitled"}
+                        {playerDataQ.data.meeting.title ||
+                          t("recordingPage.untitled")}
                       </span>
                     </NavLink>
                   ) : null}
@@ -948,159 +1207,29 @@ export default function RecordingPage() {
 
       {/* Side panel */}
       {!editing ? (
-        <aside className="w-[380px] border-s border-border flex flex-col shrink-0 bg-background">
-          <Tabs
-            value={panel}
-            onValueChange={(v) => setPanel(v as SidePanel)}
-            className="flex flex-col h-full"
-          >
-            <TabsList
-              className={cn(
-                "mx-3 mt-3 grid w-auto",
-                canEdit ? "grid-cols-5" : "grid-cols-4",
-              )}
-            >
-              <TabsTrigger value="agent" className="min-w-0 px-2 text-xs">
-                Agent
-              </TabsTrigger>
-              <TabsTrigger value="comments" className="min-w-0 px-2 text-xs">
-                Activity
-              </TabsTrigger>
-              <TabsTrigger value="transcript" className="min-w-0 px-2 text-xs">
-                Transcript
-              </TabsTrigger>
-              <TabsTrigger value="insights" className="min-w-0 px-2 text-xs">
-                Insights
-              </TabsTrigger>
-              {canEdit ? (
-                <TabsTrigger value="settings" className="min-w-0 px-2 text-xs">
-                  Settings
-                </TabsTrigger>
-              ) : null}
-            </TabsList>
-
-            <TabsContent
-              value="agent"
-              className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
-            >
-              <AgentPanel
-                browserTabId={getBrowserTabId()}
-                emptyStateText="Ask about this clip…"
-                dynamicSuggestions={false}
-                chatNotice={
-                  generatedWorkflow ? (
-                    <GeneratedWorkflowNotice workflow={generatedWorkflow} />
-                  ) : null
-                }
-                suggestions={
-                  canEdit
-                    ? [
-                        "Summarize this clip",
-                        "Generate chapters from the transcript",
-                        "Find action items and follow-ups",
-                        "Draft a shareable recap",
-                      ]
-                    : [
-                        "Summarize this clip",
-                        "Find the key moments",
-                        "List follow-up actions",
-                        "Draft questions for the author",
-                      ]
-                }
-              />
-            </TabsContent>
-            <TabsContent
-              value="transcript"
-              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-            >
-              <TranscriptPanel
-                segments={transcriptSegments}
-                fullText={transcriptFullText}
-                durationMs={recording.durationMs}
-                currentMs={currentMs}
-                onSeek={(ms) => playerRef.current?.seek(ms)}
-                status={transcriptStatus}
-                failureReason={transcriptFailureReason}
-                cleanup={transcriptCleanup}
-                recordingTitle={recording.title}
-                onRetry={() => {
-                  // Re-run transcription now that the user may have connected
-                  // Builder/Gemini or after a one-off network error. The action
-                  // flips the row to 'pending' first, so the UI swaps back to
-                  // "Transcribing…".
-                  fetch(
-                    agentNativePath(
-                      "/_agent-native/actions/request-transcript",
-                    ),
-                    {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        recordingId: recording.id,
-                        force: true,
-                      }),
-                    },
-                  )
-                    .then((res) => {
-                      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    })
-                    .catch((err) =>
-                      toast.error(
-                        `Retry failed: ${err?.message ?? "network error"}`,
-                      ),
-                    )
-                    .finally(() => playerDataQ.refetch());
-                }}
-              />
-            </TabsContent>
-            <TabsContent
-              value="comments"
-              className="flex-1 min-h-0 mt-3 data-[state=inactive]:hidden"
-            >
-              <CommentsPanel
-                recordingId={recording.id}
-                comments={comments}
-                currentMs={currentMs}
-                currentUserEmail={session?.email}
-                enableComments={recording.enableComments}
-                onSeek={(ms) => playerRef.current?.seek(ms)}
-                queryKey={[
-                  "action",
-                  "get-recording-player-data",
-                  { recordingId: recordingId ?? "" },
-                ]}
-              />
-            </TabsContent>
-            <TabsContent
-              value="insights"
-              className="flex-1 min-h-0 mt-3 overflow-y-auto data-[state=inactive]:hidden"
-            >
-              {canEdit ? (
-                <InsightsPanel
-                  recordingId={recording.id}
-                  durationMs={recording.durationMs}
-                />
-              ) : (
-                <InsightsUnavailableState />
-              )}
-            </TabsContent>
-            {canEdit ? (
-              <TabsContent
-                value="settings"
-                className="mt-3 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
+        <>
+          {isCompactLayout ? (
+            <Sheet open={sidePanelOpen} onOpenChange={setSidePanelOpen}>
+              <SheetContent
+                side="right"
+                className="flex h-full w-[calc(100vw-24px)] max-w-[420px] flex-col gap-0 p-0 sm:max-w-[420px]"
               >
-                <SettingsPanel
-                  recording={recording}
-                  visibility={recording.visibility}
-                  ctas={ctas}
-                  onClose={() => setPanel("agent")}
-                  onRefetch={() => playerDataQ.refetch()}
-                  showHeader={false}
-                />
-              </TabsContent>
-            ) : null}
-          </Tabs>
-        </aside>
+                <SheetTitle className="sr-only">
+                  {t("recordingPage.details")}
+                </SheetTitle>
+                <SheetDescription className="sr-only">
+                  {t("recordingPage.askAboutClip")}
+                </SheetDescription>
+                {renderSidePanel(true)}
+              </SheetContent>
+            </Sheet>
+          ) : null}
+          {!isCompactLayout ? (
+            <aside className="hidden w-[380px] shrink-0 flex-col border-s border-border bg-background xl:flex">
+              {renderSidePanel()}
+            </aside>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
@@ -1230,10 +1359,22 @@ function displayRecordingTitle(title: string | null | undefined): string {
   return isDefaultTitle(title) ? "Untitled Clip" : (title ?? "").trim();
 }
 
+function sanitizeFilename(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/[^\w.-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 80) || "clip"
+  );
+}
+
 function shouldShowGeneratedTitleSkeleton(
   recording: { title: string | null | undefined; createdAt?: string | null },
   transcriptStatus?: string,
+  options: { titleGenerationPaused?: boolean } = {},
 ): boolean {
+  if (options.titleGenerationPaused) return false;
   if (!isDefaultTitle(recording.title)) return false;
   if (transcriptStatus === "failed") return false;
 
@@ -1247,4 +1388,30 @@ function shouldShowGeneratedTitleSkeleton(
   }
 
   return true;
+}
+
+function BuilderCreditsTitleNotice({ className }: { className?: string }) {
+  const t = useT();
+  return (
+    <div
+      className={cn(
+        "inline-flex max-w-full items-center gap-2 rounded-md border border-amber-300/70 bg-amber-50/80 px-2 py-1 text-[11px] leading-4 text-amber-950 shadow-sm dark:border-amber-400/30 dark:bg-amber-950/25 dark:text-amber-100",
+        className,
+      )}
+    >
+      <IconSparkles className="h-3.5 w-3.5 shrink-0 text-amber-700 dark:text-amber-200" />
+      <span className="min-w-0 truncate">
+        {t("builderCredits.titleDescription")}
+      </span>
+      <a
+        href={BUILDER_CREDITS_UPGRADE_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex shrink-0 items-center gap-1 font-medium underline-offset-2 hover:underline"
+      >
+        {t("builderCredits.upgrade")}
+        <IconExternalLink className="h-3 w-3" />
+      </a>
+    </div>
+  );
 }

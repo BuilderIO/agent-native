@@ -1,6 +1,7 @@
 import {
   ChangelogSettingsCard,
   LanguagePicker,
+  SettingsTabsPage,
   agentNativePath,
   openAgentSettings,
   useActionQuery,
@@ -13,6 +14,7 @@ import {
   type OnboardingMethod,
   type OnboardingStepStatus,
 } from "@agent-native/core/client/onboarding";
+import { TeamPage } from "@agent-native/core/client/org";
 import {
   IconAlertCircle,
   IconCheck,
@@ -81,51 +83,71 @@ export default function SettingsPage() {
     <PageShell
       title={t("settings.title")}
       description={t("settings.description")}
-      className="max-w-4xl space-y-6"
+      className="max-w-5xl"
     >
-      <div className="max-w-2xl">
-        <ChangelogSettingsCard markdown={changelog} />
-      </div>
+      <SettingsTabsPage
+        teamLabel={t("team.title")}
+        general={
+          <div className="mx-auto w-full max-w-2xl space-y-6">
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">
+                {t("settings.connections")}
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                {t("settings.connectionsDescription")}
+              </p>
+            </div>
 
-      <div className="max-w-2xl">
-        <h2 className="text-lg font-semibold tracking-tight">
-          {t("settings.connections")}
-        </h2>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">
-          {t("settings.connectionsDescription")}
-        </p>
-      </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("settings.languageTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.languageDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="max-w-xs space-y-1.5">
+                <Label>{t("settings.languageLabel")}</Label>
+                <LanguagePicker label={t("settings.languageLabel")} />
+              </CardContent>
+            </Card>
 
-      <Card className="max-w-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t("settings.languageTitle")}
-          </CardTitle>
-          <CardDescription>{t("settings.languageDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent className="max-w-xs space-y-1.5">
-          <Label>{t("settings.languageLabel")}</Label>
-          <LanguagePicker label={t("settings.languageLabel")} />
-        </CardContent>
-      </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">
+                  {t("settings.agentTitle")}
+                </CardTitle>
+                <CardDescription>
+                  {t("settings.agentDescription")}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button variant="outline" onClick={() => openAgentSettings()}>
+                  {t("settings.openAgentSettings")}
+                </Button>
+              </CardContent>
+            </Card>
 
-      <Card className="max-w-2xl">
-        <CardHeader>
-          <CardTitle className="text-base">
-            {t("settings.agentTitle")}
-          </CardTitle>
-          <CardDescription>{t("settings.agentDescription")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" onClick={() => openAgentSettings()}>
-            {t("settings.openAgentSettings")}
-          </Button>
-        </CardContent>
-      </Card>
-
-      <section id="asset-generation-setup" className="scroll-mt-4">
-        <AssetsSetupCard libraryCount={data?.count ?? 0} />
-      </section>
+            <section id="asset-generation-setup" className="scroll-mt-4">
+              <AssetsSetupCard libraryCount={data?.count ?? 0} />
+            </section>
+          </div>
+        }
+        team={
+          <div className="mx-auto w-full max-w-2xl">
+            <TeamPage
+              showTitle={false}
+              createOrgDescription={t("team.createOrgDescription")}
+            />
+          </div>
+        }
+        whatsNew={
+          <div className="mx-auto w-full max-w-2xl">
+            <ChangelogSettingsCard markdown={changelog} />
+          </div>
+        }
+      />
     </PageShell>
   );
 }

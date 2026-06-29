@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 import { extensionPath } from "../../extensions/path.js";
+import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import {
   Popover,
@@ -49,6 +50,16 @@ interface Extension {
     mode?: "database" | "local-files";
     permissions?: BridgePolicyContext["permissions"];
   };
+}
+
+function serializeChatValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 export interface EmbeddedExtensionProps {
@@ -208,6 +219,18 @@ export function EmbeddedExtension({
         return;
       }
 
+      if (message.type === "agent-native-send-to-chat") {
+        const text = serializeChatValue((message as any).message);
+        if (!text?.trim()) return;
+        sendToAgentChat({
+          message: text,
+          context: serializeChatValue((message as any).context),
+          submit: (message as any).submit !== false,
+          openSidebar: (message as any).openSidebar !== false,
+        });
+        return;
+      }
+
       if (message.type !== "agent-native-extension-request") return;
 
       const requestId = String(message.requestId ?? "");
@@ -229,11 +252,10 @@ export function EmbeddedExtension({
         // (audit H4) Role-aware gating: viewer-shared extensions can read but not
         // write. The bridge policy is decided here in the parent before the
         // request leaves; the server enforces a second layer.
-        const policy = checkBridgePolicy(
-          path,
-          options.method ?? "GET",
-          bridgeContextRef.current,
-        );
+        const policy = checkBridgePolicy(path, options.method ?? "GET", {
+          ...bridgeContextRef.current,
+          extensionId,
+        });
         if (!policy.ok) {
           respond({
             response: {

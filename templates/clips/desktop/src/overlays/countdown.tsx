@@ -66,8 +66,10 @@ export function Countdown() {
         >
           <IconX size={30} stroke={2.4} />
         </button>
-        <div className="countdown-number" key={n} aria-live="polite">
-          {n > 0 ? n : ""}
+        <div className="countdown-number-wrap">
+          <div className="countdown-number" key={n} aria-live="polite">
+            {n > 0 ? n : ""}
+          </div>
         </div>
         <button
           type="button"

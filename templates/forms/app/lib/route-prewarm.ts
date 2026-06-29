@@ -23,7 +23,14 @@ export function prewarmFormsRoutePath(path: string) {
   const pathname = parsePath(path);
   const jobs: Promise<unknown>[] = [];
 
-  if (pathname === "/" || pathname === "/forms") {
+  if (pathname === "/" || pathname === "/ask") {
+    jobs.push(
+      prewarm("layout", () => import("@/routes/_app")),
+      prewarm("ask", () => import("@/routes/_app.ask")),
+    );
+  }
+
+  if (pathname === "/forms") {
     jobs.push(
       prewarm("layout", () => import("@/routes/_app")),
       prewarm("forms-index", () => import("@/routes/_app.forms._index")),
@@ -49,13 +56,6 @@ export function prewarmFormsRoutePath(path: string) {
         "response-insights",
         () => import("@/routes/_app.response-insights"),
       ),
-    );
-  }
-
-  if (pathname === "/team") {
-    jobs.push(
-      prewarm("layout", () => import("@/routes/_app")),
-      prewarm("team", () => import("@/routes/_app.team")),
     );
   }
 
@@ -86,6 +86,7 @@ export function prewarmFormsRoutePath(path: string) {
 
 export function prewarmCommonFormsRoutes() {
   return Promise.all([
+    prewarmFormsRoutePath("/ask"),
     prewarmFormsRoutePath("/forms"),
     prewarmFormsRoutePath("/forms/__route_prewarm__?tab=edit"),
     prewarmFormsRoutePath("/forms/__route_prewarm__/responses"),

@@ -1,0 +1,755 @@
+---
+title: "الوكلاء الخارجيون: Claude، ChatGPT، Codex، المؤشر، العمل المشترك"
+description: "قم بتوصيل Claude، أو ChatGPT، أو Codex، أو Cursor، أو Claude Cowork، أو أي مضيف متوافق مع MCP بتطبيق وكيل مستضاف - ثم إرجاع العناصر ذهابًا وإيابًا إلى UI قيد التشغيل باستخدام تطبيقات MCP والروابط العميقة."
+search: "Claude ChatGPT Claude الكود Codex المؤشر Claude Cowork MCP وكيل التطبيقات الأصلي، توصيل أدوات الوكيل المحلي، الوكلاء الخارجيون"
+---
+
+# الوكلاء الخارجيون
+
+**هذه الصفحة: قم بتوصيل وكيل خارجي أو مضيف MCP بتطبيقك.** استخدمها عندما يقوم Claude أو ChatGPT أو Codex أو Cursor أو Claude Cowork أو أي مضيف آخر متوافق مع MCP بتشغيل تطبيق وكيل مستضاف وإعادة النتيجة مرة أخرى إلى UI قيد التشغيل.
+
+| إذا كنت تريد...                                                     | اقرأ                               |
+| ------------------------------------------------------------------- | ---------------------------------- |
+| قم بتوصيل وكيل/مضيف خارجي بتطبيقك                                   | **هذه الصفحة** — الوكلاء الخارجيون |
+| امنح وكيلك المزيد من الأدوات (استخدم خوادم MCP الأخرى)              | [MCP Clients](/docs/mcp-clients)   |
+| إنشاء UI المضمنة التي يتم عرضها في Claude/ChatGPT                   | [MCP Apps](/docs/mcp-apps)         |
+| مرجع خادم MCP ذو المستوى الأدنى (المصادقة، الأدوات، التثبيت المخصص) | [MCP Protocol](/docs/mcp-protocol) |
+
+يمكن الوصول إلى تطبيق الوكيل الأصلي بواسطة أي مضيف متوافق مع MCP — Claude، Claude Desktop، Claude Code، ChatGPT تطبيقات MCP المخصصة، Codex، Cursor، Claude Cowork، VS Code GitHub Copilot، Goose، Postman، MCPJam، والعملاء المستقبليين الذين ينفذون المعيار. يعد الوكلاء الخارجيون رائعين في إنتاج العناصر (مسودة، أو حدث، أو لوحة معلومات) لكنهم غالبًا ما يعيشون في محطة طرفية أو تطبيق آخر. بدون جسر، يحصل المستخدم على جدار JSON وعليه البحث عن الشيء.
+
+يقوم جسر الوكيل الخارجي بإغلاق الحلقة. أولاً، تقوم بتوصيل الوكيل الخاص بك بتطبيق **مستضاف** — إما عن طريق لصق MCP URL الخاص بالتطبيق في مضيف دردشة مثل Claude أو ChatGPT، أو عن طريق تشغيل تدفق المطور CLI لوكلاء الترميز المحليين. ثم يقوم الوكيل بالعمل على MCP ويسلم المستخدم إما **MCP App** UI المضمن في المضيفين المتوافقين أو رابط **"فتح في &lt;app&gt; →"** واحد يفتح التطبيق الحقيقي الذي يركز على ما تم إنتاجه بالضبط. إنها تعيد استخدام عقد `navigate` / `application_state` الحالي الذي يستنزف UI بالفعل كل ثانيتين (انظر [Context Awareness](/docs/context-awareness)) - لا توجد آلية تنقل ثانية.
+
+<Diagram id="doc-block-13sglel" title={"رحلة ذهابًا وإيابًا للوكيل الخارجي"} summary={"يقوم مضيف خارجي باستدعاء أداة عبر MCP؛ يقوم التطبيق بإرجاع قطعة أثرية بالإضافة إلى رابط مفتوح. يؤدي النقر فوقه إلى حل جلسة المتصفح وتركيز العنصر في واجهة المستخدم قيد التشغيل - لا يحمل الرابط أي حالة مميزة."}>
+
+```html
+<div class="xa-trip">
+  <div class="diagram-box" data-rough>
+    مضيف خارجي<br /><small class="diagram-muted"
+      >Claude &middot; ChatGPT &middot; Codex &middot; Cursor</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">أداة MCP call</span
+    ><small class="diagram-muted">e.g. <code>manage-draft</code></small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    ينتج التطبيق أثرًا<br /><small class="diagram-muted"
+      >+ <code>Open in &lt;app&gt; &rarr;</code> deep link / MCP App</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>ينقر المستخدم على الرابط</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill ok"><code>/_agent-native/open</code></span
+    ><small class="diagram-muted"
+      >resolves the <strong>browser</strong> session</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Writes <code>navigate</code> app-state<br /><small class="diagram-muted"
+      >تركز الواجهة على الأثر</small
+    >
+  </div>
+</div>
+```
+
+```css
+.xa-trip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.xa-trip .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.xa-trip .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.xa-trip code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+قاعدة الهوية هي مفصل الأمان: الرابط هو مجرد `view` + معرفات السجل + عوامل التصفية، ويتم تحديد نطاق كتابة `navigate` التي تركز على السجل على كل من قام بتسجيل الدخول إلى **المتصفح** - وليس الرمز المميز MCP للوكيل الخارجي أبدًا. ولهذا السبب يكون الرابط آمنًا للصقه في المحطة الطرفية أو في نص الدردشة.
+
+## ما هو مسار الوكيل الذي تحتاجه؟ {#which-agent-path}
+
+- **مضيف MCP الخارجي:** استخدم هذه الصفحة عندما يقوم Claude أو ChatGPT أو Codex أو Cursor أو OpenCode أو GitHub Copilot / VS Code أو مضيف آخر متوافق مع MCP باستدعاء التطبيق الأصلي للوكيل المستضاف.
+- **وقت التشغيل الخاص بك خلف دردشة Agent-Native:** راجع [Agent Surfaces](/docs/agent-surfaces#byo-agent) و[Native واجهة الدردشة](/docs/native-chat-ui#byo-agent-runtimes) عندما يقوم وكيل تم إنشاؤه باستخدام إطار عمل آخر بتشغيل `<AssistantChat runtime={...}>`.
+- **تطبيقك الذي يستهلك أدوات MCP:** راجع [MCP Clients](/docs/mcp-clients) عندما يحتاج تطبيق وكيل أصلي إلى استدعاء الأدوات التي كشفها خادم MCP آخر.
+- **تطبيق أو وكيل آخر عبر A2A:** استخدم [Agent Mentions](/docs/agent-mentions) و[A2A](/docs/a2a-protocol) عندما يتعين على التطبيقات الأصلية للوكيل اكتشاف وتفويض بعضها البعض.
+- **الوكلاء الفرعيون المحليون المخصصون:** استخدم [Workspace](/docs/workspace) عندما تريد ملفات تعريف الوكيل المخصصة داخل مساحة العمل الأصلية للوكيل نفسها.
+
+## سهولة الإعداد {#easy-setup}
+
+أضف موصل MCP عن بعد إلى المضيف حيث تريد استخدام Agent-Native.
+
+للعمل في مساحة العمل أو عبر التطبيقات، استخدم Dispatch:
+
+```text
+https://dispatch.agent-native.com/_agent-native/mcp
+```
+
+Dispatch هو البوابة الوحيدة للبريد والتقويم والتحليلات والعقل و
+تطبيقات مساحة العمل. في صفحة **الوكلاء** الخاصة بـ Dispatch، اختر ما إذا كانت البوابة يمكنها ذلك
+الوصول إلى جميع التطبيقات أو التطبيقات المحددة فقط. ثم يحصل المضيف المتصل على
+تمت تصفية `list_apps` و`ask_app` و`open_app` لتلك المجموعة الممنوحة.
+
+بالنسبة إلى تطبيق واحد معزول عمدًا، استخدم هذا التطبيق مباشرةً:
+
+```text
+https://mail.agent-native.com/_agent-native/mcp
+https://<your-app>.agent-native.com/_agent-native/mcp
+```
+
+يحتوي كل تطبيق مستضاف أيضًا على صفحة مساعدة على
+`https://&lt;app&gt;/_agent-native/mcp/connect` مع URL القابل للنسخ و
+علامات التبويب الخاصة بالمضيف لـ Claude، وChatGPT، والمؤشر، وClaude Code، وCodex، وغيرها.
+
+### Claude وChatGPT OAuth {#oauth}
+
+Claude / Claude سطح المكتب: أضف موصلًا مخصصًا، والصق MCP URL، وانقر على
+**الاتصال**، تسجيل الدخول باستخدام حساب Agent-Native، الموافقة على نطاقات MCP،
+وتمكين الموصل في الدردشة. يستخدم رمز Claude نفس URL: قم بإضافته كـ
+خادم HTTP MCP البعيد، قم بتشغيل `/mcp`، ثم اختر **مصادقة**.
+
+ChatGPT: استخدم مساحة عمل حيث توجد موصلات MCP المخصصة أو تطبيقات وضع المطورين
+ممكّن، قم بإنشاء موصل/تطبيق مخصص، الصق نفس MCP URL، اختر OAuth،
+أدوات المسح/الاكتشاف، وتسجيل الدخول باستخدام Agent-Native، والموافقة على النطاقات، وتمكينها
+الموصل في الدردشة.
+
+منح OAuth مخصصة لكل مضيف ولكل مستخدم. يقوم المضيف بتخزين الرموز المميزة و
+يتوسط استدعاءات الأدوات/الموارد، لذلك لا تتلقى معاينات تطبيق MCP المضمّنة بيانات أولية أبدًا
+الرموز المميزة OAuth. يمكن لـ ChatGPT الاحتفاظ بأداة الموصل التي تمت مراجعتها أو نشرها
+اللقطة حتى تقوم بتحديثها/مراجعتها مرة أخرى، لذا أعد فحص الموصل بعد MCP
+تغييرات البيانات التعريفية لتطبيق MCP. إذا كان لا يزال لديك موصلات قديمة لكل تطبيق
+ممكّن جنبًا إلى جنب مع Dispatch أو تحديث أو إعادة توصيل كل موصل قديم؛ التحديث
+لا يقوم Dispatch بإعادة كتابة تقويم/بريد ChatGPT أو Claude المخزن مؤقتًا/البريد/إلخ.
+لقطات. النطاقات هي:
+
+| النطاق      | ما يتيحه                                                          |
+| ----------- | ----------------------------------------------------------------- |
+| `mcp:read`  | أدوات للقراءة فقط واكتشاف الأدوات/الموارد                         |
+| `mcp:write` | الصياغة والتحديث وغيرها من تعديلات actions                        |
+| `mcp:apps`  | تطبيقات MCP المضمّنة، والمخططات، ولوحات المعلومات، والمسودات، وUI |
+
+يستخدم كل من Cursor وGoose وPostman وMCPJam وVS Code GitHub Copilot نفس جهاز التحكم عن بعد
+MCP URL من خلال خادم MCP الخاص بهم UI عندما يدعم تصميمهم OAuth عن بعد
+خوادم MCP.
+
+### موجه اختبار سريع {#quick-test}
+
+بعد الاتصال، جرّب أحد الإجراءات التالية:
+
+```text
+Use Agent-Native Analytics to generate a weekly conversion-rate bar chart and show it inline.
+```
+
+```text
+Use Agent-Native Mail to draft a short follow-up email to me, but do not send it.
+```
+
+في الأجهزة المضيفة التي تدعم تطبيقات MCP، يمكن لـ Analytics عرض لوحة التحكم الحقيقية ومسارات التحليل بشكل مضمن، ويمكن للبريد عرض الإنشاء الحقيقي UI مضمنًا لمسودة المراجعة. في الأجهزة المضيفة التي لا تعرض تطبيقات MCP، لا يزال استدعاء الأداة نفسه يعرض رابطًا عميقًا مثل **فتح مسودة في البريد →** أو **فتح لوحة المعلومات في Analytics →**.
+
+## الإعداد المتقدم: الوكلاء المحليون {#connect}
+
+استخدم هذا التدفق لعملاء الوكلاء المحليين على جهازك — رمز Claude، ورمز Claude CLI، وCodex، وClaude Cowork، وCursor، وOpenCode، وGitHub Copilot / VS Code. يمكن للمؤشر وغيره من عملاء OAuth الأصليين أيضًا استخدام تدفق اللصق URL أعلاه عندما يدعم UI MCP OAuth عن بعد.
+
+قم بتشغيل أمر الاتصال من خلال npm:
+
+```bash
+npx @agent-native/core@latest connect https://dispatch.agent-native.com
+```
+
+يسأل الأمر عن عملاء الوكيل المحليين الذين يجب أن يتلقوا تكوين MCP. يتم اختيار جميع العملاء مسبقًا في المرة الأولى؛ بعد الاختيار، يتم حفظ التحديد في `~/.agent-native/connect.json` بحيث يمكن إعادة استخدامه في التشغيل التالي باستخدام Enter، أو يمكنك تحرير العناصر المحددة.
+
+بالنسبة لرمز Claude، ورمز Claude، وCLI، وCursor، وOpenCode، وGitHub Copilot / VS Code، يكتب `connect` إدخال HTTP MCP قياسي عن بعد بدون رؤوس ثابتة. أعد تشغيل العميل وقم بالمصادقة من MCP UI عند المطالبة بذلك. بالنسبة إلى Codex وClaude Cowork، يستخدم `connect` تدفق كود جهاز التوافق: فهو يفتح المتصفح الخاص بك في التطبيق، ثم تنقر فوق **Authorize** مرة واحدة، ويكتب الأمر إدخال رمز حامل مميز محدد النطاق. إذا اخترت مزيجًا من العملاء، فسيتم تنفيذ الأمرين معًا.
+
+استمر في تشغيل الأمر `connect` حتى تكتمل الموافقة على المتصفح. إذا كان
+تم إيقاف عملية الانتظار مبكرًا، ويمكن أن تنجح الموافقة في المتصفح ولكن
+لن يتلقى تكوين العميل المحلي الرمز المميز.
+
+إذا كنت قد قمت مسبقًا بتوصيل رمز Claude من خلال تدفق الرمز المميز القديم لحامله، فما عليك سوى تشغيل نفس أمر `npx @agent-native/core@latest connect ... --client claude-code` مرة أخرى. يستبدل CLI رؤوس `Authorization` القديمة بإدخال URL فقط OAuth ويطلب منك إعادة المصادقة من `/mcp`.
+
+| العميل المحلي                | تم كتابة التكوين بواسطة `connect`                       | تدفق المصادقة                                                    |
+| ---------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------- |
+| رمز Claude / رمز Claude CLI  | `.mcp.json` أو `~/.claude.json`، اعتمادًا على `--scope` | جهاز التحكم عن بعد القياسي MCP OAuth في Claude `/mcp` UI         |
+| المؤشر                       | `.cursor/mcp.json` أو `~/.cursor/mcp.json`              | جهاز التحكم عن بعد القياسي MCP OAuth في MCP UI الخاص بالمؤشر     |
+| الرمز المفتوح                | `opencode.json` أو `~/.config/opencode/opencode.json`   | جهاز التحكم عن بعد القياسي MCP OAuth في MCP UI الخاص بـ OpenCode |
+| GitHub مساعد الطيار / رمز VS | تكوين مستخدم `.vscode/mcp.json` أو VS Code MCP          | جهاز التحكم عن بعد القياسي MCP OAuth في MCP UI الخاص بـ VS Code  |
+| Codex                        | `$CODEX_HOME/config.toml` أو `~/.codex/config.toml`     | الاحتياطي للحامل المعتمد للمتصفح                                 |
+| Claude العمل الجماعي         | `~/.cowork/mcp.json` باستخدام الشكل Claude الرمز MCP    | الاحتياطي للحامل المعتمد للمتصفح                                 |
+
+أعد تشغيل العميل الوكيل بعد الاتصال حتى يلتقط خادم MCP الجديد؛ قد يطالبك عملاء OAuth الأصليون بعد ذلك بالمصادقة من MCP UI.
+
+عند استكشاف أخطاء تكوين MCP المحلي وإصلاحها، قم بتنقيح `Authorization`، `http_headers`،
+وقيم الرمز المميز قبل مشاركة السجلات. لا تستخدمي الضفيرة الخام كبديل لـ
+استضافة جلسة MCP؛ بعد الاتصال، استخدم الأدوات المكشوفة للمضيف أو أعد تشغيل
+العميل إذا لم يكن الخادم الجديد مرئيًا بعد.
+
+استخدم `--client codex` (أو `--client claude-code`، `--client claude-code-cli`، `--client cursor`، `--client opencode`، `--client github-copilot`، `--client cowork`، `--client all`) لتخطي منتقي البرامج النصية أو عمليات التثبيت لمرة واحدة.
+
+يقوم تطبيق الطرف الأول skills بتثبيت الإرشادات وموصل MCP المستضاف مع Agent Native CLI:
+
+```bash
+npx @agent-native/core@latest skills add assets              # alias: image-generation
+```
+
+مسار Vercel/open Skills CLI متاح أيضًا عندما تريد المحمول فقط
+التعليمات:
+
+```bash
+npx skills@latest add BuilderIO/agent-native --skill assets
+```
+
+يقوم `skills` CLI بتثبيت ملفات `SKILL.md` فقط؛ لا يزال عملاء MCP المحليون
+تحتاج إلى موصل مثل `npx @agent-native/core@latest connect https://assets.agent-native.com`.
+
+| المهارة  | الاسم المستعار     | من أجل              |
+| -------- | ------------------ | ------------------- |
+| `assets` | `image-generation` | إنشاء الصور/الفيديو |
+
+تحديد العميل الافتراضي هو كافة العملاء المحليين المعتمدين؛ أضف `--client codex` أو `--client claude-code` أو هدفًا محددًا آخر لتضييق نطاق الإعداد. يعرض المضيفون المضمنون (ChatGPT، Claude.ai، Claude الدردشة الرئيسية لسطح المكتب) شبكة المنتقي/المتغير في الدردشة؛ تعرض مضيفات CLI/الارتباط فقط (Codex، رمز Claude، علامة التبويب "الرمز" لسطح المكتب Claude) رابط "فتح في ... →" حيث يختار المستخدم في المتصفح ويلصق ملخص التسليم مرة أخرى.
+
+عندما تحتاج حقًا إلى تطبيق معزول بدلاً من بوابة مساحة عمل Dispatch،
+قم بتشغيل نفس الأمر مع مضيف هذا التطبيق:
+
+```bash
+npx @agent-native/core@latest connect https://mail.agent-native.com
+```
+
+لا يزال `connect --all` موجودًا لإعدادات العميل القديمة لكل تطبيق، ولكنه جديد
+يجب أن تفضل إعدادات مساحة العمل موصل Dispatch الفردي.
+
+الاتصال **لكل مستخدم، ومحدد النطاق، وقابل للإلغاء**. في مسار OAuth، يقوم المضيف بتخزين الرموز المميزة بعد مصادقة `/mcp`؛ في المسار الاحتياطي، تكون جلسة المتصفح التي سمحت بها هي الهوية التي يعمل بها الوكيل. لا شيء يكشف السر المشترك للنشر.
+
+### إعادة المصادقة بعد 401 {#reconnect}
+
+بمجرد الاتصال، يجب أن تستمر المصادقة على المدى الطويل - تستمر رموز الوصول لمدة 30 يومًا افتراضيًا (يتم التجاوز باستخدام `MCP_OAUTH_ACCESS_TOKEN_TTL` على الخادم، على سبيل المثال `7d` أو `12h`) مع نافذة تحديث منزلقة مدتها 365 يومًا، لذلك يجب أن تكون رموز 401 العشوائية نادرة. وعندما يحدث ذلك، استخدم أمر إعادة الاتصال الخفيف بدلاً من إعادة التثبيت:
+
+```bash
+npx -y @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
+```
+
+يبحث `reconnect` عن أي إدخال تكوين MCP ينتهي URL بـ `/_agent-native/mcp` للمضيف المحدد والعميل المحدد (المطابقة بواسطة URL بغض النظر عن اسم الموصل)، ثم يقوم بتحديث مادة المصادقة أو استبدالها دون لمس skills المثبت أو إعادة تشغيل تدفق التثبيت الكامل. تمرير التطبيق الأساسي URL (على سبيل المثال، `https://plan.agent-native.com`) - يتم استنتاج لاحقة `/_agent-native/mcp`. يتم تحميل المصادقة والأداة لكل عميل، لذا قم بإعادة تشغيل/إعادة تحميل هذا العميل بعد ذلك؛ يحتاج Codex إلى جلسة جديدة قبل ظهور الأدوات المحملة حديثًا.
+
+في Claude Code، مسار UI المكافئ هو: تشغيل `/mcp` واختيار **مصادقة** (أو **إعادة الاتصال**) للموصل ذي الصلة.
+
+لا تقم مطلقًا بإعادة تثبيت المهارة من البداية فقط لإصلاح الخطأ 401 — `reconnect` هي الأداة الصحيحة.
+
+### ربط الصفحة الاحتياطية {#connect-page-fallback}
+
+بالنسبة لعملاء MCP الذين لا يمكنهم إضافة OAuth URL عن بعد مباشرةً، افتح التطبيق في متصفحك واستخدم تكلفة **الاتصال** (المقدمة في `https://&lt;app&gt;/_agent-native/mcp/connect`). أثناء تسجيل الدخول، انقر فوق **الاتصال / التفويض**. تمنحك الصفحة إما رابطًا عميقًا بنقرة واحدة يقوم بتكوين الوكيل المكتشف، أو كتلة `.mcp.json` جاهزة للصقه:
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "mail": {
+      "type": "http",
+      "url": "https://mail.agent-native.com/_agent-native/mcp",
+      "headers": { "Authorization": "Bearer <minted-token>" },
+    },
+  },
+}
+```
+
+أعد تشغيل العميل الوكيل بعد الاتصال حتى يلتقط خادم MCP الجديد.
+
+استخدم كتلة الحامل اليدوية هذه لعملاء MCP الذين لا يمكنهم إكمال تدفق MCP OAuth القياسي عن بعد، أو لتصحيح الأخطاء لمرة واحدة عندما تريد لصق رمز مميز بشكل صريح.
+
+### جهاز التحكم عن بعد القياسي MCP OAuth {#standard-oauth}
+
+تدعم التطبيقات المحلية للوكيل المستضاف أيضًا تدفق MCP OAuth القياسي عن بعد. بالنسبة للعملاء الذين يقومون بتطبيق MCP OAuth، أضف خادم HTTP البعيد URL بدون رؤوس ثابتة:
+
+```bash
+claude mcp add --transport http agent-native \
+  https://dispatch.agent-native.com/_agent-native/mcp
+```
+
+هذا هو نفس الإدخال URL فقط الذي يكتبه لك `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code`. ثم قم بتشغيل `/mcp` في رمز Claude واختر **Authenticate**. يكتشف العميل المصادقة من تحدي `401 WWW-Authenticate` الخاص بخادم MCP، ويجلب `/.well-known/oauth-protected-resource` و`/.well-known/oauth-authorization-server`، ويسجل عميل OAuth العام ديناميكيًا، ويفتح صفحة ترخيص التطبيق، ويخزن الرمز المميز الناتج بشكل آمن. تستخدم موصلات وضع المطور ChatGPT نفس الخادم URL:
+
+```text
+https://dispatch.agent-native.com/_agent-native/mcp
+```
+
+تدفق OAuth هو رمز التفويض + PKCE مع تدوير رمز التحديث. رموز الوصول مرتبطة بالجمهور بمورد MCP الدقيق URL وتحمل هوية المستخدم/المؤسسة الموقعة، لذا فإن استدعاءات الأدوات، `resources/read`، وMCP App iframe `tools/call` كلها تعمل من خلال نفس نطاق المستأجر `runWithRequestContext` مثل مسار JWT الحالي المتصل. لا يتلقى إطار iframe رموز OAuth الأولية أبدًا؛ يتوسط المضيف المكالمات من خلال اتصال MCP المصادق عليه.
+
+النطاقات الحالية هي:
+
+| النطاق      | يسمح                                                               |
+| ----------- | ------------------------------------------------------------------ |
+| `mcp:read`  | MCP actions للقراءة فقط واكتشاف الأدوات/الموارد العادية            |
+| `mcp:write` | تعديل actions والأداة الوصفية `ask-agent`                          |
+| `mcp:apps`  | قائمة/قراءة موارد تطبيقات MCP وعرض UI المضمن حيثما يكون ذلك متاحًا |
+
+عندما لا يطلب العميل نطاقًا صريحًا، يمنح التطبيق الثلاثة جميعًا بحيث يتصرف الموصل مثل تدفق الاتصال المعتمد من المتصفح. احتفظ بصفحة Connect-token Connect و`npx @agent-native/core@latest connect --token <token>` الاحتياطية للمطورين المحليين والمضيفين الاحتياطيين والعملاء حيث تحتاج إلى كتلة تكوين جاهزة لللصق.
+
+## طبقات الكتالوج {#catalog-tiers}
+
+هذا هو الشرح الأساسي لطبقات كتالوج MCP — رابط الصفحات الأخرى هنا.
+
+يقدم خادم MCP **كتالوجًا مضغوطًا بشكل افتراضي لكل متصل** - الموصلات المستضافة (ChatGPT، Claude)، وعملاء التعليمات البرمجية (Claude Code، Cursor، Codex)، والوكيل CLI/stdio المحلي على حد سواء. يتم عرض سطح الإجراء الكامل فقط عند الاشتراك الصريح. لا يتم استنتاج الكتالوج أبدًا من اسم العميل أو وكيل المستخدم.
+
+<Diagram id="doc-block-1ras8t9" title={"مستويين من الكتالوج"} summary={"يحصل كل متصل على المستوى المدمج بشكل افتراضي؛ سطح الأداة الكامل ~ 105 قابل للاشتراك فقط. يعمل البحث عن الأدوات على سد الفجوة بحيث لا يتم إخفاء أي شيء على الإطلاق."}>
+
+```html
+<div class="xa-tiers">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill ok"
+      >Compact / connector tier &middot; default</span
+    ><strong>~20&ndash;30 tools</strong
+    ><small class="diagram-muted"
+      >Template-declared app actions + cross-app builtins
+      (<code>list_apps</code>, <code>open_app</code>, <code>ask_app</code>,
+      <code>create_embed_session</code>) + always-present
+      <code>tool-search</code>.</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill accent">Full tier &middot; opt-in</span
+    ><strong>~105 أداة</strong
+    ><small class="diagram-muted"
+      >Explicit opt-in only: <code>--full-catalog</code> token or
+      <code>AGENT_NATIVE_MCP_FULL_CATALOG=1</code>.</small
+    >
+  </div>
+</div>
+<p class="diagram-muted note">
+  <code>tool-search</code> reaches any full-tier tool on demand &mdash; so the
+  compact default keeps context small without hiding capability.
+</p>
+```
+
+```css
+.xa-tiers {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.xa-tiers .diagram-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  flex: 1;
+  min-width: 240px;
+}
+.xa-tiers .diagram-arrow {
+  align-self: center;
+  font-size: 24px;
+  line-height: 1;
+}
+.xa-tiers .note {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 0.85em;
+}
+.xa-tiers code {
+  font-size: 0.85em;
+}
+```
+
+</Diagram>
+
+### الطبقة المدمجة / الموصل (افتراضي) {#connector-tier}
+
+افتراضيًا، يرى كل وكيل متصل كتالوجًا صغيرًا ومنظمًا (~20–30 أداة مقابل ~105 أدوات في السطح الكامل):
+
+- **التطبيق المُعلن عن القالب actions** — القائمة المسموح بها الآمنة على مستوى التطبيق. بالنسبة للخطة `create-visual-plan`، و`get-visual-plan`، و`share-resource`، و`navigate`، و`tool-search`، وما شابه ذلك.
+- **إنشاء أدوات مشتركة بين التطبيقات** — `list_apps`، `open_app`، `ask_app`، `create_embed_session`.
+- **`tool-search`** موجود دائمًا، لذلك يظل أي شيء خارج القائمة قابلاً للوصول عند الطلب (انظر أدناه).
+
+لا يتم الإعلان عن الأدوات الموجودة خارج القائمة — على سبيل المثال `db-exec`، و`seed-*`، ومجموعة الامتدادات، وأدوات جلسة المتصفح، وأدوات سياق الأشعة السينية —، ويتم رفض الاستدعاءات إليها باستخدام "أداة غير معروفة" ما لم يشترك المتصل في الكتالوج الكامل. يؤدي هذا إلى إبقاء نافذة سياق كل وكيل متصل صغيرة وإزالة الأدوات الآمنة فقط للتطوير المحلي للمستأجر الواحد. تكون طبقة الموصل نشطة **عندما يعلن القالب عن `connectorCatalog`** — فهو ليس محاطًا بمتغير بيئة.
+
+يعمل `tool-search` بطريقتين: يمكنك استدعاؤه باستخدام **بدون استعلام** للقائمة الكاملة لأسماء الأدوات بالإضافة إلى أوصاف من سطر واحد (رخيص، بدون مخططات)، أو باستخدام استعلام للمطابقات المرتبة مع ملخصات المعلمات. هذه هي الطريقة التي يكتشف بها العميل المضغوط أي أداة ذات سطح كامل ويحملها عندما يحتاج إليها.
+
+### الطبقة الكاملة (الاشتراك الصريح فقط) {#full-tier}
+
+يتم عرض سطح الإجراء الكامل المكون من 105 أداة فقط عند الاشتراك الصريح، بطريقتين:
+
+- **لكل رمز** — تم إصداره باستخدام `--full-catalog`، والذي يتضمن مطالبة `catalog_scope: "full"` في JWT. تتجاوز الطلبات اللاحقة عامل التصفية المضغوط لهذا الرمز المميز:
+
+  ```باش
+  npx @agent-native/core@latest Connect https://plan.agent-native.com --مخطوطة العميل --الكتالوج الكامل
+  ```
+
+- **لكل عملية نشر** — قم بتعيين `AGENT_NATIVE_MCP_FULL_CATALOG=1` (بيئة عملية الخادم) لخدمة السطح بالكامل لجميع المتصلين. استخدمه للمثيلات المستضافة لمستأجر واحد والتي تريد السطح الكامل بدون الاشتراك لكل رمز مميز.
+
+### نموذج الإعلان {#catalog-declaration}
+
+تعلن القوالب عن كتالوج الموصلات الخاصة بها في خيارات `createAgentChatPlugin`:
+
+```ts
+export default createAgentChatPlugin({
+  appId: "plan",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  connectorCatalog: [
+    "create-visual-plan",
+    "get-visual-plan",
+    "list-visual-plans",
+    "update-visual-plan",
+    // … other safe app-level actions
+    "set-resource-visibility",
+    "share-resource",
+    "upload-image",
+    "navigate",
+    "view-screen",
+    "manage-automations",
+    "tool-search",
+  ],
+});
+```
+
+الأدوات المدمجة عبر التطبيقات (`list_apps`، `open_app`، `ask_app`،
+`create_embed_session`، `create_workspace_app`، `list_templates`) دائمًا
+متضمن بغض النظر عن القائمة المعلنة.
+
+## ما يمكنك فعله بمجرد الاتصال {#what-you-can-do}
+
+بمجرد اتصال وكيلك، يحصل كل متصل على الكتالوج المدمج بشكل افتراضي
+(راجع [Catalog tiers](#catalog-tiers)) - عملاء مطوري الكود/stdio، المحليين
+الوكيل CLI ومضيفو الدردشة مثل Claude وChatGPT على حدٍ سواء. هذا السطح هو
+التطبيق المُعلن عنه بواسطة القالب actions بالإضافة إلى الأفعال المضمنة عبر التطبيقات (`list_apps`،
+`open_app` و`ask_app` ومساعد التضمين للتطبيق فقط). استخدم `ask_app` لتوجيه
+مهمة باللغة الطبيعية من خلال وكيل التطبيق (نفس نقطة الدخول عبر التطبيقات
+استخدامات [A2A](/docs/a2a-protocol)). `tool-search` موجود دائمًا، لذا فإن أي أداة
+يظل من الممكن الوصول إلى خارج القائمة المدمجة عند الطلب. للحصول على أداة ~105
+الظهور في المقدمة، الاشتراك بشكل صريح باستخدام `--full-catalog` أو
+`AGENT_NATIVE_MCP_FULL_CATALOG=1`. وفي جميع الأحوال، اطلب من الوكيل القيام بعمل حقيقي
+ويقوم بإرجاع رابط مباشرة إلى التطبيق قيد التشغيل:
+
+```
+> draft an email to John about the Q3 report
+
+Claude Code calls: manage-draft(to: "john@example.com", subject: "Q3 Report", body: "…")
+→ Open draft in Mail → https://mail.agent-native.com/_agent-native/open?app=mail&view=inbox&compose=…
+```
+
+انقر على هذا الرابط وسيتم فتح البريد مع استعادة المسودة - مع التركيز على مكان تواجدك، كمستخدم قام بتسجيل الدخول. لم يكن على الوكيل أن يعرف جلستك أبدًا؛ لقد أنتجت القطعة الأثرية للتو.
+
+### توافق تطبيقات MCP {#mcp-apps-compatibility}
+
+تتحدث التطبيقات الأصلية للوكيل أيضًا بامتداد MCP Apps الرسمي. عند القيام بأي إجراء
+يعلن `mcpApp`، يعلن الخادم
+`extensions["io.modelcontextprotocol/ui"]`، يتضمن `_meta.ui.resourceUri` /
+`_meta["ui/resourceUri"]` في `tools/list`، ويخدم HTML UI حتى
+`resources/list` + `resources/read` كـ `text/html;profile=mcp-app`. الموارد
+البيانات الوصفية للأمان، مثل أذونات CSP ووضع الحماية موجودة على المورد
+الإدخالات ومحتوى `resources/read`، وليس في واصف الأداة.
+
+بالنسبة لمضيفي تطبيقات OAuth بنمط ChatGPT/Claude، يكون سطح الاكتشاف مضغوطًا بشكل افتراضي: يعلن `tools/list` و`resources/list` عن مسار التضمين العام `open_app` بدلاً من كل مورد تطبيق MCP خاص بالإجراء (راجع [Catalog tiers](#catalog-tiers)). قم بوضع علامة على إجراء فردي باستخدام `mcpApp.compactCatalog: true` فقط عندما يحتاج حقًا إلى أن يظل مرئيًا في اكتشاف مضيف الدردشة.
+
+يؤدي ذلك إلى جعل سطح التطبيق نفسه متاحًا لكل مضيف متوافق بدلاً من إنشاء حشوات لكل عميل. المضيفون الذين يعرضون تطبيقات MCP مضمّنة (ومشكلة ذاكرة التخزين المؤقت للموصل بعد تغييرات البيانات التعريفية) يعيشون في [MCP Apps → Client support and caching](/docs/mcp-apps#client-support) - تلك الصفحة هي الصفحة الرئيسية الوحيدة لمصفوفة العميل.
+
+في الممارسة العملية، يجب تأليف كل تطبيق أصلي للوكيل باستخدام كل من: MCP Apps للمراجعة/التحرير المضمن في الأجهزة المضيفة القادرة، و`link` للرجوع الشامل إلى التطبيق الكامل. عملاء CLI/محرر التعليمات البرمجية الذين لا يعرضون إطار iframe يتراجعون إلى الرابط العميق. يمكن لأدوات التحديد البشري إضافة خطوة لصق إلى هذا الإجراء الاحتياطي: على سبيل المثال، يفتح منتقي الأصول من الرابط الاحتياطي، ويتيح للمستخدم اختيار الوسائط في المتصفح، ثم ينسخ ملخص التسليم الذي يلصقه المستخدم مرة أخرى في الدردشة.
+
+### جسر تطبيقات MCP من الدرجة الأولى {#mcp-app-bridge}
+
+يبدأ `embedApp()` من هدف `link` للإجراء، وينشئ جلسة تضمين قصيرة الأجل, ويطلق مسار التطبيق الموقع. تستخدم شبكة Claude مسار زرع أحادي الإطار؛ يحصل ChatGPT على إطار iframe للمسار يتم التحكم فيه باستخدام مضيف `window.openai` APIs. تعرض كافة المسارات مسار React العادي. تستدعي المسارات المائية مباشرة `ui/update-model-context` و`ui/message` و`ui/open-link` و`ui/request-display-mode` عبر الجسر المضيف؛ يقوم مسار ChatGPT بترحيل نفس الطلبات عبر `agentNative.mcpHost.*` postMessage. `embedApp({ height })` الافتراضي هو `560px` ويتم تثبيته على `320-900px`.
+
+راجع [MCP Apps](/docs/mcp-apps) للحصول على تفاصيل الجسر الكاملة - الزرع مقابل الإطار المتحكم فيه، وأوضاع التضمين، وجداول `ui/*` وpostMessage، وقواعد `embedStartUrl`، وقواعد CSP، وتضمين الامتداد `srcDoc`، وتثبيت الارتفاع، وعميل الجسر المضيف الكامل API.
+
+### الأفعال العامة عبر التطبيقات {#cross-app}
+
+علاوة على أدوات تنفيذ الإجراء، يعرض خادم MCP مجموعة أفعال ثابتة، بحيث يتمتع الوكيل الخارجي بسطح يمكن التنبؤ به دون تخمين أسماء الإجراءات لكل تطبيق:
+
+| الأداة                                             | الآثار الجانبية | المرتجعات                                                                                  |
+| -------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------ |
+| `list_apps`                                        | لا شيء          | تطبيقات مساحة العمل + URL/حالة التشغيل                                                     |
+| `open_app({ app, view?, path?, params?, embed? })` | لا شيء          | رابط عميق أو مسار من نفس المصدر؛ يعرض `embed: true` التطبيق الكامل مضمنًا حيث يكون مدعومًا |
+| `ask_app({ app, message })`                        | حلقة الوكيل     | توجيه مهمة باللغة الطبيعية إلى الوكيل داخل التطبيق لذلك التطبيق (المفوض إلى `ask-agent`)   |
+| `create_workspace_app({ name, template })`         | السقالات        | تطبيق جديد تم تشغيله عبر مسار مساحة العمل، بالإضافة إلى URL قيد التشغيل + رابط عميق        |
+| `list_templates`                                   | لا شيء          | النماذج المسموح بها فقط                                                                    |
+
+يرفض `create_workspace_app` أي قالب غير مدرج في القائمة المسموح بها - القائمة المسموح بها للقالب العام في `packages/shared-app-config/templates.ts` موثوقة ومحمية بواسطة CI؛ ولا يمكن لعامل خارجي توسيعه. يتجاوز إجراء القالب الذي يحمل نفس الاسم الإجراء المدمج (أسبقية القالب على المركز الأساسي). قم بتعطيل المجموعة بأكملها باستخدام `MCPConfig.builtinCrossAppTools: false`.
+
+يتم ضغط كتالوجات الأدوات والموارد لمضيفي التطبيقات بشكل افتراضي - راجع [Catalog tiers](#catalog-tiers). يظل `publicAgent.expose` خيار الاشتراك في أدوات القراءة/التناول الآمن خارج هذا الكتالوج المدمج؛ قم بتعيين `mcpApp.compactCatalog: true` فقط كاستثناء نادر لـ actions والذي يجب أن يظهر في اكتشاف مضيف الدردشة.
+
+بالنسبة لعمليات التسليم السريعة لـ ChatGPT/Claude، يكون المسار المثالي مباشرًا: اتصل بالإجراء الذي ينشئ القطعة الأثرية أو يفتحها، ثم اسمح لتطبيق MCP بتشغيل المسار. يجب أن يستدعي طلب البريد `manage_draft` ويقدم مسار الإنشاء الحقيقي. يجب أن يستدعي طلب لوحة المعلومات `open_app({ path, embed: true })` أو إجراء لوحة المعلومات باستخدام `mcpApp` ويقدم مسار Analytics الكامل. يجب أن يتبع التقويم والنماذج والمحتوى والشرائح والتصميم والمقاطع نفس النمط مع المسودة/الإنشاء/البحث في actions. يكون `list_apps` مفيدًا عندما يتعين على النموذج الاختيار من بين التطبيقات الممنوحة؛ لا ينبغي أن يكون `resources/list` واسع النطاق، أو اكتشاف الكتالوج الكامل، أو تفويض `ask_app` هو المسار الطبيعي لعملية تسليم UI الواضحة.
+
+### جولة لكل تطبيق {#tour}
+
+يقوم كل قالب مدرج في القائمة المسموح بها ينتج موردًا قابلاً للملاحة أو يسرده بشحن أداة إنشاء `link`، وتقوم القوالب ذات الاستيعاب الثقيل بشحن إجراء GET + `publicAgent` حتى يتمكن الوكيل المتصل من سحب الحالة المباشرة:
+
+- **البريد** — تقوم `manage-draft` بإرجاع رابط عميق مشفر بـ `compose`؛ يؤدي النقر فوقه إلى فتح البريد الوارد مع استعادة المسودة إلى `compose-<id>`. يشير `list-emails` / `search-emails` إلى طريقة عرض البريد الوارد التي تمت تصفيتها.
+- **التقويم** — تقوم `manage-event-draft` بإرجاع رابط عميق `calendarDraft` + `eventDraftId`؛ يؤدي النقر عليه إلى فتح مسودة عنصر نائب مرئي في التقويم باستخدام محرر الأحداث الأصلي للمراجعة/الإرسال. لا يزال `create-event` يُرجع `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })`؛ تصل النقرة إلى التقويم مع تركيز هذا الحدث على تاريخه.
+- **التحليلات** — `update-dashboard` / `save-analysis` تُرجع `buildDeepLink({ app: "analytics", view: "adhoc", params: { dashboardId } })`؛ ينشئ الوكيل لوحة معلومات على MCP ويعيد "فتح لوحة المعلومات في Analytics".
+- **التصميم** — `get-design-snapshot` هو إجراء استيعاب GET + `publicAgent`: فهو يُرجع محتويات ملف **live** Yjs بالإضافة إلى قيم التعديل التي تم حلها بحيث يستمر الوكيل من التصميم المضبوط، وليس الرموز المميزة الأصلية. `apply-tweaks` ذهابًا وإيابًا باستخدام رابط محرر "التصميم المفتوح".
+- **المحتوى** — `pull-document` هو إجراء استيعاب GET + `publicAgent`: فهو ينقل أي جلسة تعاونية مباشرة مفتوحة إلى SQL أولاً حتى يستوعب الوكيل الخارجي ما يراه المستخدم بالضبط، ثم يعرض رابطًا عميقًا للمستند.
+- **Brain** — يعرض `ask-brain` / `search-everything` إجابة مستشهد بها بالإضافة إلى رابط عميق للمعرفة/الالتقاط الأساسي، بحيث يرتبط بحث وكيل المحطة مباشرة بالمصدر في التطبيق قيد التشغيل.
+
+## التأليف (لمؤلفي النماذج) {#authoring}
+
+كل ما ورد أعلاه مخصص **للمستخدمين** الذين يتصلون بالتطبيق ويستخدمونه. بقية هذه الصفحة مخصصة لـ **مؤلفي النماذج** الذين يقومون بتوصيل التطبيق ليكون مواطنًا وكيلًا خارجيًا صالحًا: منشئ `link`، وتطبيقات MCP الاختيارية UI، ومسار `/_agent-native/open` الداخلي، واستيعاب actions.
+
+### منشئ `link` {#link-builder}
+
+يقبل `defineAction` أداة إنشاء `link` الاختيارية. عند التعيين، تُلحق كل نتيجة MCP/A2A لتلك الأداة تلقائيًا كتلة `[label →](absoluteUrl)` وكتلة `_meta["agent-native/openLink"] = { label, view, webUrl, desktopUrl, vscodeUrl }` المنظمة. يضيف `tools/list` `annotations["agent-native/producesOpenLink"]` ولاحقة وصف حتى يعرف الوكيل الخارجي أن الأداة تنتج رابطًا قابلاً للفتح ويجب أن يعرضه.
+
+قم ببناء URL باستخدام `buildDeepLink(...)` - فهو المصدر الوحيد للحقيقة لتنسيق المسار المفتوح. لا تقم مطلقًا بتنسيق `/_agent-native/open` URL يدويًا.
+
+مثال حقيقي — `manage-draft` للبريد (`templates/mail/actions/manage-draft.ts`):
+
+```ts
+import { buildDeepLink } from "@agent-native/core/server";
+
+function composeDeepLink(draft: Record<string, string>): string {
+  return buildDeepLink({
+    app: "mail",
+    view: "inbox",
+    compose: encodeComposerDraft(draft), // base64url JSON → compose-<id> draft
+  });
+}
+
+export default defineAction({
+  // ...schema, run...
+  link: ({ result }) => {
+    if (!result || typeof result !== "object") return null;
+    const draft = (result as { draft?: Record<string, string> }).draft;
+    const id = (result as { id?: string }).id;
+    if (!draft || !id) return null;
+    return {
+      url: composeDeepLink(draft),
+      label: "Open draft in Mail",
+      view: "inbox",
+    };
+  },
+});
+```
+
+تشير قائمة/بحث actions إلى عرض يركز على السجل بنفس الطريقة - على سبيل المثال. يُرجع `create-event` الخاص بالتقويم `buildDeepLink({ app: "calendar", view: "calendar", params: { eventId, date } })` بالتسمية `"Open event in Calendar"`. تستخدم مسودة التقويم actions نفس النمط: تقوم `manage-event-draft` بإرجاع `buildDeepLink({ app: "calendar", view: "calendar", to: "/", params: { eventDraftId, calendarDraft, date } })` مع التصنيف `"Review invite in Calendar"`، بحيث يمكن للوكلاء الخارجيين إعادة رابط مسودة المراجعة المباشر دون إنشاء الحدث أولاً.
+
+### تطبيقات MCP الاختيارية UI {#mcp-apps}
+
+يمكن لـ Actions الإعلان عن مورد UI المضمّن باستخدام `mcpApp` للمضيفين الذين يدعمون ملحق MCP Apps. استخدم `embedRoute({ title, openLabel, path })` كغلاف ملائم, أو قم بتعيين `embedApp(...)` إلى `mcpApp.resource` مباشرة. كل تطبيق MCP هو طريق React حقيقي، وليس عنصر واجهة مستخدم عادي منفصل HTML. احتفظ دائمًا بمنشئ `link` - يستخدمه مضيفو CLI فقط، والعملاء الأقدم، والمضيفون من غير MCP-Apps كبديل.
+
+راجع [MCP Apps](/docs/mcp-apps) للحصول على دليل التأليف الكامل - `embedRoute` مقابل `embedApp`، وشكل تكوين `mcpApp`، وCSP، والارتفاع، ومسار التضمين `sendToAgentChat()`، ومساعدي عميل جسر المضيف.
+
+### عقد `link` {#link-contract}
+
+إن منشئ `link` **نقي ومتزامن — لا يوجد إدخال/إخراج، ولا انتظار**. يتم تشغيله بأقصى جهد: يتم ابتلاع رمية أو `null` أو `undefined` و **مطلقًا** يفشل استدعاء الأداة. فهو يقرأ فقط `args` و`result` للمكالمة؛ يجب ألا يستعلم عن قاعدة البيانات، أو يقرأ حالة التطبيق، أو يتصل بـ actions أخرى. قم بإرجاع `null` عندما لا يكون هناك شيء لفتحه.
+
+ترجع `buildDeepLink({ app, view, params?, to?, compose? })` المسار النسبي للتطبيق `/_agent-native/open?app=…&view=…&<recordId>=…`. تحول طبقة MCP ذلك إلى شبكة مطلقة URL (`toAbsoluteOpenUrl`، باستخدام أصل الطلب)، وسطح مكتب `agentnative://open?…` URL (`toDesktopOpenUrl`), وامتداد VS Code URL (`toVsCodeOpenUrl`) لـ `vscode://builder.agent-native/open?url=…`؛ يستخدم رابط Markdown سطح المكتب URL عندما يشير العميل إلى `target: "desktop"`.
+
+### مسار `/_agent-native/open` {#open-route}
+
+عندما ينقر المستخدم على الرابط في أي متصفح أو عرض ويب مضمن، يقوم `GET /_agent-native/open` (`createOpenRouteHandler`، المثبت بواسطة البرنامج الإضافي للمسارات الأساسية) بتنفيذ الخطوات أدناه.
+
+<Endpoint id="doc-block-1bwrrkb" method="GET" path="/_agent-native/open" summary={"المسار المفتوح للارتباط العميق — يركز المتصفح UI على سجل"} auth={"Browser session via `getSession`. The auth guard bypasses this exact path; if unauthenticated it serves login HTML at the same URL, and the form reload re-enters authenticated (no `?next=` plumbing)."} params={[
+  {
+    "name": "app",
+    "in": "query",
+    "type": "string",
+    "description": "Target app id (e.g. `mail`)."
+  },
+  {
+    "name": "view",
+    "in": "query",
+    "type": "string",
+    "description": "View to focus; also folded into the `navigate` payload."
+  },
+  {
+    "name": "to",
+    "in": "query",
+    "type": "string",
+    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+  },
+  {
+    "name": "compose",
+    "in": "query",
+    "type": "string",
+    "description": "base64url-encoded draft, decoded into a `compose-<id>` application-state key."
+  },
+  {
+    "name": "f_*",
+    "in": "query",
+    "type": "string",
+    "description": "Filter params forwarded to the redirect so lists/dashboards open pre-filtered."
+  }
+]} responses={[
+  {
+    "status": "302",
+    "description": "Redirect to a safe same-origin relative path. Cross-origin, scheme-relative `//host`, and control-char redirects are rejected (open-redirect guard)."
+  },
+  {
+    "status": "200",
+    "description": "Login HTML served at the same URL when the browser session is unauthenticated."
+  }
+]}>
+
+Resolves the browser session, writes a one-shot `navigate` application-state command scoped to that session, and 302-redirects to a safe same-origin path. Always build the URL with `buildDeepLink(...)`; never hand-format it. Can be disabled per app with `disableOpenRoute`.
+
+</Endpoint>
+
+1. حل جلسة **المتصفح** عبر `getSession` (يتجاوز حارس المصادقة المسار الدقيق `/_agent-native/open`).
+2. إذا لم تتم مصادقته، فإنه يخدم تسجيل الدخول الذي تم تكوينه HTML **في نفس URL**; يقوم معالج نجاح النموذج بإعادة تحميل `window.location`، وإعادة إدخال المسار المصادق عليه - بدون سباكة `?next=`.
+3. يكتب أمر حالة التطبيق `navigate` الموجود مرة واحدة (الحمولة = كل معلمة استعلام غير محجوزة + `view`) الذي يتم تحديد نطاقه على البريد الإلكتروني لجلسة المتصفح باستخدام `requestSource: "deep-link"`، ويفك تشفير مسودة `compose` base64url إلى مفتاح `compose-<id>`.
+4. 302-يعيد التوجيه إلى مسار نسبي آمن من نفس الأصل (`to=`، أو `/<view>`، أو `resolveOpenPath` لكل قالب)، وإعادة توجيه معلمات مرشح `f_*` بحيث يتم فتح القوائم/لوحات المعلومات بعد تصفيتها مسبقًا قبل استنزاف أمر `navigate`.
+
+يتم رفض عمليات إعادة توجيه `//host` ذات الأصل المشترك والنسبية للمخطط وحرف التحكم (حارس إعادة التوجيه المفتوح). يمكن تعطيل المسار لكل تطبيق عبر `disableOpenRoute`.
+
+#### قاعدة هوية جلسة المتصفح {#identity-rule}
+
+لا يحمل الرابط **أي حالة مميزة** — فهو مجرد `view` + معرفات السجلات + عوامل التصفية. يتم تحديد نطاق الكتابة `navigate` التي تركز على السجل على كل من قام بتسجيل الدخول إلى **المتصفح**، وليس الرمز المميز MCP للوكيل الخارجي أبدًا. لذا، يمكن للوكيل الذي تمت مصادقته كهوية واحدة أن يسلم المستخدم رابطًا، وعندما ينقر عليه هذا المستخدم، يتم فتح السجل حيث تم تسجيل دخول المستخدم. وهذا ما يجعل الرابط العميق آمنًا للظهور في المحطة الطرفية أو نص الدردشة. راجع [Context Awareness](/docs/context-awareness) للاطلاع على عقد `navigate` / `application_state` لهذه الجسور.
+
+### استوعب actions {#ingest}
+
+يجب أن يكون الإجراء الذي يقرأه وكيل خارجي لسحب حالة التطبيق المباشرة إلى سياقه الخاص:
+
+```ts
+export default defineAction({
+  description: "…",
+  schema: z.object({ id: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  run: async ({ id }) => {
+    /* read LIVE state, not the stale DB snapshot column */
+  },
+});
+```
+
+يبقي `GET` + `readOnly` الإجراء خاليًا من التأثيرات الجانبية وبعيدًا عن حدث تغيير تحديث الشاشة. `publicAgent` هو **الاشتراك الصريح** — مسار الويب العام لا يعني أبدًا التعرض العام لـ MCP/A2A؛ انظر [Actions](/docs/actions). استيعاب التصميم/المحتوى actions MUST قراءة حالة **مباشرة** (مستند Yjs التعاوني، وليس عمود لقطة قاعدة بيانات قديمة) بحيث يرى الوكيل الخارجي ما يمتلكه المستخدم بالفعل على الشاشة. يقوم `pull-document` الخاص بالمحتوى بنقل أي جلسة تعاون مباشرة مفتوحة إلى SQL أولاً؛ يقوم `get-design-snapshot` الخاص بالتصميم بإرجاع محتويات ملف Yjs المباشر بالإضافة إلى قيم التعديل التي تم حلها بواسطة المستخدم.
+
+## متقدم: التطوير المحلي والإعداد اليدوي {#advanced}
+
+يعد تدفق `connect` المستضاف أعلاه هو المسار الموصى به. الخيارات أدناه مخصصة للتطوير المحلي والإعدادات اليدوية.
+
+### التنمية المحلية {#local-dev}
+
+قم بتشغيل تطبيقك محليًا (`pnpm dev` / `npx @agent-native/core@latest dev`)، ثم قم بتوجيه وكيل محلي إليه باستخدام أمر واحد:
+
+```bash
+npx @agent-native/core@latest mcp install --client claude-code|claude-code-cli|codex|cowork \
+  [--app <id>] [--scope user|project]
+```
+
+يقوم بتوفير رمز مميز (`ACCESS_TOKEN` عشوائي في مساحة العمل `.env` للتطوير المحلي، أو JWT موقع إذا اكتشف أصلًا مستضافًا) ويكتب إدخال خادم stdio غير فعال:
+
+- **claude-code / claude-code-cli** — إدخال `mcpServers` في `.mcp.json` (نطاق المشروع، الافتراضي) أو `~/.claude.json` (`--scope user`).
+- **العمل المشترك** — نفس شكل الرمز Claude JSON في `~/.cowork/mcp.json`.
+- **codex** — كتلة `[mcp_servers.<name>]` في `~/.codex/config.toml`.
+
+يعمل الإدخال على تشغيل `npx @agent-native/core@latest mcp serve --app <id>`، وهو افتراضيًا ** وكيل stdio رفيع ** إلى `/_agent-native/mcp` للتطبيق المحلي قيد التشغيل - لذا يظل سجل الإجراء المباشر، HMR، والروابط العميقة الصحيحة المصدر الوحيد للحقيقة. قم بتمرير `--standalone` لإنشاء التسجيل قيد التشغيل بدلاً من ذلك. عندما يكتشف `npx @agent-native/core@latest mcp install` أصلًا مستضافًا (مضيف غير محلي `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL` في مساحة العمل `.env`)، فإنه يكتب إدخال عميل `http` يشير إلى `<origin>/_agent-native/mcp` باستخدام `Bearer` JWT بدلاً من إدخال stdio.
+
+الأوامر الفرعية المصاحبة:
+
+| الأمر                                                      | ماذا يفعل                                                                  |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `npx @agent-native/core@latest mcp serve [--app <id>]`     | قم بتشغيل نقل MCP stdio (ما هي تكوينات العميل التي يتم نشرها).             |
+| `npx @agent-native/core@latest mcp install --client <c>`   | توفير رمز مميز + كتابة تهيئة MCP للعميل (الفعال).                          |
+| `npx @agent-native/core@latest mcp uninstall --client <c>` | قم بإزالة إدخال MCP المسمى من تكوين العميل (Idempotent).                   |
+| `npx @agent-native/core@latest mcp status`                 | إظهار MCP URL/المنفذ الذي تم حله، وحالة الرمز المميز، والإدخالات لكل عميل. |
+| `npx @agent-native/core@latest mcp token [--rotate]`       | اطبع (أو قم بتدوير) `ACCESS_TOKEN` المحلي في مساحة العمل `.env`.           |
+
+أعد تشغيل العميل بعد `install` حتى يلتقط خادم MCP الجديد.
+
+### إدخال `.mcp.json` HTTP يدويًا {#manual-entry}
+
+يمكنك أيضًا كتابة تكوين عميل MCP يدويًا على أي نقطة نهاية منشورة باستخدام رمز مميز توفره بنفسك (`ACCESS_TOKEN`، أو `A2A_SECRET` JWT يحمل توقيع المتصل `sub` + `org_domain` بحيث يظل تشغيل الأداة ضمن نطاق المستأجر):
+
+```jsonc
+// .mcp.json
+{
+  "mcpServers": {
+    "analytics": {
+      "type": "http",
+      "url": "https://analytics.agent-native.com/_agent-native/mcp",
+      "headers": { "Authorization": "Bearer <ACCESS_TOKEN-or-JWT>" },
+    },
+  },
+}
+```
+
+هذا هو المعادل غير المُدار لما يكتبه لك `connect`. راجع [MCP Protocol](/docs/mcp-protocol) للاطلاع على مصفوفة المصادقة الكاملة env-var.
+
+### سطح أداة التطوير مقابل أداة الإنتاج {#dev-vs-prod}
+
+في التطوير المحلي البسيط (`NODE_ENV=development` و`AGENT_MODE !== "production"`)، يكشف MCP `tools/list` عمدا فقط عن الإضافات العامة بالإضافة إلى actions مع `publicAgent.requiresAuth === false` - استيعاب كل تطبيق actions (`requiresAuth: true`) وتحور actions (لا `publicAgent`) يتم تصفيتها (`filterPublicAgentActions`). الكتالوج المدمج هو الإعداد الافتراضي لكل متصل بعد المصادقة - عملاء stdio/code الذين يستخدمون وكيل `agent-native`، وCLI المحلي، والمتصلين عن بعد بنمط الدردشة HTTP على حد سواء - لذلك لا يمكن لـ ChatGPT/Claude (أو أي عميل) تفريغ كتالوج إجراءات كامل ضخم في المحادثة. يتم تقديم كتالوج المطورين الكامل فقط عند الاشتراك الصريح (رمز `--full-catalog` أو `AGENT_NATIVE_MCP_FULL_CATALOG=1`)؛ `tool-search` يبقي كل أداة في متناول اليد في هذه الأثناء.
+
+### تبديل تطبيقات الطرف الأول بين المنتج والمطور {#dev-switch}
+
+عندما تكون لديك بالفعل تطبيقات مستضافة للطرف الأول متصلة وتريد اختبار تغييرات إطار العمل المحلي من خلال `pnpm dev:lazy`، استخدم مبدل المطورين:
+
+```bash
+pnpm dev:lazy -- --apps mail,calendar,analytics
+
+npx @agent-native/core@latest connect dev --apps mail,calendar,analytics --client codex
+```
+
+يعيد `connect dev` كتابة نفس أسماء خوادم MCP المستقرة (`agent-native-mail`، `agent-native-calendar`، وما إلى ذلك) إلى بوابة التطوير المحلية البطيئة، لذلك لا تتغير أسماء الأدوات. يقوم بعمل نسخة احتياطية لإدخالات الإنتاج الحالية في `~/.agent-native/connect-profiles.json` قبل كتابة إدخالات التطوير. البوابة الافتراضية هي `http://127.0.0.1:8080`؛ استخدم `--gateway <url>` أو `--port <n>` إذا تم نقل بوابتك.
+
+التبديل مرة أخرى باستخدام:
+
+```bash
+npx @agent-native/core@latest connect prod --apps mail,calendar,analytics --client codex
+```
+
+إذا لم يتمكن `connect dev` من استنتاج هوية المالك المحلي الخاصة بك من JWT المتصل الحالي، فقم بتمرير `--owner-email you@example.com`؛ يؤدي هذا إلى إبقاء أدوات التطوير المحلية على سطح MCP المصادق بالكامل بدلاً من سطح التطوير المتناثر غير المصادق.
+
+## كيفية العمل والأمان {#how-it-works}
+
+لا يكشف مسار OAuth القياسي أبدًا الرموز المميزة لتطبيقات MCP: يقوم المضيف بتخزين الرموز المميزة للوصول/التحديث إلى OAuth ويتوسط استدعاءات الأدوات و`resources/read` عبر اتصال MCP المصادق عليه. تتلقى إطارات iframe المضمنة بيانات التطبيق ونتائج الأدوات، وليس أسرار حاملها.
+
+تتجنب عمليات تضمين التطبيق الكامل أيضًا تسليم الرمز المميز لحامل MCP إلى المتصفح. يقوم المتصل MCP بإصدار تذكرة مضمنة لمرة واحدة في SQL؛ يستهلكه مسار تشغيل iframe ويقوم بتعيين ملف تعريف ارتباط قصير العمر وآمن لجلسة iframe. يحمل URL الهبوطي معلمة استعلام `__an_embed_token` مؤقتة لفترة كافية فقط ليتمكن العميل من التقاطها وإزالتها من شريط العناوين وإرفاقها باستدعاءات `fetch` من نفس المصدر عند حظر ملفات تعريف الارتباط التابعة لجهات خارجية. يتم تحديد نطاق جلسات التضمين؛ تتضمن عمليات جلب التطبيق الهدف المضمن الحالي، ويرفض الخادم إعادة استخدام الرمز المميز خارج المسار المسكوك. لا تقوم صفحات التطبيق عمدًا بإصدار `X-Frame-Options` أو CSP `frame-ancestors`، لذا يمكن لمضيفي تطبيقات Builder وDesign وMCP وضع إطار iframe لها. يتم أيضًا تمكين التنقل عبر iframe في المتصفح COEP/CORP عند الحاجة للمضيفين المعزولين من مصادر مشتركة.
+
+لا يقوم تدفق `connect` المستضاف الاحتياطي بنسخ السر المشترك للنشر مطلقًا. بدلاً من ذلك:
+
+- تقوم جلسة المتصفح التي تم تسجيل الدخول بإصدار رمز مميز **لكل مستخدم، محدد النطاق، قابل للإلغاء** — `A2A_SECRET` موقع JWT يحمل `sub` + `org_domain` للمتصل و`jti` فريد من نوعه، بحيث تظل كل أداة يتم تشغيلها ضمن نطاق المستأجر عبر `runWithRequestContext`.
+- تقبل نقطة النهاية `/_agent-native/mcp` الحالية هذا الرمز المميز مثل أي حامل آخر (راجع [MCP Protocol](/docs/mcp-protocol)) - لا توجد نقطة نهاية جديدة ولا نقل جديد.
+- تدرج نفس صفحة الاتصال كل الرموز المميزة التي قمت بسكها وتتيح لك **إلغاء** أيًا منها بواسطة `jti`. تعامل معها مثل رموز الوصول الشخصية: واحدة لكل عميل وكيل، ويتم إبطالها عند إيقاف تشغيل الجهاز.
+- لا يحمل الرابط العميق الذي يعيده الوكيل أي حالة مميزة. يتم دائمًا تحديد نطاق كتابة `navigate` التي تركز على السجل على جلسة **المتصفح**، وليس الرمز المميز للوكيل أبدًا — لذلك يكون الرابط آمنًا للصقه في محطة طرفية أو نص دردشة.
+
+## افعل / لا تفعل {#do-dont}
+
+**افعل**
+
+- قم بتوصيل وكيلك الخاص بـ Dispatch باستخدام `npx @agent-native/core@latest connect https://dispatch.agent-native.com`؛ استخدم التطبيق المباشر URL فقط عندما تريد تطبيقًا واحدًا معزولًا.
+- أضف منشئ `link` إلى أي إجراء ينتج عنه أو يدرج موردًا قابلاً للتنقل (مسودة، حدث، لوحة معلومات، مستند).
+- قم ببناء URL باستخدام `buildDeepLink(...)` — المصدر الوحيد للحقيقة لتنسيق المسار المفتوح.
+- حافظ على `link` نقيًا ومتزامنًا؛ قم بإرجاع `null` عندما لا يكون هناك شيء لفتحه.
+- اجعل الوكيل الخارجي يستوعب actions GET + `readOnly` + `publicAgent`، واقرأ الحالة المباشرة (Yjs)، وليس عمود قاعدة البيانات التي لا معنى لها.
+- السماح للمسار المفتوح بحل جلسة المتصفح؛ قم بتمرير معرفات السجل كمعلمات الارتباط العميق واترك UI يركز عليها عبر أمر `navigate` الذي تم استطلاعه.
+- قم بإلغاء رمز الاتصال المميز بواسطة `jti` عندما يتم إيقاف تشغيل عميل الوكيل.
+- اختبر تطبيقات MCP باستخدام التركيبات خفيفة الوزن حول `embedApp()` و
+  `McpAppRenderer`; they cover CSP, host context, app launch, and bridge
+  سلوك الرسالة دون الحاجة إلى مضيف خارجي حقيقي.
+- عند التحقق من صحة الويب ChatGPT أو Claude، قم بتشغيل استدعاء أداة جديد بعد الصدفة
+  يقوم بتغيير وقياس إطار iframe المرئي. الإطارات المعروضة مسبقًا في
+  قد تستمر نفس المحادثة في إظهار الارتفاع المخبأ أو سلوك التشغيل.
+- احتفظ بكتالوجات مضيف التطبيق ChatGPT/Claude مضغوطة. استخدم ديسباتش و
+  `open_app({ embed: true })` لمعاينات التطبيق الكامل؛ ضع علامة على
+  الإجراء `mcpApp.compactCatalog: true` عندما يجب أن يظهر مباشرةً في
+  سطح اكتشاف المضيف المضغوط.
+
+**لا تفعل ذلك**
+
+- انسخ `ACCESS_TOKEN` / `A2A_SECRET` المشترك لعملية النشر إلى تكوين العميل عندما يتمكن `connect` من سك رمز مميز قابل للإلغاء لكل مستخدم بدلاً من ذلك.
+- قم بتنسيق `/_agent-native/open` URL يدويًا — انتقل دائمًا عبر `buildDeepLink`.
+- إجراء الإدخال/الإخراج، أو الانتظار، أو قراءة قاعدة البيانات، أو قراءة حالة التطبيق داخل منشئ `link`.
+- حدد نطاق الكتابة `navigate` إلى الرمز المميز للوكيل، أو قم بتمرير الحالة المميزة من خلال الرابط العميق - إنه مؤشر خالص.
+- اخترع آلية تنقل جديدة؛ جسر إلى عقد `navigate` / `application_state` الحالي.
+- قم بتوسيع القائمة المسموح بها للنموذج العام عند دعم تطبيق من وكيل خارجي - تكون القائمة المسموح بها موثوقة ومحمية.
+
+## ذات صلة {#related}
+
+- [MCP Apps](/docs/mcp-apps) — تأليف تطبيق MCP UI، والجسر المضمن، والجسر المضيف API.
+- [MCP Protocol](/docs/mcp-protocol) — خادم MCP المثبت تلقائيًا والأداة التعريفية `ask-agent`.
+- [MCP Clients](/docs/mcp-clients) — الاتجاه المتماثل: يستهلك تطبيقك خوادم MCP المحلية/البعيدة.
+- [A2A Protocol](/docs/a2a-protocol) — الأداة التعريفية `ask-agent` واستدعاءات الأقران JSON-RPC.
+- [Actions](/docs/actions) — تعريف actions، `publicAgent`، GET / `readOnly`.
+- [Context Awareness](/docs/context-awareness) — يتعاقد `navigate` / `application_state` على جسور المسار المفتوح.

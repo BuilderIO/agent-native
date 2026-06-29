@@ -78,6 +78,15 @@ export interface ShareableResourceRegistration {
     userEmail?: string;
     orgId?: string;
   };
+  /**
+   * When true, direct ownership is recognized by owner_email regardless of the
+   * caller's active org. Use this only for resource types where the template's
+   * own actions already treat owner_email as the cross-org authority and list
+   * views add their own org filters.
+   *
+   * Default: `false`.
+   */
+  ownerAccessIgnoresOrg?: boolean;
 }
 
 // Stash the registry on globalThis so it survives SSR bundle duplication.

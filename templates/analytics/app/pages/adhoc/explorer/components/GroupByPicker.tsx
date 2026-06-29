@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client";
 import { IconPlus, IconX } from "@tabler/icons-react";
 import { useState } from "react";
 
@@ -11,12 +12,15 @@ interface GroupByPickerProps {
 }
 
 export function GroupByPicker({ groupBy, onChange }: GroupByPickerProps) {
+  const t = useT();
   const [adding, setAdding] = useState(false);
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap pl-4">
       {groupBy.length > 0 && (
-        <span className="text-xs text-muted-foreground">grouped by</span>
+        <span className="text-xs text-muted-foreground">
+          {t("explorer.groupedBy")}
+        </span>
       )}
       {groupBy.map((g, i) => (
         <span
@@ -43,7 +47,7 @@ export function GroupByPicker({ groupBy, onChange }: GroupByPickerProps) {
             }
             setAdding(false);
           }}
-          triggerLabel="Pick a property"
+          triggerLabel={t("explorer.pickProperty")}
         />
       ) : (
         <Button
@@ -53,7 +57,7 @@ export function GroupByPicker({ groupBy, onChange }: GroupByPickerProps) {
           onClick={() => setAdding(true)}
         >
           <IconPlus className="h-3 w-3 mr-1" />
-          Group-by
+          {t("explorer.groupBy")}
         </Button>
       )}
     </div>

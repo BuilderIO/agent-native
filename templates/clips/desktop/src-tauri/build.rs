@@ -2,8 +2,37 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
+    emit_sentry_env_reruns();
     add_swift_runtime_rpaths();
     tauri_build::build()
+}
+
+fn emit_sentry_env_reruns() {
+    for name in [
+        "CLIPS_DESKTOP_SENTRY_DSN",
+        "TAURI_SENTRY_DSN",
+        "SENTRY_DESKTOP_DSN",
+        "SENTRY_CLIENT_DSN",
+        "VITE_SENTRY_CLIENT_DSN",
+        "VITE_SENTRY_DSN",
+        "SENTRY_DSN",
+        "CLIPS_DESKTOP_SENTRY_CLIENT_KEY",
+        "SENTRY_CLIENT_KEY",
+        "VITE_SENTRY_CLIENT_KEY",
+        "CLIPS_DESKTOP_SENTRY_PROJECT_ID",
+        "SENTRY_PROJECT_ID",
+        "VITE_SENTRY_PROJECT_ID",
+        "CLIPS_DESKTOP_SENTRY_INGEST_HOST",
+        "SENTRY_INGEST_HOST",
+        "VITE_SENTRY_INGEST_HOST",
+        "CLIPS_DESKTOP_SENTRY_ENVIRONMENT",
+        "SENTRY_ENVIRONMENT",
+        "NETLIFY_CONTEXT",
+        "VERCEL_ENV",
+        "NODE_ENV",
+    ] {
+        println!("cargo:rerun-if-env-changed={name}");
+    }
 }
 
 fn add_swift_runtime_rpaths() {

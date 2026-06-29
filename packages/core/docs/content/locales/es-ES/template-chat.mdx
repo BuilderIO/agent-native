@@ -1,0 +1,203 @@
+---
+title: "Plantilla de chat"
+description: "Una aplicación nativa de agente mínima que prioriza el chat: hilos de chat duraderos, actions, estado de la aplicación, sincronización en vivo, autenticación y espacio para agregar su propio UI."
+---
+
+# Plantilla de chat
+
+El chat es el punto de partida básico de la aplicación nativa del agente. Le brinda un shell limpio estilo ChatGPT con chat en el centro, una lista de hilos a la izquierda, navegación de aplicaciones estándar, autenticación, sincronización en vivo, actions y una acción de ejemplo. Comience aquí cuando desee una aplicación de navegador real que pueda desarrollar sin comprometerse con una plantilla de dominio.
+
+Si desea el tiempo de ejecución más pequeño de solo acciones sin navegador UI, comience con [Pure-Agent Apps](/docs/pure-agent-apps). Si desea una forma de producto de dominio terminada, comience con [Calendar](/docs/template-calendar), [Mail](/docs/template-mail), [Content](/docs/template-content), [Forms](/docs/template-forms), [Analytics](/docs/template-analytics) u otra plantilla de dominio.
+
+<WireframeBlock id="doc-block-1yw4lnu">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>¿Cómo puedo ayudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Habla de cualquier cosa. Añade acciones, componentes, páginas, jobs o tu propio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Escribe al agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 4.6 · Auto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## ¿Qué contiene? {#whats-in-it}
+
+- **Chat de página completa** en `/` usando la superficie de chat del marco e hilos de chat duraderos.
+- **Lista de conversaciones en la barra lateral de la aplicación** para que los usuarios puedan crear, volver a abrir, cambiar el nombre, fijar y archivar chats.
+- **Complemento de chat de agente** preconfigurado para que el chat se comunique con el bucle integrado de aplicación-agente una vez que se configuran las credenciales de su agente.
+- **Auth** a través de Better Auth: inicio de sesión, registro, sesiones, organizaciones. El mismo flujo circula localmente y en producción; en desarrollo se omite la verificación por correo electrónico.
+- **Directorio Actions** con un ejemplo (`actions/hello.ts`) más el estándar `view-screen` y `navigate` actions.
+- **Las tablas principales del marco** para el estado de la aplicación, la configuración, las sesiones, los recursos, los hilos de chat, el historial de ejecución y otros estados de tiempo de ejecución.
+- **Sincronización en vivo** (`useDbSync`) ya conectada para que UI se actualice automáticamente cuando el agente escribe en SQL.
+- **AGENTS.md** con guía de chat primero para agregar actions, rutas, skills y estado de la aplicación.
+
+## ¿Qué _no_ contiene? {#not-in-it}
+
+- Sin tablas de dominio ni datos iniciales.
+- Sin paneles, listas, gráficos, formularios ni integraciones de proveedores.
+- No hay ningún actions específico del dominio más allá del código auxiliar del ejemplo.
+
+Ese es el punto. Chat es un shell predeterminado ligero y útil para su propio agente, no un producto de dominio que pretende ser genérico.
+
+<Diagram id="doc-block-17p7woh" title={"Qué se incluye en el shell de Chat"} summary={"Una superficie de chat delgada sobre el tiempo de ejecución estándar del marco (acciones, subprocesos duraderos, sincronización en vivo y autenticación) con espacio para agregar su propia interfaz de usuario."}>
+
+```html
+<div class="diagram-chat">
+  <div class="diagram-col left">
+    <div class="diagram-node">
+      Lista de hilos<br /><small class="diagram-muted"
+        >crear · reabrir · fijar · archivar</small
+      >
+    </div>
+    <div class="diagram-node">
+      Chat de página completa<br /><small class="diagram-muted"
+        >superficie de chat del framework en /</small
+      >
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Actions</span
+    ><small class="diagram-muted">hello.ts · view-screen · navigate</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col right">
+    <div class="diagram-box">
+      Tablas SQL centrales<br /><small class="diagram-muted"
+        >threads · application_state · settings · sessions · runs</small
+      >
+    </div>
+    <div class="diagram-pill ok">Sincronización en vivo &#8635;</div>
+    <div class="diagram-box">
+      Better Auth<br /><small class="diagram-muted"
+        >login · organizaciones · sesiones</small
+      >
+    </div>
+  </div>
+</div>
+```
+
+```css
+.diagram-chat {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-chat .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-chat .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+.diagram-chat .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+```
+
+</Diagram>
+
+## Cuándo elegirlo {#when-to-pick}
+
+- **Quieres una aplicación básica con la que los usuarios puedan hablar inmediatamente** y luego ampliarla con actions y UI.
+- **Tienes una aplicación sin interfaz gráfica que necesita chat** como primera superficie del navegador.
+- **Desea conectar el backend de su propio agente a un chat familiar UI** y al mismo tiempo mantener el formato actions, el estado, la autenticación y la implementación de Agent-Native.
+- **Estás creando un prototipo de una herramienta interna personalizada** que no coincide con una plantilla de dominio.
+
+## Andamios {#scaffolding}
+
+```bash
+npx @agent-native/core@latest create my-chat-app --template chat
+cd my-chat-app
+pnpm install
+pnpm dev
+```
+
+O comience sin UI y agregue una superficie de chat más tarde:
+
+```bash
+npx @agent-native/core@latest create my-agent --headless
+```
+
+Desde allí, copie la ruta `/` de la plantilla de Chat y la lista de subprocesos de la barra lateral en su aplicación, o cree una aplicación de Chat y mueva el actions de su agente sin cabeza a su directorio `actions/`. La invariante clave sigue siendo la misma: actions es la superficie compartida para el chat, UI, HTTP, MCP, A2A y CLI.
+
+## Primer código a inspeccionar {#first-code}
+
+- `actions/hello.ts` es el comportamiento inicial que el agente puede llamar. Reemplácelo o
+  Agregue actions al lado.
+- `app/routes/_index.tsx` representa la superficie de chat de página completa. Ajustar el
+  sugerencias, estado vacío, compositor o diseño circundante aquí.
+- `AGENTS.md` le dice al agente integrado cómo trabajar dentro de esta aplicación.
+
+<FileTree
+  id="doc-block-14ngzcm"
+  title="Estructura de la plantilla Chat"
+  entries={[
+    {
+      path: "actions/hello.ts",
+      note: "La action de ejemplo; reemplázala o agrega actions junto a ella",
+    },
+    {
+      path: "actions/view-screen.ts",
+      note: "Action de contexto estándar que el agente lee",
+    },
+    {
+      path: "actions/navigate.ts",
+      note: "Action de navegación estándar",
+    },
+    {
+      path: "app/routes/_index.tsx",
+      note: "Renderiza la superficie de chat de página completa; edita sugerencias, estado vacío y composer",
+    },
+    {
+      path: "AGENTS.md",
+      note: "Guía centrada en chat que lee el agente integrado",
+    },
+  ]}
+/>
+
+La página de chat es intencionalmente delgada:
+
+```tsx
+// app/routes/_index.tsx
+import { AgentChatSurface } from "@agent-native/core/client";
+
+export default function ChatRoute() {
+  return (
+    <AgentChatSurface
+      mode="page"
+      suggestions={[
+        "What can you do?",
+        "Help me customize this chat app",
+        "Show me the actions and pages I can add",
+      ]}
+    />
+  );
+}
+```
+
+## Utilice su propio agente backend {#own-agent-backend}
+
+La plantilla utiliza el bucle app-agent integrado de forma predeterminada. Para conectar un backend personalizado, intercambie el tiempo de ejecución del chat detrás del complemento de chat del agente en lugar de reescribir el UI. La ruta del chat debe permanecer como un renderizador delgado alrededor de la superficie del chat compartido; la elección del backend pertenece al complemento del servidor/adaptador de tiempo de ejecución.
+
+Utilice esto cuando la orquestación de su modelo ya se encuentre en otro lugar, pero aún desee una aplicación con autenticación, subprocesos, estado actions, UI y páginas desplegables.
+
+## Primeras ediciones {#first-edits}
+
+Después del andamiaje, pregúntele al agente:
+
+> Agregue un modelo de datos para `notes`. Una nota tiene una identificación, título, cuerpo y propietario. Represente una página de notas en `/notes`, agregue crear/listar actions y mantenga el chat capaz de crear notas.
+
+El agente debe agregar un esquema Drizzle, actions, ruta, navegación e instrucciones. Luego podrás usar la función de notas desde UI o desde el chat.
+
+## ¿Qué sigue?
+
+- [**Getting Started**](/docs): elige entre plantillas headless, de chat y de dominio
+- [**Agent Surfaces**](/docs/agent-surfaces): patrones headless, chat, integrados y de aplicación completa
+- [**Actions**](/docs/actions): el chat del sistema de acción y UI llaman
+- [**Native Interfaz de chat**](/docs/native-chat-ui): primitivas de la superficie de chat y opciones de tiempo de ejecución
+- [**Pure-Agent Apps**](/docs/pure-agent-apps): aplicaciones de solo acción que pueden convertirse en Chat más adelante
