@@ -77,6 +77,22 @@ describe("image fill serialization", () => {
     expect(parsed?.fit).toBe("tile");
   });
 
+  it("round-trips crop separately from fill", () => {
+    const crop = imageFillToCss({
+      url: "https://x.test/a.png",
+      fit: "crop",
+    });
+    const fill = imageFillToCss({
+      url: "https://x.test/a.png",
+      fit: "fill",
+    });
+
+    expect(crop).toContain("cover");
+    expect(fill).toContain("cover");
+    expect(parseImageFillCss(crop)?.fit).toBe("crop");
+    expect(parseImageFillCss(fill)?.fit).toBe("fill");
+  });
+
   it("returns transparent for empty url", () => {
     expect(imageFillToCss({ url: "", fit: "fill" })).toBe("transparent");
   });

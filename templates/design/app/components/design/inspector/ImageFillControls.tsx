@@ -36,6 +36,12 @@ const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
 
 const CHECKER_A = "#d4d4d4";
 const CHECKERBOARD_IMAGE = `linear-gradient(45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(-45deg, ${CHECKER_A} 25%, transparent 25%), linear-gradient(45deg, transparent 75%, ${CHECKER_A} 75%), linear-gradient(-45deg, transparent 75%, ${CHECKER_A} 75%)`;
+const FIT_MARKER_RE =
+  /\/\*\s*agent-native-image-fit:(fill|fit|crop|tile)\s*\*\//i;
+
+function imageFitMarker(fit: ImageFitMode): string {
+  return `/* agent-native-image-fit:${fit} */`;
+}
 
 /**
  * Build the CSS `background` shorthand for an image fill.
@@ -53,13 +59,14 @@ export function imageFillToCss(value: ImageFillValue): string {
   const image = `url("${safeUrl}")`;
   switch (value.fit) {
     case "fit":
-      return `${image} center / contain no-repeat`;
+      return `${image} center / contain no-repeat ${imageFitMarker("fit")}`;
     case "tile":
-      return `${image} top left / auto repeat`;
+      return `${image} top left / auto repeat ${imageFitMarker("tile")}`;
     case "crop":
+      return `${image} center / cover no-repeat ${imageFitMarker("crop")}`;
     case "fill":
     default:
-      return `${image} center / cover no-repeat`;
+      return `${image} center / cover no-repeat ${imageFitMarker("fill")}`;
   }
 }
 
@@ -70,6 +77,8 @@ export function parseImageFillCss(value: string): ImageFillValue | null {
   const match = value.match(URL_RE);
   if (!match) return null;
   const url = match[2];
+  const marker = value.match(FIT_MARKER_RE)?.[1] as ImageFitMode | undefined;
+  if (marker) return { url, fit: marker };
   let fit: ImageFitMode = "fill";
   if (/contain/i.test(value)) fit = "fit";
   else if (/repeat(?!\s+no)/i.test(value) && !/no-repeat/i.test(value))

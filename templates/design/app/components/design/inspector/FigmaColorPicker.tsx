@@ -129,6 +129,7 @@ export interface FigmaColorPickerLabels {
 export interface FigmaColorPickerProps {
   value: string;
   onChange: (value: string) => void;
+  onPaintValueChange?: (value: string) => void;
   label?: string;
   opacity?: number;
   onOpacityChange?: (opacity: number) => void;
@@ -566,6 +567,7 @@ const PATTERN_FALLBACK_CSS =
 export function FigmaColorPicker({
   value,
   onChange,
+  onPaintValueChange,
   label: _label,
   opacity,
   onOpacityChange,
@@ -662,7 +664,12 @@ export function FigmaColorPicker({
   useEffect(() => {
     if (effectivePaintType !== "image") return;
     const parsed = parseImageFillCss(value);
-    if (parsed && parsed.url !== imageFill.url) setImageFill(parsed);
+    if (
+      parsed &&
+      (parsed.url !== imageFill.url || parsed.fit !== imageFill.fit)
+    ) {
+      setImageFill(parsed);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, effectivePaintType]);
 
@@ -680,6 +687,11 @@ export function FigmaColorPicker({
 
   const emitColor = (nextColor: RgbaColor, nextOpacity = effectiveOpacity) => {
     onChange(rgbaToCss(withColorOpacity(nextColor, nextOpacity)));
+  };
+
+  const emitPaintValue = (nextValue: string) => {
+    if (onPaintValueChange) onPaintValueChange(nextValue);
+    else onChange(nextValue);
   };
 
   const emitColorFromHsv = (nextHsv: HsvaColor) => {
@@ -721,7 +733,7 @@ export function FigmaColorPicker({
     if (onGradientTypeChange && next.kind !== gradientType) {
       onGradientTypeChange(next.kind as FigmaGradientType);
     }
-    onChange(gradientToCss(next));
+    emitPaintValue(gradientToCss(next));
   };
 
   const selectedStop =
@@ -775,7 +787,7 @@ export function FigmaColorPicker({
 
   const emitImageFill = (next: ImageFillValue) => {
     setImageFill(next);
-    onChange(imageFillToCss(next));
+    emitPaintValue(imageFillToCss(next));
   };
 
   // ── Shader editing ──────────────────────────────────────────────────────────────
@@ -783,7 +795,7 @@ export function FigmaColorPicker({
   const emitShader = (descriptor: ShaderDescriptor, css: string) => {
     setShaderDescriptor(descriptor);
     onShaderChange?.(descriptor, css);
-    onChange(css);
+    emitPaintValue(css);
   };
 
   // ── Paint-type switching (does real work for every type) ──────────────────────
@@ -828,21 +840,21 @@ export function FigmaColorPicker({
       return;
     }
     if (nextType === "image") {
-      onChange(imageFill.url ? imageFillToCss(imageFill) : "transparent");
+      emitPaintValue(imageFill.url ? imageFillToCss(imageFill) : "transparent");
       return;
     }
     if (nextType === "video") {
       // No standalone CSS for video; mark the fill type and keep a checker fill
       // until a source is wired. The agent can replace it with a <video> layer.
-      onChange("transparent");
+      emitPaintValue("transparent");
       return;
     }
     if (nextType === "noise") {
-      onChange(NOISE_FALLBACK_CSS);
+      emitPaintValue(NOISE_FALLBACK_CSS);
       return;
     }
     if (nextType === "pattern") {
-      onChange(PATTERN_FALLBACK_CSS);
+      emitPaintValue(PATTERN_FALLBACK_CSS);
       return;
     }
   };
@@ -1145,14 +1157,18 @@ export function FigmaColorPicker({
                           e.preventDefault();
                           const url = e.currentTarget.value.trim();
                           if (url)
-                            onChange(`url("${url}") center / cover no-repeat`);
+                            emitPaintValue(
+                              `url("${url}") center / cover no-repeat`,
+                            );
                           e.currentTarget.blur();
                         }
                       }}
                       onBlur={(e) => {
                         const url = e.currentTarget.value.trim();
                         if (url)
-                          onChange(`url("${url}") center / cover no-repeat`);
+                          emitPaintValue(
+                            `url("${url}") center / cover no-repeat`,
+                          );
                       }}
                     />
                   </div>
