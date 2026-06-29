@@ -217,6 +217,22 @@ export default function RecordingPage() {
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
   const isCompactLayout = useIsCompactRecordingLayout();
+  // Resolve the playback position for reactions/comments. Native <video> exposes
+  // a live `currentTime`; Loom embeds render in a cross-origin iframe with no
+  // live time bridge, so we fall back to the last position the player reported
+  // via onTimeUpdate (seek/initial start).
+  const resolvePlaybackMs = useCallback(() => {
+    const liveCt = playerRef.current?.video?.currentTime;
+    if (
+      typeof liveCt === "number" &&
+      Number.isFinite(liveCt) &&
+      liveCt >= 0 &&
+      liveCt < 1e7
+    ) {
+      return Math.floor(liveCt * 1000);
+    }
+    return currentMs;
+  }, [currentMs]);
   const transcriptKickedRef = useRef<string | null>(null);
   // When the recording lands in the processing state but never flips to
   // 'ready', stop spinning forever and surface an error banner so the user
@@ -1150,15 +1166,7 @@ export default function RecordingPage() {
                   <TimestampedCommentButton
                     enableComments={recording.enableComments}
                     onOpen={() => {
-                      const liveCt = playerRef.current?.video?.currentTime;
-                      const liveMs =
-                        typeof liveCt === "number" &&
-                        Number.isFinite(liveCt) &&
-                        liveCt >= 0 &&
-                        liveCt < 1e7
-                          ? Math.floor(liveCt * 1000)
-                          : currentMs;
-                      setCommentAtMs(liveMs);
+                      setCommentAtMs(resolvePlaybackMs());
                       setCommentOpen(true);
                     }}
                   />
@@ -1173,14 +1181,7 @@ export default function RecordingPage() {
                     disabled={!recording.enableReactions}
                     onReact={(emoji) => {
                       tracking.reportReaction(emoji);
-                      const liveCt = playerRef.current?.video?.currentTime;
-                      const liveMs =
-                        typeof liveCt === "number" &&
-                        Number.isFinite(liveCt) &&
-                        liveCt >= 0 &&
-                        liveCt < 1e7
-                          ? Math.floor(liveCt * 1000)
-                          : currentMs;
+                      const liveMs = resolvePlaybackMs();
                       fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",
